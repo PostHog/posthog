@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.models.repartition_history import ExternalDataSchemaRepartition
 from products.warehouse_sources.backend.temporal.data_imports import schema_flags, workload_report
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -414,6 +415,7 @@ class TestPartitionMeasurementRecord:
             "budget": budget,
             "split_budget": budget,
             "coarsen_budget": budget,
+            "policy": "auto",
             "healthy": healthy,
         }
 
@@ -706,6 +708,175 @@ class TestRepartitionOOMHistoryTrigger:
         assert schema.repartition_pending is None
         assert schema.max_partition_bytes is not None  # observability measurement still recorded
         assert capture.call_args_list == []
+
+
+_POLICY_SCENARIOS: dict[str, tuple[dict[str, Any], dict[str | None, int], int]] = {
+    # (schema config, measured bytes per partition, target_partition_bytes)
+    "over_budget": ({"partition_count": 2}, {"0": 1000, "1": 1000}, 600),
+    "over_half_budget": ({"partition_count": 2}, {"0": 400, "1": 400}, 600),
+    "fragmented": ({"partition_count": 16}, {str(bucket): 10 for bucket in range(16)}, 10**6),
+    # Too big for auto to coarsen (8 x 200 > 1000), small enough for prefer_query_speed (2 x 200 <= 1000).
+    "moderately_fragmented": ({"partition_count": 16}, {str(bucket): 200 for bucket in range(16)}, 1000),
+}
+
+
+class TestPartitionPolicy:
+    def _schema(self, team, scenario: str, policy: str) -> ExternalDataSchema:
+        config, _, _ = _POLICY_SCENARIOS[scenario]
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partitioning_keys": ["id"],
+                "last_repartition_at": _days_ago_iso(30),
+                **config,
+            },
+        )
+        schema.partition_policy = policy
+        schema.save(update_fields=["partition_policy"])
+        return schema
+
+    def _detect(
+        self,
+        team,
+        schema: ExternalDataSchema,
+        partition_bytes: dict[str | None, int],
+        budget: int,
+        *,
+        flag_enabled: bool = True,
+    ) -> MagicMock:
+        with (
+            patch.object(ctrl, "measure_partition_bytes", return_value=partition_bytes),
+            patch.object(ctrl, "target_partition_bytes", return_value=budget),
+            patch.object(ctrl, "partitioning_controls_enabled", return_value=flag_enabled),
+            patch.object(ctrl, "posthoganalytics") as analytics,
+        ):
+            async_to_sync(ctrl.maybe_flag_for_repartition)(
+                schema, schema.source, _make_job(team, schema), MagicMock(), logger
+            )
+        schema.refresh_from_db()
+        return analytics
+
+    @staticmethod
+    def _decision(schema: ExternalDataSchema) -> str | None:
+        pending = schema.repartition_pending
+        if pending is None:
+            return None
+        return {"proactive_threshold": "split", "coarsening": "coarsen"}[pending["trigger_reason"]]
+
+    @pytest.mark.parametrize(
+        "policy,scenario,expected",
+        [
+            ("auto", "over_budget", "split"),
+            ("prefer_query_speed", "over_budget", "split"),
+            ("prefer_sync_speed", "over_budget", "split"),
+            ("manual", "over_budget", None),
+            ("auto", "over_half_budget", None),
+            ("prefer_query_speed", "over_half_budget", None),
+            ("prefer_sync_speed", "over_half_budget", "split"),
+            ("manual", "over_half_budget", None),
+            ("auto", "fragmented", "coarsen"),
+            ("prefer_query_speed", "fragmented", "coarsen"),
+            ("prefer_sync_speed", "fragmented", None),
+            ("manual", "fragmented", None),
+            ("auto", "moderately_fragmented", None),
+            ("prefer_query_speed", "moderately_fragmented", "coarsen"),
+            ("prefer_sync_speed", "moderately_fragmented", None),
+            ("manual", "moderately_fragmented", None),
+        ],
+    )
+    def test_each_policy_decides_split_coarsen_or_nothing(self, team, policy, scenario, expected):
+        schema = self._schema(team, scenario, policy)
+        _, partition_bytes, budget = _POLICY_SCENARIOS[scenario]
+
+        self._detect(team, schema, partition_bytes, budget)
+
+        assert self._decision(schema) == expected
+        assert schema.max_partition_bytes == max(partition_bytes.values())
+        assert schema.partition_measurement["policy"] == policy
+
+    @pytest.mark.parametrize(
+        "policy,scenario,auto_decision",
+        [
+            ("prefer_sync_speed", "over_half_budget", None),
+            ("prefer_sync_speed", "fragmented", "coarsen"),
+            ("manual", "over_budget", "split"),
+            ("prefer_query_speed", "moderately_fragmented", None),
+        ],
+    )
+    def test_flag_off_runs_the_auto_tuning_whatever_the_stored_policy(self, team, policy, scenario, auto_decision):
+        schema = self._schema(team, scenario, policy)
+        _, partition_bytes, budget = _POLICY_SCENARIOS[scenario]
+
+        self._detect(team, schema, partition_bytes, budget, flag_enabled=False)
+
+        assert self._decision(schema) == auto_decision
+        assert schema.partition_measurement["policy"] == "auto"
+
+    @pytest.mark.parametrize("policy", ["auto", "prefer_query_speed", "prefer_sync_speed", "manual", "unknown"])
+    @pytest.mark.parametrize("flag_enabled", [True, False])
+    def test_tuning_for_resolves_the_policy_only_with_the_flag_on(self, policy, flag_enabled):
+        schema = ExternalDataSchema(name="t", partition_policy=policy)
+        with patch.object(ctrl, "partitioning_controls_enabled", return_value=flag_enabled) as flag:
+            tuning = ctrl.tuning_for(schema)
+
+        expected = policy if flag_enabled and policy not in ("auto", "unknown") else "auto"
+        assert tuning.policy == expected
+        # An auto table never pays for a flag evaluation on its sync.
+        assert flag.called is (policy not in ("auto", "unknown"))
+
+    def test_manual_never_stages_and_notes_an_over_budget_table_once(self, team):
+        schema = self._schema(team, "over_budget", "manual")
+        _, partition_bytes, budget = _POLICY_SCENARIOS["over_budget"]
+
+        self._detect(team, schema, partition_bytes, budget)
+        self._detect(team, schema, partition_bytes, budget)
+
+        assert schema.repartition_pending is None
+        rows = list(ExternalDataSchemaRepartition.objects.for_team(team.id).filter(schema=schema))
+        assert [(row.status, row.error_type) for row in rows] == [("skipped", ctrl.MANUAL_POLICY_OVER_BUDGET)]
+        assert rows[0].max_partition_bytes_before == 1000
+        assert schema.partition_measurement["healthy"] is False
+
+    @pytest.mark.parametrize(
+        "policy,oom_triggered,expected_format",
+        [
+            ("auto", False, "hour"),
+            ("prefer_query_speed", False, None),
+            ("prefer_query_speed", True, "hour"),
+        ],
+    )
+    def test_prefer_query_speed_reaches_the_hour_tier_only_on_ooms(self, team, policy, oom_triggered, expected_format):
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "datetime",
+                "partition_format": "day",
+                "partitioning_keys": ["created_at"],
+                "primary_key_columns": ["id"],
+            },
+        )
+        schema.partition_policy = policy
+        schema.save(update_fields=["partition_policy"])
+        if oom_triggered:
+            for _ in range(3):
+                ExternalDataSchemaOOMEvent.objects.for_team(team.id).create(team_id=team.id, schema=schema)
+        partition_bytes: dict[str | None, int] = {"2026-01-01": 500 if oom_triggered else 1000}
+
+        with (
+            patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+            patch.object(ctrl, "min_splittable_partition_bytes", return_value=1),
+        ):
+            analytics = self._detect(team, schema, partition_bytes, 600)
+
+        pending = schema.repartition_pending
+        assert (pending or {}).get("partition_format") == expected_format
+        if expected_format is None:
+            skipped = analytics.capture.call_args.kwargs
+            assert skipped["event"] == "warehouse_repartition_skipped"
+            assert skipped["properties"]["reason"] == "hour_tier_needs_oom"
 
 
 class TestCoarsenTrigger:
@@ -1273,6 +1444,90 @@ class TestRepartitionActivity:
         emitted = [c.args[0] for c in capture.call_args_list]
         assert "warehouse_repartition_started" in emitted
         assert "warehouse_repartition_completed" in emitted
+
+    def _run_recording_history(self, inputs: RepartitionActivityInputs, repartition_mock: AsyncMock) -> MagicMock:
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=repartition_mock),
+            patch.object(ctrl, "posthoganalytics") as analytics,
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, inputs)
+        return analytics
+
+    @pytest.mark.parametrize(
+        "outcome,rewrite,expected_error_type",
+        [
+            (
+                "completed",
+                AsyncMock(
+                    return_value={
+                        "outcome": "completed",
+                        "row_count": 6,
+                        "max_partition_bytes_before": 900,
+                        "partition_mode_before": "md5",
+                        "partition_count_before": 2,
+                        "partition_mode_after": "md5",
+                        "partition_count_after": 4,
+                    }
+                ),
+                None,
+            ),
+            ("failed", AsyncMock(side_effect=ValueError("boom")), "ValueError"),
+            ("skipped", AsyncMock(side_effect=RepartitionUnpartitionableError("no usable keys")), "no usable keys"),
+        ],
+    )
+    def test_history_follows_one_repartition_from_flagged_to_its_outcome(
+        self, team, outcome, rewrite, expected_error_type
+    ):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]})
+        flagging_job = _make_job(team, schema)
+        target = {"partition_mode": "md5", "partition_count": 4, "partition_keys": ["id"], "attempts": 0}
+        schema.set_repartition_pending({**target, "trigger_reason": "proactive_threshold"})
+        props = ctrl.base_event_props(schema, schema.source, str(flagging_job.id))
+        props.update(
+            {"trigger_reason": "proactive_threshold", "partition_mode_after": "md5", "partition_count_after": 4}
+        )
+        ctrl.record_repartition_history(ctrl.RepartitionStatus.FLAGGED, props)
+        inputs = self._inputs(team, schema)
+
+        self._run_recording_history(inputs, rewrite)
+
+        rows = list(ExternalDataSchemaRepartition.objects.for_team(team.id).filter(schema=schema))
+        assert len(rows) == 1
+        row = rows[0]
+        assert (row.status, row.job_id, row.trigger_reason, row.error_type) == (
+            outcome,
+            inputs.job_id,
+            "proactive_threshold",
+            expected_error_type,
+        )
+        assert row.finished_at is not None
+        assert row.scheme_before is not None and row.scheme_before["keys"] == ["id"]
+        if outcome == "completed":
+            assert row.rows_rewritten == 6
+            assert row.max_partition_bytes_before == 900
+            assert row.scheme_after is not None and row.scheme_after["count"] == 4
+
+    def test_a_history_write_failure_does_not_fail_the_sync(self, team):
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_count": 4, "partition_keys": ["id"], "trigger_reason": "test"}
+        )
+        rewrite = AsyncMock(return_value={"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"})
+
+        with (
+            patch.object(ExternalDataSchemaRepartition, "record_transition", side_effect=OperationalError("down")),
+            patch.object(ctrl, "capture_exception") as capture_exception,
+        ):
+            analytics = self._run_recording_history(self._inputs(team, schema), rewrite)
+
+        rewrite.assert_awaited_once()
+        assert [c.kwargs["event"] for c in analytics.capture.call_args_list] == [
+            "warehouse_repartition_started",
+            "warehouse_repartition_completed",
+        ]
+        assert all(isinstance(c.args[0], OperationalError) for c in capture_exception.call_args_list)
+        assert capture_exception.call_count == 2
 
     def test_rewrite_reports_workload_under_its_own_run_key(self, team):
         # The import activity reports under the bare job id on this same pod; sharing that key would

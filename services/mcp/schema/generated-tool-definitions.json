@@ -7027,7 +7027,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), column masking (masked_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively, except a masked_columns change, which starts a full resync of the table. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands. sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set should_sync to false. On a synced source with live queries on (direct_query_enabled), set live_query_enabled=true to make a table queryable live without syncing it; synced tables are always queryable live. The schema's live_query_unavailable_reason says why a table can't be made live, and the update is refused for the same reason. Query live tables with 'execute-sql' and the source id as connectionId.",
+        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), column masking (masked_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively, except a masked_columns change, which starts a full resync of the table. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands. sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set should_sync to false. On a synced source with live queries on (direct_query_enabled), set live_query_enabled=true to make a table queryable live without syncing it; synced tables are always queryable live. The schema's live_query_unavailable_reason says why a table can't be made live, and the update is refused for the same reason. Query live tables with 'execute-sql' and the source id as connectionId. partition_policy (beta, behind a feature flag, refused while that flag is off) sets how PostHog partitions the synced table: auto is the default and balances the two; prefer_query_speed keeps fewer, larger partitions, so queries on the table read fewer files but syncs merge more data; prefer_sync_speed keeps smaller partitions and never merges them, so syncs are lighter but queries read more files; manual keeps the current layout until 'external-data-schemas-repartition-create' changes it. Choose prefer_query_speed when the user says queries on this table are slow, and prefer_sync_speed when syncs of this table are slow. Check the effect with 'external-data-schemas-partitioning-retrieve'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
@@ -7040,6 +7040,22 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "external-data-schemas-partitioning-retrieve": {
+        "description": "Beta. Read how one synced table is partitioned, its repartitions newest first, and sync stats for each layout it had (job count, median and 90th percentile duration, median rows per second). Use it when the user says queries on this table are slow, or syncs of this table are slow: compare the sync stats before and after each repartition, and check the partition scheme and the size of the largest partition. To change the trade-off, set partition_policy with 'external-data-schemas-partial-update', or rewrite the layout now with 'external-data-schemas-repartition-create'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a table's partitioning and repartition history",
+        "title": "Get a table's partitioning and repartition history",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/external_data_schemas/{id}/partitioning/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-partitioning-controls"
     },
     "external-data-schemas-reload": {
         "description": "Trigger a sync for a single table schema using its configured sync method (incremental, full refresh, append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.",
@@ -7055,6 +7071,22 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "external-data-schemas-repartition-create": {
+        "description": "Beta. Rewrite one synced table into a chosen partition scheme now, in place, without re-importing from the source. Use it when the user says queries on this table are slow (choose a coarser scheme: a coarser datetime tier, fewer md5 buckets or wider numerical buckets) or syncs are slow (choose a finer one). Read the current scheme with 'external-data-schemas-partitioning-retrieve' first. The run starts now and blocks the table's sync until the rewrite ends, which can take hours for a large table, so ask the user before calling it. The table's partition_policy becomes manual. Refused when the largest partition would be over the size limit, when a repartition is already queued or running, or within 24 hours of the last one.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Repartition a table now",
+        "title": "Repartition a table now",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_schemas/{id}/repartition/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-partitioning-controls"
     },
     "external-data-schemas-resync": {
         "description": "Trigger a full resync for a table schema, discarding all previously synced data and re-importing from the source. This cancels any running sync first, then resets the pipeline state. Use this when data is corrupt or out of sync. To re-import on a recurring schedule, for example to remove rows deleted at the source from an incremental table, set full_refresh_interval_days with 'external-data-schemas-partial-update' instead of calling this repeatedly.",

@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
+    OPERATOR_TRIGGERS,
     base_event_props,
     capture_repartition_event,
     is_automatic_split_of_append_table,
@@ -194,7 +195,7 @@ def _rewrite_slice_seconds(
     No slice for an operator target, because the operator wants that rewrite done first. No slice
     when the schema holds its imports for the rewrite, because the import would not run anyway.
     """
-    if trigger_reason == "admin" or (pending or {}).get("slice_disabled"):
+    if trigger_reason in OPERATOR_TRIGGERS or (pending or {}).get("slice_disabled"):
         return None
     interval = schema.sync_frequency_interval
     if interval is None:
@@ -727,7 +728,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # shouldn't trip an issue there; the log line, the transient metric, and the skipped
             # event's reason="transient_infra_error" already carry the visibility.
             DELTA_REPARTITION_TOTAL.labels(outcome="transient").inc()
-            if trigger_reason == "admin":
+            if trigger_reason in OPERATOR_TRIGGERS:
                 # An operator staged this rewrite precisely because syncing on the old layout is
                 # pathological (e.g. a badly over-partitioned table merging one commit per partition
                 # for hours). Deferring to the next sync would run that crawl first, so re-raise

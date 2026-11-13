@@ -128,6 +128,11 @@
             ],
             "description": "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again."
         },
+        "partition_policy": {
+            "description": "Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out this table's synced data in partitions, which trades query speed against sync speed. `auto` (the default) balances the two. `prefer_query_speed` keeps fewer, larger partitions, so queries read fewer files but merges during a sync are heavier. `prefer_sync_speed` keeps smaller partitions and never merges them back, so syncs are lighter but queries read more files. `manual` keeps the current layout until someone repartitions the table.\n\n* `auto` - Auto\n* `prefer_query_speed` - Prefer query speed\n* `prefer_sync_speed` - Prefer sync speed\n* `manual` - Manual",
+            "enum": ["auto", "prefer_query_speed", "prefer_sync_speed", "manual"],
+            "type": "string"
+        },
         "primary_key_columns": {
             "anyOf": [
                 {

@@ -66,11 +66,14 @@ import type {
     PaginatedWarehouseColumnStatisticsListApi,
     PaginatedWarehouseMigrationItemListApi,
     PaginatedWarehouseMigrationListApi,
+    PartitioningHistoryApi,
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     PatchedExternalDataSourceSerializersApi,
+    RepartitionSchemaRequestApi,
+    RepartitionSchemaResponseApi,
     SchemaDestinationsApi,
     SourceConfigMapResponseApi,
     SourceConnectLinkApi,
@@ -640,6 +643,25 @@ export const externalDataSchemasLogsRetrieve = async (
     })
 }
 
+export const getExternalDataSchemasPartitioningRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/partitioning/`
+}
+
+/**
+ * Beta. Returns the table's current partitioning, its repartitions newest first, and sync stats (job count, median and 90th percentile duration, median rows per second) for each layout the table had. Jobs that ran a rewrite are left out of the stats, because their duration includes the rewrite.
+ * @summary Partitioning history and sync speed for one table
+ */
+export const externalDataSchemasPartitioningRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PartitioningHistoryApi> => {
+    return apiMutator<PartitioningHistoryApi>(getExternalDataSchemasPartitioningRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
 }
@@ -655,6 +677,28 @@ export const externalDataSchemasReloadCreate = async (
     return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExternalDataSchemasRepartitionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/repartition/`
+}
+
+/**
+ * Beta. Rewrites the table's synced data into the chosen partition scheme, in place, without re-importing from the source. Starts a run now. The table's policy becomes `manual`, so PostHog keeps the chosen layout. One repartition at a time per table, at most one a day.
+ * @summary Repartition one table now
+ */
+export const externalDataSchemasRepartitionCreate = async (
+    projectId: string,
+    id: string,
+    repartitionSchemaRequestApi?: RepartitionSchemaRequestApi,
+    options?: RequestInit
+): Promise<RepartitionSchemaResponseApi> => {
+    return apiMutator<RepartitionSchemaResponseApi>(getExternalDataSchemasRepartitionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(repartitionSchemaRequestApi),
     })
 }
 

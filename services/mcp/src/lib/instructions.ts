@@ -237,6 +237,7 @@ export class ToolDomainExtractor {
         'record',
         'refresh',
         'rename',
+        'repartition',
         'reset',
         'restore',
         'resume',

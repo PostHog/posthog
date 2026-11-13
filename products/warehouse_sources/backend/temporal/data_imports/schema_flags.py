@@ -17,6 +17,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 if TYPE_CHECKING:
+    from posthog.models import Team
+
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -78,13 +80,24 @@ def _is_flag_enabled_for_team(
         if raise_on_error:
             raise
         return False
+    return _evaluate_for_team(team, flag, person_properties(), raise_on_error=raise_on_error)
+
+
+def is_loaded_team_flag_enabled(team: Team, flag: str) -> bool:
+    """`is_team_flag_enabled` for a caller that already holds the team, so the check reads no row."""
+    return _evaluate_for_team(team, flag, {"team_id": str(team.id)})
+
+
+def _evaluate_for_team(
+    team: Team, flag: str, person_properties: dict[str, str], *, raise_on_error: bool = False
+) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 flag,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
-                person_properties=person_properties(),
+                person_properties=person_properties,
                 group_properties={
                     "organization": {"id": str(team.organization_id)},
                     "project": {"id": str(team.id)},

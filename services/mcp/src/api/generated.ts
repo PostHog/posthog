@@ -51769,6 +51769,74 @@ export namespace Schemas {
     }
 
     /**
+     * * `auto` - Auto
+     * * `prefer_query_speed` - Prefer query speed
+     * * `prefer_sync_speed` - Prefer sync speed
+     * * `manual` - Manual
+     */
+    export type PartitionPolicyEnum = typeof PartitionPolicyEnum[keyof typeof PartitionPolicyEnum];
+
+
+    export const PartitionPolicyEnum = {
+      Auto: 'auto',
+      PreferQuerySpeed: 'prefer_query_speed',
+      PreferSyncSpeed: 'prefer_sync_speed',
+      Manual: 'manual',
+    } as const;
+
+    export interface PartitioningSummary {
+      /** Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out this table's synced data in partitions, which trades query speed against sync speed. `auto` (the default) balances the two. `prefer_query_speed` keeps fewer, larger partitions, so queries read fewer files but merges during a sync are heavier. `prefer_sync_speed` keeps smaller partitions and never merges them back, so syncs are lighter but queries read more files. `manual` keeps the current layout until someone repartitions the table.
+       *
+       * * `auto` - Auto
+       * * `prefer_query_speed` - Prefer query speed
+       * * `prefer_sync_speed` - Prefer sync speed
+       * * `manual` - Manual */
+      policy: PartitionPolicyEnum;
+      /**
+         * Current partition mode, null before the first sync.
+         * @nullable
+         */
+      partition_mode: string | null;
+      /**
+         * Current datetime tier, for datetime mode.
+         * @nullable
+         */
+      partition_format: string | null;
+      /**
+         * Current md5 bucket count, for md5 mode.
+         * @nullable
+         */
+      partition_count: number | null;
+      /**
+         * Current bucket width, for numerical mode.
+         * @nullable
+         */
+      partition_size: number | null;
+      /**
+         * Columns the partition key is computed from.
+         * @nullable
+         */
+      partitioning_keys: string[] | null;
+      /**
+         * Size in bytes of the largest partition when the table was last measured.
+         * @nullable
+         */
+      max_partition_bytes: number | null;
+      /**
+         * Whether the last measurement found nothing to change. Null before the first measurement.
+         * @nullable
+         */
+      healthy: boolean | null;
+      /**
+         * ISO 8601 time of the last repartition, or of the last one the controller skipped.
+         * @nullable
+         */
+      last_repartition_at: string | null;
+      /** Whether a repartition is queued or running. The next sync runs a queued one. */
+      repartition_pending: boolean;
+    }
+
+    /**
      * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
      */
     export interface ExternalDataSchema {
@@ -51944,6 +52012,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out this table's synced data in partitions, which trades query speed against sync speed. `auto` (the default) balances the two. `prefer_query_speed` keeps fewer, larger partitions, so queries read fewer files but merges during a sync are heavier. `prefer_sync_speed` keeps smaller partitions and never merges them back, so syncs are lighter but queries read more files. `manual` keeps the current layout until someone repartitions the table.
+       *
+       * * `auto` - Auto
+       * * `prefer_query_speed` - Prefer query speed
+       * * `prefer_sync_speed` - Prefer sync speed
+       * * `manual` - Manual */
+      partition_policy?: PartitionPolicyEnum;
+      /** The table's current partitioning: scheme, size of the largest partition, whether the last measurement found nothing to change, and when it was last repartitioned. Left out of the response when the partitioning controls feature is off for the project. */
+      readonly partitioning: PartitioningSummary | null;
     }
 
     /**
@@ -85954,6 +86031,152 @@ export namespace Schemas {
       results: PanelQueryCheckResult[];
     }
 
+    export interface PartitionScheme {
+      /**
+         * Partition mode: `datetime`, `md5` or `numerical`. `auto` or null means detected.
+         * @nullable
+         */
+      mode: string | null;
+      /**
+         * Datetime tier: `month`, `week`, `day` or `hour`.
+         * @nullable
+         */
+      format: string | null;
+      /**
+         * Number of md5 buckets.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * Width of each numerical bucket.
+         * @nullable
+         */
+      size: number | null;
+      /**
+         * Columns the partition key is computed from.
+         * @nullable
+         */
+      keys: string[] | null;
+    }
+
+    /**
+     * * `flagged` - Flagged
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped
+     */
+    export type RepartitionStatusEnum = typeof RepartitionStatusEnum[keyof typeof RepartitionStatusEnum];
+
+
+    export const RepartitionStatusEnum = {
+      Flagged: 'flagged',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface RepartitionHistoryRow {
+      /** ID of the history row. */
+      id: string;
+      /** `flagged`: queued for the next sync. `running`: the rewrite started. `completed`, `failed`, `skipped`: the outcome.
+       *
+       * * `flagged` - Flagged
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      status: RepartitionStatusEnum;
+      /**
+         * Why it happened: `proactive_threshold` (largest partition over budget), `oom_history` (repeated out-of-memory kills), `coarsening` (too many small partitions), `user`, or `admin`.
+         * @nullable
+         */
+      trigger_reason: string | null;
+      /** The user who asked for it, for `user` repartitions. */
+      requested_by: UserBasic | null;
+      /**
+         * ID of the sync job that ran or reported it.
+         * @nullable
+         */
+      job_id: string | null;
+      /** Partition scheme before the rewrite. */
+      scheme_before: PartitionScheme | null;
+      /** Partition scheme the rewrite targets. */
+      scheme_after: PartitionScheme | null;
+      /**
+         * Size in bytes of the largest partition before the rewrite.
+         * @nullable
+         */
+      max_partition_bytes_before: number | null;
+      /**
+         * Rows the completed rewrite wrote.
+         * @nullable
+         */
+      rows_rewritten: number | null;
+      /**
+         * How long the rewrite ran.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /**
+         * For `failed`, the error type. For `skipped`, why nothing was rewritten.
+         * @nullable
+         */
+      error_type: string | null;
+      /** When the row was created. */
+      created_at: string;
+      /**
+         * When it reached an outcome.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    export interface SyncStatsWindow {
+      /**
+         * Start of the window: when a repartition completed. Null before the first one.
+         * @nullable
+         */
+      start: string | null;
+      /**
+         * End of the window. Null for the current layout.
+         * @nullable
+         */
+      end: string | null;
+      /**
+         * History row of the repartition that started the window.
+         * @nullable
+         */
+      repartition_id: string | null;
+      /** Completed sync jobs in the window. Jobs that ran a rewrite are left out. */
+      job_count: number;
+      /**
+         * Median sync job duration.
+         * @nullable
+         */
+      median_duration_seconds: number | null;
+      /**
+         * 90th percentile sync job duration.
+         * @nullable
+         */
+      p90_duration_seconds: number | null;
+      /**
+         * Median rows synced per second.
+         * @nullable
+         */
+      median_rows_per_second: number | null;
+    }
+
+    export interface PartitioningHistory {
+      /** The table's current partitioning. */
+      summary: PartitioningSummary;
+      /** Repartitions of this table, newest first. */
+      repartitions: RepartitionHistoryRow[];
+      /** Sync stats for each layout the table had, oldest first. Compare windows to see how a repartition changed sync speed. */
+      sync_windows: SyncStatsWindow[];
+    }
+
     export interface PassRateBucket {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
@@ -89248,6 +89471,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out this table's synced data in partitions, which trades query speed against sync speed. `auto` (the default) balances the two. `prefer_query_speed` keeps fewer, larger partitions, so queries read fewer files but merges during a sync are heavier. `prefer_sync_speed` keeps smaller partitions and never merges them back, so syncs are lighter but queries read more files. `manual` keeps the current layout until someone repartitions the table.
+       *
+       * * `auto` - Auto
+       * * `prefer_query_speed` - Prefer query speed
+       * * `prefer_sync_speed` - Prefer sync speed
+       * * `manual` - Manual */
+      partition_policy?: PartitionPolicyEnum;
+      /** The table's current partitioning: scheme, size of the largest partition, whether the last measurement found nothing to change, and when it was last repartitioned. Left out of the response when the partitioning controls feature is off for the project. */
+      readonly partitioning?: PartitioningSummary | null;
     }
 
     export interface PatchedExternalDataSourceRevenueAnalyticsConfig {
@@ -106358,6 +106590,87 @@ export namespace Schemas {
        * * `three_column` - three_column
        * * `full_width` - full_width */
       layout?: LayoutEnum;
+    }
+
+    export interface RepartitionError {
+      /** Why the repartition was refused. */
+      detail: string;
+      /** `invalid_scheme`, `over_budget`, `unknown_size`, `unsupported`, `busy`, `cooldown`, `read_failed` or `pause_failed`. */
+      code: string;
+    }
+
+    /**
+     * * `month` - One partition per month
+     * * `week` - One partition per week
+     * * `day` - One partition per day
+     * * `hour` - One partition per hour
+     */
+    export type RepartitionFormatEnum = typeof RepartitionFormatEnum[keyof typeof RepartitionFormatEnum];
+
+
+    export const RepartitionFormatEnum = {
+      Month: 'month',
+      Week: 'week',
+      Day: 'day',
+      Hour: 'hour',
+    } as const;
+
+    /**
+     * * `datetime` - Datetime
+     * * `md5` - MD5
+     * * `numerical` - Numerical
+     */
+    export type RepartitionModeEnum = typeof RepartitionModeEnum[keyof typeof RepartitionModeEnum];
+
+
+    export const RepartitionModeEnum = {
+      Datetime: 'datetime',
+      Md5: 'md5',
+      Numerical: 'numerical',
+    } as const;
+
+    export interface RepartitionSchemaRequest {
+      /** Partition mode to rewrite into. Omit to keep the current mode.
+       *
+       * * `datetime` - Datetime
+       * * `md5` - MD5
+       * * `numerical` - Numerical */
+      partition_mode?: RepartitionModeEnum | null;
+      /** Datetime tier. Required for `datetime` mode. A coarser tier means fewer, larger partitions.
+       *
+       * * `month` - One partition per month
+       * * `week` - One partition per week
+       * * `day` - One partition per day
+       * * `hour` - One partition per hour */
+      partition_format?: RepartitionFormatEnum | null;
+      /**
+         * Number of md5 buckets. Required for `md5` mode.
+         * @minimum 1
+         * @nullable
+         */
+      partition_count?: number | null;
+      /**
+         * Width of each numerical bucket. Required for `numerical` mode.
+         * @minimum 1
+         * @nullable
+         */
+      partition_size?: number | null;
+      /** Columns to compute the partition key from. Omit to keep the current keys. `datetime` and `numerical` take exactly one column, and need it when the mode changes. */
+      partitioning_keys?: string[];
+    }
+
+    export interface RepartitionSchemaResponse {
+      /** What was staged, and whether a run started. */
+      message: string;
+      /** Whether a run that rewrites the table started now. When false, the next sync runs it. */
+      run_started: boolean;
+      /** The table's policy after the request. A repartition sets it to `manual`, so PostHog keeps the chosen layout.
+       *
+       * * `auto` - Auto
+       * * `prefer_query_speed` - Prefer query speed
+       * * `prefer_sync_speed` - Prefer sync speed
+       * * `manual` - Manual */
+      partition_policy: PartitionPolicyEnum;
     }
 
     /**

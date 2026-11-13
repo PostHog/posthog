@@ -308,6 +308,15 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
+        partition_policy: zod
+            .enum(['auto', 'prefer_query_speed', 'prefer_sync_speed', 'manual'])
+            .describe(
+                '\* `auto` - Auto\n\* `prefer_query_speed` - Prefer query speed\n\* `prefer_sync_speed` - Prefer sync speed\n\* `manual` - Manual'
+            )
+            .optional()
+            .describe(
+                "Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out this table's synced data in partitions, which trades query speed against sync speed. `auto` (the default) balances the two. `prefer_query_speed` keeps fewer, larger partitions, so queries read fewer files but merges during a sync are heavier. `prefer_sync_speed` keeps smaller partitions and never merges them back, so syncs are lighter but queries read more files. `manual` keeps the current layout until someone repartitions the table.\n\n\* `auto` - Auto\n\* `prefer_query_speed` - Prefer query speed\n\* `prefer_sync_speed` - Prefer sync speed\n\* `manual` - Manual"
+            ),
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
@@ -449,6 +458,15 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
+        partition_policy: zod
+            .enum(['auto', 'prefer_query_speed', 'prefer_sync_speed', 'manual'])
+            .describe(
+                '\* `auto` - Auto\n\* `prefer_query_speed` - Prefer query speed\n\* `prefer_sync_speed` - Prefer sync speed\n\* `manual` - Manual'
+            )
+            .optional()
+            .describe(
+                "Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out this table's synced data in partitions, which trades query speed against sync speed. `auto` (the default) balances the two. `prefer_query_speed` keeps fewer, larger partitions, so queries read fewer files but merges during a sync are heavier. `prefer_sync_speed` keeps smaller partitions and never merges them back, so syncs are lighter but queries read more files. `manual` keeps the current layout until someone repartitions the table.\n\n\* `auto` - Auto\n\* `prefer_query_speed` - Prefer query speed\n\* `prefer_sync_speed` - Prefer sync speed\n\* `manual` - Manual"
+            ),
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
@@ -463,6 +481,50 @@ export const ExternalDataSchemasDestinationsPartialUpdateBody = /* @__PURE__ */ 
         .nullish()
         .describe(
             'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
+        ),
+})
+
+/**
+ * Beta. Rewrites the table's synced data into the chosen partition scheme, in place, without re-importing from the source. Starts a run now. The table's policy becomes `manual`, so PostHog keeps the chosen layout. One repartition at a time per table, at most one a day.
+ * @summary Repartition one table now
+ */
+
+export const ExternalDataSchemasRepartitionCreateBody = /* @__PURE__ */ zod.object({
+    partition_mode: zod
+        .union([
+            zod
+                .enum(['datetime', 'md5', 'numerical'])
+                .describe('\* `datetime` - Datetime\n\* `md5` - MD5\n\* `numerical` - Numerical'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Partition mode to rewrite into. Omit to keep the current mode.\n\n\* `datetime` - Datetime\n\* `md5` - MD5\n\* `numerical` - Numerical'
+        ),
+    partition_format: zod
+        .union([
+            zod
+                .enum(['month', 'week', 'day', 'hour'])
+                .describe(
+                    '\* `month` - One partition per month\n\* `week` - One partition per week\n\* `day` - One partition per day\n\* `hour` - One partition per hour'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Datetime tier. Required for `datetime` mode. A coarser tier means fewer, larger partitions.\n\n\* `month` - One partition per month\n\* `week` - One partition per week\n\* `day` - One partition per day\n\* `hour` - One partition per hour'
+        ),
+    partition_count: zod.number().min(1).nullish().describe('Number of md5 buckets. Required for `md5` mode.'),
+    partition_size: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe('Width of each numerical bucket. Required for `numerical` mode.'),
+    partitioning_keys: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Columns to compute the partition key from. Omit to keep the current keys. `datetime` and `numerical` take exactly one column, and need it when the mode changes.'
         ),
 })
 

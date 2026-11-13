@@ -9,9 +9,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.repartition_history import ExternalDataSchemaRepartition
 
 _ACTIONS_MODULE = "products.warehouse_sources.backend.logic.schema_staff_actions"
 _SHARED_MODULE = "products.warehouse_sources.backend.ad_hoc_sync"
+_PARTITIONING_MODULE = "products.warehouse_sources.backend.logic.partitioning"
 TOOL_URL = "/admin/console/tools/warehouse-sources/"
 
 
@@ -136,9 +138,10 @@ class TestWarehouseSourcesConsoleTool(BaseTest):
         schema = self._schema(sync_type_config=initial_config)
 
         with (
-            patch(f"{_ACTIONS_MODULE}.sync_connect"),
-            patch(f"{_ACTIONS_MODULE}.is_schedule_paused", return_value=True),
-            patch(f"{_ACTIONS_MODULE}.start_external_data_workflow") as mock_start,
+            patch(f"{_PARTITIONING_MODULE}.measure_live_partition_bytes", return_value=None),
+            patch(f"{_PARTITIONING_MODULE}.sync_connect"),
+            patch(f"{_PARTITIONING_MODULE}.is_schedule_paused", return_value=True),
+            patch(f"{_PARTITIONING_MODULE}.start_external_data_workflow") as mock_start,
         ):
             response = self._run(schema, "repartition", post_data)
 
@@ -153,6 +156,9 @@ class TestWarehouseSourcesConsoleTool(BaseTest):
         assert "partition_count_override" not in schema.sync_type_config
         mock_start.assert_called_once()
         assert mock_start.call_args.args[2].billable is False
+        # The staff path records the same history as the user path, with the staff member who asked.
+        row = ExternalDataSchemaRepartition.objects.for_team(self.team.pk).get(schema=schema)
+        assert (row.status, row.trigger_reason, row.requested_by_id) == ("flagged", "admin", self.user.pk)
 
     @parameterized.expand(
         [
@@ -231,9 +237,10 @@ class TestWarehouseSourcesConsoleTool(BaseTest):
         schema = self._schema(sync_type_config=initial_config)
 
         with (
-            patch(f"{_ACTIONS_MODULE}.sync_connect"),
-            patch(f"{_ACTIONS_MODULE}.is_schedule_paused", return_value=True),
-            patch(f"{_ACTIONS_MODULE}.start_external_data_workflow") as mock_start,
+            patch(f"{_PARTITIONING_MODULE}.measure_live_partition_bytes", return_value=None),
+            patch(f"{_PARTITIONING_MODULE}.sync_connect"),
+            patch(f"{_PARTITIONING_MODULE}.is_schedule_paused", return_value=True),
+            patch(f"{_PARTITIONING_MODULE}.start_external_data_workflow") as mock_start,
         ):
             response = self._run(schema, "repartition", post_data)
 
@@ -267,8 +274,8 @@ class TestWarehouseSourcesConsoleTool(BaseTest):
         schema = self._schema(sync_type_config={"partition_mode": "md5", "partition_count": 30})
 
         with (
-            patch(f"{_ACTIONS_MODULE}.sync_connect"),
-            patch(f"{_ACTIONS_MODULE}.start_external_data_workflow") as mock_start,
+            patch(f"{_PARTITIONING_MODULE}.sync_connect"),
+            patch(f"{_PARTITIONING_MODULE}.start_external_data_workflow") as mock_start,
         ):
             response = self._run(schema, "repartition", post_data)
 

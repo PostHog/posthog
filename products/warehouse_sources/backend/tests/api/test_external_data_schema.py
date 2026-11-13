@@ -12,7 +12,7 @@ from unittest import mock
 from django.conf import settings
 from django.core.cache.backends.locmem import LocMemCache
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.client import Client as HttpClient
 from django.test.utils import CaptureQueriesContext
 
@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_PINNED_METADATA_KEY
+from products.warehouse_sources.backend.models.repartition_history import ExternalDataSchemaRepartition
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
     ExternalDataSchemaSerializer,
@@ -6959,3 +6960,244 @@ class TestPinnedSchemaIncrementalFields(APIBaseTest):
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json()["message"].startswith(f"{ACCESS_DENIED_ERROR} {denied_location}.")
         mock_capture.assert_not_called()
+
+
+_PARTITIONING_FLAG_EVALUATION = (
+    "products.warehouse_sources.backend.temporal.data_imports.schema_flags.posthoganalytics.feature_enabled"
+)
+_PARTITIONING_LOGIC = "products.warehouse_sources.backend.logic.partitioning"
+
+
+class TestExternalDataSchemaPartitioning(APIBaseTest):
+    def _schema(self, **config: Any) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type_config={
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partitioning_keys": ["id"],
+                "primary_key_columns": ["id"],
+                "max_partition_bytes": 600,
+                **config,
+            },
+        )
+
+    def _url(self, schema: ExternalDataSchema, suffix: str = "") -> str:
+        return f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{suffix}"
+
+    @contextlib.contextmanager
+    def _flag(self, enabled: bool = True):
+        with mock.patch(
+            _PARTITIONING_FLAG_EVALUATION,
+            side_effect=lambda key, *args, **kwargs: enabled and key == "warehouse-partitioning-controls",
+        ):
+            yield
+
+    @contextlib.contextmanager
+    def _repartition_boundaries(self, partition_bytes: dict[str | None, int] | None):
+        with (
+            mock.patch(f"{_PARTITIONING_LOGIC}.measure_live_partition_bytes", return_value=partition_bytes),
+            mock.patch(f"{_PARTITIONING_LOGIC}.sync_connect"),
+            mock.patch(f"{_PARTITIONING_LOGIC}.is_schedule_paused", return_value=True),
+            mock.patch(f"{_PARTITIONING_LOGIC}.start_external_data_workflow") as start,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller.posthoganalytics"
+            ),
+        ):
+            yield start
+
+    @parameterized.expand(
+        [
+            ("flag_on_change", True, "prefer_query_speed", 200, "prefer_query_speed"),
+            ("flag_off_change", False, "prefer_query_speed", 400, "auto"),
+            # Clients send back the schema they read, so an unchanged value passes with the flag off.
+            ("flag_off_unchanged", False, "auto", 200, "auto"),
+        ]
+    )
+    def test_partition_policy_write_is_gated_by_the_flag(
+        self, _name: str, flag_enabled: bool, sent: str, expected_status: int, stored: str
+    ) -> None:
+        schema = self._schema()
+
+        with self._flag(flag_enabled):
+            response = self.client.patch(self._url(schema), data={"partition_policy": sent})
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.partition_policy == stored
+        if expected_status == 400:
+            assert response.json()["attr"] == "partition_policy"
+            assert "Partitioning controls" in response.json()["detail"]
+        if sent != "auto" and expected_status == 200:
+            log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+            assert [c["after"] for c in log.detail["changes"] if c["field"] == "partition_policy"] == [sent]
+
+    @parameterized.expand([(True,), (False,)])
+    def test_partitioning_summary_is_left_out_while_the_flag_is_off(self, flag_enabled: bool) -> None:
+        schema = self._schema(partition_measurement={"healthy": True, "job_id": "j"})
+
+        with self._flag(flag_enabled):
+            response = self.client.get(self._url(schema))
+
+        assert response.status_code == 200
+        if flag_enabled:
+            summary = response.json()["partitioning"]
+            assert (summary["policy"], summary["max_partition_bytes"], summary["healthy"]) == ("auto", 600, True)
+        else:
+            assert "partitioning" not in response.json()
+
+    @parameterized.expand([("get", "partitioning/"), ("post", "repartition/")])
+    def test_partitioning_actions_are_forbidden_while_the_flag_is_off(self, method: str, suffix: str) -> None:
+        schema = self._schema()
+
+        with self._flag(False), self._repartition_boundaries(None) as start:
+            response = getattr(self.client, method)(self._url(schema, suffix), data={"partition_count": 8})
+
+        assert response.status_code == 403, response.json()
+        start.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+
+    @parameterized.expand(
+        [
+            (
+                "datetime_needs_one_key",
+                {},
+                {"partition_mode": "datetime", "partitioning_keys": ["a", "b"], "partition_format": "day"},
+                None,
+                400,
+                "invalid_scheme",
+            ),
+            ("md5_needs_a_count", {}, {"partition_mode": "md5"}, None, 400, "invalid_scheme"),
+            # Merging four buckets into one puts 1,220 bytes in one partition against a 1,000 byte budget.
+            ("over_budget", {}, {"partition_count": 1}, {"0": 600, "1": 600, "2": 10, "3": 10}, 400, "over_budget"),
+            (
+                "mode_change_with_unknown_sizes",
+                {},
+                {"partition_mode": "numerical", "partitioning_keys": ["id"], "partition_size": 1000},
+                {"0": 600, "1": 600},
+                400,
+                "unknown_size",
+            ),
+            (
+                "one_pending_at_a_time",
+                {
+                    "repartition_pending": {
+                        "partition_mode": "md5",
+                        "partition_count": 2,
+                        "trigger_reason": "coarsening",
+                    }
+                },
+                {"partition_count": 8},
+                None,
+                409,
+                "busy",
+            ),
+            (
+                "cooldown",
+                {"last_repartition_at": "2026-06-01T11:00:00+00:00"},
+                {"partition_count": 8},
+                None,
+                409,
+                "cooldown",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
+    @override_settings(DATA_WAREHOUSE_TARGET_PARTITION_BYTES=1000)
+    def test_repartition_refusals(
+        self,
+        _name: str,
+        config: dict[str, Any],
+        body: dict[str, Any],
+        partition_bytes: dict[str | None, int] | None,
+        expected_status: int,
+        expected_code: str,
+    ) -> None:
+        schema = self._schema(**config)
+        pending_before = schema.repartition_pending
+
+        with self._flag(), self._repartition_boundaries(partition_bytes) as start:
+            response = self.client.post(self._url(schema, "repartition/"), data=body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert response.json()["code"] == expected_code
+        start.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.repartition_pending == pending_before
+        assert schema.partition_policy == "auto"
+        assert not ExternalDataSchemaRepartition.objects.for_team(self.team.pk).filter(schema=schema).exists()
+
+    @override_settings(DATA_WAREHOUSE_TARGET_PARTITION_BYTES=1000)
+    def test_repartition_stages_a_user_target_and_moves_the_table_to_manual(self) -> None:
+        schema = self._schema()
+
+        with self._flag(), self._repartition_boundaries({"0": 100, "1": 100, "2": 100, "3": 100}) as start:
+            response = self.client.post(self._url(schema, "repartition/"), data={"partition_count": 8}, format="json")
+            second = self.client.post(self._url(schema, "repartition/"), data={"partition_count": 2}, format="json")
+
+        assert response.status_code == 202, response.json()
+        assert (response.json()["run_started"], response.json()["partition_policy"]) == (True, "manual")
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        assert pending is not None
+        assert (pending["trigger_reason"], pending["partition_count"], pending["partition_keys"]) == ("user", 8, ["id"])
+        assert schema.partition_policy == "manual"
+        start.assert_called_once()
+        assert start.call_args.args[2].billable is False
+        row = ExternalDataSchemaRepartition.objects.for_team(self.team.pk).get(schema=schema)
+        assert (row.status, row.trigger_reason, row.requested_by_id) == ("flagged", "user", self.user.pk)
+        assert row.scheme_after["count"] == 8
+        assert (second.status_code, second.json()["code"]) == (409, "busy")
+
+    def test_partitioning_history_excludes_jobs_that_ran_a_rewrite_from_the_sync_stats(self) -> None:
+        schema = self._schema()
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        repartitioned_at = start + timedelta(days=2)
+
+        def job(created_at: datetime, seconds: int, rows: int) -> ExternalDataJob:
+            created = ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=schema.source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=rows,
+            )
+            ExternalDataJob.objects.filter(pk=created.pk).update(
+                created_at=created_at, finished_at=created_at + timedelta(seconds=seconds)
+            )
+            return created
+
+        job(start, 10, 100)
+        rewrite_job = job(repartitioned_at - timedelta(hours=1), 3600, 100)
+        job(repartitioned_at + timedelta(hours=1), 20, 400)
+        job(repartitioned_at + timedelta(hours=2), 40, 400)
+        row = ExternalDataSchemaRepartition.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            schema=schema,
+            job_id=str(rewrite_job.id),
+            status="completed",
+            trigger_reason="proactive_threshold",
+            finished_at=repartitioned_at,
+        )
+
+        with self._flag():
+            response = self.client.get(self._url(schema, "partitioning/"))
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert [r["id"] for r in body["repartitions"]] == [str(row.id)]
+        assert [
+            (w["repartition_id"], w["job_count"], w["median_duration_seconds"], w["median_rows_per_second"])
+            for w in body["sync_windows"]
+        ] == [(None, 1, 10.0, 10.0), (str(row.id), 2, 30.0, 15.0)]
