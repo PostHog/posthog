@@ -1,12 +1,16 @@
 import re
 import dataclasses
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     Endpoint,
+    EndpointResource,
     OffsetPaginator,
     Resource,
     RESTAPIConfig,
@@ -15,14 +19,17 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     _is_host_safe,
     is_cloud,
+    make_parent_key_name,
     make_tracked_session,
-    rest_api_resource,
+    rest_api_resources,
 )
-from products.warehouse_sources.sources.unleash.settings import UNLEASH_ENDPOINTS
+from products.warehouse_sources.sources.unleash.settings import UNLEASH_ENDPOINTS, UnleashEndpointConfig
 
-# The feature search endpoint documents a default limit of 50; 100 verified working against a
-# live instance and keeps round trips low.
-PAGE_SIZE = 100
+FEATURES_ENDPOINT = "features"
+# The largest hoursBack every instance accepts. See feature_metrics in settings.py.
+METRICS_HOURS_BACK = 48
+PATH_FIELDS = ("name", "project")
+PATH_FIELD_SUFFIX = "_path_segment"
 # Cheap list endpoint used to confirm the token is genuine. Every admin-capable token (personal
 # access token, service account token) can read projects.
 DEFAULT_PROBE_PATH = "/api/admin/projects"
@@ -36,11 +43,12 @@ class UnleashHostNotAllowedError(Exception):
 
 @dataclasses.dataclass(frozen=False)
 class UnleashResumeConfig:
-    # Offset of the next feature-search page to fetch. Only the features endpoint paginates;
-    # a crashed sync resumes from the page after the last one yielded and merge dedupes the
-    # re-pulled page on the primary key. The other endpoints return the whole collection in one
-    # request, so there is nothing to resume.
+    # Offset of the next feature or event search page to fetch; a crashed sync resumes from the
+    # page after the last one yielded and merge dedupes the re-pulled page on the primary key.
+    # The other list endpoints return the whole collection in one request.
     offset: int = 0
+    # Fan-out children: the state rest_source checkpoints over the `features` listing.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_instance_url(instance_url: str) -> str:
@@ -112,18 +120,8 @@ def _check_host(instance_url: str, team_id: int) -> None:
         raise UnleashHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
 
-def unleash_source(
-    instance_url: str,
-    api_token: str,
-    endpoint: str,
-    team_id: int,
-    job_id: str,
-    resumable_source_manager: ResumableSourceManager[UnleashResumeConfig],
-) -> SourceResponse:
-    config = UNLEASH_ENDPOINTS[endpoint]
-    base_url = normalize_instance_url(instance_url)
-
-    endpoint_config: Endpoint = {
+def _list_endpoint(config: UnleashEndpointConfig, params: Optional[dict[str, Any]] = None) -> Endpoint:
+    endpoint: Endpoint = {
         "path": config.path,
         # A 200 whose body isn't the expected list shape (missing data key, wrong type) is treated
         # as a transient upstream glitch and retried — the retryable counterpart of the old
@@ -131,68 +129,204 @@ def unleash_source(
         "data_selector_malformed_retryable": True,
     }
     if config.data_selector is not None:
-        endpoint_config["data_selector"] = config.data_selector
-
+        endpoint["data_selector"] = config.data_selector
+    request_params: dict[str, Any] = dict(params or {})
     if config.paginated:
-        # Sort by createdAt ascending so page boundaries stay stable while we walk the offsets —
-        # flags created mid-sync land at the end instead of shifting earlier pages.
-        endpoint_config["params"] = {"sortBy": "createdAt", "sortOrder": "asc"}
-        paginator: OffsetPaginator | SinglePagePaginator = OffsetPaginator(limit=PAGE_SIZE, total_path="total")
+        if config.name == FEATURES_ENDPOINT:
+            # Sort by createdAt ascending so page boundaries stay stable while we walk the offsets —
+            # flags created mid-sync land at the end instead of shifting earlier pages.
+            request_params.update({"sortBy": "createdAt", "sortOrder": "asc"})
+        endpoint["paginator"] = OffsetPaginator(limit=config.page_size, total_path="total")
     else:
-        paginator = SinglePagePaginator()
+        endpoint["paginator"] = SinglePagePaginator()
+    if request_params:
+        endpoint["params"] = request_params
+    return endpoint
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url,
-            # Auth (raw token, no Bearer prefix) is supplied via the framework auth config so its
-            # value is redacted from logs and raised errors; only the non-secret Accept header here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_token, "name": "Authorization", "location": "header"},
-            "paginator": paginator,
-            # The instance URL is user-supplied: pin every request (including pagination) to the
-            # base host and refuse redirects so the credentialed request can't be bounced off-host.
-            "allowed_hosts": [],
-            "allow_redirects": False,
+
+def _as_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def events_params(db_incremental_field_last_value: Any) -> dict[str, Any]:
+    last = _as_datetime(db_incremental_field_last_value)
+    if last is None:
+        return {}
+    # `from` takes a date and compares it in the server's time zone, so step back a day. The
+    # merge on `id` drops the rows read again.
+    return {"from": f"IS:{(last - timedelta(days=1)).date().isoformat()}"}
+
+
+def with_path_segments(feature: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Unleash flag names are not URL-safe and the fan-out binds them unescaped. A "." or ".." name
+    # cannot be sent as one segment, because requests decodes "%2E".
+    for field in PATH_FIELDS:
+        if field not in feature:
+            continue
+        if str(feature[field]) in (".", ".."):
+            return []
+        feature[f"{field}{PATH_FIELD_SUFFIX}"] = quote(str(feature[field]), safe="")
+    return feature
+
+
+def _parent_value(row: dict[str, Any], field: str) -> Any:
+    return row.pop(make_parent_key_name(FEATURES_ENDPOINT, field), None)
+
+
+def flatten_feature_strategies(environment: dict[str, Any]) -> list[dict[str, Any]]:
+    feature_name = _parent_value(environment, "name")
+    project = _parent_value(environment, "project")
+    return [
+        {
+            **strategy,
+            "featureName": strategy.get("featureName") or feature_name,
+            "project": project,
+            "environment": environment.get("name"),
+            "environmentEnabled": environment.get("enabled"),
+        }
+        for strategy in environment.get("strategies") or []
+        if isinstance(strategy, dict)
+    ]
+
+
+def shape_feature_metric(row: dict[str, Any]) -> dict[str, Any]:
+    feature_name = _parent_value(row, "name")
+    if not row.get("featureName"):
+        row["featureName"] = feature_name
+    return row
+
+
+ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "feature_strategies": flatten_feature_strategies,
+    "feature_metrics": shape_feature_metric,
+}
+
+
+def _fanout_resources(config: UnleashEndpointConfig, child_params: dict[str, Any]) -> list[str | EndpointResource]:
+    child_endpoint: Endpoint = {
+        "path": config.path,
+        "params": {
+            **{
+                field: {"type": "resolve", "resource": FEATURES_ENDPOINT, "field": f"{field}{PATH_FIELD_SUFFIX}"}
+                for field in config.parent_fields
+            },
+            **child_params,
         },
-        "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": endpoint_config,
-            }
-        ],
+        "data_selector_malformed_retryable": True,
+        "paginator": SinglePagePaginator(),
+        # A flag archived between the listing and its child request returns 404.
+        "response_actions": [{"status_code": 404, "action": "ignore"}],
+    }
+    if config.data_selector is not None:
+        child_endpoint["data_selector"] = config.data_selector
+    return [
+        {
+            "name": FEATURES_ENDPOINT,
+            "endpoint": _list_endpoint(UNLEASH_ENDPOINTS[FEATURES_ENDPOINT]),
+            "data_map": with_path_segments,
+        },
+        {
+            "name": config.name,
+            "endpoint": child_endpoint,
+            "include_from_parent": list(config.parent_fields),
+            "data_map": ROW_MAPS[config.name],
+            # The checkpoint stores the parent page, not every finished flag.
+            "resume_parent_pagination": True,
+        },
+    ]
+
+
+def unleash_source(
+    instance_url: str,
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[UnleashResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> SourceResponse:
+    config = UNLEASH_ENDPOINTS[endpoint]
+    base_url = normalize_instance_url(instance_url)
+    last_value = db_incremental_field_last_value if should_use_incremental_field else None
+
+    client_config: ClientConfig = {
+        "base_url": base_url,
+        # Auth (raw token, no Bearer prefix) is supplied via the framework auth config so its
+        # value is redacted from logs and raised errors; only the non-secret Accept header here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_token, "name": "Authorization", "location": "header"},
+        # The instance URL is user-supplied: pin every request (including pagination) to the
+        # base host and refuse redirects so the credentialed request can't be bounced off-host.
+        "allowed_hosts": [],
+        "allow_redirects": False,
     }
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if config.paginated and resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"offset": resume.offset}
+    resources: list[str | EndpointResource]
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains. The framework stages it with the page it covers.
-        if state and state.get("offset") is not None:
-            resumable_source_manager.save_state(UnleashResumeConfig(offset=int(state["offset"])))
+    if config.parent_fields:
+        child_params = {"hoursBack": METRICS_HOURS_BACK} if endpoint == "feature_metrics" else {}
+        resources = _fanout_resources(config, child_params)
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+        def save_fanout_state(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(UnleashResumeConfig(fanout_state=state))
+
+        resume_hook = save_fanout_state
+    else:
+        params = events_params(last_value) if endpoint == "events" else None
+        resources = [{"name": endpoint, "endpoint": _list_endpoint(config, params)}]
+        if config.paginated:
+            if resume is not None:
+                initial_paginator_state = {"offset": resume.offset}
+
+            def save_offset(state: Optional[dict[str, Any]]) -> None:
+                # Persist only when a next page remains. The framework stages it with the page it covers.
+                if state and state.get("offset") is not None:
+                    resumable_source_manager.save_state(UnleashResumeConfig(offset=int(state["offset"])))
+
+            resume_hook = save_offset
+
+    rest_config: RESTAPIConfig = {"client": client_config, "resource_defaults": {}, "resources": resources}
 
     def items() -> Resource:
         # Re-check at run time (not just at source-create) in case the instance URL was edited or
         # now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
         _check_host(instance_url, team_id)
-        return rest_api_resource(
+        built = rest_api_resources(
             rest_config,
             team_id,
             job_id,
             None,
-            resume_hook=save_checkpoint if config.paginated else None,
+            resume_hook=resume_hook,
             initial_paginator_state=initial_paginator_state,
         )
+        return next(resource for resource in built if resource.name == endpoint)
 
+    partition_kwargs: dict[str, Any] = (
+        {"partition_mode": "datetime", "partition_format": "month", "partition_keys": [config.partition_key]}
+        if config.partition_key
+        else {"partition_count": 1, "partition_size": 1}
+    )
     return SourceResponse(
         name=endpoint,
         items=items,
         primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
+        **partition_kwargs,
     )
 
 
@@ -278,9 +412,11 @@ def check_endpoint_permissions(
         if config is None:
             results[endpoint] = None
             continue
-        params = {"limit": 1} if config.paginated else None
+        # A fan-out child reads one flag at a time, so probe the flag listing it walks.
+        probe = UNLEASH_ENDPOINTS[FEATURES_ENDPOINT] if config.parent_fields else config
+        params = {"limit": 1} if probe.paginated else None
         try:
-            response = session.get(f"{base_url}{config.path}", params=params, timeout=15)
+            response = session.get(f"{base_url}{probe.path}", params=params, timeout=15)
         except requests.exceptions.RequestException:
             results[endpoint] = None
             continue

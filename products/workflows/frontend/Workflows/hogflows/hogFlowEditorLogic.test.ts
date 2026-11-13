@@ -192,6 +192,18 @@ describe('hogFlowEditorLogic', () => {
         expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
     })
 
+    it.each([TRIGGER_NODE_ID, 'trigger'])('selects the trigger step when its id is %s', (triggerId) => {
+        const [trigger, exit] = NEW_WORKFLOW.actions
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [{ ...trigger, id: triggerId }, exit],
+            edges: [edge(triggerId, EXIT_NODE_ID, 'continue')],
+        })
+
+        logic.actions.selectTrigger()
+
+        expect(logic.values.selectedNode).toMatchObject({ id: triggerId, data: { type: 'trigger' } })
+    })
+
     it('keeps edits made while "Save as team default" was saving', () => {
         const email = {
             id: 'email',

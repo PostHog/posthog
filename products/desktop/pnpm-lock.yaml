@@ -285,8 +285,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(patch_hash=4dfdf785f5ac51a03f5d6032371cebe89036381acd403621f250a896245647c5)
       posthog-node:
-        specifier: ^5.70.0
-        version: 5.70.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
+        specifier: ^5.73.0
+        version: 5.73.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -4970,6 +4970,9 @@ packages:
 
   '@posthog/core@1.67.2':
     resolution: {integrity: sha512-FcDdAm3L2UKxA2NWCxwG8KKgZ4QjGBl7f9WASLlCVPeKgXI0FeguSq81x0f2htEB37itKbUwLkNFgA3FV4b7iQ==}
+
+  '@posthog/core@1.67.3':
+    resolution: {integrity: sha512-BAVJB+ADAjFNBVZKCRbMi5+WMJaSFHHIEId0/ebvAwhOVIMmK4mVrktGGjx9zJBHLe82JdQVVRhpaOwLgoBMgA==}
 
   '@posthog/hedgehog-mode@0.0.53':
     resolution: {integrity: sha512-Qyd9DckDg1Z/vT3mpKyuMemJHWpYD0k0Gob7hWCNMCDSYm/NcpDS1uX8PRoh3Z7HF2kBkZ7j6HCSUIG7Ha/j4Q==}
@@ -11179,8 +11182,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.70.0:
-    resolution: {integrity: sha512-uZ2n7g2KtzIbJH+L6UW6mzY6U08jvo6RoWlUNq05YqoeOAxFUJP6wOQJb/Q/voAHD7kwr3AHj4tE/DTDNa4zOA==}
+  posthog-node@5.73.0:
+    resolution: {integrity: sha512-OH5PZA2GVftiHPwTCA31fy2E33sWW/o2f+ubxi3/ugPEEYzq+/Fw4h2igVpa+RThw1oYrmzgOHCOFdSkh2SzOQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -16532,6 +16535,10 @@ snapshots:
   '@posthog/core@1.67.2':
     dependencies:
       '@posthog/types': 1.424.1
+
+  '@posthog/core@1.67.3':
+    dependencies:
+      '@posthog/types': 1.425.0
 
   '@posthog/hedgehog-mode@0.0.53(prop-types@15.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
@@ -23774,9 +23781,9 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-node@5.70.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
+  posthog-node@5.73.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
     dependencies:
-      '@posthog/core': 1.67.1
+      '@posthog/core': 1.67.3
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       rxjs: 7.8.2
