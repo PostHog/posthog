@@ -96,27 +96,30 @@ describe('sqlPieGraphAdapter', () => {
             ])
         })
 
-        it('aggregates breakdown series by series total', () => {
-            const yData: AxisBreakdownSeries<number | null>[] = [
-                {
-                    name: 'first',
-                    breakdownValue: 'first',
-                    data: [1, 2, null],
-                    settings: { display: { color: '#111111' } },
-                },
-                {
-                    name: 'second',
-                    breakdownValue: 'second',
-                    data: [3, 4, 5],
-                    settings: { display: { color: '#222222' } },
-                },
-            ]
+        it.each([undefined, 'Renamed first', 'second'])(
+            'aggregates breakdown series with display label %s without changing their keys',
+            (label) => {
+                const yData: AxisBreakdownSeries<number | null>[] = [
+                    {
+                        name: 'first',
+                        breakdownValue: 'first',
+                        data: [1, 2, null],
+                        settings: { display: { color: '#111111', label } },
+                    },
+                    {
+                        name: 'second',
+                        breakdownValue: 'second',
+                        data: [3, 4, 5],
+                        settings: { display: { color: '#222222' } },
+                    },
+                ]
 
-            expect(buildPieSlices(xData, yData)).toEqual([
-                { label: 'first', value: 3, color: '#111111' },
-                { label: 'second', value: 12, color: '#222222' },
-            ])
-        })
+                expect(buildPieSeries(buildPieSlices(xData, yData))).toEqual([
+                    { key: 'first', label: label ?? 'first', data: [3], color: '#111111' },
+                    { key: 'second', label: 'second', data: [12], color: '#222222' },
+                ])
+            }
+        )
 
         it('does not let one NaN point drop a breakdown series that also has valid points', () => {
             const yData: AxisBreakdownSeries<number | null>[] = [
