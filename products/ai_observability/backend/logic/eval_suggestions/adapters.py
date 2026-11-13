@@ -260,13 +260,13 @@ return true"""
     )
 
 
-# An address starts and ends at a character no address holds, so a fragment of a longer token, such as
-# `connor@acme.io` inside `o'connor@acme.io` or `victim@acme.io` inside `victim@acme.ioévil.com`, never counts.
-_ADDRESS_CHARS = "A-Za-z0-9._%+\\p{L}\\p{N}-"
+# An address starts with a letter or digit and has no letter or digit right before or after it, so punctuation of
+# any kind ends it, while `victim@acme.io` is never cut out of `victim@acme.ioévil.com`.
+_WORD_CHARS = "A-Za-z0-9\\p{L}\\p{N}"
 EMAIL_PATTERN = (
-    f"(?:^|[^{_ADDRESS_CHARS}])"
-    "([A-Za-z0-9._%+\\p{L}\\p{N}-][A-Za-z0-9._%+'\\p{L}\\p{N}-]*@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{2,})"
-    f"(?:$|[^@{_ADDRESS_CHARS}]|[.](?:$|[^{_ADDRESS_CHARS}]))"
+    f"(?:^|[^{_WORD_CHARS}])"
+    f"([{_WORD_CHARS}][A-Za-z0-9._%+'\\p{{L}}\\p{{N}}-]*@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{{2,}})"
+    f"(?:$|[^{_WORD_CHARS}])"
 )
 
 

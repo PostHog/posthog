@@ -362,6 +362,15 @@ class TestAdaptedChecks:
             ("address_in_typographic_quotes", adapters.sensitive_data(), [_answer("Contact “jane@acme.io”")], False),
             ("address_in_guillemets", adapters.sensitive_data(), [_answer("Contact «jane@acme.io»")], False),
             ("address_with_a_non_ascii_name", adapters.sensitive_data(), [_answer("Ask jöhn@acme.io")], False),
+            (
+                "address_before_a_closing_quote",
+                adapters.sensitive_data(),
+                [_answer('She said "write to jane@acme.io."')],
+                False,
+            ),
+            ("address_before_an_ellipsis", adapters.sensitive_data(), [_answer("Write to jane@acme.io...")], False),
+            ("address_in_underscores", adapters.sensitive_data(), [_answer("Contact _jane@acme.io_")], False),
+            ("address_before_an_em_dash", adapters.sensitive_data(), [_answer("Write to jane@acme.io—today")], False),
             ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
             ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
             (
