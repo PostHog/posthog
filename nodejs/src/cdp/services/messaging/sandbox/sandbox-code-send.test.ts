@@ -752,6 +752,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 currentFingerprint: expect.any(String),
             })
         )
+
+        await deliver()
+        expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: '' }])
     })
 
     it('replays a keyed own-sender send with cc when the retry names the sandbox sender', async () => {
