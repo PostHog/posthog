@@ -8611,9 +8611,9 @@ snapshots:
     products-web-analytics-content-autopilot-workspace--onboarding--light:
         hash: v1.k794b7964.43db8fae97d0c1d904bbc77258a41cbf9ce99992a214721db5869aca949828bd.2dCjwtWR3d2g3FGZx9hQhvz4NCBI2AmaSEAUEJHAj-I
     products-web-analytics-content-autopilot-workspace--prompts-tab--dark:
-        hash: v1.k794b7964.97e6d20eb9122d50741a3bcea1e9f25d5ef6b7ff8a7f15409b195ee3dd062d2b.t4Va4cKYli8uysI3tM5GoVu_m_44PboAZICkFrMsj28
+        hash: v1.k794b7964.42713380e5caa35fc84f99160647029cb77fc51bf00978ee22c28ff95400134c.i9Ld34hrhRth8WWKExQxLRtKb-XdFHAs4eKgl94j6_E
     products-web-analytics-content-autopilot-workspace--prompts-tab--light:
-        hash: v1.k794b7964.03479d0dc3d1d214ede5ea9d693334abb5db12f9945c374e7b65d9a8e01ed5f1.HoAaX7WCFd0BMK90z-0Ssw1cL71guzFLUL6PN-uhVl0
+        hash: v1.k794b7964.e29ebacd1d610c61e111cb452b57ef29f5e9d073a9c6591a9e3000276315b37d.trd5VLozxyVKRU9u_2wMjEc4b1oUAjndf_987R0JxTw
     products-web-analytics-content-autopilot-workspace--proposal-preview--dark:
         hash: v1.k794b7964.5da55d7f0fdfd06d9c0563edc8ebfb53b91a2b12e647770761a981f1bed3a5a6.LrjTN0Rm5ml2KU7kmPPjTz0m06NCaFLktPrvpCVqJkA
     products-web-analytics-content-autopilot-workspace--proposal-preview--light:
@@ -8627,9 +8627,9 @@ snapshots:
     products-web-analytics-content-autopilot-workspace--ready-for-review--light:
         hash: v1.k794b7964.19f37f58ebc4c2b80b0319f16c53556aea8e86b796c68e01a0f4dd0eb600c4b1.e2_cNYdfYFxt8IgogbWYRq5Fmf8XJFVs8ZviEh9DOxo
     products-web-analytics-content-autopilot-workspace--site-settings--dark:
-        hash: v1.k794b7964.538c7013882ee0430dc7741b02456723f487bd05cb7b94f1f96da9d4633762b8.QLhAliDw99xMphjkS8IiwSHXxbcd6ZJn-oNDhl0QWQw
+        hash: v1.k794b7964.778410fa0882957a2ed175f0c31c511a9d24702cc3116315c6b3651a3a47755c.r_jmaZSkXbZtsJ73HNWC8XGc6MNhVZktLX1205zCEA4
     products-web-analytics-content-autopilot-workspace--site-settings--light:
-        hash: v1.k794b7964.8e99c2da884392e6c5acd37cd33c5e011f9995f095adc60a1d6cfcdf78ed5692.PctWwAf1P2ZGIMlHGcvhtLQ5dhIKE1TVMzf1sYn8HFg
+        hash: v1.k794b7964.952a0d9fddc302eda424a2fee9b05a127606d8ad38688501301e439b2c469838.932_NrVniwAOGylqicH9fE6O-BqOo2QOer3Ci305jeE
     products-web-analytics-heatmaps-page-history-tile--captured--dark:
         hash: v1.k794b7964.f413577b9b77e5609dfd55b0d14582561ff63365e2f0f2fcbe3d8ece4c13002a.3l1GQMU3xn1wph28KJq3vuY3Z0Lg-FEpiDNug82yI68
     products-web-analytics-heatmaps-page-history-tile--captured--light:
@@ -8846,14 +8846,14 @@ snapshots:
         hash: v1.k794b7964.f12cd46c85e3ceafc7d4487fcf95712ceed7e93788b9c34c7321ce1e3d02bef5.H_L0r3Gtfa67-ZBhWpzNzF2sMDC77GXyuq9JpQKFT9U
     products-workflows-editor-configuration-panel--email--light:
         hash: v1.k794b7964.53300220941ee649ea973d333d1c6ef0873a3894cee3e41f0c15f645fda89cd6.qPWj7emtIqrYOObPinblkcltl6p_JHFLan4LIz3GPZM
-    products-workflows-editor-configuration-panel--email-view-only--dark:
-        hash: v1.k794b7964.48ac080767a9895441964348b519102fe76e7483258900f9cb2e4560f80951e3.vkVRMdf9VvCZTXdr6Nad8rACESlY85yKpei7dZHYSt0
-    products-workflows-editor-configuration-panel--email-view-only--light:
-        hash: v1.k794b7964.fc1e08cad7cfa2fa7e3f6b15315e09fc38634719b075175af0c3a3b965b8723c.N_4NO68lOjCt-_3GO1PR-bJUH6RJppe1ZxvP7r237r8
     products-workflows-editor-configuration-panel--email-header--dark:
         hash: v1.k794b7964.78363651a453884b1ec269d7d85340696805473d7be6db3be564d6883045e1df.m4n29CrYjX93vb6mlNiBzFENb8BDfSm3f3Mzo3Z6-vs
     products-workflows-editor-configuration-panel--email-header--light:
         hash: v1.k794b7964.1f77a64f3c36b0b456502fae32ceb8af591a150e4997a23285bd42991fea4a31.mnyGJKyI76JJvo9qFBRZg9ySmmOH42s0D-NdNrLuapc
+    products-workflows-editor-configuration-panel--email-view-only--dark:
+        hash: v1.k794b7964.48ac080767a9895441964348b519102fe76e7483258900f9cb2e4560f80951e3.vkVRMdf9VvCZTXdr6Nad8rACESlY85yKpei7dZHYSt0
+    products-workflows-editor-configuration-panel--email-view-only--light:
+        hash: v1.k794b7964.fc1e08cad7cfa2fa7e3f6b15315e09fc38634719b075175af0c3a3b965b8723c.N_4NO68lOjCt-_3GO1PR-bJUH6RJppe1ZxvP7r237r8
     products-workflows-editor-configuration-panel--logs--dark:
         hash: v1.k794b7964.cd6b6ceb0814a2765ab52e649033d0dfa173baad5b57ee1b7a845a449ae32b8c.g0SpetcKafX_5tzXwwxcbL9oN9ik13xiVJg45AuM2Us
     products-workflows-editor-configuration-panel--logs--light:
@@ -16219,9 +16219,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-surveys--light:
         hash: v1.k794b7964.e9827e5efbfff9b19d1b4f098f696ad6d296f6add9613ce8ffbe009cc6fded44.l7ZGtwkwtPW0kyb9a-szWxrK6JH4AmtiTJ_lYSUeu7s
     scenes-app-settings-environment--settings-environment-web-analytics--dark:
-        hash: v1.k794b7964.8a5299a88f53d58a6d59b93a7244a6b8fa4421f948aca47c2ff848044808b043.mYFWy4MhmdHxvxbfnhk18iYuFXannFJHWVkh9UQZkeg
+        hash: v1.k794b7964.c8198a6d9f8cd4a2bbd15b2846d793ce92c0b7050b69786e630ac48590abe9bd.kPOJOARyo1hmxWZnfLG7GNnURZjq7QwyP3_oa2M5lNk
     scenes-app-settings-environment--settings-environment-web-analytics--light:
-        hash: v1.k794b7964.595d5f0953b706ad4b5b09ffbc26dcfa8cef49d4b9f4aba378dd5c30ef0ce780.ob7RbEDt7VCVwzLHPwgZJrfp1nj7j1Zwyyx1x2meJXQ
+        hash: v1.k794b7964.a10573636fbdc42fd099e202fb20e504f8a28ca47500646fe35e1c63c355044e.2TT4Bc9o4aAravNEyVvHrtQp5tz-snU963KdXggVfeE
     scenes-app-settings-environment--settings-mcp-analytics-custom-harnesses--dark:
         hash: v1.k794b7964.8b9284d27c164bda6e3890920f638b4a3fcac7a43bf3229340e854588a431fea.wIRwiaah0nvMmvF4AotThQ1Wb_gT1kYUl6qkng1e6j4
     scenes-app-settings-environment--settings-mcp-analytics-custom-harnesses--light:
