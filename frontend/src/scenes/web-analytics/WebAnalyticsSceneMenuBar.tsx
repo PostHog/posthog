@@ -234,8 +234,10 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                 </SceneMenuBarCheckboxItem>
                 {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] && (
                     <SceneMenuBarCheckboxItem
-                        checked={!!webQueryModifiers.useDimensionalTables}
-                        onCheckedChange={(checked) => setWebQueryModifiers({ useDimensionalTables: checked })}
+                        checked={webQueryModifiers.useDimensionalTables !== false}
+                        onCheckedChange={(checked) =>
+                            setWebQueryModifiers({ useDimensionalTables: checked ? undefined : false })
+                        }
                         data-attr="web-analytics-menubar-dimensional-tables"
                     >
                         Use dimensional tables

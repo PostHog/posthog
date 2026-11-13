@@ -155,7 +155,9 @@ def reads_dimensional(runner: Union["WebStatsTableQueryRunner", "WebOverviewQuer
     requested = web_query_modifiers.useDimensionalTables if web_query_modifiers else None
     if requested is False:
         return False
-    wanted = _team_enrolled(runner) or (bool(requested) and _query_modifiers_flag_enabled(runner))
+    # The modifiers flag shows the browser toggle, which reads as on until the browser opts out, so for its users
+    # an unset request tries the tables on any team. A team without tables falls back.
+    wanted = _team_enrolled(runner) or _query_modifiers_flag_enabled(runner)
     return wanted and not _dimensional_reads_disabled(runner)
 
 

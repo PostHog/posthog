@@ -138,14 +138,17 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                                     menuItem
                                     data-attr="web-analytics-dimensional-tables-toggle"
                                     onClick={() => {
-                                        // An explicit `false` opts out of the default for teams the dimensional writer
-                                        // fills; a cleared value would fall back to that default.
+                                        // Unset reads as on, so switching off opts out explicitly.
                                         setWebQueryModifiers({
-                                            useDimensionalTables: !webQueryModifiers.useDimensionalTables,
+                                            useDimensionalTables:
+                                                webQueryModifiers.useDimensionalTables === false ? undefined : false,
                                         })
                                     }}
                                 >
-                                    <LemonSwitch checked={!!webQueryModifiers.useDimensionalTables} size="xsmall" />
+                                    <LemonSwitch
+                                        checked={webQueryModifiers.useDimensionalTables !== false}
+                                        size="xsmall"
+                                    />
                                     Use dimensional tables
                                 </ButtonPrimitive>
                             </Tooltip>

@@ -163,7 +163,6 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_modifiers", _runner(None), False, _JOB_IDS),
             ("opted_out", _runner(False), False, _JOB_IDS),
             ("property_access_rules", _runner(True), True, _JOB_IDS),
             ("test_account_filters", _runner(True, test_account_filters=_TEST_ACCOUNT_FILTERS), False, _JOB_IDS),
@@ -266,7 +265,8 @@ class TestDimensionalReadSelection(SimpleTestCase):
     @parameterized.expand(
         [
             ("team_on_and_request_unset", None, True, True, False, True),
-            ("team_off_and_request_unset", None, False, True, False, False),
+            ("team_off_and_request_unset_with_the_modifiers_flag", None, False, True, False, True),
+            ("team_off_and_request_unset_without_the_modifiers_flag", None, False, False, False, False),
             ("team_on_and_request_opts_out", False, True, True, False, False),
             ("team_off_and_request_opts_in_with_the_modifiers_flag", True, False, True, False, True),
             ("team_off_and_request_opts_in_without_the_modifiers_flag", True, False, False, False, False),
