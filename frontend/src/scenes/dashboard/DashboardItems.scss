@@ -199,7 +199,7 @@
     }
 
     // The grid's drag `cancel` skips these, so they keep text selection instead of acting as a handle.
-    :is(p, h4, .LemonMarkdown) {
+    :is(p, h4, [role='heading'], .LemonMarkdown) {
         cursor: auto;
         user-select: text;
     }

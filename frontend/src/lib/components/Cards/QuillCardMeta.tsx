@@ -45,18 +45,20 @@ export function QuillCardMeta({
                     <div className={clsx('CardMeta__ribbon', ribbonColor)} />
                 )}
                 <CardHeader className="min-w-0 flex-1 gap-y-0 py-2">
-                    {topHeading && (
-                        <Text
-                            size="xxs"
-                            variant="muted"
-                            weight="semibold"
-                            className="uppercase tracking-wider empty:hidden"
-                            render={<div />}
-                        >
-                            {topHeading}
-                        </Text>
-                    )}
-                    {content}
+                    <div className="flex min-w-0 flex-col">
+                        {topHeading && (
+                            <Text
+                                size="xxs"
+                                variant="muted"
+                                weight="semibold"
+                                className="uppercase tracking-wider empty:hidden"
+                                render={<div />}
+                            >
+                                {topHeading}
+                            </Text>
+                        )}
+                        {content}
+                    </div>
                     <CardAction className="row-1 flex items-center gap-1">
                         {refreshControl}
                         {headerStatus}
