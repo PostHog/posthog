@@ -14,6 +14,8 @@ const START_TIMEOUT_S = 60
 const STOP_TIMEOUT_S = 300
 const STOP_WAIT_MS = (STOP_TIMEOUT_S + START_TIMEOUT_S) * 1000
 const LIVENESS_MS = 5 * 60_000
+const PROBE_WAIT_MS = 2 * START_TIMEOUT_S * 1000
+const UNIT_GONE = new Set([3, 4])
 const SETTLED = new Set(['Success', 'Failed', 'Cancelled', 'TimedOut'])
 const EXIT_CODES = new Set<number>(Object.values(EXIT_CODE))
 
@@ -51,14 +53,14 @@ async function hostOf({ aws }: Controller, manifest: Manifest): Promise<string |
     }
 }
 
-async function runOnHost(
+async function settleOnHost(
     controller: Controller,
     instanceId: string,
     commands: string[],
     timeoutSeconds: number,
     until: number,
     signal?: AbortSignal
-): Promise<Invocation> {
+): Promise<Invocation | undefined> {
     const { aws } = controller
     const { Command } = (await aws.call([
         'ssm',
@@ -92,9 +94,24 @@ async function runOnHost(
             return invocation
         }
         if (controller.now().getTime() >= until) {
-            throw new Error(`The host command did not finish by ${new Date(until).toISOString()}.`)
+            return undefined
         }
     }
+}
+
+async function runOnHost(
+    controller: Controller,
+    instanceId: string,
+    commands: string[],
+    timeoutSeconds: number,
+    until: number,
+    signal?: AbortSignal
+): Promise<Invocation> {
+    const invocation = await settleOnHost(controller, instanceId, commands, timeoutSeconds, until, signal)
+    if (invocation === undefined) {
+        throw new Error(`The host command did not finish by ${new Date(until).toISOString()}.`)
+    }
+    return invocation
 }
 
 async function requireHost(controller: Controller, manifest: Manifest): Promise<string> {
@@ -210,15 +227,15 @@ export async function awaitCard(
             checkedAt = now
             const host = await requireHost(controller, manifest)
             const unit = unitOf(manifest)
-            const { Status } = await runOnHost(
+            const probe = await settleOnHost(
                 controller,
                 host,
                 [`systemctl is-active --quiet ${unit}`],
                 START_TIMEOUT_S,
-                until,
+                Math.min(until, controller.now().getTime() + PROBE_WAIT_MS),
                 signal
             )
-            if (Status !== 'Success') {
+            if (probe?.Status === 'Failed' && UNIT_GONE.has(probe.ResponseCode)) {
                 if (await reported()) {
                     return await reportOf(controller, profile, manifest)
                 }

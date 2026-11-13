@@ -350,7 +350,7 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
         })
         await stopCard(controller, profile, manifest).catch((error: Error) =>
             controller.warn(
-                `Could not stop the card of run ${manifest.runId} before deleting its stack: ${error.message}`
+                `The card of run ${manifest.runId} did not finish cleanly before its stack was deleted: ${error.message}`
             )
         )
         const { failures, blind } = await discover(controller, profile, manifest, inventory)

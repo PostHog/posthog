@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'os'
 import path from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 const SCRIPT = path.join(__dirname, 'host-prepare.sh')
 const REPO = path.resolve(__dirname, '../../../..')
 const RUN_ID = '00000000-0000-4000-8000-000000000001'
@@ -25,26 +27,40 @@ esac
 `
 
 const FAKE_SQLX = `#!/usr/bin/env bash
-printf '%s\\n' "$@" >"$FAKE_CALLS/sqlx"
+[ "$1 $2" = "migrate run" ] || exit 2
+shift 2
+database=\${DATABASE_URL:-}
+while [ $# -gt 0 ]; do
+    case $1 in
+    -D | --database-url) database=$2 && shift ;;
+    --source) source=$2 && shift ;;
+    esac
+    shift
+done
 echo 'migration step output' >&2
-exit "\${FAKE_MIGRATE_EXIT:-0}"
+[ "\${FAKE_MIGRATE_EXIT:-0}" = 0 ] || exit "$FAKE_MIGRATE_EXIT"
+jq -n --arg database "$database" --arg source "$(realpath "$source")" '{$database, $source}' >"$FAKE_CALLS/migrated"
 `
 
 const FAKE_PNPM = `#!/usr/bin/env bash
-printf '%s\\n' "$CYCLOTRON_NODE_DATABASE_URL" "$SCENARIO_RUN_MANIFEST" "$@" >"$FAKE_CALLS/pnpm"
+for arg in "$@"; do
+    [ "\${previous:-}" = --profile ] && profile=$arg
+    [ "$arg" = seed-backlog ] && command=$arg
+    previous=$arg
+done
 echo 'seed step output'
-exit "\${FAKE_SEED_EXIT:-0}"
+[ "\${FAKE_SEED_EXIT:-0}" = 0 ] || exit "$FAKE_SEED_EXIT"
+jq -n --arg database "$CYCLOTRON_NODE_DATABASE_URL" --arg manifest "$SCENARIO_RUN_MANIFEST" \\
+    --arg command "\${command:-}" --arg profile "\${profile:-}" '{$database, $manifest, $command, $profile}' >"$FAKE_CALLS/seeded"
 `
 
 describe('host-prepare.sh', () => {
     let dir: string
 
-    const calls = (tool: string): string[] =>
+    const recorded = (tool: string): unknown =>
         existsSync(path.join(dir, 'calls', tool))
-            ? readFileSync(path.join(dir, 'calls', tool), 'utf8')
-                  .trimEnd()
-                  .split('\n')
-            : []
+            ? parseJSON(readFileSync(path.join(dir, 'calls', tool), 'utf8'))
+            : undefined
 
     function prepareHost(env: NodeJS.ProcessEnv): number | null {
         const bin = path.join(dir, 'bin')
@@ -78,33 +94,27 @@ describe('host-prepare.sh', () => {
     it('migrates and seeds the run cluster with its encoded credentials', () => {
         expect(prepareHost({})).toBe(0)
 
-        const source = calls('sqlx')[calls('sqlx').indexOf('--source') + 1]
-        expect(calls('sqlx')).toEqual(['migrate', 'run', '-D', URL, '--source', source])
-        expect(existsSync(source)).toBe(true)
-        expect(path.relative(REPO, source)).toBe('rust/cyclotron-node-migrations')
-        expect(calls('pnpm')).toEqual([
-            URL,
-            path.join(dir, 'host', 'input', 'manifest.json'),
-            '--dir',
-            path.join(REPO, 'nodejs'),
-            'exec',
-            'tsx',
-            'tests/scenarios/main.ts',
-            'seed-backlog',
-            '--profile',
-            path.join(dir, 'host', 'input', 'runner-profile.yaml'),
-        ])
+        expect(recorded('migrated')).toEqual({
+            database: URL,
+            source: path.join(REPO, 'rust', 'cyclotron-node-migrations'),
+        })
+        expect(recorded('seeded')).toEqual({
+            database: URL,
+            manifest: path.join(dir, 'host', 'input', 'manifest.json'),
+            command: 'seed-backlog',
+            profile: path.join(dir, 'host', 'input', 'runner-profile.yaml'),
+        })
     })
 
     it.each([
-        ['the migration fails', { FAKE_MIGRATE_EXIT: '1' }, 'migration step output', false],
-        ['the seed fails', { FAKE_SEED_EXIT: '1' }, 'seed step output', true],
-    ])('fails and uploads its log when %s', (_, env, output, seeded) => {
+        ['the migration fails', { FAKE_MIGRATE_EXIT: '1' }, 'migration step output'],
+        ['the seed fails', { FAKE_SEED_EXIT: '1' }, 'seed step output'],
+    ])('fails and uploads its log when %s', (_, env, output) => {
         expect(prepareHost(env)).not.toBe(0)
 
         expect(readFileSync(path.join(dir, 's3', BUCKET, 'runs', RUN_ID, 'host', 'prepare.log'), 'utf8')).toContain(
             output
         )
-        expect(calls('pnpm').length > 0).toBe(seeded)
+        expect(recorded('seeded')).toBeUndefined()
     })
 })

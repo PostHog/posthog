@@ -744,16 +744,29 @@ describe('cloud controller', () => {
         expect(cloud.schedules.size).toBe(0)
     })
 
-    it.each([
-        ['passes', 0],
-        ['fails', 1],
-        ['cannot write its scorecard', 3],
-    ])('seeds before it adds the reader, and exits as the card does when it %s', async (_, exitCode) => {
-        const { controller } = prepare({ cloud: { card: { exitCode } } })
+    it.each<[string, Partial<FakeCloudOptions>, number]>([
+        ['passes', {}, 0],
+        ['fails', { card: { exitCode: 1 } }, 1],
+        ['cannot write its scorecard', { card: { exitCode: 3 } }, 3],
+        ['passes while its liveness probes are lost', { probe: 'lost' }, 0],
+        ['passes while its liveness probes time out', { probe: 'timedOut' }, 0],
+    ])('seeds before it adds the reader, and exits as the card does when it %s', async (_, options, exitCode) => {
+        const { controller } = prepare({ cloud: options })
+        let doneAt: number | undefined
+        let deletedAt: number | undefined
+        onSleep = () => {
+            if (doneAt === undefined && [...cloud.objects.keys()].some((key) => key.endsWith('/host/done'))) {
+                doneAt = now.getTime()
+            }
+        }
+        cloud.beforeCall('delete-stack', () => {
+            deletedAt ??= now.getTime()
+        })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(exitCode)
 
         const runId = leasedRunId()
+        expect(deletedAt! - doneAt!).toBeLessThan(HOUR_MS / 6)
         expect(cloud.resources.find(({ logicalId }) => logicalId === 'Reader')).toMatchObject({ seeded: true })
         expect(parseJSON(cloud.objects.get(`runs/${runId}/host/done`)!)).toMatchObject({ exitCode })
         expect(cloud.objects.has(`runs/${runId}/evidence/SHA256SUMS`)).toBe(true)
@@ -793,7 +806,7 @@ describe('cloud controller', () => {
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
         expect(evidenceAtDelete).toBe(uploaded)
-        expect(err.join('\n').includes('Could not stop the card')).toBe(!uploaded)
+        expect(err.join('\n').includes('did not finish cleanly')).toBe(!uploaded)
         expect(deletedAt! - interruptedAt!).toBeLessThan(HOUR_MS / 6)
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)

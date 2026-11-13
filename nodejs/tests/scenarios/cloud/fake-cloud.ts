@@ -82,6 +82,7 @@ export type FakeCloudOptions = {
     outlives?: string[]
     seed?: { exitCode?: number; takesMs?: number }
     card?: { exitCode?: number; takesMs?: number; ignoresStop?: boolean; uploadFails?: boolean; diesAfterMs?: number }
+    probe?: 'lost' | 'timedOut'
 }
 
 const ACTION_OF: Record<string, string> = {
@@ -417,8 +418,9 @@ export class FakeCloud implements Aws {
                     ? { runId, instanceId, endsAt: now + takesMs, exitCode, reportsDone: true }
                     : { runId, instanceId, endsAt: now + diesAfterMs, exitCode: EXIT_INVALID, reportsDone: false }
         } else if (script.includes('systemctl is-active')) {
-            command.status = this.card ? 'Success' : 'Failed'
-            command.code = this.card ? 0 : 3
+            command.settlesAt = this.options.probe === 'lost' ? Infinity : command.settlesAt
+            command.status = this.options.probe === 'timedOut' ? 'TimedOut' : this.card ? 'Success' : 'Failed'
+            command.code = this.options.probe === 'timedOut' ? -1 : this.card ? 0 : 3
         } else if (script.includes('systemctl stop')) {
             const ignoresStop = this.options.card?.ignoresStop === true
             const stopsAt = now + (ignoresStop ? STOP_TIMEOUT_MS : MINUTE_MS)
