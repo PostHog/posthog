@@ -347,30 +347,61 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("integration_header", {"X-PostHog-Integration": "django-anymail/13.1"}, "django-anymail"),
-            ("user_agent", {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, "posthog-node"),
+            (
+                "integration_header",
+                "send_email",
+                {},
+                {"X-PostHog-Integration": "django-anymail/13.1"},
+                202,
+                "django-anymail",
+            ),
+            ("user_agent", "send_email", {}, {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, 202, "posthog-node"),
             (
                 "header_over_user_agent",
+                "send_email",
+                {},
                 {"X-PostHog-Integration": "nodemailer/5.9.1", "User-Agent": "posthog-node/5.9.1"},
+                202,
                 "nodemailer",
             ),
-            ("neither", {}, "unknown"),
+            ("neither", "send_email", {}, {}, 202, "unknown"),
             (
                 "malformed_header",
+                "send_email",
+                {},
                 {"X-PostHog-Integration": "Laravel 1.4", "User-Agent": "posthog-laravel/1.4.0"},
+                202,
                 "posthog-laravel",
+            ),
+            (
+                "template_route",
+                "template",
+                {},
+                {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
+                202,
+                "symfony-mailer",
+            ),
+            (
+                "refused_send",
+                "send_email",
+                {"to": "not-an-address"},
+                {"X-PostHog-Integration": "django-anymail/13.1"},
+                400,
+                "django-anymail",
             ),
         ]
     )
-    def test_records_the_client_that_made_the_send(self, mock_post, _flag, capture, _name, headers, expected_client):
+    def test_records_the_client_that_made_the_send(
+        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected_client
+    ):
         pipeline, analytics = FakeCdpApi(), FakeAnalytics()
         mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
 
         response = self._send(
-            self._psak_client(["transactional_email:write"]), "send_email", self.body, headers=headers
+            self._psak_client(["transactional_email:write"]), route, {**self.body, **extra_body}, headers=headers
         )
 
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.status_code == expected_status, response.json()
         assert [event["client"] for event in analytics.properties_of("transactional email api send")] == [
             expected_client
         ]
