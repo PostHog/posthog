@@ -3,7 +3,6 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -25,7 +24,6 @@ jest.mock('./datasetsApi', () => ({
     },
 }))
 
-const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASET_ID = 'dataset-1'
 const TIMESTAMP = '2024-01-01T00:00:00Z'
 const TRACE_LINK = '[data-attr="dataset-item-trace-link"]'
@@ -111,7 +109,6 @@ describe('DatasetItems', () => {
         })
         mockDatasetsApi.listRevisions.mockResolvedValue({ results: [], count: 0 })
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })
         router.actions.push(urls.aiObservabilityDataset(DATASET_ID))
         logic = aiObservabilityDatasetLogic({ datasetId: DATASET_ID })
         logic.mount()
