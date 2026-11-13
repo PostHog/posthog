@@ -1,4 +1,7 @@
+import { combineUrl } from 'kea-router'
+
 import { slackChannelId, slackChannelName } from 'lib/integrations/slackChannel'
+import { urls } from 'scenes/urls'
 
 import type {
     AlertReceiverApi,
@@ -25,6 +28,19 @@ export const ROUTE_EVENT_KIND_OPTIONS: { value: PlatformAlertDestinationEventKin
 ]
 
 export const ALL_ROUTE_EVENT_KINDS = ROUTE_EVENT_KIND_OPTIONS.map((option) => option.value)
+
+export function routeEventKindsLabel(kinds: PlatformAlertDestinationEventKindEnumApi[]): string {
+    return kinds.length === ALL_ROUTE_EVENT_KINDS.length
+        ? 'All'
+        : ROUTE_EVENT_KIND_OPTIONS.filter((option) => kinds.includes(option.value))
+              .map((option) => option.label)
+              .join(', ')
+}
+
+// pinned: `tab`, `route` and `receiver` search params are shareable links into the routing tab
+export function routingUrl(highlight: { route?: string; receiver?: string } = {}): string {
+    return combineUrl(urls.platformAlerts(), { tab: 'routing', ...highlight }).url
+}
 
 export interface ReceiverForm {
     name: string
