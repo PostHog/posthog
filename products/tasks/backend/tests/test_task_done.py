@@ -160,6 +160,24 @@ class TestTaskDone(TestCase):
         )
         self.assertEqual(done_change, done_changed_by)
 
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_a_resumed_run_that_closes_its_turn_finishes_the_task(self, _publish) -> None:
+        run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state=dict(_STOPPED_EARLY)
+        )
+        run.prepare_for_cloud_resume()
+        TaskRun.objects.filter(pk=run.pk).update(status=TaskRun.Status.COMPLETED)
+        self._set_status(Task.Status.RUNNING)
+
+        with (
+            self._mode("enforce"),
+            patch("products.tasks.backend.task_run_sync.find_task_profile", return_value=_DONE_ON_TURN_CLOSE),
+        ):
+            sync_task_status(self.task.id)
+
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, Task.Status.DONE)
+
     @parameterized.expand([("enforce", "enforce", True), ("unresolved", None, True), ("off", "off", False)])
     def test_new_runs_on_a_done_task_are_refused_unless_explicitly_off(
         self, _name: str, mode: str | None, refused: bool
