@@ -1456,6 +1456,7 @@ class TestPersistReplyActivity:
                 )
 
         comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
+        assert comment.item_context is not None
         assert comment.item_context["run_id"] == "run-1"
         with team_scope(team.id, canonical=True):
             cited = list(KnowledgeRunCitation.objects.values_list("run_id", "ticket_id", "source_id", "persist_as"))
