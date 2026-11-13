@@ -19,13 +19,14 @@ import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } fr
 import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
+import type { CodeSendSender, SandboxCodeSendRefusal } from '../messaging/sandbox/sandbox-code-send'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
-import { IdempotencyKeys } from './idempotency-keys'
+import { FingerprintWithPreviousShape, IdempotencyKeys, SenderKind, storedFingerprint } from './idempotency-keys'
 import {
     AcceptedSend,
     TransactionalEmailRequest,
@@ -47,15 +48,24 @@ const transactionalEmailFingerprint = (
     { to, distinct_id, variables }: TransactionalEmailRequest,
     send: AcceptedSend | undefined,
     scheduledAt: Date | null
-): string => {
+): string | FingerprintWithPreviousShape => {
     const request: unknown[] = [hogFlowId, to, distinct_id, variables]
-    if (send) {
-        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send))
+    const schedule: unknown[] = scheduledAt ? [SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString()] : []
+    if (!send) {
+        return IdempotencyKeys.fingerprint([...request, ...schedule])
     }
-    if (scheduledAt) {
-        request.push(SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString())
+    const { from, ...rest } = send
+    const withSender = (sender: CallerChosenSender | undefined): string =>
+        IdempotencyKeys.fingerprint([
+            ...request,
+            ACCEPTED_SEND_FINGERPRINT_MARKER,
+            { ...rest, from: sender },
+            ...schedule,
+        ])
+    return {
+        current: withSender(senderTheCallerChose(from)),
+        previousShape: withSender(senderBeforeSandboxSends(from)),
     }
-    return IdempotencyKeys.fingerprint(request)
 }
 
 const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void => {
@@ -67,15 +77,10 @@ const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void =>
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 
-const withSenderTheCallerChose = ({
-    from,
-    ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
-    ...send,
-    from: senderTheCallerChose(from),
-})
+const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined =>
+    from?.email || from?.name ? { email: from.email, name: from.name } : undefined
 
-const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
+const senderBeforeSandboxSends = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
     if (!from) {
         return undefined
     }
@@ -111,6 +116,7 @@ export type TransactionalSendsDeps = {
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
     attachmentUploads: AttachmentUploads
+    refuseSandboxSend: (teamId: number, recipient: string) => Promise<SandboxCodeSendRefusal | null>
 }
 
 export type SendFiles = {
@@ -129,6 +135,7 @@ export type TransactionalSendResult =
           invocationId: string
           scheduledAt: string | null
           replyFields: Record<string, number>
+          senderKind?: SenderKind
       }
     | { outcome: TransactionalSendRefusal }
     | { refused: SendRefusal | { status: 400; body: Extract<FilesWorkflowShape, { refused: unknown }>['refused'] } }
@@ -141,14 +148,16 @@ export class TransactionalSends {
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
         stages: TransactionalEmailStageTimer,
-        files: SendFiles
+        files: SendFiles,
+        sender: CodeSendSender = { kind: 'own' }
     ): Promise<TransactionalSendResult> {
+        const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
         const { to, idempotency_key: idempotencyKey, send } = request
         const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
 
         stages.start('build')
-        const invocation = this.buildInvocation(team, hogFlow, request, send)
+        const invocation = this.buildInvocation(team, hogFlow, request, send, senderKind)
         const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         const releaseKey = async (): Promise<void> => {
             if (idempotencyKey) {
@@ -166,6 +175,7 @@ export class TransactionalSends {
                         invocationId: reservation.invocationId,
                         scheduledAt: reservation.scheduledAt ?? null,
                         replyFields: { ...NO_ATTACHMENTS, ...reservation.replayFields },
+                        senderKind: reservation.senderKind,
                     }
                 case 'in_flight':
                     return { outcome: 'idempotency_key_in_flight' }
@@ -174,6 +184,10 @@ export class TransactionalSends {
                 case 'unavailable':
                     return { outcome: 'idempotency_unavailable' }
             }
+        }
+        if (sender.kind === 'refused') {
+            await releaseKey()
+            return { outcome: sender.refusal }
         }
         const tooFarAhead =
             requestedAt !== null &&
@@ -194,7 +208,7 @@ export class TransactionalSends {
             stages.start('checks')
             const refusal = tooFarAhead
                 ? 'invalid_scheduled_at'
-                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
+                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request), senderKind)
             if (refusal) {
                 await releaseKey()
                 return { outcome: refusal }
@@ -228,7 +242,8 @@ export class TransactionalSends {
             if (idempotencyKey) {
                 invocation.state.idempotencyKey = {
                     hash: IdempotencyKeys.hash(idempotencyKey),
-                    fingerprint,
+                    ...storedFingerprint(fingerprint),
+                    ...(senderKind ? { senderKind } : {}),
                     replayFields: attachmentTotals,
                     ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
                 }
@@ -254,7 +269,8 @@ export class TransactionalSends {
                 invocation.id,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                scheduledAt ? latestDueAtOf(invocation.id) : undefined
+                scheduledAt ? latestDueAtOf(invocation.id) : undefined,
+                senderKind
             )
         }
         stages.start('metrics_flush')
@@ -276,6 +292,7 @@ export class TransactionalSends {
             invocationId: invocation.id,
             scheduledAt: scheduledAt?.toISOString() ?? null,
             replyFields: attachmentTotals,
+            senderKind,
         }
     }
 
@@ -283,7 +300,8 @@ export class TransactionalSends {
         team: Team,
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
-        send: AcceptedSend | undefined
+        send: AcceptedSend | undefined,
+        senderKind: SenderKind | undefined
     ) {
         const { to, distinct_id: distinctId, variables } = request
         const event: HogFunctionInvocationGlobals['event'] = {
@@ -317,6 +335,9 @@ export class TransactionalSends {
             const { attachments: _references, ...queuedSend } = send
             invocation.state.send = queuedSend
         }
+        if (senderKind) {
+            invocation.state.senderKind = senderKind
+        }
         // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
         // worker counts it instead.
         invocation.state.triggerMetricPending = true
@@ -333,10 +354,17 @@ export class TransactionalSends {
     private async refusal(
         teamId: number,
         hogFlow: HogFlow,
-        recipients: string[]
+        recipients: string[],
+        senderKind: SenderKind | undefined
     ): Promise<TransactionalSendRefusal | null> {
         if (hogFlow.status !== 'active') {
             return 'not_sendable'
+        }
+        if (senderKind === 'email_sandbox') {
+            const sandboxRefusal = await this.deps.refuseSandboxSend(teamId, recipients[0])
+            if (sandboxRefusal) {
+                return sandboxRefusal
+            }
         }
         // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
