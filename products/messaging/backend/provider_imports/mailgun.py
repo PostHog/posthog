@@ -8,6 +8,7 @@ Mailgun's API has no automations, so nothing here makes a workflow. People never
 """
 
 import re
+import json
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -44,6 +45,14 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.contacts import (
+    CONTACT_COUNT_LABELS,
+    ContactCollector,
+    ContactList,
+    new_people_page,
+    new_people_step,
+    save_contact_lists,
+)
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.imported_senders import apply_sender
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
@@ -68,6 +77,7 @@ from products.messaging.backend.services.mailgun_client import (
     quoted,
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -105,6 +115,7 @@ _MAX_KEY_NAME_LENGTH = 150
 CATEGORY_KEY_MAX_LENGTH = 64
 _UNSAFE_IN_KEY = re.compile(r"[^A-Za-z0-9_-]+")
 _MAX_NOTED_ITEMS = 5
+MISSING_LIST_NOTE = "Mailgun couldn't find this list while reading it, so its cohort wasn't filled. Import again."
 _STEPS_NEEDING_SUPPRESSION_ROLE = {step: step for step in ("bounces", "complaints", "unsubscribes")}
 
 
@@ -149,8 +160,8 @@ class MailgunImportProvider(ImportProvider):
     )
     api_key_url = "https://app.mailgun.com/settings/api_security"
     not_imported = (
-        "Mailgun has no automations to import. Subscribed list members don't become people in PostHog. Routes, "
-        "webhooks, tracking settings, send history and stats stay in Mailgun, so rebuild what you need."
+        "Mailgun has no automations to import. Routes, webhooks, tracking settings, send history and stats stay in "
+        "Mailgun, so rebuild what you need."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
@@ -251,8 +262,8 @@ class MailgunImportProvider(ImportProvider):
             key="mailing_lists",
             label="Mailing lists",
             description=(
-                "Creates a marketing message category for each list, and opts out the members who left it. PostHog "
-                "reads only those members and doesn't create people from your lists."
+                "Creates a marketing message category for each list, and opts out the members who left it, by email "
+                "address. Contacts turns the members into people."
             ),
             count_labels=(
                 ("created", "New categories"),
@@ -263,6 +274,18 @@ class MailgunImportProvider(ImportProvider):
                 ("missing_lists", "Lists Mailgun couldn't find, skipped"),
             ),
         ),
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each list member to a person in PostHog by email and sets their name and list variables. "
+                "Fills a cohort with all your members and one with each list's subscribed members. Each person "
+                "updated counts as one event."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=("unsubscribes", "mailing_lists"),
+        ),
+        new_people_step("Mailgun"),
         ImportStepSpec(
             key="templates",
             label="Templates",
@@ -339,6 +362,10 @@ class MailgunImportProvider(ImportProvider):
                     yield from _fetch_suppression_list(clients, context, checkpoint, "whitelists", _save_allowlist)
                 case "mailing_lists":
                     yield from _fetch_mailing_lists(clients, context, checkpoint)
+                case "contacts":
+                    yield from _fetch_contacts(clients, context)
+                case "new_people":
+                    yield ImportPage(processed=0, save=new_people_page)
                 case "templates":
                     yield from _fetch_templates(clients, context, checkpoint)
                 case "domains":
@@ -673,6 +700,74 @@ def _owners(client: MailgunClient) -> list[str]:
 def _fetch_mailing_lists(
     clients: Mapping[MailgunRegion, MailgunClient], context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
+    targets = _list_targets(clients, {"subscribed": "false", "limit": TEMPLATE_PAGE_SIZE})
+    yield from _read_targets(clients, targets, checkpoint, None, partial(_save_list_members, context), _missing_list)
+
+
+def _fetch_contacts(clients: Mapping[MailgunRegion, MailgunClient], context: ImportContext) -> Iterator[ImportPage]:
+    # Every list's cohort fills in one go, so the step reads all members before it saves, and a retry reads them again.
+    contacts = ContactCollector()
+    lists: list[ContactList] = []
+    for target in _list_targets(clients, {"limit": TEMPLATE_PAGE_SIZE}):
+        client = clients[target.region]
+        subscribed: list[dict[str, str]] = []
+        missing = False
+        after: str | None = None
+        while True:
+            try:
+                page = client.page(target.path, dict(target.params), after, target.on_behalf_of)
+            except MailgunNotFound:
+                missing = True
+                break
+            for member in page.items:
+                row = contacts.add(member.get("address"), _member_properties(member))
+                if row is not None and member.get("subscribed") is True:
+                    subscribed.append(row)
+            if not page.next_after:
+                break
+            after = page.next_after
+        name = _clean(target.details.get("name")) or target.name
+        lists.append(
+            ContactList(
+                cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Mailgun)",
+                cohort_description=f"Imported from Mailgun list {target.name} ({target.region.value}).",
+                source=f'the Mailgun list "{name}"',
+                # A list deleted while it was read is left as it is, rather than filled with part of its members.
+                rows=() if missing else tuple(subscribed),
+                empty_note=MISSING_LIST_NOTE if missing else "No subscribed members.",
+            )
+        )
+    everyone = contacts.everyone
+    yield ImportPage(
+        processed=len(everyone),
+        save=partial(
+            save_contact_lists,
+            context,
+            ContactList(
+                cohort_name="Mailgun list members",
+                cohort_description="Imported from Mailgun list members.",
+                source="your Mailgun list members",
+                rows=everyone,
+            ),
+            lists,
+        ),
+    )
+
+
+def _member_properties(member: Mapping[str, Any]) -> dict[str, Any]:
+    variables = member.get("vars")
+    # Mailgun returns the variables as an object or as a JSON string, depending on how they were added.
+    if isinstance(variables, str):
+        try:
+            variables = json.loads(variables)
+        except ValueError:
+            variables = None
+    if not isinstance(variables, dict):
+        variables = {}
+    return {**variables, "name": member.get("name")}
+
+
+def _list_targets(clients: Mapping[MailgunRegion, MailgunClient], member_params: Mapping[str, Any]) -> list[_Target]:
     targets: list[_Target] = []
     for region, client in clients.items():
         for owner in _owners(client):
@@ -685,7 +780,7 @@ def _fetch_mailing_lists(
                         owner=owner,
                         name=str(mailing_list["address"]),
                         path=f"/v3/lists/{quoted(str(mailing_list['address']))}/members/pages",
-                        params={"subscribed": "false", "limit": TEMPLATE_PAGE_SIZE},
+                        params=member_params,
                         details=mailing_list,
                     )
                     for mailing_list in page.items
@@ -694,7 +789,7 @@ def _fetch_mailing_lists(
                 if page.next_after is None:
                     break
                 after = page.next_after
-    yield from _read_targets(clients, targets, checkpoint, None, partial(_save_list_members, context), _missing_list)
+    return targets
 
 
 def _missing_list(target: _Target) -> SavedPage:
@@ -739,9 +834,8 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
                 status="created" if result.created else "skipped",
                 url="/workflows/opt-outs",
                 notes=(
-                    f"Members on this list in Mailgun: {members}. PostHog doesn't create people from a list, and "
-                    "their custom variables stay in Mailgun too. To send to this audience, build a cohort from your "
-                    "own data or send people's details to PostHog first.",
+                    f"Members on this list in Mailgun: {members}. Import Contacts to make them people and fill a cohort "
+                    "with this list.",
                     "Sending to the list address, who can post to it, and where replies go don't carry over.",
                 ),
             ),
