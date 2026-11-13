@@ -1,18 +1,18 @@
 import { execFile } from 'child_process'
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, mkdirSync, writeFileSync } from 'fs'
 import path from 'path'
 import { Client } from 'pg'
-import { parse } from 'yaml'
 import { z } from 'zod'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { Aws, awsCli } from './aws'
-import { Pooler } from './profile'
+import { Pooler, loadCloudProfile } from './profile'
 
 export const READY_TIMEOUT_MS = 2 * 60_000
 const RETRY_MS = 1_000
-const CONNECT_TIMEOUT_MS = 5_000
+export const ATTEMPT_TIMEOUT_MS = 5_000
+const LOG_LINES = 50
 const FIRST_PORT = 6432
 const DATABASE = 'cyclotron_node'
 const CONFIG_DIR = '/etc/scenario-pooler'
@@ -22,15 +22,13 @@ export type Target = { port: number; user: string; password: string; database: s
 
 export type PoolerHost = {
     aws: Aws
-    docker(args: string[], input?: string): Promise<void>
+    docker(args: string[], input?: string): Promise<string>
     select1(target: Target): Promise<void>
     now(): number
     sleep(ms: number): Promise<void>
     log(line: string): void
     warn(line: string): void
 }
-
-const PoolerProfile = z.object({ pooler: Pooler })
 
 const Cluster = z.object({
     Endpoint: z.string().min(1),
@@ -147,8 +145,11 @@ export async function startPoolers(host: PoolerHost, pooler: Pooler, runId: stri
         try {
             await awaitAnswer(host, { port, user: username, password, database: DATABASE }, deadline)
         } catch (error) {
+            const logs = await host
+                .docker(['logs', '--tail', String(LOG_LINES), `scenario-pooler-${replica}`])
+                .catch((logsError: Error) => logsError.message)
             throw new Error(
-                `Pooler replica ${replica} on port ${port} did not answer SELECT 1 within ${READY_TIMEOUT_MS / 1000} s: ${(error as Error).message}`
+                `Pooler replica ${replica} on port ${port} did not answer SELECT 1 within ${READY_TIMEOUT_MS / 1000} s: ${(error as Error).message}\nIts last log lines:\n${logs}`
             )
         }
     }
@@ -163,7 +164,7 @@ export async function main(args: string[], env: NodeJS.ProcessEnv, host: PoolerH
         return 1
     }
     try {
-        const { pooler } = PoolerProfile.parse(parse(readFileSync(file, 'utf8')))
+        const { pooler } = loadCloudProfile(file)
         const ports = await startPoolers(host, pooler, runId, env.SCENARIO_HOST_ROOT ?? '/opt/scenario')
         host.log(`Poolers answer SELECT 1 on ports ${ports.join(', ')}`)
         return 0
@@ -180,7 +181,8 @@ export async function select1({ port, user, password, database }: Target): Promi
         user,
         password,
         database,
-        connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+        connectionTimeoutMillis: ATTEMPT_TIMEOUT_MS,
+        query_timeout: ATTEMPT_TIMEOUT_MS,
     })
     await client.connect()
     try {
@@ -190,10 +192,12 @@ export async function select1({ port, user, password, database }: Target): Promi
     }
 }
 
-function dockerCli(args: string[], input = ''): Promise<void> {
+function dockerCli(args: string[], input = ''): Promise<string> {
     return new Promise((resolve, reject) => {
-        const child = execFile('docker', args, (error, _stdout, stderr) =>
-            error ? reject(new Error(`docker ${args[0]} failed: ${stderr.trim() || error.message}`)) : resolve()
+        const child = execFile('docker', args, (error, stdout, stderr) =>
+            error
+                ? reject(new Error(`docker ${args[0]} failed: ${stderr.trim() || error.message}`))
+                : resolve(`${stdout}${stderr}`)
         )
         child.stdin?.end(input)
     })

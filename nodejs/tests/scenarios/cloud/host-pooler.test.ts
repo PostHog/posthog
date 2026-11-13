@@ -1,10 +1,12 @@
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import { AddressInfo, createServer } from 'net'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 
 import { Aws, AwsError } from './aws'
-import { PoolerHost, READY_TIMEOUT_MS, main, select1 } from './host-pooler'
+import { PROFILE } from './fixtures'
+import { ATTEMPT_TIMEOUT_MS, PoolerHost, READY_TIMEOUT_MS, main, select1 } from './host-pooler'
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001'
 const ENDPOINT = 'scn.cluster.example.com'
@@ -16,6 +18,9 @@ const DIGEST = `sha256:${'b'.repeat(64)}`
 const PUBLIC_IMAGE = `registry.example.com/pgbouncer@${DIGEST}`
 const ECR_REGISTRY = '000000000000.dkr.ecr.us-east-1.amazonaws.com'
 const ECR_IMAGE = `${ECR_REGISTRY}/pgbouncer@${DIGEST}`
+const AUTHENTICATION_OK = Buffer.from([0x52, 0, 0, 0, 8, 0, 0, 0, 0])
+const READY_FOR_QUERY = Buffer.from([0x5a, 0, 0, 0, 5, 0x49])
+const TERMINATE = 0x58
 
 type Ini = Record<string, Record<string, string>>
 
@@ -67,6 +72,7 @@ class FakeHost implements PoolerHost {
     loggedIn = new Set<string>()
     pulled = new Set<string>()
     startsAfter = new Map<number, number>()
+    crashOutput = new Map<number, string>()
     out: string[] = []
     err: string[] = []
 
@@ -95,7 +101,7 @@ class FakeHost implements PoolerHost {
         },
     }
 
-    docker = (args: string[], input?: string): Promise<void> => {
+    docker = (args: string[], input?: string): Promise<string> => {
         const [command, ...rest] = args
         if (command === 'login') {
             const registry = rest[rest.length - 1]
@@ -103,7 +109,7 @@ class FakeHost implements PoolerHost {
                 return Promise.reject(new Error('docker login: unauthorized'))
             }
             this.loggedIn.add(registry)
-            return Promise.resolve()
+            return Promise.resolve('Login Succeeded')
         }
         if (command === 'pull') {
             const registry = rest[0].split('/')[0]
@@ -111,7 +117,7 @@ class FakeHost implements PoolerHost {
                 return Promise.reject(new Error('docker pull: no basic auth credentials'))
             }
             this.pulled.add(rest[0])
-            return Promise.resolve()
+            return Promise.resolve('')
         }
         if (command === 'run') {
             const flags = new Map<string, string[]>()
@@ -126,7 +132,13 @@ class FakeHost implements PoolerHost {
                 return Promise.reject(new Error(`docker run: ${image} not found`))
             }
             this.containers.push({ name: flags.get('--name')![0], image, flags, args: rest.slice(index + 1) })
-            return Promise.resolve()
+            return Promise.resolve('')
+        }
+        if (command === 'logs') {
+            const pooler = this.poolers().find(({ container }) => container.name === rest[rest.length - 1])
+            return pooler
+                ? Promise.resolve(this.crashOutput.get(Number(pooler.settings.listen_port)) ?? '')
+                : Promise.reject(new Error(`docker logs: no such container ${rest[rest.length - 1]}`))
         }
         return Promise.reject(new Error(`docker ${command}: unexpected`))
     }
@@ -144,11 +156,14 @@ class FakeHost implements PoolerHost {
     }): Promise<void> => {
         const pooler = this.poolers().find(({ settings }) => settings.listen_port === String(port))
         const waits = this.startsAfter.get(port) ?? 0
-        if (!pooler || waits > 0) {
+        if (!pooler || waits > 0 || this.crashOutput.has(port)) {
             this.startsAfter.set(port, waits - 1)
             return Promise.reject(new Error(`connect ECONNREFUSED 127.0.0.1:${port}`))
         }
-        if (pooler.users.get(user) !== password) {
+        if (
+            !['scram-sha-256', 'md5', 'plain'].includes(pooler.settings.auth_type) ||
+            pooler.users.get(user) !== password
+        ) {
             return Promise.reject(new Error(`password authentication failed for user "${user}"`))
         }
         if (pooler.databases[database] !== `host=${ENDPOINT} port=5432 dbname=cyclotron_node`) {
@@ -203,13 +218,10 @@ describe('host-pooler', () => {
     let dir: string
     let host: FakeHost
 
-    function poolOnHost(image: string, replicas = 2): Promise<number> {
+    function poolOnHost(image: string, runId = RUN_ID): Promise<number> {
         const profile = path.join(dir, 'cloud-profile.yaml')
-        writeFileSync(
-            profile,
-            stringify({ pooler: { image, replicas, settings: { pool_mode: 'transaction', default_pool_size: 20 } } })
-        )
-        return main([profile], { SCENARIO_RUN_ID: RUN_ID, SCENARIO_HOST_ROOT: dir }, host)
+        writeFileSync(profile, stringify({ ...PROFILE, pooler: { ...PROFILE.pooler, image } }))
+        return main([profile], { SCENARIO_RUN_ID: runId, SCENARIO_HOST_ROOT: dir }, host)
     }
 
     beforeEach(() => {
@@ -233,28 +245,28 @@ describe('host-pooler', () => {
         for (const { container, settings } of poolers) {
             expect(container.image).toBe(image)
             expect(container.flags.get('--restart')).toEqual(['unless-stopped'])
-            expect(settings).toMatchObject({ pool_mode: 'transaction', default_pool_size: '20' })
+            expect(settings).toMatchObject({
+                pool_mode: 'transaction',
+                default_pool_size: '20',
+                server_tls13_ciphers: 'TLS_AES_256_GCM_SHA384',
+            })
         }
         expect(statSync(path.join(dir, 'pooler')).mode & 0o077).toBe(0)
     })
 
-    it('fails naming the replica that never answers, once the readiness deadline passes', async () => {
-        host.startsAfter.set(6433, Infinity)
+    it('fails naming the replica that never answers and what it logged, once the readiness deadline passes', async () => {
+        host.crashOutput.set(6433, 'FATAL unrecognized parameter: pool_mod')
 
         await expect(poolOnHost(PUBLIC_IMAGE)).resolves.toBe(1)
 
         expect(host.err.join('\n')).toMatch(/replica 1 on port 6433 .*ECONNREFUSED/)
+        expect(host.err.join('\n')).toContain('FATAL unrecognized parameter: pool_mod')
         expect(host.elapsed).toBeGreaterThanOrEqual(READY_TIMEOUT_MS)
         expect(host.elapsed).toBeLessThan(READY_TIMEOUT_MS + 10_000)
     })
 
     it('fails without starting a pooler when the run cluster cannot be found', async () => {
-        const profile = path.join(dir, 'cloud-profile.yaml')
-        writeFileSync(profile, stringify({ pooler: { image: PUBLIC_IMAGE, replicas: 1, settings: {} } }))
-
-        await expect(
-            main([profile], { SCENARIO_RUN_ID: '00000000-0000-4000-8000-000000000009', SCENARIO_HOST_ROOT: dir }, host)
-        ).resolves.toBe(1)
+        await expect(poolOnHost(PUBLIC_IMAGE, '00000000-0000-4000-8000-000000000009')).resolves.toBe(1)
 
         expect(host.err.join('\n')).toContain('DBClusterNotFoundFault')
         expect(host.containers).toEqual([])
@@ -270,4 +282,23 @@ describe('select1', () => {
 
         await (answers ? expect(answer).resolves.toBeUndefined() : expect(answer).rejects.toThrow('password'))
     })
+
+    it('gives up on a pooler that accepts the client but never answers the query', async () => {
+        const stalled = createServer((socket) => {
+            socket.once('data', () => socket.write(Buffer.concat([AUTHENTICATION_OK, READY_FOR_QUERY])))
+            socket.on('data', (message) => message[0] === TERMINATE && socket.end())
+        })
+        await new Promise<void>((resolve) => stalled.listen(0, '127.0.0.1', resolve))
+        const { port } = stalled.address() as AddressInfo
+        const started = Date.now()
+
+        try {
+            await expect(
+                select1({ port, user: 'posthog', password: 'posthog', database: 'test_posthog' })
+            ).rejects.toThrow()
+            expect(Date.now() - started).toBeLessThan(ATTEMPT_TIMEOUT_MS + 2_000)
+        } finally {
+            stalled.close()
+        }
+    }, 20_000)
 })

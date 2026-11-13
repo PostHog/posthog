@@ -7,6 +7,7 @@ import { stringify } from 'yaml'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { FakeCloud, FakeCloudOptions } from './fake-cloud'
+import { PROFILE } from './fixtures'
 import { lease } from './lease'
 import { Controller, main } from './main'
 import { loadRunInputs } from './profile'
@@ -16,60 +17,6 @@ const HOUR_MS = 60 * 60 * 1000
 const COMMIT = 'c0ffee0000000000000000000000000000000000'
 const OWNER = 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person'
 const OTHER_ACCOUNT = '111111111111'
-
-const PROFILE = {
-    name: 'test-eu',
-    account: '000000000000',
-    region: 'us-east-1',
-    availabilityZone: 'us-east-1a',
-    baseline: {
-        schedulerRole: 'arn:aws:iam::000000000000:role/test-scheduler',
-        stackServiceRole: 'arn:aws:iam::000000000000:role/test-stacks',
-        monitoringRole: 'arn:aws:iam::000000000000:role/test-monitoring',
-        evidenceBucket: 'test-evidence',
-        dbSubnetGroup: 'test-db-subnets',
-        databaseSecurityGroup: 'sg-0000000000000000a',
-        clusterParameterGroup: 'test-cluster-parameters',
-        instanceParameterGroup: 'test-instance-parameters',
-        hostSubnet: 'subnet-0000000000000000a',
-        hostSecurityGroup: 'sg-0000000000000000b',
-        hostInstanceProfile: 'test-host',
-    },
-    engineVersion: '16.4',
-    writerClass: 'db.r8g.2xlarge',
-    readerAcu: { min: 1, max: 32 },
-    host: {
-        class: 'm7i.8xlarge',
-        ebsGb: 100,
-        imageParameter: '/test/ubuntu/ami-id',
-        bootstrapDeadline: '30m',
-    },
-    pooler: {
-        image: `registry.example.com/pgbouncer@sha256:${'b'.repeat(64)}`,
-        replicas: 2,
-        settings: { pool_mode: 'transaction', default_pool_size: 20 },
-    },
-    runnerProfile: 'runner.yaml',
-    admission: {
-        teardownAllowance: '60m',
-        priceList: {
-            version: '20260101000000',
-            feeds: [{ url: 'https://pricing.example.com/rds.json', sha256: 'a'.repeat(64) }],
-        },
-        rates: {
-            writerPerHour: 1,
-            acuPerHour: 0.1,
-            hostPerHour: 1,
-            storagePerGbMonth: 0.2,
-            ebsPerGbMonth: 0.1,
-            logsIngestPerGb: 0.5,
-            transferPerGb: 0.1,
-            s3PerThousandRequests: 0.01,
-        },
-        allowances: { storageGb: 73, transferGb: 10, s3Requests: 10_000, enhancedMonitoringEventBytes: 10_000 },
-        reserve: { marginUsd: 10 },
-    },
-}
 
 type Setup = {
     profile?: (profile: typeof PROFILE) => unknown

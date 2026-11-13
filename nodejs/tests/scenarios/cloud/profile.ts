@@ -30,7 +30,7 @@ export const Pooler = z
         replicas: z.number().int().positive(),
         settings: z
             .record(
-                z.string().regex(/^[a-z_]+$/, 'a pgbouncer setting name'),
+                z.string().regex(/^[a-z][a-z0-9_]*$/, 'a pgbouncer setting name'),
                 z.union([z.string().regex(/^[^\r\n]*$/, 'a single line'), z.number()])
             )
             .refine((settings) => !HOST_OWNED_POOLER_SETTINGS.some((key) => key in settings), {
