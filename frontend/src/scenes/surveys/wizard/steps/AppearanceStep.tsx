@@ -22,6 +22,7 @@ import {
     defaultSurveyAppearance,
     getMatchingSurveyThemeId,
 } from '../../constants'
+import { useSiteThemeCard } from '../../survey-appearance/SiteThemeCard'
 import { SurveyBehaviorOptions } from '../../survey-appearance/SurveyBehaviorOptions'
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { surveyLogic } from '../../surveyLogic'
@@ -63,6 +64,13 @@ export function AppearanceStep(): JSX.Element {
         onAppearanceChange(theme.appearance)
     }
 
+    const siteThemeCard = useSiteThemeCard({
+        survey,
+        appearance,
+        onSelectTheme: handleThemeSelect,
+        disabled: !surveysStylingAvailable,
+    })
+
     const previewSurvey: NewSurvey = {
         ...survey,
         id: 'new',
@@ -93,6 +101,7 @@ export function AppearanceStep(): JSX.Element {
                     selectedThemeId={selectedThemeId}
                     onSelectTheme={handleThemeSelect}
                     disabled={!surveysStylingAvailable}
+                    leadingCard={siteThemeCard}
                 />
 
                 {/* Color customization */}
