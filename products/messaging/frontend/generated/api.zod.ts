@@ -180,6 +180,12 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
         ),
+    scheduled_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog keeps the time to the millisecond and holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.'
+        ),
     capture_engagement: zod
         .boolean()
         .optional()

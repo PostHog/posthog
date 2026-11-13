@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from unittest.mock import MagicMock
@@ -177,6 +178,7 @@ _TEMPLATE_REQUEST_KEYS = {
     "distinct_id": _Key(_string(min_length=1)),
     "variables": _Key(_record, optional=True),
     "idempotency_key": _Key(_string(min_length=1, max_length=255), optional=True),
+    "scheduled_at": _Key(_string(min_length=1), optional=True),
 }
 
 
@@ -193,6 +195,7 @@ class FakeCdpApi:
     takes_attachments: bool = True
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
+    replies: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def queued_sends(self) -> list[dict[str, Any]]:
@@ -213,8 +216,29 @@ class FakeCdpApi:
             return _response(422, {"error": "recipient_unreachable"})
         if issues:
             return _response(400, {"error": _json_dumps(issues)})
-        self.queued.append({name: value for name, value in request.items() if name in keys})
-        return _response(202, {"invocation_id": str(uuid.uuid4())})
+        status_code, reply = self._schedule(request)
+        if status_code == 202 and not reply["replayed"]:
+            self.queued.append({name: value for name, value in request.items() if name in keys})
+        return _response(status_code, reply)
+
+    def _schedule(self, request: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        key = request.get("idempotency_key")
+        if key in self.replies:
+            return 202, {**self.replies[key], "replayed": True}
+        requested = datetime.fromisoformat(request["scheduled_at"]) if request.get("scheduled_at") else None
+        now = datetime.now(UTC)
+        if requested and requested > now + timedelta(days=30):
+            return 400, {"error": "invalid_scheduled_at", "reason": "too_far"}
+        scheduled_at = requested if requested and requested > now else None
+        reply = {
+            "invocation_id": str(uuid.uuid4()),
+            "status": "scheduled" if scheduled_at else "queued",
+            "scheduled_at": scheduled_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z") if scheduled_at else None,
+            "replayed": False,
+        }
+        if key:
+            self.replies[key] = reply
+        return 202, reply
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
