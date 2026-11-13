@@ -64,13 +64,21 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
                 )}
                 data-attr={dataAttr}
             >
-                <header className="flex min-w-0 flex-col">
-                    <div className="flex min-w-0 items-center gap-2">
-                        <div className="flex min-w-0">{scanner}</div>
-                        {action && <div className="relative z-10 ml-auto shrink-0">{action}</div>}
+                {/*
+                  One or two cards across share one line, and the person and age keep up to 45% of it, so a long email
+                  is cut before the scanner name. From three across (72rem, FEED_GRID's breakpoint, keep the two in step)
+                  the card is too narrow for both, so the person and age get their own line. pl-8 is the chip's size-6
+                  icon plus gap-2, so that line starts under the name.
+                */}
+                <header className="flex min-w-0 items-center gap-x-2 @[72rem]:flex-wrap">
+                    <div className="flex min-w-0 @[72rem]:flex-1">{scanner}</div>
+                    <span className="text-xs text-muted @[72rem]:hidden" aria-hidden>
+                        ·
+                    </span>
+                    <div className="min-w-0 max-w-[45%] shrink-0 @[72rem]:order-last @[72rem]:flex @[72rem]:max-w-none @[72rem]:shrink @[72rem]:basis-full @[72rem]:pl-8">
+                        {meta}
                     </div>
-                    {/* Its own line, so a narrow card has room for both the scanner name and the email. pl-8 is the chip's size-6 icon plus gap-2. */}
-                    <div className="flex min-w-0 pl-8">{meta}</div>
+                    {action && <div className="relative z-10 ml-auto shrink-0">{action}</div>}
                 </header>
                 <div className="flex min-w-0 flex-col gap-1">
                     {titleLink ? (

@@ -20,6 +20,7 @@ import { HighlightFeedHeader } from './HighlightFeedHeader'
 /**
  * Columns follow the scene's width, so cards stay a similar size and a wide window fills with them rather than empty margin.
  * A narrow window keeps two cards across, and a wide laptop window gets three.
+ * HighlightFeedCardLayout's header splits onto two lines at the 72rem three-column breakpoint, so keep the two in step.
  */
 const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[44rem]:grid-cols-2 @[72rem]:grid-cols-3 @[120rem]:grid-cols-4'
 /** A single column stays card-sized rather than stretching one poster across the whole scene. */
