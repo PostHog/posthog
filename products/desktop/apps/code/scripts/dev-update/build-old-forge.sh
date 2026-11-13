@@ -18,8 +18,7 @@
 #   6. Copy the signed app to apps/code/out/old-forge for the spec.
 #
 # Run from anywhere; paths are resolved from this script. Needs the same signing
-# env the new build uses (CSC_LINK / CSC_KEY_PASSWORD) and full git history
-# (actions/checkout fetch-depth: 0).
+# env the new build uses (CSC_LINK / CSC_KEY_PASSWORD).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
