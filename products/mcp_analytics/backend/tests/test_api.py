@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -245,6 +245,8 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             ("materialized_property_filter", _tool_name_filter("query_run"), True, 2),
         ]
     )
+    # Materialized columns exist only on the legacy events table.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_narrows_to_window_sessions_only_when_a_filter_reads_the_properties_json(
         self,
         _name: str,
