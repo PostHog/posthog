@@ -101,6 +101,28 @@ describe('IdempotencyKeys', () => {
         expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
     })
 
+    it('keeps the sender and both fingerprint shapes of a sandbox send when a reschedule extends its key', async () => {
+        const fingerprint = { current: 'request-a', previousShape: 'request-a-before' }
+        await keys.reserve(1, key, fingerprint, 'run-1')
+        await keys.markQueued(1, key, fingerprint, 'run-1', undefined, undefined, undefined, 'email_sandbox')
+
+        await keys.replayUntilDayAfter(
+            1,
+            'run-1',
+            { hash: IdempotencyKeys.hash(key), fingerprint, senderKind: 'email_sandbox' },
+            new Date(Date.now() + 30 * 24 * HOUR_MS)
+        )
+
+        expect(
+            await keys.reserve(
+                1,
+                key,
+                { current: 'request-a', previousShape: 'request-a-before-other-sender' },
+                'run-2'
+            )
+        ).toEqual({ status: 'replayed', invocationId: 'run-1', senderKind: 'email_sandbox' })
+    })
+
     it('replays the fields recorded with the run', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
         await keys.markQueued(1, key, 'request-a', 'run-1', { attachment_count: 2, attachment_bytes: 4_096 })

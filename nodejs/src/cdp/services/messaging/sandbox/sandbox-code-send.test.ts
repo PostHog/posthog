@@ -745,6 +745,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             attachment_bytes: 0,
         })
         expect(queued).toHaveLength(1)
+        expect(queued[0].state?.idempotencyKey).toEqual(
+            expect.objectContaining({
+                senderKind: 'email_sandbox',
+                fingerprint: { current: expect.any(String), previousShape: expect.any(String) },
+            })
+        )
     })
 
     it('replays a keyed own-sender send with cc when the retry names the sandbox sender', async () => {

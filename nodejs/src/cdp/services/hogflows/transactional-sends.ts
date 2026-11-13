@@ -243,6 +243,7 @@ export class TransactionalSends {
                 invocation.state.idempotencyKey = {
                     hash: IdempotencyKeys.hash(idempotencyKey),
                     fingerprint,
+                    ...(senderKind ? { senderKind } : {}),
                     replayFields: attachmentTotals,
                     ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
                 }

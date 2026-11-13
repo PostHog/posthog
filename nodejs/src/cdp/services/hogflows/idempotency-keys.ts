@@ -371,7 +371,7 @@ export class IdempotencyKeys {
     async replayUntilDayAfter(
         teamId: number,
         invocationId: string,
-        { hash, fingerprint, scheduledAt, replayFields }: QueuedIdempotencyKey,
+        { hash, fingerprint, senderKind, scheduledAt, replayFields }: QueuedIdempotencyKey,
         latestDueAt: Date
     ): Promise<boolean> {
         const expiresAt = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000
@@ -388,9 +388,10 @@ export class IdempotencyKeys {
                 {
                     redisKey: this.redisKeyOf(teamId, hash),
                     value: {
-                        fingerprint,
+                        ...storedFingerprint(fingerprint),
                         invocationId,
                         queued: true,
+                        ...(senderKind ? { senderKind } : {}),
                         ...(replayFields && { replayFields }),
                         ...(scheduledAt && { scheduledAt }),
                     },
