@@ -245,8 +245,8 @@ export function SQLEditor({
         hideAgentHints,
     })
 
-    const { sourceQuery, dataLogicKey } = useValues(logic)
-    const { setSourceQuery } = useActions(logic)
+    const { sourceQuery, dataLogicKey, activeTab } = useValues(logic)
+    const { setSourceQuery, setSelectedVariables } = useActions(logic)
     const sourceQueryRef = useRef(sourceQuery)
     sourceQueryRef.current = sourceQuery
 
@@ -301,6 +301,8 @@ export function SQLEditor({
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
+        selectedVariables: activeTab?.selectedVariables,
+        onSelectionChange: setSelectedVariables,
         sourceQuery,
         setQuery: (query) => {
             if (query.kind === NodeKind.DataVisualizationNode) {
