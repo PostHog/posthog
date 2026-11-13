@@ -1,10 +1,24 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
-import { IconComment, IconDashboard, IconGear, IconInfo, IconLive, IconStethoscope, IconTerminal } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconComment,
+    IconDashboard,
+    IconGear,
+    IconInfo,
+    IconLive,
+    IconStethoscope,
+    IconTerminal,
+} from '@posthog/icons'
 import {
     Button,
+    cn,
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
     InputGroup,
     InputGroupAddon,
     InputGroupButton,
@@ -56,7 +70,6 @@ export function QuillPlayerInspectorControls(): JSX.Element {
     const { setSearchQuery, setMiniFilter, setMiniFilters } = useActions(miniFiltersLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const [focusedType, setFocusedType] = useState<FilterableInspectorListItemTypes | null>(null)
 
     const sharing = (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Sharing
     const itemCount = (type: FilterableInspectorListItemTypes): number => allItemsByItemType[type]?.length ?? 0
@@ -171,13 +184,7 @@ export function QuillPlayerInspectorControls(): JSX.Element {
     const subFiltersFor = (type: FilterableInspectorListItemTypes): ReturnType<typeof miniFiltersForType> =>
         miniFiltersForType(type)?.filter((x) => x.name !== 'All') ?? []
     const isEnabled = (type: FilterableInspectorListItemTypes): boolean => subFiltersFor(type).some((x) => !!x.enabled)
-    const hasSubFilters = (type: FilterableInspectorListItemTypes): boolean =>
-        subFiltersFor(type).length > 1 && itemCount(type) > 1
-
-    const subFilterType =
-        types.find((x) => x.type === focusedType)?.type ??
-        types.find((x) => isEnabled(x.type) && hasSubFilters(x.type))?.type
-    const subFilters = subFilterType && hasSubFilters(subFilterType) ? subFiltersFor(subFilterType) : []
+    const hasSubFilters = (type: FilterableInspectorListItemTypes): boolean => subFiltersFor(type).length > 1
 
     return (
         <div data-quill className="flex flex-col text-foreground">
@@ -186,13 +193,13 @@ export function QuillPlayerInspectorControls(): JSX.Element {
                     <span key={type} className="flex items-center">
                         <QuillInspectorToggle
                             pressed={isEnabled(type)}
-                            onPressedChange={(pressed) => {
+                            onPressedChange={(pressed) =>
                                 setMiniFilters(
                                     subFiltersFor(type).map((x) => x.key),
                                     pressed
                                 )
-                                setFocusedType(type)
-                            }}
+                            }
+                            className={hasSubFilters(type) ? 'rounded-r-none' : undefined}
                             tooltip={tooltip}
                             disabledReason={disabledReason}
                             loading={loading}
@@ -206,6 +213,43 @@ export function QuillPlayerInspectorControls(): JSX.Element {
                                 </span>
                             )}
                         </QuillInspectorToggle>
+                        {hasSubFilters(type) && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger
+                                    render={
+                                        <Button
+                                            size="icon-sm"
+                                            className={cn(
+                                                'rounded-l-none text-muted-foreground',
+                                                isEnabled(type) &&
+                                                    'bg-[color-mix(in_oklab,var(--primary)_16%,transparent)] text-foreground'
+                                            )}
+                                            aria-label={`${label} filters`}
+                                            data-attr={`player-inspector-${type}-mini-filter-menu`}
+                                        />
+                                    }
+                                >
+                                    <IconChevronDown />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                    {subFiltersFor(type).map((filter) => (
+                                        <DropdownMenuCheckboxItem
+                                            key={filter.key}
+                                            checked={!!filter.enabled}
+                                            onCheckedChange={(checked) => setMiniFilter(filter.key, checked)}
+                                            tooltip={filter.tooltip}
+                                            closeOnClick={false}
+                                            data-attr={`player-inspector-${filter.key}-mini-filter-toggle`}
+                                        >
+                                            <span className="flex-1 text-left">{filter.name}</span>
+                                            <span className="tabular-nums text-muted-foreground" translate="no">
+                                                {allItemsByMiniFilterKey[filter.key]?.length ?? 0}
+                                            </span>
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                         {setup && (
                             <Button
                                 size="icon-xs"
@@ -240,25 +284,6 @@ export function QuillPlayerInspectorControls(): JSX.Element {
                     </Popover>
                 )}
             </div>
-
-            {subFilters.length > 0 && (
-                <div className="flex flex-wrap items-center gap-0.5 px-2 py-1 border-b border-border bg-muted">
-                    {subFilters.map((filter) => (
-                        <QuillInspectorToggle
-                            key={filter.key}
-                            pressed={!!filter.enabled}
-                            onPressedChange={(pressed) => setMiniFilter(filter.key, pressed)}
-                            tooltip={filter.tooltip}
-                            data-attr={`player-inspector-${filter.key}-mini-filter-toggle`}
-                        >
-                            <span>{filter.name}</span>
-                            <span className="tabular-nums text-muted-foreground" translate="no">
-                                {allItemsByMiniFilterKey[filter.key]?.length ?? 0}
-                            </span>
-                        </QuillInspectorToggle>
-                    ))}
-                </div>
-            )}
 
             <div className="flex px-2 py-1">
                 <InputGroup size="sm" className="min-w-60">
