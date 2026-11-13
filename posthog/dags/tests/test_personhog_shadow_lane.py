@@ -231,11 +231,22 @@ def stopped_lane(monkeypatch: pytest.MonkeyPatch) -> _FakeAppsApi:
 
 
 class _FakeKafkaAdmin:
-    """Answers offset lookups from fixed tables: a partition with nothing after the time reports -1."""
+    """Answers offset lookups from fixed tables: a partition with nothing after the time reports -1.
 
-    def __init__(self, at_time: dict[int, int], latest: dict[int, int], refuse: bool = False) -> None:
+    The end offsets move to latest_after_time_lookup once the time lookup runs, as they do when
+    messages arrive between the two reads.
+    """
+
+    def __init__(
+        self,
+        at_time: dict[int, int],
+        latest: dict[int, int],
+        refuse: bool = False,
+        latest_after_time_lookup: dict[int, int] | None = None,
+    ) -> None:
         self.at_time = at_time
         self.latest = latest
+        self.latest_after_time_lookup = latest_after_time_lookup
         self.refuse = refuse
         self.altered: list[tuple[str, list[tuple[int, int]]]] = []
 
@@ -246,11 +257,14 @@ class _FakeKafkaAdmin:
 
     def list_offsets(self, topic_partition_offsets: dict[TopicPartition, Any], **_kwargs: Any) -> dict[Any, Future]:
         futures: dict[Any, Future] = {}
-        for topic_partition, spec in topic_partition_offsets.items():
-            table = self.latest if isinstance(spec, type(OffsetSpec.latest())) else self.at_time
+        is_latest = all(isinstance(spec, type(OffsetSpec.latest())) for spec in topic_partition_offsets.values())
+        table = self.latest if is_latest else self.at_time
+        for topic_partition in topic_partition_offsets:
             future: Future = Future()
             future.set_result(SimpleNamespace(offset=table[topic_partition.partition]))
             futures[topic_partition] = future
+        if not is_latest and self.latest_after_time_lookup is not None:
+            self.latest = self.latest_after_time_lookup
         return futures
 
     def alter_consumer_group_offsets(
@@ -284,8 +298,14 @@ def test_offset_move_refuses_while_lane_wants_pods() -> None:
         )
 
 
-def test_offsets_move_to_the_time_and_past_the_end_to_the_end(stopped_lane: _FakeAppsApi) -> None:
-    admin = _FakeKafkaAdmin(at_time={0: 10, 1: -1, 2: 30}, latest={1: 99})
+def test_offsets_move_to_the_time_and_past_the_end_to_the_end_before_the_lookup(
+    stopped_lane: _FakeAppsApi,
+) -> None:
+    admin = _FakeKafkaAdmin(
+        at_time={0: 10, 1: -1, 2: 30},
+        latest={0: 50, 1: 99, 2: 50},
+        latest_after_time_lookup={0: 51, 1: 100, 2: 51},
+    )
 
     moved = _move_consumer_offsets(
         dagster.build_op_context(), ShadowLaneStartConfig(start_offsets_at_ms=1), stopped_lane, lambda: admin
@@ -296,7 +316,7 @@ def test_offsets_move_to_the_time_and_past_the_end_to_the_end(stopped_lane: _Fak
 
 
 def test_offset_move_fails_when_kafka_refuses_it(stopped_lane: _FakeAppsApi) -> None:
-    admin = _FakeKafkaAdmin(at_time={0: 10}, latest={}, refuse=True)
+    admin = _FakeKafkaAdmin(at_time={0: 10}, latest={0: 10}, refuse=True)
     with pytest.raises(dagster.Failure, match="Kafka refused to move"):
         _move_consumer_offsets(
             dagster.build_op_context(), ShadowLaneStartConfig(start_offsets_at_ms=1), stopped_lane, lambda: admin

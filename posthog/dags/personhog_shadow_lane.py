@@ -171,29 +171,30 @@ def offsets_at(admin: ConsumerGroupAdmin, topic: str, timestamp_ms: int) -> list
     """The first offset of each partition at or after timestamp_ms.
 
     A partition with nothing that recent gets its end offset, where Kafka reports none for the time.
+    The end offsets are read before the time lookup, so a message that arrives between the two
+    reads is consumed, not skipped.
     """
     metadata = admin.list_topics(topic=topic, timeout=30)
     topic_metadata = metadata.topics.get(topic)
     if topic_metadata is None or topic_metadata.error is not None:
         raise dagster.Failure(description=f"Topic {topic} is not readable: {getattr(topic_metadata, 'error', None)}")
     partitions = sorted(topic_metadata.partitions)
+    ends = _resolved_offsets(
+        admin.list_offsets(
+            {TopicPartition(topic, partition): OffsetSpec.latest() for partition in partitions},
+            request_timeout=30,
+        )
+    )
     offsets = _resolved_offsets(
         admin.list_offsets(
             {TopicPartition(topic, partition): OffsetSpec.for_timestamp(timestamp_ms) for partition in partitions},
             request_timeout=30,
         )
     )
-    past_end = [partition for partition in partitions if offsets[partition] < 0]
-    if past_end:
-        offsets.update(
-            _resolved_offsets(
-                admin.list_offsets(
-                    {TopicPartition(topic, partition): OffsetSpec.latest() for partition in past_end},
-                    request_timeout=30,
-                )
-            )
-        )
-    return [TopicPartition(topic, partition, offsets[partition]) for partition in partitions]
+    return [
+        TopicPartition(topic, partition, offsets[partition] if offsets[partition] >= 0 else ends[partition])
+        for partition in partitions
+    ]
 
 
 def _move_consumer_offsets(
