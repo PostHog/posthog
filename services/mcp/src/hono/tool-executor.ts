@@ -24,6 +24,7 @@ import {
     findRecoverableApiError,
     hasTimeoutCause,
     isTimeoutError,
+    parseApiErrorIdentifiers,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
@@ -31,7 +32,7 @@ import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
     createExecTool,
@@ -647,7 +648,9 @@ export class ToolExecutor {
                     tool.name,
                     state.distinctId,
                     sessionUuid,
-                    state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+                    state.suppressAnalytics ||
+                        isPrivateScoutTrialTool(tool.name) ||
+                        hasSqlFilters(tool.name, validation.data)
                 ),
                 guidance
             )
@@ -841,7 +844,9 @@ export class ToolExecutor {
                     sessionUuid,
                     state.suppressAnalytics ||
                         isPrivateScoutTrialTool(metricTool) ||
-                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool) ||
+                        hasSqlFilters(metricTool, execMetrics.innerInput) ||
+                        hasSqlFilters('exec', validation.data)
                 ),
                 guidance
             )
@@ -1207,7 +1212,15 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return { errorType: 'api_5xx', status: apiError.status }
     }
     if (apiError instanceof PostHogApiError) {
-        return { errorType: 'api_4xx', status: apiError.status }
+        // Only identifier-shaped values survive `parseApiErrorIdentifiers`, never the body's free text.
+        const { code, attr } = parseApiErrorIdentifiers(apiError.body)
+        const errorField = attr ? normalizeErrorField(attr) : undefined
+        return {
+            errorType: 'api_4xx',
+            status: apiError.status,
+            ...(code ? { errorCode: code } : {}),
+            ...(errorField ? { errorField } : {}),
+        }
     }
     return { errorType: 'internal' }
 }

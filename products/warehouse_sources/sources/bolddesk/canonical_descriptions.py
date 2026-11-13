@@ -1,0 +1,156 @@
+"""Descriptions of BoldDesk tables and columns, from the BoldDesk API reference.
+
+Source: https://developer.bolddesk.com/api. Keyed by the endpoint names in `settings.py`.
+Columns that are not here get a generated description.
+"""
+
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+
+DOCS_URL = "https://developer.bolddesk.com/api"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "tickets": {
+        "description": "A support ticket in BoldDesk.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "ticketId": "Unique identifier for the ticket.",
+            "title": "Subject of the ticket.",
+            "agent": "Agent assigned to the ticket.",
+            "group": "Agent group assigned to the ticket.",
+            "category": "Category of the ticket.",
+            "status": "Current status of the ticket.",
+            "priority": "Priority of the ticket.",
+            "brand": "Brand the ticket belongs to.",
+            "source": "Channel the ticket came from, such as email or the agent portal.",
+            "requestedBy": "Contact who requested the ticket.",
+            "updatesCount": "Number of replies and notes on the ticket.",
+            "createdOn": "Time at which the ticket was created.",
+            "lastUpdatedOn": "Time at which the ticket was last changed.",
+            "closedOn": "Time at which the ticket was closed.",
+        },
+    },
+    "ticket_updates": {
+        "description": "A reply or note added to a BoldDesk ticket.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "ticketUpdateId": "Unique identifier for the reply or note.",
+            "ticketId": "Identifier of the ticket the reply or note belongs to.",
+            "description": "Content of the reply or note, as HTML.",
+            "isFirstUpdate": "True when this is the first message of the ticket.",
+            "isUpdatedByCustomer": "True when the customer wrote the reply.",
+            "updatedBy": "User who wrote the reply or note.",
+            "source": "Channel the reply came from.",
+            "createdOn": "Time at which the reply or note was added.",
+            "updatedOn": "Time at which the reply or note was last changed.",
+        },
+    },
+    "ticket_worklogs": {
+        "description": "Time an agent logged against a BoldDesk ticket.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "worklogId": "Unique identifier for the worklog.",
+            "ticketId": "Identifier of the ticket the time was logged against.",
+            "timeSpent": "Time spent on the work.",
+            "isBillable": "True when the time is billable.",
+            "isDeleted": "True when the worklog was deleted.",
+            "worklogDate": "Date of the logged work.",
+            "description": "Description of the work.",
+            "createdBy": "Agent who logged the time.",
+            "createdOn": "Time at which the worklog was created.",
+            "lastModifiedOn": "Time at which the worklog was last changed.",
+        },
+    },
+    "contacts": {
+        "description": "A customer contact in BoldDesk.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "userId": "Unique identifier for the contact.",
+            "contactName": "Name of the contact.",
+            "contactDisplayName": "Display name of the contact.",
+            "emailId": "Email address of the contact.",
+            "isVerified": "True when the contact is verified.",
+            "isBlocked": "True when the contact is blocked.",
+            "isDeleted": "True when the contact is deleted.",
+            "contactGroup": "Contact groups (companies) the contact belongs to.",
+            "primaryContactGroup": "Primary contact group (company) of the contact.",
+            "contactPhoneNo": "Phone number of the contact.",
+            "contactMobileNo": "Mobile number of the contact.",
+            "contactJobTitle": "Job title of the contact.",
+            "contactCustomFields": "Values of the custom contact fields.",
+            "createdOn": "Time at which the contact was created.",
+            "lastModifiedOn": "Time at which the contact was last changed.",
+        },
+    },
+    "contact_groups": {
+        "description": "A contact group in BoldDesk, usually a customer company.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "contactGroupId": "Unique identifier for the contact group.",
+            "contactGroupName": "Name of the contact group.",
+            "description": "Description of the contact group.",
+            "notes": "Notes about the contact group.",
+            "address": "Address of the contact group.",
+            "externalReferenceId": "Identifier of the contact group in an external system.",
+            "contactGroupCustomFields": "Values of the custom contact group fields.",
+            "createdOn": "Time at which the contact group was created.",
+            "lastModifiedOn": "Time at which the contact group was last changed.",
+        },
+    },
+    "agents": {
+        "description": "An agent (help desk user) in BoldDesk.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "userId": "Unique identifier for the agent.",
+            "name": "Name of the agent.",
+            "displayName": "Display name of the agent.",
+            "emailId": "Email address of the agent.",
+            "roles": "Roles of the agent.",
+            "status": "Status of the agent account.",
+            "isAvailable": "True when the agent is available for assignments.",
+            "isVerified": "True when the agent is verified.",
+            "lastActivityOn": "Time of the agent's last activity.",
+            "ticketAccessScope": "Which tickets the agent can access.",
+            "createdOn": "Time at which the agent was created.",
+            "lastModifiedOn": "Time at which the agent was last changed.",
+        },
+    },
+    "satisfaction_ratings": {
+        "description": "A customer satisfaction (CSAT) rating given on a BoldDesk ticket.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "surveyResultId": "Unique identifier for the rating.",
+            "ticketId": "Identifier of the rated ticket.",
+            "ticketTitle": "Subject of the rated ticket.",
+            "ratingPoints": "Rating the customer gave.",
+            "ratingScale": "Scale of the rating.",
+            "ratingComments": "Comment the customer left with the rating.",
+            "requesterId": "Identifier of the contact who requested the ticket.",
+            "agentId": "Identifier of the agent assigned to the ticket.",
+            "groupId": "Identifier of the agent group assigned to the ticket.",
+            "createdOn": "Time at which the rating was given.",
+            "lastModifiedDate": "Time at which the rating was last changed.",
+        },
+    },
+    "groups": {
+        "description": "An agent group in BoldDesk.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "groupID": "Unique identifier for the group.",
+            "groupName": "Name of the group.",
+            "description": "Description of the group.",
+            "groupModuleName": "Module the group belongs to.",
+            "businessHours": "Business hours of the group.",
+        },
+    },
+    "brands": {
+        "description": "A brand (separate help desk portal) in BoldDesk.",
+        "docs_url": DOCS_URL,
+        "columns": {
+            "brandId": "Unique identifier for the brand.",
+            "brandName": "Name of the brand.",
+            "isPublished": "True when the brand portal is published.",
+            "isDisabled": "True when the brand is disabled.",
+            "isDefault": "True for the default brand.",
+        },
+    },
+}

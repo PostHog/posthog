@@ -465,7 +465,13 @@ TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "posthog.auth.ZxcvbnValidator"},
+    {"NAME": "posthog.breached_password_validator.BreachedPasswordValidator"},
 ]
+
+# The breached-password check calls api.pwnedpasswords.com, so an instance without outbound access turns it off.
+PWNED_PASSWORDS_CHECK_ENABLED = get_from_env("PWNED_PASSWORDS_CHECK_ENABLED", not TEST, type_cast=str_to_bool)
+# pwned-passwords-django reads this. A short timeout stops a slow API from holding up signup.
+PWNED_PASSWORDS = {"API_TIMEOUT": 1.0}
 
 if TEST:
     # PBKDF2 is deliberately slow (~150ms per hash), which adds up because every
@@ -680,6 +686,8 @@ SPECTACULAR_SETTINGS = {
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+            # The AEO prompt and keyword suggestion jobs share this status class, and another class has the same pairs.
+            "AEOSuggestionJobStatusEnum": "products.aeo.backend.facade.contracts.SuggestionJobStatus.choices",
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
@@ -1512,8 +1520,6 @@ MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DE
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
-# Scores brand sentiment on the evals Temporal queue after each run. Off until that worker carries the model.
-AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False, type_cast=str_to_bool)
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")

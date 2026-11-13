@@ -3,10 +3,19 @@ import { DateTime } from 'luxon'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, SandboxEmailOutcome } from '../../../types'
+import { EmailStatusService, isTransactionalEmailRun } from '../../messaging/email-status.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 export type SandboxEmailAction = Extract<HogFlowAction, { type: 'email_sandbox' }>
+export type SandboxSenderAction = Extract<HogFlowAction, { type: 'email_sandbox' | 'function_email' }>
+
+export function sendsOnSandboxSender(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): boolean {
+    return (
+        action.type === 'email_sandbox' ||
+        (action.type === 'function_email' && invocation.state.senderKind === 'email_sandbox')
+    )
+}
 
 export type SandboxEmailStepResult = {
     status: 'accepted' | 'skipped' | 'failed' | 'pending'
@@ -17,7 +26,7 @@ export type SandboxEmailStepResult = {
 export type SandboxEmailSendDecision = SandboxEmailOutcome | { retryAt: DateTime }
 
 export interface SandboxEmailStep {
-    send(options: ActionHandlerOptions<SandboxEmailAction>): Promise<SandboxEmailSendDecision>
+    send(options: ActionHandlerOptions<SandboxSenderAction>): Promise<SandboxEmailSendDecision>
 }
 
 export interface SandboxEmailTestClient {
@@ -32,10 +41,11 @@ export class SandboxEmailActionHandler implements ActionHandler {
     constructor(
         private readonly config: { enabled: boolean },
         private readonly sendStep: SandboxEmailStep | null,
-        private readonly testClient: SandboxEmailTestClient | null
+        private readonly testClient: SandboxEmailTestClient | null,
+        private readonly emailStatus: Pick<EmailStatusService, 'queue'> | null
     ) {}
 
-    async execute(options: ActionHandlerOptions<SandboxEmailAction>): Promise<ActionHandlerResult> {
+    async execute(options: ActionHandlerOptions<SandboxSenderAction>): Promise<ActionHandlerResult> {
         const { invocation, result, hogExecutorOptions } = options
         const onSandboxQueue = invocation.queue === SANDBOX_QUEUE
         const stored = invocation.state.currentAction?.sandboxEmail
@@ -44,6 +54,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
             return onSandboxQueue ? this.handBack(result, stored) : this.finish(options, toStepResult(stored))
         }
         if (!this.config.enabled) {
+            this.recordCodeSendStatus(options, SENDING_DISABLED)
             return onSandboxQueue
                 ? this.handBack(result, SENDING_DISABLED)
                 : this.finish(options, toStepResult(SENDING_DISABLED))
@@ -57,12 +68,13 @@ export class SandboxEmailActionHandler implements ActionHandler {
         return this.sendOnSandboxQueue(options)
     }
 
-    private async runTest(options: ActionHandlerOptions<SandboxEmailAction>): Promise<ActionHandlerResult> {
+    private async runTest(options: ActionHandlerOptions<SandboxSenderAction>): Promise<ActionHandlerResult> {
         const mocked = !!options.hogExecutorOptions?.functions
-        if (!this.testClient) {
+        const { action } = options
+        if (!this.testClient || action.type !== 'email_sandbox') {
             return this.finish(options, mocked ? { status: 'accepted' } : toStepResult(WORKER_UNAVAILABLE))
         }
-        const stepResult = await this.testClient.send(options)
+        const stepResult = await this.testClient.send({ ...options, action })
         if (mocked && stepResult.status === 'accepted') {
             this.log(options, 'Mocked the sandbox email send')
         }
@@ -81,14 +93,16 @@ export class SandboxEmailActionHandler implements ActionHandler {
         return { scheduledAt: DateTime.now() }
     }
 
-    private async sendOnSandboxQueue(options: ActionHandlerOptions<SandboxEmailAction>): Promise<ActionHandlerResult> {
+    private async sendOnSandboxQueue(options: ActionHandlerOptions<SandboxSenderAction>): Promise<ActionHandlerResult> {
         if (!this.sendStep) {
+            this.recordCodeSendStatus(options, WORKER_UNAVAILABLE)
             return this.handBack(options.result, WORKER_UNAVAILABLE)
         }
         const decision = await this.sendStep.send(options)
         if ('retryAt' in decision) {
             return { scheduledAt: decision.retryAt }
         }
+        this.recordCodeSendStatus(options, decision)
         if (decision.outcome === 'accepted') {
             options.result.invocation.state.flowVersion = options.invocation.hogFlow.version
         }
@@ -108,7 +122,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
     }
 
     private finish(
-        options: ActionHandlerOptions<SandboxEmailAction>,
+        options: ActionHandlerOptions<SandboxSenderAction>,
         stepResult: SandboxEmailStepResult
     ): ActionHandlerResult {
         if (stepResult.status === 'failed') {
@@ -123,7 +137,22 @@ export class SandboxEmailActionHandler implements ActionHandler {
         return { result: stepResult, nextAction: findContinueAction(options.invocation) }
     }
 
-    private log({ action, result }: ActionHandlerOptions<SandboxEmailAction>, message: string): void {
+    private recordCodeSendStatus(
+        { invocation, action, hogExecutorOptions }: ActionHandlerOptions<SandboxSenderAction>,
+        { outcome, reason }: SandboxEmailOutcome
+    ): void {
+        if (hogExecutorOptions?.isTest || action.type !== 'function_email' || !isTransactionalEmailRun(invocation)) {
+            return
+        }
+        this.emailStatus?.queue({
+            teamId: invocation.teamId,
+            messageId: invocation.id,
+            status: outcome === 'accepted' ? 'sent' : 'failed',
+            reason,
+        })
+    }
+
+    private log({ action, result }: ActionHandlerOptions<SandboxSenderAction>, message: string): void {
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),

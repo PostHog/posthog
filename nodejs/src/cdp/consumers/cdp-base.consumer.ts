@@ -20,6 +20,7 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
+import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
 import { InvocationResultsService } from '../services/invocation-results.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
@@ -149,6 +150,17 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
             this.deps.teamManager.getTeam(teamId),
         ])
         return team && (hogFunctions.length || hogFlows.length) ? { team, hogFunctions, hogFlows } : null
+    }
+
+    protected isHogFlowQuotaLimited(hogFlow: HogFlow): Promise<boolean> {
+        return shouldBlockHogFlowDueToQuota(
+            { teamId: hogFlow.team_id, functionId: hogFlow.id, hogFlow },
+            {
+                quotaLimiting: this.deps.quotaLimiting,
+                hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+                workflowsActivationReporter: this.workflowsActivationReporter,
+            }
+        )
     }
 
     public async start(): Promise<void> {
