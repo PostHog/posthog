@@ -91,6 +91,8 @@ class CanvasAPIBaseTest(APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        # APIBaseTest reuses a class-level login cookie and skips force_login, so attach the key here.
+        self.client.force_login(self.user)
         self.storage = InMemoryStorage()
         for attribute in ("write", "read_bytes", "delete_objects"):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
