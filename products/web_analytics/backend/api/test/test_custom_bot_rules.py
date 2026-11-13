@@ -32,15 +32,23 @@ class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
     def test_create_list_and_delete_round_trip(self) -> None:
         create = self.client.post(
             self._url(),
-            {"name": "Office scraper", "items": [{"key": "$ip", "matcher": "cidr", "pattern": "192.0.2.0/24"}]},
+            {
+                "name": "Office scraper",
+                "items": [
+                    {"key": "$ip", "matcher": "cidr", "patterns": ["192.0.2.0/24", "198.51.100.10-198.51.100.40"]}
+                ],
+            },
         )
         assert create.status_code == status.HTTP_201_CREATED, create.json()
         rule_id = create.json()["id"]
-        assert [item["pattern"] for item in create.json()["items"]] == ["192.0.2.0/24"]
+        assert [item["patterns"] for item in create.json()["items"]] == [
+            ["192.0.2.0/24", "198.51.100.10-198.51.100.40"]
+        ]
 
         self.team.refresh_from_db()
         stored = self.team.modifiers["customBotDefinitions"]
         assert [rule["name"] for rule in stored] == ["Office scraper"]
+        assert "pattern" not in stored[0]["items"][0]
 
         listed = self.client.get(self._url())
         assert [rule["id"] for rule in listed.json()] == [rule_id]
@@ -80,6 +88,14 @@ class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
             (
                 "cidr on a non-ip property",
                 {"items": [{"key": "$raw_user_agent", "matcher": "cidr", "pattern": "192.0.2.0/24"}]},
+            ),
+            (
+                "an entry that is not an ip range",
+                {"items": [{"key": "$ip", "matcher": "cidr", "patterns": ["192.0.2.0/24", "not-an-ip"]}]},
+            ),
+            (
+                "a list on a pattern matcher",
+                {"items": [{"key": "$raw_user_agent", "matcher": "contains", "patterns": ["AcmeBot"]}]},
             ),
             (
                 "regex clickhouse cannot run",
