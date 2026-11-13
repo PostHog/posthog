@@ -15055,6 +15055,8 @@ export namespace Schemas {
       type: DestinationTypeEnum;
       /** Whether the destination sends. */
       enabled: boolean;
+      /** Whether the destination's HogFunctions hear the firing event, which a test delivery sends. */
+      hears_firing: boolean;
       /** Whether someone edited the destination's message, so it no longer sends the standard one. */
       message_customized: boolean;
       /** Slack workspace integration ID. */
