@@ -2575,10 +2575,6 @@
         "chromium": 13.408,
         "webkit": 3.738
     },
-    "products/mcp_analytics/frontend/dashboard/DashboardCards.stories.tsx": {
-        "chromium": 94.707,
-        "webkit": 15.323
-    },
     "products/mcp_analytics/frontend/feedback/MCPAnalyticsFeedbackPrompt.stories.tsx": {
         "chromium": 30.153,
         "webkit": 4.793
