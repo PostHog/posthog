@@ -16,6 +16,7 @@ import type {
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
+    ChannelListResponseApi,
     ChannelMembersWriteApi,
     ChannelSetupWriteApi,
     ChannelStarWriteApi,
@@ -28,7 +29,6 @@ import type {
     OnboardingSessionApi,
     OnboardingSessionTestApi,
     OnboardingSessionTestResponseApi,
-    PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
@@ -111,9 +111,6 @@ import type {
     TaskRunLivingArtifactOpenResponseApi,
     TaskRunLivingArtifactResponseApi,
     TaskRunLivingArtifactsResponseApi,
-    TaskRunPeerMessageRequestApi,
-    TaskRunPeerMessageResponseApi,
-    TaskRunPeersResponseApi,
     TaskRunPostHogReferencesRequestApi,
     TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
@@ -595,8 +592,8 @@ export const taskChannelsList = async (
     projectId: string,
     params?: TaskChannelsListParams,
     options?: RequestInit
-): Promise<PaginatedChannelDTOListApi> => {
-    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
+): Promise<ChannelListResponseApi> => {
+    return apiMutator<ChannelListResponseApi>(getTaskChannelsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1226,6 +1223,25 @@ export const tasksArtifactsList = async (
     return apiMutator<TaskArtifactsResponseApi>(getTasksArtifactsListUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksCloseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/close/`
+}
+
+/**
+ * Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task to keep working on it.
+ * @summary Close a task
+ */
+export const tasksCloseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksCloseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -2013,58 +2029,6 @@ export const tasksRunsConnectionTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
-}
-
-export const getTasksRunsPeersRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/`
-}
-
-/**
- * Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, currently in progress or queued. Discovery and send validation share one visibility policy, so a run can only message what it can list; the per-entry `sendable` flag is the liveness contract.
- * @summary List peer agent runs
- */
-export const tasksRunsPeersRetrieve = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    options?: RequestInit
-): Promise<TaskRunPeersResponseApi> => {
-    return apiMutator<TaskRunPeersResponseApi>(getTasksRunsPeersRetrieveUrl(projectId, taskId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTasksRunsPeersMessageCreateUrl = (
-    projectId: string,
-    taskId: string,
-    id: string,
-    targetRunId: string
-) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/${targetRunId}/message/`
-}
-
-/**
- * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
- * @summary Send a message to a peer agent run
- */
-export const tasksRunsPeersMessageCreate = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    targetRunId: string,
-    taskRunPeerMessageRequestApi: TaskRunPeerMessageRequestApi,
-    options?: RequestInit
-): Promise<TaskRunPeerMessageResponseApi> => {
-    return apiMutator<TaskRunPeerMessageResponseApi>(
-        getTasksRunsPeersMessageCreateUrl(projectId, taskId, id, targetRunId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(taskRunPeerMessageRequestApi),
-        }
-    )
 }
 
 export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {

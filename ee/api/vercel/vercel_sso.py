@@ -11,7 +11,6 @@ from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.utils_cors import KNOWN_ORIGINS
 
@@ -80,22 +79,13 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
         # SSO codes are single-use, so we redirect the browser instead of proxying server-side
         return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
-    def _should_redirect_to_eu(self, resource_id: str | None, installation_id: str | None = None) -> bool:
+    def _should_redirect_to_eu(self, installation_id: str) -> bool:
         if self.is_dev_env or self.current_region != "us":
             return False
-        if resource_id:
-            try:
-                resource_pk = int(resource_id)
-            except (ValueError, TypeError):
-                return False
-            # nosemgrep: idor-lookup-without-team — intentionally cross-team: checking if resource exists anywhere in this region
-            return not Integration.objects.filter(pk=resource_pk, kind=Integration.IntegrationKind.VERCEL).exists()
-        if installation_id:
-            return not OrganizationIntegration.objects.filter(
-                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-                integration_id=installation_id,
-            ).exists()
-        return False
+        return not OrganizationIntegration.objects.filter(
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id=installation_id,
+        ).exists()
 
     @decorators.action(detail=False, methods=["get"], url_path="redirect")
     def sso_redirect(self, request: Request) -> HttpResponse:
@@ -108,15 +98,6 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
             raise exceptions.ValidationError("Invalid parameters")
 
         params: SSOParams = serializer.validated_data
-
-        if self._should_redirect_to_eu(params.resource_id):
-            eu_url = f"https://{self.EU_DOMAIN}/login/vercel/?{request.query_params.urlencode()}"
-            logger.info(
-                "Redirecting SSO to EU region",
-                resource_id=params.resource_id,
-                integration="vercel",
-            )
-            return HttpResponseRedirect(redirect_to=eu_url)
 
         claims_token = request.query_params.get("_claims_token")
         if claims_token:
@@ -139,14 +120,15 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
                 capture_exception(e)
                 logger.warning("Failed to decrypt cross-region SSO claims token", error=str(e), integration="vercel")
 
-        if not params.resource_id and self.current_region == "us" and not self.is_dev_env:
+        # A resource id is our row id and does not show the region. The installation in the claims shows it.
+        if self.current_region == "us" and not self.is_dev_env:
             try:
                 existing_claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
             except Exception:
                 existing_claims = None
 
             if isinstance(existing_claims, VercelUserClaims) and self._should_redirect_to_eu(
-                None, installation_id=existing_claims.installation_id
+                existing_claims.installation_id
             ):
                 token = _encrypt_claims(existing_claims)
                 eu_params = request.query_params.dict()

@@ -4,8 +4,8 @@ import { formatCurrency } from 'lib/utils/currency'
 import { formatDurationMilliseconds, humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/utils/numbers'
 
+import { isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { CurrencyCode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, PropertyMathType } from '~/types'
 
 import type { ReportMetricApi, SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
@@ -416,6 +416,13 @@ export function reportNeedsMetricRefresh(report: { metrics?: ReportMetricApi[] }
     })
 }
 
+function sameLabels(a: readonly string[] | null | undefined, b: readonly string[] | null | undefined): boolean {
+    if (!a || !b) {
+        return !a === !b
+    }
+    return a.length === b.length && a.every((label, index) => label === b[index])
+}
+
 function sameSeries(a: number[] | null | undefined, b: number[] | null | undefined): boolean {
     if (!a || !b) {
         return !a === !b
@@ -444,12 +451,19 @@ export function mergeReportMetricSnapshots<T extends { id: string; metrics?: Rep
             !snapshot ||
             (snapshot.value === metric.value &&
                 snapshot.value_at === metric.value_at &&
-                sameSeries(snapshot.series, metric.series))
+                sameSeries(snapshot.series, metric.series) &&
+                sameLabels(snapshot.series_buckets, metric.series_buckets))
         ) {
             return metric
         }
         changed = true
-        return { ...metric, value: snapshot.value, value_at: snapshot.value_at, series: snapshot.series }
+        return {
+            ...metric,
+            value: snapshot.value,
+            value_at: snapshot.value_at,
+            series: snapshot.series,
+            series_buckets: snapshot.series_buckets,
+        }
     })
     return changed ? { ...report, metrics } : report
 }

@@ -28,7 +28,7 @@ from products.feature_flags.backend.facade.edits import (
 
 
 class SplitChangeShape(StrEnum):
-    # pinned: the finding's subcodes. The page sends them as `finding_variant` on the health finding events.
+    # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
     VARIANT_ROLLED_OUT = "variant_rolled_out"
     VARIANT_REMOVED = "variant_removed"
     VARIANT_ADDED = "variant_added"
@@ -102,6 +102,11 @@ def net_effect(changes: Sequence[SplitChange]) -> SplitNetEffect | None:
         last=last,
         change_count=len(changes),
     )
+
+
+def split_value(split: Split) -> str:
+    """The split as the health panel lists it, where a flag without variants reads "None"."""
+    return describe_split(split) if split else "None"
 
 
 def describe_split(split: Split) -> str:

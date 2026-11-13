@@ -2,17 +2,21 @@ import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import {
     getDefaultKafkaWarehouseProducerEnvConfig,
+    getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
 } from '~/cdp/outputs/producers'
-import { getDefaultCommonConfig } from '~/common/config'
+import { getDefaultCommonConfig, parseNumberFromEnv } from '~/common/config'
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/logs/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '~/types'
 
 import { stringToBoolean } from '../utils/env-utils'
+import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from './database-url'
 
 // Re-export for backwards compatibility
 export { DEFAULT_HTTP_SERVER_PORT } from '~/common/config'
+
+const TRUE_ONLY_BOOLEAN_KEYS: ReadonlySet<string> = new Set(['WORKFLOWS_SANDBOX_SENDER_ENABLED'])
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
@@ -25,6 +29,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultTracesIngestionConsumerConfig(),
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
+        ...getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig(),
         ...getDefaultKafkaWarehouseProducerEnvConfig(),
     }
 }
@@ -46,7 +51,9 @@ export function overrideWithEnv(
                     throw Error(`Invalid PLUGIN_SERVER_MODE ${env[key]}`)
                 }
             } else if (typeof defaults[key] === 'number') {
-                tmpConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+                tmpConfig[key] = parseNumberFromEnv(key, env[key]!, tmpConfig[key])
+            } else if (TRUE_ONLY_BOOLEAN_KEYS.has(key)) {
+                tmpConfig[key] = env[key] === 'true'
             } else if (typeof defaults[key] === 'boolean') {
                 tmpConfig[key] = stringToBoolean(env[key])
             } else {
@@ -56,28 +63,12 @@ export function overrideWithEnv(
     }
     const newConfig: PluginsServerConfig = { ...tmpConfig }
 
-    if (!newConfig.DATABASE_URL && !newConfig.POSTHOG_DB_NAME) {
-        throw Error(
-            'You must specify either DATABASE_URL or the database options POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD, POSTHOG_POSTGRES_HOST, POSTHOG_POSTGRES_PORT!'
-        )
+    // A service that never opens Postgres runs without database settings, so PostgresRouter reports a missing URL instead.
+    if (newConfig.DATABASE_URL || newConfig.POSTHOG_DB_NAME) {
+        newConfig.DATABASE_URL = buildPosthogDatabaseUrl(newConfig)
     }
 
-    if (!newConfig.DATABASE_URL) {
-        const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
-        const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
-        newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
-
-    if (
-        !newConfig.BEHAVIORAL_COHORTS_DATABASE_URL &&
-        newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST &&
-        newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER &&
-        newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD
-    ) {
-        const encodedUser = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER)
-        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD)
-        newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST}:5432/behavioral_cohorts`
-    }
+    newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = buildBehavioralCohortsDatabaseUrl(newConfig)
 
     return newConfig
 }
@@ -98,7 +89,7 @@ export function overrideConfigWithEnv<T extends Record<string, unknown>>(
         if (typeof env[key] !== 'undefined') {
             const defaultValue = config[key]
             if (typeof defaultValue === 'number') {
-                result[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+                result[key] = parseNumberFromEnv(key, env[key]!, defaultValue)
             } else if (typeof defaultValue === 'boolean') {
                 result[key] = stringToBoolean(env[key])
             } else {

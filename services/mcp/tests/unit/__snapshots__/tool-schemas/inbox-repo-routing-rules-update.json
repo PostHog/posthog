@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the routing rule to update, from inbox-repo-routing-rules-list.",
+            "type": "string"
+        },
+        "repository": {
+            "description": "Target repository as owner/repo, e.g. 'posthog/posthog.com'.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "rule_text": {
+            "description": "Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.",
+            "maxLength": 300,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

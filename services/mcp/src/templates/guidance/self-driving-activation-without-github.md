@@ -1,0 +1,1 @@
+Also briefly offer: "GitHub connects your data to code so agents can find root causes and suggest changes. Prefer to [start without GitHub]({project_url}/inbox/activate/without-github)? Self-driving can still surface issues and data correlations."

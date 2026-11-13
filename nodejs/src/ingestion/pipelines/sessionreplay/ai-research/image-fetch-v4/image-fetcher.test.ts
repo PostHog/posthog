@@ -1,4 +1,10 @@
-import { ResolutionError, SecureRequestError, StreamedResponse, fetchStreamed } from '~/common/utils/request'
+import {
+    BodyHeadCheck,
+    ResolutionError,
+    SecureRequestError,
+    StreamedResponse,
+    fetchStreamed,
+} from '~/common/utils/request'
 
 import { HttpImageFetcher, ImageFetchOptions, RedirectPolicy } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
@@ -13,8 +19,10 @@ const fetchStreamedMock = fetchStreamed as jest.MockedFunction<typeof fetchStrea
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
 const GIF = Buffer.from('GIF89a-and-then-some')
+const WOFF2 = Buffer.from('wOF2-and-then-some')
 
 const OPTIONS: ImageFetchOptions = {
+    asset: 'image',
     maxBytes: 1000,
     timeoutMs: 5000,
     maxRedirects: 3,
@@ -33,7 +41,13 @@ function respond(
         status,
         headers,
         headerLines: Object.entries(headers).map(([name, value]) => ({ name, value })),
-        read: jest.fn().mockResolvedValue(body),
+        read: jest.fn((_maxBytes: number, _retainPrefix?: boolean, head?: BodyHeadCheck) =>
+            Promise.resolve(
+                head && !body.overLimit && !head.accept(body.bytes.subarray(0, head.bytes))
+                    ? { bytes: Buffer.alloc(0), overLimit: false, refused: true }
+                    : body
+            )
+        ),
         discard: jest.fn(),
     }
 }
@@ -79,9 +93,33 @@ describe('HttpImageFetcher', () => {
                     'user-agent':
                         'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)',
                     referer: 'https://us.posthog.com/',
+                    accept: 'image/webp,image/*;q=0.8',
                 }),
             })
         )
+    })
+
+    const HTML = Buffer.from('<html><body>Not found</body></html>')
+    const SVG = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>')
+
+    it.each([
+        ['abandons a body that does not start as its type', 'image', image(HTML, 'image/png'), undefined],
+        ['abandons a font body that does not start as a font', 'font', image(HTML, 'font/woff2'), undefined],
+        [
+            'keeps a coded body for the store to decode',
+            'image',
+            image(HTML, 'image/png', { 'content-encoding': 'gzip' }),
+            HTML,
+        ],
+        ['keeps an SVG, which has no signature', 'image', image(SVG, 'image/svg+xml'), SVG],
+        ['keeps a font that starts as one', 'font', image(WOFF2, 'font/woff2'), WOFF2],
+    ] as const)('%s', async (_name, asset, response, bytes) => {
+        fetchStreamedMock.mockResolvedValue(response)
+
+        const result = await fetcher().fetch('https://cdn.example.com/a', { ...OPTIONS, asset })
+
+        expect(result.outcome).toBe('ok')
+        expect(result.bytes).toEqual(bytes)
     })
 
     it('attributes image requests to the source partition', async () => {
@@ -153,16 +191,20 @@ describe('HttpImageFetcher', () => {
     })
 
     it.each([
-        ['a type that is not an image', 'text/html', PNG, 'not_image'],
-        ['a type outside the raster set', 'image/svg+xml', PNG, 'not_image'],
-        ['the BMP format', 'image/bmp', Buffer.from('BM'), 'not_image'],
-        ['the AVIF format', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'not_image'],
-        ['a payload that is not the declared format', 'image/gif', PNG, 'ok'],
-        ['a payload of the wrong raster format', 'image/png', GIF, 'ok'],
-    ])('handles %s', async (_name, contentType, bytes, outcome) => {
+        ['a type that is not an image', 'image', 'text/html', PNG, 'not_image'],
+        ['an SVG, which the store validates as a document', 'image', 'image/svg+xml', PNG, 'ok'],
+        ['the BMP format', 'image', 'image/bmp', Buffer.from('BM'), 'not_image'],
+        ['the AVIF format', 'image', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'ok'],
+        ['a payload that is not the declared format', 'image', 'image/gif', PNG, 'ok'],
+        ['a payload of the wrong raster format', 'image', 'image/png', GIF, 'ok'],
+        ['a generic binary type for an image', 'image', 'application/octet-stream', PNG, 'not_image'],
+        ['a generic binary type for a font', 'font', 'application/octet-stream', WOFF2, 'ok'],
+        ['a legacy font type', 'font', 'application/x-font-woff', WOFF2, 'ok'],
+        ['an image where a font is expected', 'font', 'image/png', PNG, 'not_image'],
+    ] as const)('handles %s', async (_name, asset, contentType, bytes, outcome) => {
         fetchStreamedMock.mockResolvedValue(image(bytes, contentType))
 
-        const result = await fetcher().fetch('https://cdn.example.com/a', OPTIONS)
+        const result = await fetcher().fetch('https://cdn.example.com/a', { ...OPTIONS, asset })
 
         expect(result).toMatchObject({ outcome })
     })

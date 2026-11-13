@@ -76,6 +76,40 @@ class AgentTaskRunDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AgentStartupFailure:
+    provider: Literal["claude", "codex", "pi"]
+    phase: Literal["session_setup", "sdk_initialization", "setup_hooks"]
+    reason: (
+        Literal[
+            "credential_unavailable",
+            "credential_service_unavailable",
+            "org_pin_api_key_conflict",
+            "org_verify_failed",
+            "org_pin_mismatch",
+            "managed_settings_invalid",
+            "remote_settings_required_unavailable",
+            "gateway_signin_required",
+            "gateway_access_denied",
+            "proxy_invalid",
+            "temp_dir_unusable",
+            "cwd_unavailable",
+            "shell_tool_missing",
+            "session_held_by_background",
+            "worktree_resume_refused",
+            "worktree_unverified",
+            "cli_version_too_old",
+            "bypass_root",
+            "sandbox_required_unavailable",
+            "provider_not_allowed",
+            "org_config_required_unavailable",
+            "org_config_refused",
+        ]
+        | None
+    )
+    retryability: Literal["requires_action", "transient", "unknown"]
+
+
+@dataclass(frozen=True, kw_only=True)
 class SessionFile:
     """A text file a custom-prompt session puts in the sandbox before its first turn.
 
@@ -138,6 +172,21 @@ class TaskRunTokenUsage:
     complete: bool
 
 
+@dataclass(frozen=True, kw_only=True)
+class TaskRunSpend:
+    created_at: datetime
+    run_id: UUID
+    task_id: UUID
+    cost_microusd: int | None
+    complete: bool
+    is_terminal: bool
+    stage: str
+    accounting_failed: bool
+    compute_cost_microusd: int = 0
+    trial_grant_id: str | None = None
+    billing_exempt: bool = False
+
+
 @dataclass(frozen=True)
 class TaskRunCost:
     """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
@@ -174,6 +223,7 @@ class TaskRunDTO:
     workflow_id: str = ""
     mode: str = "background"
     task_origin_product: str | None = None
+    task_created_at: datetime | None = None
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
@@ -229,7 +279,7 @@ class TaskSlackUnfurlDTO:
     id: UUID
     title: str
     created_by_id: int | None
-    latest_run_status: str | None
+    status: str | None
 
 
 @dataclass(frozen=True)
@@ -245,6 +295,15 @@ class TaskArtifactSlackUnfurlDTO:
     run_id: UUID
     artifact_id: str
     download_path: str
+
+
+@dataclass(frozen=True)
+class TaskRepositoryState:
+    repository: str | None
+    repositories: list[str]
+    github_integration: int | None
+    github_user_integration: UUID | None
+    repository_integration: int | None
 
 
 @dataclass(frozen=True)
@@ -289,6 +348,12 @@ class TaskDetailDTO:
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
     client_provenance: str | None = None
+    last_client: str | None = None
+    last_client_at: datetime | None = None
+    repository_integration: int | None = None
+    status: str | None = None
+    status_reason: str | None = None
+    status_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -525,6 +590,8 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+    status: str | None = None
+    status_reason: str | None = None
 
 
 class TaskAnalysisError(Exception):
@@ -808,6 +875,7 @@ class TaskRunSandboxConnectionDTO:
 
 SPACE_SETUP_SCOPES = (
     "task:write",
+    "inbox:write",
     "canvas:write",
     "hog_flow:write",
     # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
@@ -1047,35 +1115,10 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
-class TaskRunPeerDTO:
-    """One peer agent run visible to a sender run (agent peer messaging discovery)."""
-
-    run_id: str
-    task_id: str
-    task_title: str
-    created_by_email: str | None
-    runtime: str
-    model: str | None
-    repository: str | None
-    stage: str | None
-    status: str
-    sendable: bool
-    updated_at: str | None
-
-
-PeerSendResultKind = Literal["accepted", "target_finished", "rejected"]
-
-
-@dataclass(frozen=True)
-class PeerMessageSendResultDTO:
-    """Synchronous result of a peer-message send. ``result`` is the public contract:
-    ``accepted`` means queued for delivery (never "delivered" — the sandbox handoff
-    happens later inside the workflow), ``target_finished`` means the target's
-    workflow is gone, ``rejected`` covers throttles and validation failures."""
-
-    result: PeerSendResultKind
-    detail: str
-    message_id: str | None = None
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
 
 
 @dataclass(frozen=True)
@@ -1153,3 +1196,25 @@ class RunPlan:
 
     plan_name: str
     owner_user_id: int | None
+
+
+@dataclass(frozen=True)
+class TaskRunLogLink:
+    """A short-lived download link for a run's log, or why there is none."""
+
+    url: str | None
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressRegistrationDTO:
+    run_id: UUID
+    team_id: int
+    execution_id: UUID
+    actor_id: int
+    actor_epoch: int
+    relay_key_sha256: str
+    authority: str
+    region: str
+    lease_expires_at: datetime
+    revoked: bool

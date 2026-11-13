@@ -3,14 +3,15 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db import transaction
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.plugins.plugin_server_api import resume_hog_flow_batch_job
+from posthog.plugins.plugin_server_api import get_hog_flow_in_flight_count, resume_hog_flow_batch_job
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import WorkflowBatchJob, WorkflowBatchJobNotFound
@@ -20,6 +21,7 @@ from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import batch_job_audience_filters
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.batch_audience_cohorts import realtime_cohort_is_ready, sole_audience_cohort_id
+from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +60,27 @@ def create_batch_job(
     return to_batch_job(job)
 
 
+def rate_limit_change_unpaces_batch(*, team_id: int, hog_flow_id: UUID, current: object, new: object) -> bool:
+    """Whether replacing a workflow's sending rate limit could leave a batch run's raised audience unpaced.
+    The worker paces each send with the live rate limit, so the rate a raised cap relied on must hold
+    until the run's sends have left the queue."""
+    if new == current:
+        return False
+    if not HogFlowBatchJob.objects.filter(
+        team_id=team_id, hog_flow_id=hog_flow_id, max_audience_size__gt=resolve_batch_audience_limit(team_id).limit
+    ).exists():
+        return False
+    # The resolver completes a run once it enqueues the audience, and sends can wait behind delays, so only an
+    # empty queue ends the lock. An unknown count fails closed.
+    try:
+        response = get_hog_flow_in_flight_count(team_id=team_id, hog_flow_id=str(hog_flow_id))
+        response.raise_for_status()
+        return response.json().get("count") != 0
+    except Exception:
+        logger.warning("rate_limit_lock_in_flight_count_failed", hog_flow_id=str(hog_flow_id), exc_info=True)
+        return True
+
+
 def list_batch_jobs(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowBatchJob]:
     jobs = HogFlowBatchJob.objects.filter(hog_flow_id=hog_flow_id, team_id=team_id).order_by("-created_at")
     return [to_batch_job(job) for job in jobs]
@@ -86,10 +109,31 @@ def set_batch_job_status(
     if from_statuses is not None:
         jobs = jobs.filter(status__in=from_statuses)
     # `.update()` bypasses auto_now, so stamp updated_at explicitly.
-    jobs.update(status=status, updated_at=timezone.now())
+    updated = jobs.update(status=status, updated_at=timezone.now())
+    if updated and status in TERMINAL_BATCH_JOB_STATES:
+        _schedule_audience_snapshot_cleanup(team_id=team_id, batch_job_id=batch_job_id)
 
 
-def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str]) -> list[UUID]:
+TERMINAL_BATCH_JOB_STATES = {
+    HogFlowBatchJobState.COMPLETED,
+    HogFlowBatchJobState.PARTIALLY_FAILED,
+    HogFlowBatchJobState.FAILED,
+    HogFlowBatchJobState.CANCELLED,
+}
+
+
+def _schedule_audience_snapshot_cleanup(*, team_id: int, batch_job_id: UUID) -> None:
+    # Only runs that resolved their audience up front have rows to drop.
+    if not HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id, audience_status__isnull=False).exists():
+        return
+    from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this service
+        delete_batch_job_audience_snapshot,
+    )
+
+    transaction.on_commit(lambda: delete_batch_job_audience_snapshot.delay(team_id, str(batch_job_id)), robust=True)
+
+
+def filter_by_broadcast_status(queryset: QuerySet[HogFlow], statuses: Collection[str]) -> QuerySet[HogFlow]:
     # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
     # latest run and whether a schedule still has sends to come.
     latest_run_status = (
@@ -97,7 +141,7 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
         .order_by("-created_at")
         .values("status")[:1]
     )
-    queryset = HogFlow.objects.filter(team_id=team_id).annotate(
+    queryset = queryset.annotate(
         _latest_run_status=Subquery(latest_run_status),
         _has_pending_schedule=Exists(
             HogFlowSchedule.objects.filter(
@@ -115,11 +159,17 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
         "archived": Q(status=HogFlow.State.ARCHIVED),
         "sending": live & Q(_latest_run_status__in=running),
         "sent": live & Q(_latest_run_status=HogFlowBatchJobState.COMPLETED, _has_pending_schedule=False),
+        # Kept apart from failed, because a sender who sees Failed can resend and reach the same people twice.
+        "partially_sent": live
+        & Q(_latest_run_status=HogFlowBatchJobState.PARTIALLY_FAILED, _has_pending_schedule=False),
         "scheduled": live
         & (
             (
                 Q(_has_pending_schedule=True)
-                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJobState.COMPLETED))
+                & (
+                    Q(_latest_run_status__isnull=True)
+                    | Q(_latest_run_status__in=[HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.PARTIALLY_FAILED])
+                )
             )
             | (nothing_to_come & ~Q(origin_product="broadcasts"))
         ),
@@ -129,7 +179,27 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
     combined = Q()
     for broadcast_status in statuses:
         combined |= conditions[broadcast_status]
-    return list(queryset.filter(combined).values_list("id", flat=True))
+    return queryset.filter(combined)
+
+
+def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str]) -> list[UUID]:
+    return list(
+        filter_by_broadcast_status(HogFlow.objects.filter(team_id=team_id), statuses).values_list("id", flat=True)
+    )
+
+
+def annotate_latest_send(queryset: QuerySet[HogFlow]) -> QuerySet[HogFlow]:
+    """Adds `_latest_send_at`: when the workflow's newest run that sent to anyone finished, or null."""
+    latest_send = (
+        HogFlowBatchJob.objects.filter(
+            team_id=OuterRef("team_id"),
+            hog_flow_id=OuterRef("pk"),
+            status__in=[HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.PARTIALLY_FAILED],
+        )
+        .order_by("-updated_at")
+        .values("updated_at")[:1]
+    )
+    return queryset.annotate(_latest_send_at=Subquery(latest_send))
 
 
 def delete_batch_jobs_for_teams(team_ids: Collection[int], batch_size: int = 1000) -> None:

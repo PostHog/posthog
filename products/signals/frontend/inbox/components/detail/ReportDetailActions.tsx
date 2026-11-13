@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
+import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconPerson } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
@@ -14,10 +14,11 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canMonitorReport, canResolveReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
+import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
+import { openTakeOverReportDialog } from '../shell/TakeOverReportDialog'
 import { useReportResolve } from './useReportResolve'
 
 /**
@@ -40,9 +41,9 @@ export interface ReportDetailAction {
 
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { changeReportState } = useActions(detailLogic)
-    const { reportStateSaving, reportChecks } = useValues(detailLogic)
-    const { reportStateChanged } = useActions(inboxBulkActionsLogic)
+    const { changeReportState, setReportClaimed } = useActions(detailLogic)
+    const { reportStateSaving, teammateClaimHolder, claimSaving } = useValues(detailLogic)
+    const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -123,7 +124,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {
-            await api.signalReports.setState(report.id, { state: 'potential' })
+            await setReportState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
             // Broadcast so any mounted list (including that Archive instance) reconciles against the
@@ -132,6 +133,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
+            reportWriteFailed([report.id])
         } finally {
             setIsRestoring(false)
         }
@@ -182,26 +184,36 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
-        ...(canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
+        ...(teammateClaimHolder
             ? [
                   {
-                      key: 'monitor',
-                      label: 'Start monitoring',
-                      icon: <IconClock />,
-                      loading: reportStateSaving,
-                      tooltip: 'PostHog watches to make sure the fix works',
-                      onClick: () => changeReportState('monitoring'),
+                      key: 'takeover',
+                      label: 'Take over',
+                      icon: <IconPerson />,
+                      loading: claimSaving,
+                      tooltip: 'Take over the claim to work on this report',
+                      onClick: () =>
+                          openTakeOverReportDialog({
+                              report,
+                              surface: 'detail_pane',
+                              holder: teammateClaimHolder,
+                              onConfirm: () => setReportClaimed(true, true, report.assignee),
+                          }),
                   },
               ]
             : []),
-        ...(report.status === SignalReportStatus.MONITORING
+        ...([SignalReportStatus.MONITORING, SignalReportStatus.CLOSED].includes(report.status)
             ? [
                   {
                       key: 'reopen',
                       label: 'Reopen',
                       icon: <IconUndo />,
                       loading: reportStateSaving,
-                      onClick: () => changeReportState('potential'),
+                      tooltip: 'Move this report back to ready',
+                      onClick: () => {
+                          captureInboxReportAction({ report, actionType: 'reopen', surface: 'detail_pane' })
+                          changeReportState('ready')
+                      },
                   },
               ]
             : []),

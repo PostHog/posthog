@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -196,4 +196,103 @@ export const MessagingPreferencesRemoveOptOutCreateBody = () => zod.object({
         .describe(
             'Optional message category key. If omitted, the recipient is opted back in to all marketing messages.'
         ),
+})
+
+/**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Get the Supabase auth email settings
+ */
+export const MessagingSupabaseAuthEmailsSettingsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Update the Supabase auth email settings
+ */
+export const MessagingSupabaseAuthEmailsSettingsPartialUpdateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSupabaseAuthEmailsSettingsPartialUpdateBodySupabaseUrlMax = 200
+
+export const messagingSupabaseAuthEmailsSettingsPartialUpdateBodyHookSecretMax = 500
+
+export const MessagingSupabaseAuthEmailsSettingsPartialUpdateBody = () => zod.object({
+    supabase_url: zod
+        .string()
+        .max(messagingSupabaseAuthEmailsSettingsPartialUpdateBodySupabaseUrlMax)
+        .optional()
+        .describe(
+            "The Supabase project URL, such as https:\/\/abcdefgh.supabase.co, from the project's API settings in the Supabase dashboard. It must use https."
+        ),
+    hook_secret: zod
+        .string()
+        .max(messagingSupabaseAuthEmailsSettingsPartialUpdateBodyHookSecretMax)
+        .optional()
+        .describe(
+            'The Send Email Hook secret, starting with v1,whsec_. Supabase generates it under Authentication, Hooks, Send Email hook. Leave it out to keep the stored secret.'
+        ),
+    templates: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification.'
+        ),
+})
+
+/**
+ * Create a transactional template for each core Supabase auth email that has no template yet, and map it. Needs a verified email sender.
+ * @summary Create starter templates for the Supabase auth emails
+ */
+export const MessagingSupabaseAuthEmailsStarterTemplatesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const MessagingSuppressionsBulkAddSuppressionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax = 512
+
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault = `manual`
+
+export const MessagingSuppressionsBulkAddSuppressionsCreateBody = () => zod.object({
+    suppressions: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax)
+                    .describe('The email address to suppress. Matched case-insensitively.'),
+                reason: zod
+                    .enum(['bounce', 'complaint', 'manual'])
+                    .describe('\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual')
+                    .default(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault)
+                    .describe(
+                        "Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.\n\n\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual"
+                    ),
+            })
+        )
+        .describe('Addresses to suppress, at most 1000 per request.'),
 })

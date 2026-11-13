@@ -1,0 +1,292 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
+
+import { IconCalendar } from '@posthog/icons'
+import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { Scene } from 'scenes/sceneTypes'
+
+import { groupsModel } from '~/models/groupsModel'
+import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
+import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
+import { DashboardPlacement, InsightLogicProps, IntervalType } from '~/types'
+
+import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
+import { TaxonomicBreakdownFilter } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { QuillToolbarSelect } from 'products/product_analytics/frontend/insights/shared/QuillToolbarSelect'
+
+import { DashboardControl, dashboardControlScopeText, isDashboardControlHidden } from './dashboardControls'
+import { DashboardEditBarAdvancedFilters } from './DashboardEditBarAdvancedFilters'
+import { QuillDashboardUnsavedChangesActions } from './dashboardSettings/QuillDashboardUnsavedChangesActions'
+import { QuillDashboardPropertyFilters } from './QuillDashboardPropertyFilters'
+
+interface DashboardEditBarProps {
+    showDateFilter?: boolean
+    className?: string
+}
+
+/** Wraps one filter control: hides it when it changes no insight, and says in a tooltip how many insights it changes. */
+function DashboardControlSlot({
+    control,
+    hasValue,
+    className,
+    children,
+}: {
+    control: DashboardControl
+    hasValue: boolean
+    className?: string
+    children: ReactNode
+}): JSX.Element | null {
+    const { dashboardControlScopes } = useValues(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+
+    if (!controlsEnabled) {
+        return <div className={className}>{children}</div>
+    }
+    const scope = dashboardControlScopes[control]
+    if (isDashboardControlHidden(scope, hasValue)) {
+        return null
+    }
+    const scopeText = dashboardControlScopeText(scope)
+    return (
+        <Tooltip title={scopeText} placement="top" delayMs={300}>
+            <div className={className}>{children}</div>
+        </Tooltip>
+    )
+}
+
+const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
+    { value: null, label: "each insight's interval" },
+    { value: 'hour', label: 'hour' },
+    { value: 'day', label: 'day' },
+    { value: 'week', label: 'week' },
+    { value: 'month', label: 'month' },
+]
+
+export function DashboardIntervalFilter(): JSX.Element {
+    const { dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { setInterval, setDashboardEditing } = useActions(dashboardLogic)
+    const quillSurface = useQuillSurface()
+
+    const onChange = (interval: IntervalType | null): void => {
+        if (!dashboardEditing) {
+            setDashboardEditing(true, DashboardEventSource.DashboardFilters)
+        }
+        setInterval(interval)
+    }
+
+    if (quillSurface) {
+        return (
+            <span className="flex items-center gap-2">
+                <Text size="xs" render={<span className="hidden md:inline" />}>
+                    grouped by
+                </Text>
+                <QuillToolbarSelect<IntervalType | null>
+                    value={effectiveEditBarFilters.interval ?? null}
+                    onChange={onChange}
+                    options={INTERVAL_OPTIONS}
+                    data-attr="dashboard-interval-filter"
+                />
+            </span>
+        )
+    }
+
+    return (
+        <span className="flex items-center gap-2">
+            <span className="hidden md:inline">grouped by</span>
+            <LemonSelect<IntervalType | null>
+                size="small"
+                value={effectiveEditBarFilters.interval ?? null}
+                dropdownMatchSelectWidth={false}
+                onChange={onChange}
+                options={INTERVAL_OPTIONS}
+            />
+        </span>
+    )
+}
+
+export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
+    const { dashboard, dashboardEditing, hasVariables, effectiveEditBarFilters, placement, dashboardSettingsState } =
+        useValues(dashboardLogic)
+    const { setDates, setProperties, setBreakdownFilter, setDashboardEditing } = useActions(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+    const quillSurface = useQuillSurface()
+    const showSaveActions =
+        quillSurface && placement === DashboardPlacement.Dashboard && dashboardSettingsState === 'unsavedChanges'
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const { hasPageview, hasScreen } = getProjectEventExistence()
+
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: 'new',
+        dashboardId: dashboard?.id,
+        cachedInsight: null,
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+            },
+        },
+    }
+
+    const editingFrameClass = dashboardEditing
+        ? clsx(quillSurface ? '-my-2 -ml-2 p-2' : '-m-1.5 p-1.5', 'border-primary border-dashed rounded-lg')
+        : 'border-transparent'
+
+    return (
+        <div
+            className={
+                className ??
+                clsx('flex gap-2 items-end flex-wrap', quillSurface && 'min-w-0', 'border', editingFrameClass)
+            }
+        >
+            {showDateFilter && (
+                <DashboardControlSlot
+                    control="dateRange"
+                    hasValue={!!effectiveEditBarFilters.date_from || !!effectiveEditBarFilters.date_to}
+                    className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}
+                >
+                    <Shortcut
+                        name="DashboardDateFilter"
+                        keybind={[keyBinds.dateFilter]}
+                        intent="Date filter"
+                        interaction="click"
+                        scope={Scene.Dashboard}
+                    >
+                        <DateFilter
+                            showCustom
+                            showExplicitDateToggle
+                            allowTimePrecision
+                            allowFixedRangeWithTime
+                            dateFrom={effectiveEditBarFilters.date_from}
+                            dateTo={effectiveEditBarFilters.date_to}
+                            explicitDate={effectiveEditBarFilters.explicitDate}
+                            onChange={(from_date, to_date, explicitDate) => {
+                                if (!dashboardEditing) {
+                                    setDashboardEditing(true, DashboardEventSource.DashboardFilters)
+                                }
+                                setDates(from_date, to_date, explicitDate)
+                            }}
+                            makeLabel={(key) =>
+                                quillSurface ? (
+                                    <span className="hide-when-small">{key}</span>
+                                ) : (
+                                    <>
+                                        <IconCalendar />
+                                        <span className="hide-when-small"> {key}</span>
+                                    </>
+                                )
+                            }
+                        />
+                    </Shortcut>
+                </DashboardControlSlot>
+            )}
+            {showDateFilter && (
+                <DashboardControlSlot
+                    control="interval"
+                    hasValue={effectiveEditBarFilters.interval != null}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
+                    <DashboardIntervalFilter />
+                </DashboardControlSlot>
+            )}
+            <DashboardControlSlot
+                control="properties"
+                hasValue={(effectiveEditBarFilters.properties?.length ?? 0) > 0}
+                className={clsx('content-end', { 'h-[61px]': hasVariables })}
+            >
+                <PropertyFilters
+                    onChange={(properties) => {
+                        if (!dashboardEditing) {
+                            setDashboardEditing(true, DashboardEventSource.DashboardFilters)
+                        }
+                        setProperties(properties)
+                    }}
+                    pageKey={'dashboard_' + dashboard?.id}
+                    propertyFilters={effectiveEditBarFilters.properties}
+                    renderControls={
+                        quillSurface ? (controls) => <QuillDashboardPropertyFilters {...controls} /> : undefined
+                    }
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.EventMetadata,
+                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                        TaxonomicFilterGroupType.EmailAddresses,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.Elements,
+                        TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                    ]}
+                />
+            </DashboardControlSlot>
+            <div className={quillSurface ? 'flex min-w-0 flex-wrap items-end gap-2' : 'contents'}>
+                <DashboardControlSlot
+                    control="breakdown"
+                    hasValue={!!effectiveEditBarFilters.breakdown_filter}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
+                    <BindLogic logic={insightLogic} props={insightProps}>
+                        <TaxonomicBreakdownFilter
+                            insightProps={insightProps}
+                            breakdownFilter={effectiveEditBarFilters.breakdown_filter}
+                            isTrends={false}
+                            isFunnels={false}
+                            showLabel={false}
+                            updateBreakdownFilter={(breakdown_filter) => {
+                                if (!dashboardEditing) {
+                                    setDashboardEditing(true, DashboardEventSource.DashboardFilters)
+                                }
+                                const merged: BreakdownFilter = {
+                                    ...effectiveEditBarFilters.breakdown_filter,
+                                    ...breakdown_filter,
+                                }
+                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                                setBreakdownFilter(!merged.breakdown_type && !merged.breakdowns ? null : merged)
+                            }}
+                            updateDisplay={() => {}}
+                            disablePropertyInfo
+                            size="small"
+                            hideAddWhenFull={quillSurface}
+                        />
+                    </BindLogic>
+                </DashboardControlSlot>
+
+                <VariablesForDashboard />
+                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                    <DashboardEditBarAdvancedFilters showCompareFilter={showDateFilter} />
+                </div>
+                {controlsEnabled && (
+                    <DashboardControlSlot
+                        control="metricVariables"
+                        hasValue={(effectiveEditBarFilters.metricVariables?.length ?? 0) > 0}
+                        className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                    >
+                        <div className="flex min-h-[30px] flex-wrap items-end gap-1 border-l border-primary pl-2">
+                            <DashboardMetricVariables />
+                        </div>
+                    </DashboardControlSlot>
+                )}
+                {showSaveActions && <QuillDashboardUnsavedChangesActions />}
+            </div>
+        </div>
+    )
+}

@@ -1,10 +1,11 @@
 import { Counter } from 'prom-client'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 
 export const counterHogFlowQuotaLimited = new Counter({
     name: 'cdp_hog_flow_quota_limited',
@@ -12,8 +13,21 @@ export const counterHogFlowQuotaLimited = new Counter({
     labelNames: ['team_id'],
 })
 
+export const HOG_FLOW_QUOTA_LIMITED_MESSAGE = 'The project is over its workflow quota'
+
 export interface HogFlowQuotaLimitResult {
     isLimited: boolean
+}
+
+// Transactional emails bypass the email quota. Each send still reports billable usage, so the team pays for it.
+function sendsOnlyTransactionalEmail(hogFlow: HogFlow): boolean {
+    const emailActions = hogFlow.actions.filter(
+        (action): action is Extract<HogFlowAction, { type: 'function_email' }> => action.type === 'function_email'
+    )
+    return (
+        emailActions.length > 0 &&
+        emailActions.every((action) => action.config?.message_category_type === 'transactional')
+    )
 }
 
 /**
@@ -40,7 +54,11 @@ export async function checkHogFlowQuotaLimits(
     ])
 
     // Check if any billable action type is quota limited
-    if (isEmailQuotaLimited && billableActionTypes.includes('function_email')) {
+    if (
+        isEmailQuotaLimited &&
+        billableActionTypes.includes('function_email') &&
+        !sendsOnlyTransactionalEmail(hogFlow)
+    ) {
         return { isLimited: true }
     }
 
@@ -58,6 +76,11 @@ export async function checkHogFlowQuotaLimits(
 export interface HogFlowQuotaLimitingContext {
     quotaLimiting: QuotaLimiting
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
+}
+
+function sendsEmail(hogFlow: HogFlow): boolean {
+    return Array.isArray(hogFlow.billable_action_types) && hogFlow.billable_action_types.includes('function_email')
 }
 
 /**
@@ -65,7 +88,7 @@ export interface HogFlowQuotaLimitingContext {
  * Returns true if the invocation should be blocked, false otherwise.
  */
 export async function shouldBlockHogFlowDueToQuota(
-    item: CyclotronJobInvocationHogFlow,
+    item: Pick<CyclotronJobInvocationHogFlow, 'teamId' | 'functionId' | 'hogFlow'>,
     context: HogFlowQuotaLimitingContext
 ): Promise<boolean> {
     const quotaLimitResult = await checkHogFlowQuotaLimits(item.hogFlow, item.teamId, context.quotaLimiting)
@@ -84,6 +107,13 @@ export async function shouldBlockHogFlowDueToQuota(
             },
             'hog_flow'
         )
+        if (sendsEmail(item.hogFlow)) {
+            void context.workflowsActivationReporter.report(item.teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                channel: 'email',
+                workflow_id: item.functionId,
+            })
+        }
         return true
     }
 

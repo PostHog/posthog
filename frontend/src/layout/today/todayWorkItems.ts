@@ -276,6 +276,36 @@ export function buildRecentItems(
         .slice(0, limit)
 }
 
+export interface TodayRecentTasksPage {
+    tasks: TaskListItemApi[]
+    hasMore: boolean
+}
+
+export function refreshRecentTasks(
+    fetched: TaskListItemApi[],
+    fetchedHasMore: boolean,
+    current: TaskListItemApi[],
+    currentHasMore: boolean,
+    requested: number
+): TodayRecentTasksPage {
+    if (!fetchedHasMore || current.length <= requested) {
+        return { tasks: fetched, hasMore: fetchedHasMore }
+    }
+    return { tasks: appendRecentTasks(fetched, current), hasMore: currentHasMore }
+}
+
+export function appendRecentTasks(loaded: TaskListItemApi[], page: TaskListItemApi[]): TaskListItemApi[] {
+    const seenIds = new Set(loaded.map((task) => task.id))
+    const added = page.filter((task) => {
+        if (seenIds.has(task.id)) {
+            return false
+        }
+        seenIds.add(task.id)
+        return true
+    })
+    return [...loaded, ...added]
+}
+
 export interface TodaySessionReadRequest {
     marker: TaskActivityReadMarkerApi
     activityIds: string[]

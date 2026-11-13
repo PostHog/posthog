@@ -5,7 +5,6 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { experimentLogic, previousRefreshAnalytics } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 
@@ -37,9 +36,10 @@ function RefreshButton({
         <LemonButton
             type="secondary"
             size="xsmall"
-            icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
+            icon={<IconRefresh />}
+            loading={isRefreshing}
             onClick={onRefresh}
-            disabledReason={isRefreshing ? (queuedHint ?? loadingText) : blockedReason}
+            disabledReason={isRefreshing ? queuedHint : blockedReason}
             aria-label={isRefreshing ? undefined : 'Refresh results'}
             data-attr="refresh-experiment"
         >

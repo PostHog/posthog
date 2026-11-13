@@ -78,7 +78,13 @@ def _context(filters: dict[str, Any]) -> tuple[str, ...]:
 
 def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
     params = _window_params(transition)
-    return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
+    return _logs_page_url(project_id) + (f"?{params}" if params else "")
+
+
+def _logs_page_url(project_id: int) -> str:
+    # `absolute_uri` refuses any URL that holds `%5C`, and a regex filter encodes its backslash that
+    # way. The query goes on afterwards, which is safe because a query cannot change the link's host.
+    return absolute_uri(f"/project/{project_id}/logs")
 
 
 def in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
@@ -173,7 +179,7 @@ def legacy_logs_webhook_body(
             "threshold_operator": condition["threshold_operator"],
             "window_minutes": condition["window_minutes"],
             # The legacy template always added the "?", even with no parameters.
-            "logs_url": absolute_uri(f"/project/{project_id}/logs?{_window_params(transition)}"),
+            "logs_url": f"{_logs_page_url(project_id)}?{_window_params(transition)}",
         }
     else:
         error_key = "last_error_message" if transition.kind == AlertEventKind.BROKEN else "error_message"

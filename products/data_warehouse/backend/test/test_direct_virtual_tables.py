@@ -1,8 +1,15 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
+
+from parameterized import parameterized
 
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 
-from products.data_warehouse.backend.direct_virtual_tables import build_direct_table_for_schema
+from products.data_warehouse.backend.direct_virtual_tables import (
+    build_direct_table_for_schema,
+    eligible_direct_query_schemas,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -16,7 +23,15 @@ SCHEMA_METADATA = {
 
 
 class TestBuildDirectTableForSchema(APIBaseTest):
-    def _create(self, *, enabled_columns: list[str] | None) -> tuple[ExternalDataSchema, ExternalDataSource]:
+    def _create(
+        self,
+        *,
+        enabled_columns: list[str] | None,
+        masked_columns: list[str] | None = None,
+        should_sync: bool = True,
+        live_query_enabled: bool = False,
+        row_filters: list[dict[str, Any]] | None = None,
+    ) -> tuple[ExternalDataSchema, ExternalDataSource]:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -29,9 +44,38 @@ class TestBuildDirectTableForSchema(APIBaseTest):
             team=self.team,
             source=source,
             enabled_columns=enabled_columns,
+            masked_columns=masked_columns,
+            should_sync=should_sync,
+            live_query_enabled=live_query_enabled,
+            row_filters=row_filters,
             sync_type_config={"schema_metadata": SCHEMA_METADATA, "primary_key_columns": ["id"]},
         )
         return schema, source
+
+    @parameterized.expand(
+        [
+            ("synced", True, False, None, True),
+            ("live_only", False, True, None, True),
+            ("neither", False, False, None, False),
+            ("live_only_row_filtered", False, True, [{"column": "id", "operator": "eq", "value": 1}], False),
+        ]
+    )
+    def test_live_catalog_selection(
+        self,
+        _label: str,
+        should_sync: bool,
+        live_query_enabled: bool,
+        row_filters: list[dict[str, Any]] | None,
+        expected_eligible: bool,
+    ):
+        schema, source = self._create(
+            enabled_columns=None,
+            should_sync=should_sync,
+            live_query_enabled=live_query_enabled,
+            row_filters=row_filters,
+        )
+
+        assert eligible_direct_query_schemas(self.team.pk, str(source.pk)) == ([schema] if expected_eligible else [])
 
     def test_deselected_column_excluded_from_direct_table(self):
         # A user with only "enabled_columns": ["email"] must not be able to read "secret"
@@ -44,6 +88,13 @@ class TestBuildDirectTableForSchema(APIBaseTest):
         assert "secret" not in table.fields
         assert "email" in table.fields
         assert "id" in table.fields  # primary key always retained
+
+    def test_masked_schema_is_not_exposed_to_live_queries(self):
+        # A live query reads the source directly, so it would return the masked values in plaintext.
+        schema, source = self._create(enabled_columns=None, masked_columns=["secret"])
+
+        assert build_direct_table_for_schema(schema, source) is None
+        assert eligible_direct_query_schemas(self.team.pk, str(source.pk)) == []
 
     def test_none_enabled_columns_syncs_everything(self):
         schema, source = self._create(enabled_columns=None)

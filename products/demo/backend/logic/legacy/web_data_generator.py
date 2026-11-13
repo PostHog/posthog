@@ -11,12 +11,12 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.schema import ActionsNode, FunnelsQuery, InsightVizNode
 
-from posthog.models import Person, PropertyDefinition
+from posthog.models import Person
 from posthog.models.utils import UUIDT
 
-from products.actions.backend.models.action import Action
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.actions.backend.facade.api import create_action
+from products.dashboards.backend.facade import api as dashboards_api
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.models import Insight
 
 from .data_generator import DataGenerator
@@ -36,7 +36,7 @@ class WebDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
 
     def create_actions_dashboards(self):
-        homepage = Action.objects.create(
+        homepage = create_action(
             team=self.team,
             name="Hogflix homepage view",
             steps_json=[
@@ -48,7 +48,7 @@ class WebDataGenerator(DataGenerator):
             ],
         )
 
-        user_signed_up = Action.objects.create(
+        user_signed_up = create_action(
             team=self.team,
             name="Hogflix signed up",
             steps_json=[
@@ -61,7 +61,7 @@ class WebDataGenerator(DataGenerator):
             ],
         )
 
-        user_paid = Action.objects.create(
+        user_paid = create_action(
             team=self.team,
             name="Hogflix paid",
             steps_json=[
@@ -74,7 +74,7 @@ class WebDataGenerator(DataGenerator):
             ],
         )
 
-        dashboard = Dashboard.objects.create(name="Web Analytics", pinned=True, team=self.team)
+        dashboard = dashboards_api.create_dashboard(name="Web Analytics", pinned=True, team_id=self.team.id)
         insight = Insight.objects.create(
             team=self.team,
             name="Hogflix signup -> watching movie",
@@ -89,8 +89,7 @@ class WebDataGenerator(DataGenerator):
                 )
             ).model_dump(),
         )
-        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
-        dashboard.save()  # to update the insight's filter hash
+        dashboards_api.add_insight_tile(insight_id=insight.id, dashboard_id=dashboard.id)
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         start_day = random.randint(1, 7) if index > 0 else 0

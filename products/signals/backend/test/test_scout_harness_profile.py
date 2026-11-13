@@ -6,6 +6,7 @@ Layered top-down: builder source-readers → `compute_project_profile` end-to-en
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -17,25 +18,27 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.db import connection
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.knowledge_chunk import KnowledgeChunk
 from products.business_knowledge.backend.models.knowledge_document import KnowledgeDocument
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.dashboards.backend.facade.testing import create_dashboard
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -84,6 +87,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
     compute_project_profile,
     get_project_profile,
+    refresh_project_profile_surfaces,
 )
 from products.signals.backend.tasks import build_signal_project_profile
 from products.skills.backend.models.skills import LLMSkill
@@ -92,6 +96,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataJob, Ex
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 BUILDERS = "products.signals.backend.scout_harness.profile.builders"
+PROFILE_TOOL = "products.signals.backend.scout_harness.tools.profile"
 
 
 class TestProjectContext(BaseTest):
@@ -170,6 +175,12 @@ class TestIntegrations(BaseTest):
         Integration.objects.create(team=self.team, kind="slack", config={})
         result = _integrations(self.team)
         assert sorted(r["kind"] for r in result) == ["github", "slack"]
+
+    def test_skips_warehouse_source_rows(self) -> None:
+        Integration.objects.create(team=self.team, kind="slack", config={})
+        Integration.objects.create(team=self.team, kind="github", config={SOURCE_MARKER_CONFIG_KEY: "Github"})
+        result = _integrations(self.team)
+        assert [r["kind"] for r in result] == ["slack"]
 
     def test_does_not_leak_config_or_sensitive_config(self) -> None:
         # Defensive: integration config/sensitive_config can hold tokens; only kind + created_at
@@ -519,33 +530,27 @@ class TestExistingInboxReports(BaseTest):
 
 class TestRecentDashboards(BaseTest):
     def test_orders_by_last_accessed_desc(self) -> None:
-        old = Dashboard.objects.create(team=self.team, name="old")
-        new = Dashboard.objects.create(team=self.team, name="new")
-        Dashboard.objects.filter(id=old.id).update(last_accessed_at=timezone.now() - timedelta(hours=2))
-        Dashboard.objects.filter(id=new.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="old", last_accessed_at=timezone.now() - timedelta(hours=2))
+        create_dashboard(team_id=self.team.id, name="new", last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["new", "old"]
 
     def test_excludes_deleted(self) -> None:
-        live = Dashboard.objects.create(team=self.team, name="live")
-        gone = Dashboard.objects.create(team=self.team, name="gone", deleted=True)
-        Dashboard.objects.filter(id=live.id).update(last_accessed_at=timezone.now())
-        Dashboard.objects.filter(id=gone.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="live", last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="gone", deleted=True, last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["live"]
 
     def test_excludes_never_accessed(self) -> None:
         # last_accessed_at null = never opened — surfacing it as "recent" would lie.
-        accessed = Dashboard.objects.create(team=self.team, name="accessed")
-        Dashboard.objects.filter(id=accessed.id).update(last_accessed_at=timezone.now())
-        Dashboard.objects.create(team=self.team, name="never")  # last_accessed_at = null
+        create_dashboard(team_id=self.team.id, name="accessed", last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="never")  # last_accessed_at = null
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["accessed"]
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        d = Dashboard.objects.create(team=other, name="other-team")
-        Dashboard.objects.filter(id=d.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=other.id, name="other-team", last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert result == []
 
@@ -633,19 +638,22 @@ class TestRecentExperiments(BaseTest):
 
     def test_running_count_only_counts_started_unfinished_unarchived(self) -> None:
         now = timezone.now()
-        Experiment.objects.create(
-            team=self.team, name="running", feature_flag=self._flag("ff-r"), start_date=now - timedelta(days=1)
+        create_experiment(
+            team_id=self.team.id,
+            name="running",
+            feature_flag_id=self._flag("ff-r").id,
+            start_date=now - timedelta(days=1),
         )
-        Experiment.objects.create(team=self.team, name="draft", feature_flag=self._flag("ff-d"))
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(team_id=self.team.id, name="draft", feature_flag_id=self._flag("ff-d").id)
+        create_experiment(
+            team_id=self.team.id,
             name="stopped",
-            feature_flag=self._flag("ff-s"),
+            feature_flag_id=self._flag("ff-s").id,
             start_date=now - timedelta(days=10),
             end_date=now - timedelta(days=1),
         )
-        Experiment.objects.create(
-            team=self.team, name="archived", feature_flag=self._flag("ff-a"), start_date=now, archived=True
+        create_experiment(
+            team_id=self.team.id, name="archived", feature_flag_id=self._flag("ff-a").id, start_date=now, archived=True
         )
         result = _recent_experiments(self.team)
         assert result["total_count"] == 4
@@ -659,14 +667,16 @@ class TestRecentExperiments(BaseTest):
         }
 
     def test_carries_feature_flag_key_for_cross_reference(self) -> None:
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=self._flag("my-exp-flag"))
+        create_experiment(team_id=self.team.id, name="exp", feature_flag_id=self._flag("my-exp-flag").id)
         result = _recent_experiments(self.team)
         assert result["recent"][0]["feature_flag_key"] == "my-exp-flag"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        Experiment.objects.create(
-            team=other, name="x", feature_flag=FeatureFlag.objects.create(team=other, key="o", created_by=self.user)
+        create_experiment(
+            team_id=other.id,
+            name="x",
+            feature_flag_id=FeatureFlag.objects.create(team=other, key="o", created_by=self.user).id,
         )
         result = _recent_experiments(self.team)
         assert result["total_count"] == 0
@@ -812,22 +822,22 @@ class TestRecentCohorts(BaseTest):
 
 class TestRecentActions(BaseTest):
     def test_orders_by_updated_at_desc(self) -> None:
-        a = Action.objects.create(team=self.team, name="a", created_by=self.user)
-        Action.objects.filter(id=a.id).update(updated_at=timezone.now() - timedelta(days=1))
-        Action.objects.create(team=self.team, name="b", created_by=self.user)
+        a = create_action(team=self.team, name="a", created_by=self.user)
+        update_action(a, updated_at=timezone.now() - timedelta(days=1))
+        create_action(team=self.team, name="b", created_by=self.user)
         result = _recent_actions(self.team)
         assert [r["name"] for r in result["recent"]] == ["b", "a"]
 
     def test_excludes_deleted(self) -> None:
-        Action.objects.create(team=self.team, name="kept", created_by=self.user)
-        Action.objects.create(team=self.team, name="gone", deleted=True, created_by=self.user)
+        create_action(team=self.team, name="kept", created_by=self.user)
+        create_action(team=self.team, name="gone", deleted=True, created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 1
         assert result["recent"][0]["name"] == "kept"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        Action.objects.create(team=other, name="x", created_by=self.user)
+        create_action(team=other, name="x", created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 0
 
@@ -966,6 +976,8 @@ class TestRecentReviewerCorrections(BaseTest):
             "report_title": "Report title",
             "before": ["alice"],
             "after": ["bob"],
+            "removal_reason": None,
+            "removal_reason_reviewers": [],
             "at": correction.created_at.isoformat(),
         }
 
@@ -1162,6 +1174,29 @@ class TestComputeProjectProfile(BaseTest):
         delta = row.expires_at - row.computed_at
         # Allow small slack for the two `timezone.now()` calls in the build path.
         assert PROFILE_TTL - timedelta(seconds=2) < delta < PROFILE_TTL + timedelta(seconds=2)
+
+    @parameterized.expand(
+        [
+            ("compute", lambda team: compute_project_profile(team=team)),
+            ("compute_deferred_surfaces", lambda team: compute_project_profile(team=team, defer_surfaces=True)),
+            ("refresh_without_a_row", lambda team: refresh_project_profile_surfaces(team_id=team.id)),
+        ]
+    )
+    def test_builds_the_inventory_outside_the_transaction(self, _name: str, build: Callable[[Team], Any]) -> None:
+        outer_depth = len(connection.atomic_blocks)
+        depths: list[int] = []
+
+        def record_depth(team: Team, **kwargs: Any) -> Inventory:
+            depths.append(len(connection.atomic_blocks))
+            return build_inventory(team, **kwargs)
+
+        with (
+            patch(f"{PROFILE_TOOL}.build_inventory", side_effect=record_depth),
+            patch("products.signals.backend.tasks.build_signal_project_profile.delay"),
+        ):
+            build(self.team)
+        assert depths == [outer_depth]
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
 
 class TestGetProjectProfile(BaseTest):

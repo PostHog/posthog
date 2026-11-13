@@ -4,9 +4,11 @@ const SAMPLE_RATE = 0.05
 
 export type BootPhase =
     | 'entry'
+    | 'app_context_loaded'
     | 'app_modules_loaded'
     | 'css_ready'
     | 'app_booted'
+    | 'scene_prefetched'
     | 'app_first_render'
     | 'app_ready'
     | 'scene_loaded'
@@ -14,7 +16,10 @@ export type BootPhase =
 
 export interface BootContext {
     scene?: string
+    prefetched_scene?: string
     logged_in?: boolean
+    deferred_app_context?: boolean
+    early_user_context_reads?: string[]
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}
@@ -98,8 +103,22 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
     }
     Object.assign(context, phaseContext)
     if (phase === 'scene_rendered') {
+        sceneRenderedListeners.forEach((listener) => listener())
+        sceneRenderedListeners.clear()
         void sendBootTiming().catch(() => {})
     }
+}
+
+const sceneRenderedListeners = new Set<() => void>()
+
+/** Calls `listener` once on the first scene render, or at once if that happened or boot timing does not run. */
+export function onFirstSceneRendered(listener: () => void): () => void {
+    if (phaseTimes.entry === undefined || phaseTimes.scene_rendered !== undefined) {
+        listener()
+        return () => {}
+    }
+    sceneRenderedListeners.add(listener)
+    return () => sceneRenderedListeners.delete(listener)
 }
 
 export interface SceneRenderedMark {

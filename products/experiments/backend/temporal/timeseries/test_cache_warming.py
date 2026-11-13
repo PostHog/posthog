@@ -1,0 +1,274 @@
+from datetime import datetime
+from uuid import uuid4
+
+import time_machine
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
+
+from django.core.cache import cache
+from django.test import override_settings
+
+from parameterized import parameterized
+
+from posthog.schema import CachedExperimentQueryResponse, EventsNode, ExperimentMeanMetric, ExperimentQuery
+
+from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.organization import OrganizationMembership
+
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
+from products.experiments.backend.facade.timeseries import metric_calculation_keys
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.experiments.backend.models.experiment import (
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
+from products.experiments.backend.temporal.timeseries.activities import (
+    _calculate_experiment_regular_metric_sync,
+    _calculate_experiment_saved_metric_sync,
+)
+
+_ACTIVITIES_MODULE = "products.experiments.backend.temporal.timeseries.activities"
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand([("creator_is_member", True), ("creator_left_organization", False)])
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
+    def test_temporal_activity_warms_query_cache(self, _name: str, creator_is_member: bool):
+        """
+        After the daily Temporal recalc activity runs, a frontend /query
+        request for the same experiment+metric should be served from cache
+        instead of recomputing. The activity has no request user, so it must
+        also succeed once the experiment's creator has left the organization.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+        )
+        if not creator_is_member:
+            # Property access control only resolves the user's membership once the org has a rule.
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.create(
+                    team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+                ),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+
+        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
+        metric_dict = metric.model_dump(mode="json")
+        experiment.metrics = [metric_dict]
+        experiment.created_by = self.user
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        for variant in ("control", "test"):
+            for i in range(5):
+                distinct_id = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: variant},
+                )
+        flush_persons_and_events()
+
+        # Build the ExperimentQuery exactly the way /query does, so the
+        # cache key matches.
+        frontend_query = ExperimentQuery.model_validate(
+            {
+                "kind": "ExperimentQuery",
+                "experiment_id": experiment.id,
+                "metric": metric_dict,
+            }
+        )
+
+        cache.clear()
+
+        # Two test-only workarounds: .func skips the @database_sync_to_async
+        # wrapper, and patch stops the activity from closing the test's DB
+        # connection mid-run. Same pattern as test_backfill.py.
+        fingerprint = metric_calculation_keys(experiment.id, team_id=self.team.id).inline[metric_dict["uuid"]]
+        with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
+            activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, metric_dict["uuid"], fingerprint
+            )
+        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+
+        warm_response = ExperimentQueryRunner(query=frontend_query, team=self.team).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        )
+        assert isinstance(warm_response, CachedExperimentQueryResponse)
+        self.assertTrue(warm_response.is_cached)
+
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
+    def test_temporal_activity_warms_query_cache_for_saved_metric(self):
+        """
+        Saved metrics go through two backend-side transformations before /query
+        sees them: the API serializer adds `fingerprint`, and the frontend wraps
+        with `breakdownFilter` from the link metadata. The activity must apply
+        both or the response cache key diverges from what /query reads.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+        )
+
+        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
+        metric_dict = metric.model_dump(mode="json")
+
+        saved_metric = ExperimentSavedMetric.objects.create(
+            name="test saved metric",
+            team=self.team,
+            query=metric_dict,
+            created_by=self.user,
+        )
+        # No breakdowns on the link metadata — mirrors the production scenario
+        # where the frontend still wraps the metric with breakdownFilter: {breakdowns: []}.
+        saved_metric_link = ExperimentToSavedMetric.objects.create(
+            experiment=experiment,
+            saved_metric=saved_metric,
+            metadata={"type": "primary"},
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        for variant in ("control", "test"):
+            for i in range(5):
+                distinct_id = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: variant},
+                )
+        flush_persons_and_events()
+
+        fingerprint = metric_calculation_keys(experiment.id, team_id=self.team.id).saved[saved_metric_link.id]
+
+        # Build the metric the way /query sees it for saved metrics:
+        # fingerprint added by the API serializer (presentation/serializers.py)
+        # plus breakdownFilter wrapped by sharedMetricsToExperimentMetrics on the frontend.
+        frontend_metric_dict = {
+            **metric_dict,
+            "breakdownFilter": {"breakdowns": []},
+            "fingerprint": fingerprint,
+        }
+        frontend_query = ExperimentQuery.model_validate(
+            {
+                "kind": "ExperimentQuery",
+                "experiment_id": experiment.id,
+                "metric": frontend_metric_dict,
+            }
+        )
+
+        cache.clear()
+
+        with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
+            activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, metric_dict["uuid"], fingerprint
+            )
+        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+
+        warm_response = ExperimentQueryRunner(query=frontend_query, team=self.team).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        )
+        assert isinstance(warm_response, CachedExperimentQueryResponse)
+        self.assertTrue(warm_response.is_cached)
+
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
+    def test_regular_metric_activity_returns_permanent_failure_on_malformed_config(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 5, 0, 0, 0),
+        )
+        bad_metric = {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid4())}
+        experiment.metrics = [bad_metric]
+        experiment.save()
+
+        with (
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
+        ):
+            activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, bad_metric["uuid"], "fingerprint"
+            )
+
+        self.assertFalse(activity_result.success)
+        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=bad_metric["uuid"])
+        assert result_row.status == ExperimentMetricResult.Status.FAILED
+        mock_event.assert_called_once()
+
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
+    def test_saved_metric_activity_returns_permanent_failure_on_malformed_config(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 5, 0, 0, 0),
+        )
+        bad_metric = {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid4())}
+
+        saved_metric = ExperimentSavedMetric.objects.create(
+            name="test saved metric",
+            team=self.team,
+            query=bad_metric,
+            created_by=self.user,
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment,
+            saved_metric=saved_metric,
+            metadata={"type": "primary"},
+        )
+
+        with (
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
+        ):
+            activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, bad_metric["uuid"], "fingerprint"
+            )
+
+        self.assertFalse(activity_result.success)
+        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=bad_metric["uuid"])
+        assert result_row.status == ExperimentMetricResult.Status.FAILED
+        mock_event.assert_called_once()

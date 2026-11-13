@@ -19,10 +19,12 @@ from products.posthog_ai.backend.message_routing import (
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
 from products.tasks.backend.facade import (
     api as tasks_facade,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
@@ -78,9 +80,9 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert result.just_created_run is True
         assert result.trace_id == "trace-1"
 
-        # Task.create_and_run called with the PostHog AI origin and no repo / no PR.
+        # Task.create_and_run called with the PostHog AI profile and no repo / no PR.
         _, kwargs = m_car.call_args
-        assert kwargs["origin_product"] == Task.OriginProduct.POSTHOG_AI
+        assert kwargs["profile"] == POSTHOG_AI
         assert kwargs["repository"] is None
         assert kwargs["create_pr"] is False
         assert kwargs["mode"] == "interactive"
@@ -417,6 +419,29 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert task.runs.count() == 2
         m_workflow.assert_not_called()
 
+    def test_terminal_resume_on_a_done_task_conflicts(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        Task.objects.filter(pk=task.pk).update(
+            profile="posthog_ai", status=Task.Status.DONE, status_reason=Task.StatusReason.CLOSED
+        )
+        self._attach_task(task)
+
+        with (
+            patch(
+                "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+                return_value={"posthog_ai": "enforce"},
+            ),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value=SYS_PROMPT),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().open({"content": "resume please"})
+
+        assert task.runs.count() == 1
+        m_workflow.assert_not_called()
+
     def test_terminal_resume_uses_freshest_terminal_run_after_lock(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED
@@ -478,6 +503,12 @@ class TestSandboxWarmViaOpen(APIBaseTest):
             team=self.team,
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
+        access_patcher = patch(
+            "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+            return_value=PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
 
     def _service(self) -> SandboxSession:
         return SandboxSession(self.conversation, self.user)

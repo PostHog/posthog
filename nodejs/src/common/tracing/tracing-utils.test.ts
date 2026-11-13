@@ -1,4 +1,4 @@
-import { context, propagation, trace } from '@opentelemetry/api'
+import { ROOT_CONTEXT, TraceFlags, context, propagation, trace } from '@opentelemetry/api'
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node'
 import { register } from 'prom-client'
 
@@ -51,6 +51,23 @@ describe('instrumentFn', () => {
         expect(byName.step.parentSpanContext?.spanId).toBe(byName.batch.spanContext().spanId)
     })
 
+    it('runs work under an unsampled parentContext inside that context, so nested spans stay unsampled', async () => {
+        const unsampledParent = trace.setSpanContext(ROOT_CONTEXT, {
+            traceId: '0af7651916cd43dd8448eb211c80319c',
+            spanId: 'b7ad6b7169203331',
+            traceFlags: TraceFlags.NONE,
+        })
+
+        await instrumentFn({ key: 'step', parentContext: unsampledParent }, () =>
+            trace.getTracer('test').startActiveSpan('nested', (nested) => {
+                nested.end()
+                return Promise.resolve()
+            })
+        )
+
+        expect(exporter.getFinishedSpans()).toEqual([])
+    })
+
     it('captures a failure while its span is active, so the error carries its trace id', async () => {
         let activeSpanIdAtCapture: string | undefined
         jest.spyOn(posthogUtils, 'captureException').mockImplementationOnce(() => {
@@ -61,5 +78,17 @@ describe('instrumentFn', () => {
 
         const [span] = exporter.getFinishedSpans()
         expect(activeSpanIdAtCapture).toBe(span.spanContext().spanId)
+    })
+
+    it('rethrows without capturing a failure that shouldCaptureException rejects', async () => {
+        const capture = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
+
+        await expect(
+            instrumentFn({ key: 'expected_failure', shouldCaptureException: () => false }, () =>
+                Promise.reject(new Error('expected'))
+            )
+        ).rejects.toThrow('expected')
+
+        expect(capture).not.toHaveBeenCalled()
     })
 })

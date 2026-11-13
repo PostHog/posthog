@@ -6,7 +6,7 @@ export const USAGE_MONITOR_SERVICE = Symbol.for(
 export const USAGE_HOST = Symbol.for("posthog.core.usageHost");
 
 export interface UsageHost {
-  fetchUsage(): Promise<UsageOutput>;
+  fetchUsage(): Promise<UsageOutput | null>;
 
   onLlmActivity(listener: () => void): void;
   offLlmActivity(listener: () => void): void;

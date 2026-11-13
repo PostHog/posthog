@@ -1,4 +1,4 @@
-import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow } from '@xyflow/react'
+import { Background, BackgroundVariant, FitViewOptions, type NodeTypes, ReactFlow, useReactFlow } from '@xyflow/react'
 import { useValues } from 'kea'
 import { useId, useLayoutEffect, useMemo } from 'react'
 
@@ -7,7 +7,7 @@ import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { ElkDirection } from './autolayout'
 import { initialLineageGraphLayout, lineageGraphLogic } from './lineageGraphLogic'
-import { LINEAGE_NODE_TYPES, LineageVariant } from './LineageNode'
+import { LineageVariant } from './LineageNode'
 import { useNodesMeasured } from './useNodesMeasured'
 
 export interface LineageGraphLoadingProps {
@@ -15,6 +15,7 @@ export interface LineageGraphLoadingProps {
     direction: ElkDirection
     fitViewOptions?: FitViewOptions
     variant: LineageVariant
+    nodeTypes: NodeTypes
 }
 
 function loadingGraph(
@@ -38,9 +39,6 @@ function loadingGraph(
         id,
         source_id,
         target_id,
-        properties: {},
-        created_at: '',
-        updated_at: '',
     })
     const upstreamId = `${idPrefix}-upstream`
     const centerNodeId = `${idPrefix}-center`
@@ -74,6 +72,7 @@ export function LineageGraphLoading({
     direction,
     fitViewOptions,
     variant,
+    nodeTypes,
 }: LineageGraphLoadingProps): JSX.Element {
     const { fitView, viewportInitialized } = useReactFlow()
     const nodesMeasured = useNodesMeasured()
@@ -144,7 +143,7 @@ export function LineageGraphLoading({
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={nodes}
                 edges={edges}
-                nodeTypes={LINEAGE_NODE_TYPES}
+                nodeTypes={nodeTypes}
                 nodesDraggable={false}
                 nodesConnectable={false}
                 nodesFocusable={false}

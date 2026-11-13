@@ -1,4 +1,12 @@
-import { type FailureKind, failureRetryGuidance, modelLabel, modelName, observationRetryOffer } from './types'
+import {
+    type FailureKind,
+    failureRetryGuidance,
+    modelLabel,
+    modelName,
+    modelOptions,
+    modelTierNaming,
+    observationRetryOffer,
+} from './types'
 
 describe('scanner type helpers', () => {
     describe('failureRetryGuidance', () => {
@@ -71,6 +79,28 @@ describe('scanner type helpers', () => {
         it.each(['gemini-3.7-flash', 'gemini-3.6-flash'])('still names retired model %s', (model) => {
             expect(modelLabel(model)).toContain('Flash')
             expect(modelName(model)).toContain('Flash')
+        })
+
+        it.each([
+            ['control', 'Model', 'model'],
+            [undefined, 'Model', 'model'],
+            ['model-tier', 'Model tier', 'tier'],
+            ['effort', 'Effort', 'effort'],
+        ])('maps the tier naming arm %s', (variant, fieldLabel, naming) => {
+            expect(modelTierNaming(variant)).toEqual({ fieldLabel, naming })
+        })
+
+        it.each([
+            ['tier', ['Lite', 'Normal', 'Advanced']],
+            ['effort', ['Quick', 'Normal', 'Max']],
+        ] as const)('names the %s options from cheapest to most capable', (naming, names) => {
+            expect(modelOptions(naming).map((opt) => opt.label.split(' · ')[0])).toEqual(names)
+        })
+
+        // A tier can later map to a different model, so the test arms never show a Gemini name or id.
+        it.each(['gemini-3.7-flash', 'gemini-1.5-retired'])('shows no Gemini name for %s in a test arm', (model) => {
+            expect(modelName(model, 'tier')).toBe('Legacy')
+            expect(modelLabel(model, 'effort')).toBe('Legacy')
         })
     })
 })

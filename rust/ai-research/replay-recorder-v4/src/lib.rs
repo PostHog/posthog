@@ -2,14 +2,17 @@
 //! without scrubbing them. The format is in `products/ai_training/docs/replay-data.md`, section "v4 dataset".
 
 pub mod batch;
+mod brotli;
 pub mod config;
 pub mod consumer;
 pub mod flush;
+pub mod history;
 pub mod index;
 pub mod limits;
 pub mod process;
-pub mod rewrite;
+pub mod splice;
 pub mod store;
 pub mod teams;
 pub mod urls;
+pub mod watermark;
 pub mod write;

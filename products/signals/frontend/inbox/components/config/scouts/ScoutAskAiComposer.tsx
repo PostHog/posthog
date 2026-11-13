@@ -4,11 +4,22 @@ import { useRef, useState } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { SCOUT_AI_STARTER_QUESTIONS, scoutAiLogic } from '../../../logics/scoutAiLogic'
 
 /** A one-line question box under the scout header. The answer runs in the PostHog AI side panel. */
-export function ScoutAskAiComposer({ skillName, scoutName }: { skillName: string; scoutName: string }): JSX.Element {
+export function ScoutAskAiComposer({
+    scoutId,
+    skillName,
+    scoutName,
+}: {
+    scoutId: string
+    skillName: string
+    scoutName: string
+}): JSX.Element | null {
+    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isAsking, aiConsentDisabledReason } = useValues(scoutAiLogic)
     const { askScout } = useActions(scoutAiLogic)
     const [draft, setDraft] = useState('')
@@ -29,9 +40,13 @@ export function ScoutAskAiComposer({ skillName, scoutName }: { skillName: string
             skillName,
             extra: { source: starterId ? 'starter' : 'typed', starter_id: starterId },
         })
-        askScout({ skillName, scoutName }, draft)
+        askScout({ scoutId, skillName, scoutName }, draft)
         setDraft('')
         setStarterId(null)
+    }
+
+    if (!hasPostHogAiAccess) {
+        return null
     }
 
     return (

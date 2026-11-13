@@ -80,11 +80,18 @@ _ReorderableRule = TypeVar(
 )
 
 
-def _reorder_rules(model: type[_ReorderableRule], team_id: int, orders: dict[str, int]) -> None:
-    rules = list(model.objects.filter(team_id=team_id, id__in=orders.keys()))
+def _parse_rule_id(rule_id: str) -> UUID | None:
+    try:
+        return UUID(str(rule_id))
+    except ValueError:
+        return None
+
+
+def _reorder_rules(team_rules: QuerySet[_ReorderableRule], orders: dict[str, int]) -> None:
+    rules = list(team_rules.filter(id__in=[key for key in orders if _parse_rule_id(key) is not None]))
     for rule in rules:
-        rule.order_key = orders[str(rule.id)]  # ty: ignore[invalid-assignment]
-    model.objects.filter(team_id=team_id).bulk_update(rules, ["order_key"])
+        rule.order_key = orders[str(rule.id)]
+    team_rules.bulk_update(rules, ["order_key"])
 
 
 def has_filter_values(json_filters: dict) -> bool:
@@ -115,7 +122,10 @@ def list_assignment_rules(team_id: int) -> QuerySet[ErrorTrackingAssignmentRule]
 
 
 def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRule | None:
-    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def create_assignment_rule(
@@ -153,12 +163,15 @@ def update_assignment_rule(
 
 
 def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 
 def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingAssignmentRule, team_id, orders)
+    _reorder_rules(ErrorTrackingAssignmentRule.objects.filter(team_id=team_id), orders)
 
 
 def list_severity_rules(team_id: int) -> QuerySet[ErrorTrackingSeverityRule]:
@@ -166,7 +179,10 @@ def list_severity_rules(team_id: int) -> QuerySet[ErrorTrackingSeverityRule]:
 
 
 def get_severity_rule(team_id: int, rule_id: str) -> ErrorTrackingSeverityRule | None:
-    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def _validate_severity_rule_bytecode(bytecode: list[Any]) -> None:
@@ -223,12 +239,15 @@ def update_severity_rule(
 
 
 def delete_severity_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 
 def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingSeverityRule, team_id, orders)
+    _reorder_rules(ErrorTrackingSeverityRule.objects.filter(team_id=team_id), orders)
 
 
 def list_grouping_rules(team_id: int) -> QuerySet[ErrorTrackingGroupingRule]:
@@ -248,7 +267,10 @@ def grouping_rule_issue_map(team_id: int, rule_ids: list[str]) -> dict[str, tupl
 
 
 def get_grouping_rule(team_id: int, rule_id: str) -> ErrorTrackingGroupingRule | None:
-    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def create_grouping_rule(
@@ -280,29 +302,49 @@ def update_grouping_rule(
 
 
 def delete_grouping_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 
 def reorder_grouping_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingGroupingRule, team_id, orders)
+    _reorder_rules(ErrorTrackingGroupingRule.objects.filter(team_id=team_id), orders)
+
+
+def _custom_suppression_rules(team_id: int) -> QuerySet[ErrorTrackingSuppressionRule]:
+    # Built-in filter switches own their rows, so the custom rule functions never see or change them.
+    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, built_in_key__isnull=True)
 
 
 def list_suppression_rules(team_id: int) -> QuerySet[ErrorTrackingSuppressionRule]:
-    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id).order_by("order_key")
+    return _custom_suppression_rules(team_id).order_by("order_key")
 
 
 def get_suppression_rule(team_id: int, rule_id: str) -> ErrorTrackingSuppressionRule | None:
-    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return _custom_suppression_rules(team_id).filter(id=parsed_id).first()
 
 
-def create_suppression_rule(team_id: int, *, filters: dict, sampling_rate: float) -> ErrorTrackingSuppressionRule:
+def create_suppression_rule(
+    team_id: int,
+    *,
+    filters: dict,
+    sampling_rate: float,
+    built_in_key: str | None = None,
+    built_in_hash: str | None = None,
+) -> ErrorTrackingSuppressionRule:
     return ErrorTrackingSuppressionRule.objects.create(
         team_id=team_id,
         filters=filters,
         bytecode=_rule_bytecode(team_id, filters),
         order_key=0,
         sampling_rate=sampling_rate,
+        built_in_key=built_in_key,
+        built_in_hash=built_in_hash,
     )
 
 
@@ -327,12 +369,15 @@ def update_suppression_rule(
 
 
 def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = _custom_suppression_rules(team_id).filter(id=parsed_id).delete()
     return deleted > 0
 
 
 def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingSuppressionRule, team_id, orders)
+    _reorder_rules(_custom_suppression_rules(team_id), orders)
 
 
 def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
@@ -340,7 +385,10 @@ def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
 
 
 def get_bypass_rule(team_id: int, rule_id: str) -> ErrorTrackingBypassRule | None:
-    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def create_bypass_rule(team_id: int, *, filters: dict) -> ErrorTrackingBypassRule:
@@ -370,12 +418,15 @@ def update_bypass_rule(
 
 
 def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 
 def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
+    _reorder_rules(ErrorTrackingBypassRule.objects.filter(team_id=team_id), orders)
 
 
 def get_client_safe_filters(filters: object) -> dict | None:

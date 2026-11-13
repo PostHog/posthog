@@ -9,9 +9,10 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_openai_client
 
 from products.growth.backend.enrichment.labels import (
+    AI_ENRICHMENT_FEATURE,
     UNKNOWN,
     PromptConfigError,
     TransientToolError,
@@ -94,7 +95,11 @@ class Command(BaseCommand):
 
         # tenacity in labels.py already owns retries; the SDK's own internal retries underneath
         # would multiply that budget nine-fold per row.
-        client = get_llm_client(product="growth").with_options(max_retries=0)
+        client = build_openai_client(
+            product="growth",
+            ai_product="growth",
+            properties={"ai_feature": AI_ENRICHMENT_FEATURE, "surface": "dry_run"},
+        ).with_options(max_retries=0)
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring.
         verdict_key = verdict_field_key(config)

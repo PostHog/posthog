@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
     ChartTheme,
@@ -32,7 +33,8 @@ export interface StackedBarListProps<Meta = unknown> {
     labels: string[]
     /** Stacked segments: `data[i]` is the value in row `i`, and `trackData[i]` caps that row's track. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: StackedBarListConfig
     /** Wrap long text in a `truncate` element. */
     renderLabel: (rowIndex: number) => React.ReactNode
@@ -41,6 +43,7 @@ export interface StackedBarListProps<Meta = unknown> {
     onPointClick?: (data: PointClickData<Meta>) => void
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
+    children?: React.ReactNode
 }
 
 const DEFAULT_ROW_HEIGHT = { start: 28, top: 40 }
@@ -54,7 +57,7 @@ const TOP_LABEL_GAP = 4
 
 export function StackedBarList<Meta = unknown>({ onError, ...rest }: StackedBarListProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <StackedBarListInner {...rest} onError={onError} />
         </ChartErrorBoundary>
     )
@@ -63,7 +66,7 @@ export function StackedBarList<Meta = unknown>({ onError, ...rest }: StackedBarL
 function StackedBarListInner<Meta = unknown>({
     labels,
     series,
-    theme,
+    theme: themeProp,
     config,
     renderLabel,
     renderValue,
@@ -71,7 +74,9 @@ function StackedBarListInner<Meta = unknown>({
     onPointClick,
     dataAttr,
     onError,
+    children,
 }: StackedBarListProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const labelPosition = config?.labelPosition ?? 'start'
     const {
         rowHeight = DEFAULT_ROW_HEIGHT[labelPosition],
@@ -97,32 +102,29 @@ function StackedBarListInner<Meta = unknown>({
     const plotTop = labelPosition === 'top' ? Math.max(0, TOP_LABEL_LINE_HEIGHT + TOP_LABEL_GAP - barOffsetInRow) : 0
 
     // Stacked, because grouped insets each bar in its band and `barHeight` would no longer be exact.
-    const barConfig = useMemo<BarChartConfig>(
-        () => ({
-            barLayout: 'stacked',
-            axisOrientation: 'horizontal',
-            hideXAxis: true,
-            hideYAxis: true,
-            showGrid: false,
-            showAxisLines: false,
-            showTickMarks: false,
-            showCrosshair: false,
-            margins: { top: plotTop, right: 0, bottom: 0, left: 0 },
-            barCornerRadius,
-            bars: {
-                track: 'solid',
-                // Makes each band `rowHeight` tall so it lines up with its label and value cells.
-                bandPadding: Math.max(0, 1 - barHeight / rowHeight),
-                minBandSize: 0,
-                minBarSize: MIN_BAR_SIZE,
-                roundStackEnds: true,
-                valueDomain: resolvedValueDomain,
-            },
-            // Shows the tooltip over the track too, not only over the bar.
-            tooltip: { ...tooltipConfig, enabled: tooltipConfig?.enabled !== false, hitArea: 'band' },
-        }),
-        [barCornerRadius, barHeight, rowHeight, plotTop, resolvedValueDomain, tooltipConfig]
-    )
+    const barConfig: BarChartConfig = {
+        barLayout: 'stacked',
+        axisOrientation: 'horizontal',
+        hideXAxis: true,
+        hideYAxis: true,
+        showGrid: false,
+        showAxisLines: false,
+        showTickMarks: false,
+        showCrosshair: false,
+        margins: { top: plotTop, right: 0, bottom: 0, left: 0 },
+        barCornerRadius,
+        bars: {
+            track: 'solid',
+            // Makes each band `rowHeight` tall so it lines up with its label and value cells.
+            bandPadding: Math.max(0, 1 - barHeight / rowHeight),
+            minBandSize: 0,
+            minBarSize: MIN_BAR_SIZE,
+            roundStackEnds: true,
+            valueDomain: resolvedValueDomain,
+        },
+        // Shows the tooltip over the track too, not only over the bar.
+        tooltip: { ...tooltipConfig, enabled: tooltipConfig?.enabled !== false, hitArea: 'band' },
+    }
 
     const chart =
         labels.length > 0 ? (
@@ -135,7 +137,9 @@ function StackedBarListInner<Meta = unknown>({
                 onPointClick={onPointClick}
                 dataAttr={dataAttr}
                 onError={onError}
-            />
+            >
+                {children}
+            </BarChart>
         ) : null
 
     if (labelPosition === 'top') {

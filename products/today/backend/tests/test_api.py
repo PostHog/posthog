@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -25,10 +26,11 @@ from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade import api as signals
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
+from products.today.backend.facade.contracts import HighlightFindings, HighlightSource
 from products.today.backend.logic import highlights, pinned
-from products.today.backend.logic.highlight_types import Found, Source
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
@@ -119,6 +121,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("a signal states the number", True, "signal", None, status.HTTP_200_OK),
             ("the agent's research states the number", True, "research", None, status.HTTP_200_OK),
+            ("a protected assessment states the number", True, "protected_note", None, status.HTTP_200_OK),
             ("flag off", False, "signal", None, status.HTTP_404_NOT_FOUND),
             ("no gateway", True, "signal", SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
         ]
@@ -131,6 +134,17 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         gateway_error: Exception | None,
         expected: int,
     ) -> None:
+        if source_kind == "protected_note":
+            report = SignalReport.objects.create(id=REPORT_ID, team=self.team, title="Synthetic export finding")
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                actor_kind=SignalActorKind.TASK,
+                content=json.dumps(
+                    {"note": FIGURE_SOURCE, "analytics_query_context": [], "restricted_to_user_id": self.user.id}
+                ),
+            )
         signal = signals.ReportSignal(
             signal_id="signal-1",
             content=FIGURE_SOURCE,
@@ -157,7 +171,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             patch(
                 "products.today.backend.facade.api.signals.report_agent_texts",
                 return_value=[finding] if source_kind == "research" else [],
-            ),
+            )
+            if source_kind != "protected_note"
+            else nullcontext(),
             patch(
                 "products.today.backend.facade.api.GatewayJev",
                 return_value=SameAnswerJev(AGREEING),
@@ -167,6 +183,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/figure_marks/")
 
         assert response.status_code == expected
+        if source_kind == "protected_note":
+            assert response.json()["marks"] == []
+            return
         if expected == status.HTTP_200_OK:
             marks = response.json()["marks"]
             quote_signal = marks[0]["quote"].pop("signal")
@@ -253,7 +272,14 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("the page with only today", "get", f"reports/{REPORT_ID}/page", ["today:read"], status.HTTP_403_FORBIDDEN),
             (
-                "the page with today and signals",
+                "the page with today and inbox",
+                "get",
+                f"reports/{REPORT_ID}/page",
+                ["today:read", "inbox:read"],
+                status.HTTP_200_OK,
+            ),
+            (
+                "the page with today and the legacy task scope",
                 "get",
                 f"reports/{REPORT_ID}/page",
                 ["today:read", "task:read"],
@@ -355,9 +381,9 @@ def _temporal() -> MagicMock:
 
 class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
     def _get(self, connect: MagicMock, flag: bool = True, pulse: tuple[str, ...] = ("k1",)) -> "_MonkeyPatchedResponse":
-        source = Source(
+        source = HighlightSource(
             name="alerts",
-            find=lambda _c: Found(
+            find=lambda _c: HighlightFindings(
                 items=(candidate("alert:1", "alerts", 0.8),), pulse=tuple(metric(key) for key in pulse)
             ),
         )
@@ -476,6 +502,39 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 ("computing", ["k1", "k2"]),
                 ["k2", "k1"],
                 [("k2", "ready"), ("a", "unavailable"), ("b", "unavailable"), ("c", "unavailable")],
+            ),
+        )
+
+    def test_hidden_numbers_are_named_and_start_a_computation_without_them(self) -> None:
+        cache.clear()
+        Insight.objects.create(team=self.team, short_id="kept1", name="Sign-ups")
+        keys = ["insight:kept1", "insight:gone", "signup_event", "insight:kept1"]
+        with (
+            time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False) as clock,
+            patch(
+                "products.today.backend.logic.pulse_pins.get_key_metric_names", return_value={"signup_event": "Signups"}
+            ),
+        ):
+            self._get(_temporal())
+            clock.shift(timedelta(seconds=1))
+            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+                saved = self.client.put(
+                    f"/api/projects/{self.team.id}/today/pulse_pins/hidden/", {"keys": keys}, format="json"
+                )
+                read = self.client.get(f"/api/projects/{self.team.id}/today/pulse_pins/")
+            connect = _temporal()
+            self._get(connect)
+
+        self.assertEqual(
+            (
+                saved.json()["hidden"],
+                read.json()["hidden"],
+                connect.return_value.start_workflow.call_args.args[1].hidden,
+            ),
+            (
+                [{"key": "insight:kept1", "name": "Sign-ups"}, {"key": "signup_event", "name": "Signups"}],
+                [{"key": "insight:kept1", "name": "Sign-ups"}, {"key": "signup_event", "name": "Signups"}],
+                ["insight:kept1", "insight:gone", "signup_event"],
             ),
         )
 

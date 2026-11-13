@@ -269,6 +269,16 @@ class ResumableSourceManager(Generic[ResumableData]):
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
 
+    def clear_job_state(self) -> None:
+        """Drop the resume state of this job in every namespace, so the next read starts from the first row."""
+        base = self._job_key(self._inputs.job_id)
+        self._pending.clear()
+        self._staged.clear()
+        with self._write_fence.writing(), self._get_redis() as redis_client:
+            keys = [base, *redis_client.scan_iter(match=f"{base}:*")]
+            self._logger.debug(f"Clearing the resumable source state of the job. key={base}, keys={len(keys)}")
+            self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(*keys))
+
     def continue_from_job(self, job_id: str) -> bool:
         """Copy the resume state that `job_id` committed to this job, and return whether `job_id` had any.
 

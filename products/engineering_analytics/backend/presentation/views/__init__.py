@@ -14,6 +14,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
 from products.engineering_analytics.backend.presentation.views.ci_signals import CISignalsConfigMixin
 from products.engineering_analytics.backend.presentation.views.delivery import DeliveryActionsMixin
 from products.engineering_analytics.backend.presentation.views.dora import DoraActionsMixin
+from products.engineering_analytics.backend.presentation.views.enrollment import EnrollmentMixin
 from products.engineering_analytics.backend.presentation.views.friction import FrictionActionsMixin
 from products.engineering_analytics.backend.presentation.views.pull_requests import PullRequestActionsMixin
 from products.engineering_analytics.backend.presentation.views.sources import SourcesMixin
@@ -25,6 +26,7 @@ from products.engineering_analytics.backend.presentation.views.workflows import 
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
 class EngineeringAnalyticsViewSet(
     SourcesMixin,
+    EnrollmentMixin,
     CISignalsConfigMixin,
     PullRequestActionsMixin,
     DeliveryActionsMixin,
@@ -51,6 +53,7 @@ class EngineeringAnalyticsViewSet(
         *FrictionActionsMixin.READ_ACTIONS,
     ]
     scope_object_write_actions: list[str] = [
+        *EnrollmentMixin.WRITE_ACTIONS,
         *CISignalsConfigMixin.WRITE_ACTIONS,
         *SuiteHealthActionsMixin.WRITE_ACTIONS,
     ]

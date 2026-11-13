@@ -36,7 +36,7 @@ class BasePyODDetector(BaseDetector):
             return DetectionResult(is_anomaly=False)
 
         data = self.preprocess(data)
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
+        threshold = self.threshold
 
         if data.ndim == 1:
             data = data.reshape(-1, 1)
@@ -114,7 +114,7 @@ class BasePyODDetector(BaseDetector):
             return DetectionResult(is_anomaly=False)
 
         data = self.preprocess(data)
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
+        threshold = self.threshold
 
         if data.ndim == 1:
             data = data.reshape(-1, 1)

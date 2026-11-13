@@ -1,10 +1,11 @@
+import '~/queries/nodes/InsightViz/InsightViz.scss'
 import './HomeTabChartCard.scss'
 
 import { useValues } from 'kea'
 import { useMemo, type ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
@@ -24,17 +25,28 @@ interface HomeTabChartCardProps {
     control?: ReactNode
     source?: string
     loadPriority: number
+    /** Replaces the plain title, for example with a control that switches the chart. */
+    title?: ReactNode
 }
 
-export function HomeTabChartCard({ option, size, control, source, loadPriority }: HomeTabChartCardProps): JSX.Element {
+export function HomeTabChartCard({
+    option,
+    size,
+    control,
+    source,
+    loadPriority,
+    title,
+}: HomeTabChartCardProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
         () => (shouldShowSampleData ? getHomeTabSampleData(option) : undefined),
         [shouldShowSampleData, option]
     )
     const chartKey = sampleData ? `${option.key}.sample` : option.key
-    const chart = (
+    const chart = sampleDataPending ? (
+        <LemonSkeleton className="h-full w-full" />
+    ) : (
         <Query
             key={`${currentTeamId}.${chartKey}`}
             query={option.query}
@@ -58,7 +70,7 @@ export function HomeTabChartCard({ option, size, control, source, loadPriority }
             <div className="HomeTabChartCard__header border-b border-primary px-4 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 items-center gap-1">
-                        <h3 className="m-0 truncate text-base font-semibold">{option.title}</h3>
+                        <h3 className="m-0 truncate text-base font-semibold">{title ?? option.title}</h3>
                         {source && (
                             <Tooltip title={`Based on ${source}`}>
                                 <IconInfo className="shrink-0 text-secondary" />

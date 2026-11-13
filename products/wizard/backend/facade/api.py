@@ -10,10 +10,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from redis.asyncio.client import PubSub
+
+from posthog.paging import Page, PageRequest
 
 from products.wizard.backend import metrics
 from products.wizard.backend.facade.contracts import (
@@ -24,13 +27,13 @@ from products.wizard.backend.facade.contracts import (
     StartWizardInstallInput,
     UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
+    WizardDetectedWarehouseSource,
     WizardInstallStatusDTO,
     WizardProgram,
     WizardRunArtifactDTO,
     WizardRunCreationResult,
     WizardRunDTO,
     WizardRunGitDiffArtifactDTO,
-    WizardRunPage,
     WizardRunPullRequestArtifactDTO,
     WizardRunTaskDTO,
     WizardScanResult,
@@ -49,6 +52,7 @@ from products.wizard.backend.logic.installs import service as installs
 from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
 from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
+from products.wizard.backend.tool_catalog.warehouse_destinations import CATALOG_DESTINATION_CHOICES
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -63,6 +67,16 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
 def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
     """Whether the latest scan of any workspace in the organization still finds one of `kinds`."""
     return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
+
+
+def list_detected_warehouse_sources(
+    team_id: int, *, seen_since: datetime | None = None
+) -> tuple[WizardDetectedWarehouseSource, ...]:
+    """Warehouse sources the latest wizard scans of the team's workspaces still find, most recently seen first."""
+    return scans.list_detected_warehouse_sources(team_id, seen_since=seen_since)
+
+
+TOOL_CATALOG_DESTINATION_CHOICES: list[tuple[str, str]] = CATALOG_DESTINATION_CHOICES
 
 
 def get_tool_catalog_json() -> bytes:
@@ -82,16 +96,9 @@ def list_for_team(
     workflow_id: str | None = None,
     skill_id: str | None = None,
     *,
-    offset: int = 0,
-    limit: int | None = None,
-) -> list[WizardSessionDTO]:
-    return sessions.list_sessions(
-        team_id,
-        workflow_id=workflow_id,
-        skill_id=skill_id,
-        offset=offset,
-        limit=limit,
-    )
+    page: PageRequest,
+) -> Page[WizardSessionDTO]:
+    return sessions.list_sessions(team_id, workflow_id=workflow_id, skill_id=skill_id, page=page)
 
 
 @asynccontextmanager
@@ -153,8 +160,8 @@ async def subscribe_to_run_updates(team_id: int, run_id: UUID) -> AsyncIterator[
         yield subscription
 
 
-def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
-    return run_service.list_runs(params)
+def list_runs(params: ListWizardRunsInput, page: PageRequest) -> Page[WizardRunDTO]:
+    return run_service.list_runs(params, page)
 
 
 def update_run_stage(team_id: int, run_id: UUID, stage: WizardRunStage) -> WizardRunDTO:

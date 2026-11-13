@@ -40,6 +40,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseQueryStatus,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
+    ClickHouseUnknownTableError,
     get_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -75,7 +76,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS,
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
-    EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
     native_events_export_query,
 )
@@ -105,6 +105,10 @@ class HogQLQueryResourceLimitExceededError(Exception):
     """
 
 
+class HogQLTableNotSupportedError(Exception):
+    """A user tried to select a table with HogQL that batch exports does not support."""
+
+
 # Staging failures the user has to resolve; retrying them ourselves would achieve nothing.
 # The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
 # run without failing the activity. This mirrors how the destination activities treat their own
@@ -112,6 +116,7 @@ class HogQLQueryResourceLimitExceededError(Exception):
 NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
+    HogQLTableNotSupportedError,
     InvalidFilterError,
     UnsupportedHogQLQueryError,
 )
@@ -461,6 +466,19 @@ async def _stage_query_results(
             num_partitions=num_partitions,
             run_id=run_id,
         )
+    except ClickHouseUnknownTableError as e:
+        if isinstance(record_batch_model, HogQLQueryRecordBatchModel):
+            # With HogQL, users may need to solve this, so we raise a more friendly
+            # but unretryable version.
+            table_names = ", ".join(record_batch_model.hogql_table_names)
+            raise HogQLTableNotSupportedError(
+                "Batch exports could not find a required table. "
+                f"Tables referenced in your query: {table_names}. "
+                "Contact support for help."
+            ) from e
+        # If not HogQL, this should never happen.
+        # Raise retryable so we can figure out what's going on.
+        raise
     except ClickHouseError as e:
         _raise_on_hogql_resource_limit_error(e, model_name)
         raise
@@ -617,9 +635,6 @@ async def _get_query(
         ):
             logger.info("Using distributed_events_recent table for batch export")
             query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            logger.info("Using unbounded events query for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
         elif is_workflows:
             logger.info("Using workflows events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
@@ -632,9 +647,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(
-            use_new_events_schema
-        )(team_id)
+        native_source = query_template in (
+            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
+            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+        ) and await database_sync_to_async(use_new_events_schema)(team_id)
 
         filters_str = ""
         if filters is not None and len(filters) > 0:

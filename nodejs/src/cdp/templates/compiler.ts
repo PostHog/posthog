@@ -52,7 +52,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
             )
         }
 
-        // We invoke the ./bin/hog from the root of the directory like bin/hoge <file.hog> [output.hoge]
+        // We invoke ./bin/hoglang from the root of the directory like bin/hoglang compile <file.hog> [output.hoge]
         // We need to write and read from a temp file
         const uuid = new UUIDT().toString()
         const tempFile = path.join(tmpdir(), `hog-${uuid}.hog`)
@@ -62,7 +62,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         try {
             await new Promise((resolve, reject) => {
                 exec(
-                    `cd ${ROOT_DIR} && ./bin/hoge ${tempFile} ${outputFile}`,
+                    `cd ${ROOT_DIR} && ./bin/hoglang compile ${tempFile} ${outputFile}`,
                     {
                         env: {
                             ...process.env,

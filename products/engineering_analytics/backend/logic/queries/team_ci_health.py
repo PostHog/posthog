@@ -1,21 +1,7 @@
-"""HogQL rollups of per-test CI spans by owning team.
+"""Per-test CI spans rolled up by the owning team stamped on each span (``test.owner_team``).
 
-Ownership is stamped on the spans at emission time: the CI reporter resolves each test's
-file path through ``owners_yaml`` (the repo's distributed ``owners.yaml`` files, with
-``products/*/product.yaml`` as an alias) and sets ``test.owner_team``, so no server-side
-ownership map exists. Spans without a stamp
-aggregate under the literal team ``'unowned'``, an honest first-class bucket that surfaces
-ownership gaps instead of dropping them.
-
-Teams are organizational owners of code surfaces; nothing here aggregates by author
-(SPEC §2). Both queries group ``_test_spans.run_evidence()``, so they carry its caveats and its
-grain: sub-threshold passing runs are not emitted, so every figure is an absolute count over
-signal spans, never a rate.
-
-This is the ownership dimension of the test-health data: only these spans know which team owns a
-test and what its failures cost the fleet.
-
-Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
+Every figure is an absolute count, never a rate, because passing runs under the emission threshold
+have no spans. Spans with no stamp aggregate under the team ``'unowned'``.
 """
 
 from datetime import datetime
@@ -40,14 +26,12 @@ from products.engineering_analytics.backend.logic.queries._test_spans import (
     selector_from_nodeid,
 )
 
-# The shared run evidence, bounded and scanning [scan_from, date_to] in one pass; `is_current`
-# splits the current window from its equal-length prior twin.
+# One scan covers [scan_from, date_to]. `is_current` separates the current window from the prior one.
 _RUN_EVIDENCE = run_evidence(bounded=True)
 
 _RUN_IDENTITY = "(ci_engine, workflow_run_key, head_sha, run_id)"
 
-# A test lands under one team, resolved by its latest ownership stamp, so a re-stamped test is
-# never counted for two teams at once.
+# The latest ownership stamp owns the whole test, so a re-stamped test never counts for two teams.
 _ROSTER_SELECT = f"""
     SELECT
         owner_team,
@@ -116,7 +100,6 @@ _TEST_SIGNAL_SELECT = f"""
 def _window_placeholders(
     *, curated: CuratedGitHubSource, date_from: datetime, date_to: datetime | None
 ) -> dict[str, ast.Expr]:
-    # The prior window twins the current one: [scan_from, date_from) vs [date_from, date_to].
     window = _prior_window(date_from, date_to)
     return scan_placeholders(
         repository=curated.repository,
@@ -138,8 +121,7 @@ def query_team_ci_health(
     limit: int,
     owner_team: str | None = None,
 ) -> TeamCIHealthList:
-    # Fail closed, same as flaky_tests: without a repository identity another connected
-    # repo's spans would leak into this roster.
+    # Without a repository identity, another connected repo's spans would leak into this roster.
     if not curated.repository:
         return TeamCIHealthList(items=[], truncated=False, limit=limit)
 

@@ -36,6 +36,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
 from products.tasks.backend.facade import (
     api as tasks_facade,
@@ -197,8 +198,8 @@ class SandboxSession(BaseSandboxService):
         """
         # Gate before creating the Task: an over-quota or over-cap warm must not leave the conversation
         # with a runless Task that the next message can't continue. The facade re-checks both.
-        warm_facade.enforce_warm_quota(tasks_facade.TaskOriginProduct.POSTHOG_AI, self.team.pk, self.user.pk)
-        if warm_facade.warm_pool_at_capacity(tasks_facade.TaskOriginProduct.POSTHOG_AI, self.team.pk, self.user.pk):
+        warm_facade.enforce_warm_quota(POSTHOG_AI.origin_product, self.team.pk, self.user.pk, profile=POSTHOG_AI)
+        if warm_facade.warm_pool_at_capacity(POSTHOG_AI.origin_product, self.team.pk, self.user.pk, profile=POSTHOG_AI):
             logger.info(
                 "sandbox_warm_capacity_reached",
                 conversation_id=str(self.conversation.id),
@@ -214,7 +215,7 @@ class SandboxSession(BaseSandboxService):
                 task_id = tasks_facade.create_task_without_run(
                     team=self.team,
                     user_id=self.user.pk,
-                    origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+                    profile=POSTHOG_AI,
                     repository=None,
                 )
                 locked.task_id = task_id
@@ -239,6 +240,13 @@ class SandboxSession(BaseSandboxService):
             # Warm-pool cap reached between the pre-check and the lock — best-effort no-op (no handle).
             logger.info(
                 "sandbox_warm_capacity_reached",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
+            return None
+        except tasks_facade.TaskDoneError:
+            logger.info(
+                "sandbox_warm_task_done",
                 conversation_id=str(self.conversation.id),
                 user_id=self.user.pk,
             )
@@ -272,7 +280,7 @@ class SandboxSession(BaseSandboxService):
             team=self.team,
             title=content[:80],
             description=content,
-            origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+            profile=POSTHOG_AI,
             user_id=self.user.pk,
             repository=repository,
             create_pr=False,
@@ -361,6 +369,10 @@ class SandboxSession(BaseSandboxService):
         `_meta.attached_context` so the persisted ACP log stays a complete record.
         """
         try:
+            tasks_facade.check_wake_by_task_id(run.task_id, source="posthog_ai_follow_up")
+        except tasks_facade.TaskDoneError as error:
+            raise Conflict(str(error)) from error
+        try:
             signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
         except Exception as e:
             # Status race: the run still reads in-progress but its workflow has already finished or
@@ -380,7 +392,7 @@ class SandboxSession(BaseSandboxService):
         # credits). Best-effort: a failure only over-counts the warm pool until the Run terminates,
         # and the key is simply absent on Runs that were never warm (the remove is then a no-op).
         try:
-            tasks_facade.update_task_run_state(run.id, remove_keys=["await_user_message"])
+            tasks_facade.activate_warm_task_run(run.id)
         except Exception as e:
             logger.warning("sandbox_followup_activation_flip_failed", run_id=str(run.id), error=str(e))
 
@@ -451,7 +463,10 @@ class SandboxSession(BaseSandboxService):
             }
             extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
 
-            new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            try:
+                new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            except tasks_facade.TaskDoneError as error:
+                raise Conflict(str(error)) from error
 
         # Same write scopes as the first message — the resumed agent keeps creating
         # insights/dashboards/notebooks on follow-up turns.

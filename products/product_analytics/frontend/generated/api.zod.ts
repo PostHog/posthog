@@ -9,6 +9,33 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Sets how long every project without its own period keeps events. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention period
+ */
+export const OrganizationEventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
+    retention_months: zod
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
+        .describe(
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
+        ),
+})
+
 export const columnConfigurationsCreateBodyContextKeyMax = 255
 
 export const columnConfigurationsCreateBodyNameMax = 255
@@ -191,9 +218,598 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsPartialUpdateBodyOrderMin).max(elementsPartialUpdateBodyOrderMax).nullish(),
 })
 
+/**
+ * Sets how long this project keeps events, overriding the organization's period. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention period for a project
+ */
+export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
+    retention_months: zod
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
+        .describe(
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
+        ),
+})
+
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+export const insightsExplanationsCreateBodyDataOneShapeDefault = `time_series`
+export const insightsExplanationsCreateBodyDataOneResultsItemLabelMax = 400
+
+export const insightsExplanationsCreateBodyDataOneResultsItemDataMax = 5000
+
+export const insightsExplanationsCreateBodyDataOneResultsItemDaysMax = 5000
+
+export const insightsExplanationsCreateBodyDataOneStepsItemNameMax = 400
+
+export const insightsExplanationsCreateBodyDataOneStepsItemCountMin = 0
+
+export const insightsExplanationsCreateBodyDataOneBreakdownsItemMax = 400
+
+export const insightsExplanationsCreateBodyDataOneBreakdownsMax = 1000
+
+export const insightsExplanationsCreateBodyDataOneSeriesIndexMin = 0
+
+export const insightsExplanationsCreateBodyDataOneInsightNameMax = 400
+
+export const insightsExplanationsCreateBodyDataOneHeadlineMax = 300
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemTitleMax = 80
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemRangeItemMin = 0
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemRangeMin = 2
+export const insightsExplanationsCreateBodyDataOneChaptersItemRangeMax = 2
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemSummaryMax = 400
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemCauseMax = 600
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemConfidenceReasonMax = 200
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemTextMax = 400
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp = new RegExp(
+    '^[A-Za-z0-9]{8}$'
+)
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemUrlMax = 500
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax = 5000
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneTicksMax = 5000
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneSeriesItemValuesMax = 5000
+
+export const insightsExplanationsCreateBodyDataOneWarningsMax = 20
+
+export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
+    data: zod
+        .object({
+            shape: zod
+                .enum(['time_series', 'funnel_steps'])
+                .describe('\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps')
+                .default(insightsExplanationsCreateBodyDataOneShapeDefault)
+                .describe(
+                    'What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.\n\n\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps'
+                ),
+            query: zod
+                .record(zod.string(), zod.unknown())
+                .describe(
+                    'The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.'
+                ),
+            results: zod
+                .array(
+                    zod.object({
+                        label: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneResultsItemLabelMax)
+                            .optional()
+                            .describe('The series name.'),
+                        data: zod
+                            .array(zod.number())
+                            .max(insightsExplanationsCreateBodyDataOneResultsItemDataMax)
+                            .optional()
+                            .describe('One value per point. Saved for the followed series only.'),
+                        days: zod
+                            .array(zod.string())
+                            .max(insightsExplanationsCreateBodyDataOneResultsItemDaysMax)
+                            .optional()
+                            .describe(
+                                "The date of each point, in the query's timezone. Saved for the followed series only."
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Every series on the chart when it was explained. Time series only.'),
+            steps: zod
+                .array(
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneStepsItemNameMax)
+                            .describe("The step's name."),
+                        count: zod
+                            .number()
+                            .min(insightsExplanationsCreateBodyDataOneStepsItemCountMin)
+                            .describe('How many reached the step.'),
+                    })
+                )
+                .optional()
+                .describe("The followed breakdown value's steps when it was explained. Funnel steps only."),
+            breakdowns: zod
+                .array(zod.string().max(insightsExplanationsCreateBodyDataOneBreakdownsItemMax))
+                .max(insightsExplanationsCreateBodyDataOneBreakdownsMax)
+                .optional()
+                .describe("Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only."),
+            seriesIndex: zod
+                .number()
+                .min(insightsExplanationsCreateBodyDataOneSeriesIndexMin)
+                .describe('The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.'),
+            insightName: zod
+                .string()
+                .max(insightsExplanationsCreateBodyDataOneInsightNameMax)
+                .nullable()
+                .describe("The insight's name."),
+            lastPointInProgress: zod
+                .boolean()
+                .optional()
+                .describe("Whether the last point's period had not ended yet. Time series only."),
+            headline: zod
+                .string()
+                .max(insightsExplanationsCreateBodyDataOneHeadlineMax)
+                .describe('One sentence a person could read in place of the whole explanation.'),
+            chapters: zod
+                .array(
+                    zod.object({
+                        title: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneChaptersItemTitleMax)
+                            .describe('The moment on the chart this chapter explains.'),
+                        range: zod
+                            .array(zod.number().min(insightsExplanationsCreateBodyDataOneChaptersItemRangeItemMin))
+                            .min(insightsExplanationsCreateBodyDataOneChaptersItemRangeMin)
+                            .max(insightsExplanationsCreateBodyDataOneChaptersItemRangeMax)
+                            .nullable()
+                            .describe(
+                                "Inclusive indexes into the series' points. Null when the chapter's dates match no point."
+                            ),
+                        summary: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneChaptersItemSummaryMax)
+                            .nullable()
+                            .describe('What happened in this moment.'),
+                        cause: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneChaptersItemCauseMax)
+                            .nullable()
+                            .describe('The likely cause of this moment.'),
+                        confidence: zod
+                            .union([
+                                zod
+                                    .enum(['high', 'medium', 'low'])
+                                    .describe(
+                                        '\* `high` - High confidence\n\* `medium` - Medium confidence\n\* `low` - Low confidence'
+                                    ),
+                                zod.null(),
+                            ])
+                            .describe(
+                                'How sure the investigation is of the cause.\n\n\* `high` - High confidence\n\* `medium` - Medium confidence\n\* `low` - Low confidence'
+                            ),
+                        confidenceReason: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneChaptersItemConfidenceReasonMax)
+                            .nullable()
+                            .describe('Why the confidence is what it is.'),
+                        evidence: zod
+                            .array(
+                                zod.object({
+                                    text: zod
+                                        .string()
+                                        .max(insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemTextMax)
+                                        .describe('One fact that supports the chapter, in one sentence.'),
+                                    query: zod
+                                        .record(zod.string(), zod.unknown())
+                                        .nullish()
+                                        .describe('The query that shows the fact. The page links to it.'),
+                                    insightShortId: zod
+                                        .string()
+                                        .regex(
+                                            insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp
+                                        )
+                                        .nullish()
+                                        .describe(
+                                            'The short id of a saved insight that shows the fact. The page links to it.'
+                                        ),
+                                    url: zod
+                                        .string()
+                                        .max(insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemUrlMax)
+                                        .nullish()
+                                        .describe(
+                                            'A link to the GitHub pull request or commit behind the fact. No other links are accepted.'
+                                        ),
+                                    queryTool: zod
+                                        .union([
+                                            zod
+                                                .enum([
+                                                    'query-trends',
+                                                    'query-funnel',
+                                                    'query-retention',
+                                                    'query-stickiness',
+                                                    'query-paths',
+                                                    'query-lifecycle',
+                                                ])
+                                                .describe(
+                                                    '\* `query-trends` - Trends\n\* `query-funnel` - Funnel\n\* `query-retention` - Retention\n\* `query-stickiness` - Stickiness\n\* `query-paths` - Paths\n\* `query-lifecycle` - Lifecycle'
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe(
+                                            'The MCP query tool that can redraw `query`. The page redraws the query only when this is set.\n\n\* `query-trends` - Trends\n\* `query-funnel` - Funnel\n\* `query-retention` - Retention\n\* `query-stickiness` - Stickiness\n\* `query-paths` - Paths\n\* `query-lifecycle` - Lifecycle'
+                                        ),
+                                    chart: zod
+                                        .union([
+                                            zod.object({
+                                                type: zod
+                                                    .enum(['line', 'bar'])
+                                                    .describe('\* `line` - Line\n\* `bar` - Bar')
+                                                    .describe(
+                                                        'How the evidence chart draws its series.\n\n\* `line` - Line\n\* `bar` - Bar'
+                                                    ),
+                                                labels: zod
+                                                    .array(zod.string())
+                                                    .max(
+                                                        insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax
+                                                    )
+                                                    .describe('The x-axis points.'),
+                                                ticks: zod
+                                                    .array(zod.string())
+                                                    .max(
+                                                        insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneTicksMax
+                                                    )
+                                                    .optional()
+                                                    .describe(
+                                                        'The axis label of each point, which leaves out a date that repeats.'
+                                                    ),
+                                                series: zod
+                                                    .array(
+                                                        zod.object({
+                                                            name: zod
+                                                                .string()
+                                                                .describe(
+                                                                    'The breakdown value or column this line draws.'
+                                                                ),
+                                                            values: zod
+                                                                .array(zod.number().nullable())
+                                                                .max(
+                                                                    insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneSeriesItemValuesMax
+                                                                )
+                                                                .describe(
+                                                                    'One value per label. Null where the breakdown value has no row for that point.'
+                                                                ),
+                                                        })
+                                                    )
+                                                    .describe('The lines or bars to draw.'),
+                                                yAxisLabel: zod
+                                                    .string()
+                                                    .nullable()
+                                                    .describe('The y-axis label, if any.'),
+                                            }),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe('The fact drawn as a chart, from its SQL.'),
+                                })
+                            )
+                            .describe('The facts behind the cause.'),
+                    })
+                )
+                .describe('The moments that stand out, in reading order.'),
+            warnings: zod
+                .array(zod.unknown())
+                .max(insightsExplanationsCreateBodyDataOneWarningsMax)
+                .optional()
+                .describe("Warnings the chart's query came back with."),
+        })
+        .describe('The chart explanation, as the insight page shows it.'),
+})
+
+export const insightsExplanationsUpdateBodyDataOneShapeDefault = `time_series`
+export const insightsExplanationsUpdateBodyDataOneResultsItemLabelMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneResultsItemDataMax = 5000
+
+export const insightsExplanationsUpdateBodyDataOneResultsItemDaysMax = 5000
+
+export const insightsExplanationsUpdateBodyDataOneStepsItemNameMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneStepsItemCountMin = 0
+
+export const insightsExplanationsUpdateBodyDataOneBreakdownsItemMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneBreakdownsMax = 1000
+
+export const insightsExplanationsUpdateBodyDataOneSeriesIndexMin = 0
+
+export const insightsExplanationsUpdateBodyDataOneInsightNameMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneHeadlineMax = 300
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemTitleMax = 80
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemRangeItemMin = 0
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemRangeMin = 2
+export const insightsExplanationsUpdateBodyDataOneChaptersItemRangeMax = 2
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemSummaryMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemCauseMax = 600
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemConfidenceReasonMax = 200
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemTextMax = 400
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp = new RegExp(
+    '^[A-Za-z0-9]{8}$'
+)
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemUrlMax = 500
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax = 5000
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneTicksMax = 5000
+
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneSeriesItemValuesMax = 5000
+
+export const insightsExplanationsUpdateBodyDataOneWarningsMax = 20
+
+export const InsightsExplanationsUpdateBody = /* @__PURE__ */ zod.object({
+    data: zod
+        .object({
+            shape: zod
+                .enum(['time_series', 'funnel_steps'])
+                .describe('\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps')
+                .default(insightsExplanationsUpdateBodyDataOneShapeDefault)
+                .describe(
+                    'What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.\n\n\* `time_series` - Time series\n\* `funnel_steps` - Funnel steps'
+                ),
+            query: zod
+                .record(zod.string(), zod.unknown())
+                .describe(
+                    'The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.'
+                ),
+            results: zod
+                .array(
+                    zod.object({
+                        label: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneResultsItemLabelMax)
+                            .optional()
+                            .describe('The series name.'),
+                        data: zod
+                            .array(zod.number())
+                            .max(insightsExplanationsUpdateBodyDataOneResultsItemDataMax)
+                            .optional()
+                            .describe('One value per point. Saved for the followed series only.'),
+                        days: zod
+                            .array(zod.string())
+                            .max(insightsExplanationsUpdateBodyDataOneResultsItemDaysMax)
+                            .optional()
+                            .describe(
+                                "The date of each point, in the query's timezone. Saved for the followed series only."
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Every series on the chart when it was explained. Time series only.'),
+            steps: zod
+                .array(
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneStepsItemNameMax)
+                            .describe("The step's name."),
+                        count: zod
+                            .number()
+                            .min(insightsExplanationsUpdateBodyDataOneStepsItemCountMin)
+                            .describe('How many reached the step.'),
+                    })
+                )
+                .optional()
+                .describe("The followed breakdown value's steps when it was explained. Funnel steps only."),
+            breakdowns: zod
+                .array(zod.string().max(insightsExplanationsUpdateBodyDataOneBreakdownsItemMax))
+                .max(insightsExplanationsUpdateBodyDataOneBreakdownsMax)
+                .optional()
+                .describe("Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only."),
+            seriesIndex: zod
+                .number()
+                .min(insightsExplanationsUpdateBodyDataOneSeriesIndexMin)
+                .describe('The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.'),
+            insightName: zod
+                .string()
+                .max(insightsExplanationsUpdateBodyDataOneInsightNameMax)
+                .nullable()
+                .describe("The insight's name."),
+            lastPointInProgress: zod
+                .boolean()
+                .optional()
+                .describe("Whether the last point's period had not ended yet. Time series only."),
+            headline: zod
+                .string()
+                .max(insightsExplanationsUpdateBodyDataOneHeadlineMax)
+                .describe('One sentence a person could read in place of the whole explanation.'),
+            chapters: zod
+                .array(
+                    zod.object({
+                        title: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneChaptersItemTitleMax)
+                            .describe('The moment on the chart this chapter explains.'),
+                        range: zod
+                            .array(zod.number().min(insightsExplanationsUpdateBodyDataOneChaptersItemRangeItemMin))
+                            .min(insightsExplanationsUpdateBodyDataOneChaptersItemRangeMin)
+                            .max(insightsExplanationsUpdateBodyDataOneChaptersItemRangeMax)
+                            .nullable()
+                            .describe(
+                                "Inclusive indexes into the series' points. Null when the chapter's dates match no point."
+                            ),
+                        summary: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneChaptersItemSummaryMax)
+                            .nullable()
+                            .describe('What happened in this moment.'),
+                        cause: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneChaptersItemCauseMax)
+                            .nullable()
+                            .describe('The likely cause of this moment.'),
+                        confidence: zod
+                            .union([
+                                zod
+                                    .enum(['high', 'medium', 'low'])
+                                    .describe(
+                                        '\* `high` - High confidence\n\* `medium` - Medium confidence\n\* `low` - Low confidence'
+                                    ),
+                                zod.null(),
+                            ])
+                            .describe(
+                                'How sure the investigation is of the cause.\n\n\* `high` - High confidence\n\* `medium` - Medium confidence\n\* `low` - Low confidence'
+                            ),
+                        confidenceReason: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneChaptersItemConfidenceReasonMax)
+                            .nullable()
+                            .describe('Why the confidence is what it is.'),
+                        evidence: zod
+                            .array(
+                                zod.object({
+                                    text: zod
+                                        .string()
+                                        .max(insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemTextMax)
+                                        .describe('One fact that supports the chapter, in one sentence.'),
+                                    query: zod
+                                        .record(zod.string(), zod.unknown())
+                                        .nullish()
+                                        .describe('The query that shows the fact. The page links to it.'),
+                                    insightShortId: zod
+                                        .string()
+                                        .regex(
+                                            insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp
+                                        )
+                                        .nullish()
+                                        .describe(
+                                            'The short id of a saved insight that shows the fact. The page links to it.'
+                                        ),
+                                    url: zod
+                                        .string()
+                                        .max(insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemUrlMax)
+                                        .nullish()
+                                        .describe(
+                                            'A link to the GitHub pull request or commit behind the fact. No other links are accepted.'
+                                        ),
+                                    queryTool: zod
+                                        .union([
+                                            zod
+                                                .enum([
+                                                    'query-trends',
+                                                    'query-funnel',
+                                                    'query-retention',
+                                                    'query-stickiness',
+                                                    'query-paths',
+                                                    'query-lifecycle',
+                                                ])
+                                                .describe(
+                                                    '\* `query-trends` - Trends\n\* `query-funnel` - Funnel\n\* `query-retention` - Retention\n\* `query-stickiness` - Stickiness\n\* `query-paths` - Paths\n\* `query-lifecycle` - Lifecycle'
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe(
+                                            'The MCP query tool that can redraw `query`. The page redraws the query only when this is set.\n\n\* `query-trends` - Trends\n\* `query-funnel` - Funnel\n\* `query-retention` - Retention\n\* `query-stickiness` - Stickiness\n\* `query-paths` - Paths\n\* `query-lifecycle` - Lifecycle'
+                                        ),
+                                    chart: zod
+                                        .union([
+                                            zod.object({
+                                                type: zod
+                                                    .enum(['line', 'bar'])
+                                                    .describe('\* `line` - Line\n\* `bar` - Bar')
+                                                    .describe(
+                                                        'How the evidence chart draws its series.\n\n\* `line` - Line\n\* `bar` - Bar'
+                                                    ),
+                                                labels: zod
+                                                    .array(zod.string())
+                                                    .max(
+                                                        insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax
+                                                    )
+                                                    .describe('The x-axis points.'),
+                                                ticks: zod
+                                                    .array(zod.string())
+                                                    .max(
+                                                        insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneTicksMax
+                                                    )
+                                                    .optional()
+                                                    .describe(
+                                                        'The axis label of each point, which leaves out a date that repeats.'
+                                                    ),
+                                                series: zod
+                                                    .array(
+                                                        zod.object({
+                                                            name: zod
+                                                                .string()
+                                                                .describe(
+                                                                    'The breakdown value or column this line draws.'
+                                                                ),
+                                                            values: zod
+                                                                .array(zod.number().nullable())
+                                                                .max(
+                                                                    insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneSeriesItemValuesMax
+                                                                )
+                                                                .describe(
+                                                                    'One value per label. Null where the breakdown value has no row for that point.'
+                                                                ),
+                                                        })
+                                                    )
+                                                    .describe('The lines or bars to draw.'),
+                                                yAxisLabel: zod
+                                                    .string()
+                                                    .nullable()
+                                                    .describe('The y-axis label, if any.'),
+                                            }),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe('The fact drawn as a chart, from its SQL.'),
+                                })
+                            )
+                            .describe('The facts behind the cause.'),
+                    })
+                )
+                .describe('The moments that stand out, in reading order.'),
+            warnings: zod
+                .array(zod.unknown())
+                .max(insightsExplanationsUpdateBodyDataOneWarningsMax)
+                .optional()
+                .describe("Warnings the chart's query came back with."),
+        })
+        .describe('The chart explanation, as the insight page shows it.'),
+})
 
 export const InsightsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())

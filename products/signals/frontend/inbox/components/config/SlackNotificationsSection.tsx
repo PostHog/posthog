@@ -70,20 +70,22 @@ function ConnectSlackPrompt(): JSX.Element {
 }
 
 /**
- * Team-wide channel where every actionable report is posted regardless of the suggested reviewer,
+ * Team-wide channel for actionable reports regardless of the suggested reviewer,
  * backed by `default_slack_notification_channel` on `signalTeamConfigLogic`. Toggling off (or
- * clearing the channel) disables the team default. The backend routes the team channel through the
- * team's first Slack integration (`_get_team_slack_integration`), so we target `integrations[0]`
- * here too.
+ * clearing the channel) disables the team default. The channel is saved with the workspace it came
+ * from, because a channel id from one Slack workspace fails in every other.
  */
-function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX.Element {
+function TeamChannelCard({ integrations }: { integrations: IntegrationType[] }): JSX.Element {
     const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+    const savedIntegrationId = teamConfig?.default_slack_notification_integration ?? null
+    const integration = integrations.find((i) => i.id === savedIntegrationId) ?? integrations[0]
     // Local view state: the toggle is on but no channel has been picked yet. A saved
     // channel implies enabled on its own, so this only bridges the picking moment.
     const [pickerExpanded, setPickerExpanded] = useState(false)
 
     const channel = teamConfig?.default_slack_notification_channel ?? null
+    const minPriority = teamConfig?.default_slack_notification_min_priority ?? null
     const showPicker = pickerExpanded || !!channel
 
     const onToggleEnabled = (enabled: boolean): void => {
@@ -100,8 +102,9 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
                     title="Notify the whole team"
                     description={
                         <>
-                            Post every report to one channel, whether or not a reviewer is suggested. PostHog must be in
-                            the channel. Invite it with <code>/invite @PostHog</code>.
+                            Post reports that meet the minimum priority to one channel for this project, whether or not
+                            a reviewer is suggested. PostHog must be in the channel. Invite it with{' '}
+                            <code>/invite @PostHog</code>.
                         </>
                     }
                 />
@@ -119,7 +122,35 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
                     <SlackChannelPicker
                         integration={integration}
                         value={channel ?? undefined}
-                        onChange={(next) => patchTeamConfig({ default_slack_notification_channel: next })}
+                        onChange={(next) =>
+                            patchTeamConfig({
+                                default_slack_notification_channel: next,
+                                default_slack_notification_integration: next ? integration.id : null,
+                            })
+                        }
+                    />
+                    <label className="text-xs text-secondary mt-3" htmlFor="team-slack-min-priority">
+                        Min. priority
+                    </label>
+                    <LemonSelect
+                        id="team-slack-min-priority"
+                        data-attr="inbox-team-slack-min-priority"
+                        className="max-w-60"
+                        value={minPriority ?? NOTIFY_ALL_VALUE}
+                        options={MIN_PRIORITY_OPTIONS}
+                        disabledReason={
+                            teamConfigLoading
+                                ? 'Saving notification settings'
+                                : !channel
+                                  ? 'Choose a channel first'
+                                  : undefined
+                        }
+                        onChange={(value) =>
+                            patchTeamConfig({
+                                default_slack_notification_min_priority:
+                                    value === NOTIFY_ALL_VALUE ? null : (value as SignalReportPriority),
+                            })
+                        }
                     />
                 </div>
             )}
@@ -420,7 +451,7 @@ export function SlackNotificationsSection(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
-            <TeamChannelCard integration={integrations[0]} />
+            <TeamChannelCard integrations={integrations} />
             <PerUserNotificationCard integrations={integrations} />
         </div>
     )

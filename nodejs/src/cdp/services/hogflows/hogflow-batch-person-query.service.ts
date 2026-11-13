@@ -19,6 +19,12 @@ export interface BlastRadiusPersonsResponse {
     has_more: boolean
 }
 
+export interface AudienceSnapshotResponse {
+    status: 'resolving' | 'ready' | 'failed'
+    audience_size: number | null
+    error: string | null
+}
+
 export interface AccountAudienceResponse {
     accounts: Array<string>
     cursor: string | null
@@ -40,7 +46,12 @@ const histogramAudienceFetchDuration = new Histogram({
     buckets: [1, 2, 5, 10, 20, 30, 40, 50, 60, 90, 120],
 })
 
-export type AudienceFetchEndpoint = 'user_blast_radius' | 'user_blast_radius_persons' | 'account_audience'
+export type AudienceFetchEndpoint =
+    | 'user_blast_radius'
+    | 'user_blast_radius_persons'
+    | 'account_audience'
+    | 'audience_snapshot'
+    | 'audience_snapshot_page'
 
 /**
  * An audience fetch used its full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget.
@@ -209,6 +220,48 @@ export class HogFlowBatchPersonQueryService {
             )
         } catch (error) {
             logger.error('Error calling blast radius persons endpoint', { error: serializeError(error), urlPath })
+            throw error
+        }
+    }
+
+    /** The first call starts resolving the run's whole audience; later calls only report its status. */
+    async requestAudienceSnapshot(
+        team: Team,
+        batchJobId: string,
+        options: { dedupeKey?: 'email'; maxAudienceSize: number }
+    ): Promise<AudienceSnapshotResponse> {
+        const urlPath =
+            `/api/projects/${team.id}/internal/hog_flows/batch_jobs/${batchJobId}/audience_snapshot` as const
+
+        try {
+            return await this.fetchAudience<AudienceSnapshotResponse>(
+                'audience_snapshot',
+                urlPath,
+                { dedupe_key: options.dedupeKey ?? null, max_audience_size: options.maxAudienceSize },
+                'audience snapshot'
+            )
+        } catch (error) {
+            logger.error('Error calling audience snapshot endpoint', { error: serializeError(error), urlPath })
+            throw error
+        }
+    }
+
+    async getAudienceSnapshotPage(
+        team: Team,
+        batchJobId: string,
+        cursor?: string | null
+    ): Promise<BlastRadiusPersonsResponse> {
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/batch_jobs/${batchJobId}/audience_page` as const
+
+        try {
+            return await this.fetchAudience<BlastRadiusPersonsResponse>(
+                'audience_snapshot_page',
+                urlPath,
+                { cursor: cursor || null },
+                'audience snapshot page'
+            )
+        } catch (error) {
+            logger.error('Error calling audience snapshot page endpoint', { error: serializeError(error), urlPath })
             throw error
         }
     }

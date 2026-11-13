@@ -1,139 +1,81 @@
 # Engineering analytics
 
-Owner: team-devex. Engineering contract: [SPEC.md](./SPEC.md).
+Owner: team-devex. The engineering contract is [SPEC.md](./SPEC.md).
 
-## The one-sentence version
+## What it is
 
-**It's product analytics, but the "users" are pull requests and the "events" are what happens to them on the way to production.**
+Engineering analytics measures what happens to a pull request between open and production: CI, review, merge, and deploy.
+It reads GitHub data the team already syncs into the data warehouse, plus CI failure logs and per-test CI spans.
+Typed endpoints serve the results to the in-app UI and to MCP tools.
 
-Everything else is mechanics.
-
-## The analogy
-
-If you understand PostHog product analytics, you understand this. Map it one-to-one:
-
-| Product analytics                        | Engineering analytics                          |
-| ---------------------------------------- | ---------------------------------------------- |
-| A **person** does things in your app     | A **PR** moves through your pipeline           |
-| Events: `pageview`, `signup`, `purchase` | Events: `opened`, `ready_for_review`, `merged` |
-| "How long from signup to purchase?"      | "How long from opened to merged?"              |
-| "What % of signups convert?" (funnel)    | "What % of PRs make it to prod?" (funnel)      |
-| "Is conversion getting better?" (trend)  | "Is CI getting faster?" (trend)                |
-| Segment by country, plan, browser        | Segment by repo, workflow, file path           |
-
-Same product, different noun.
-
-## The shape of the thing
-
-```text
-A PR's life, as a stream of timestamped events:
-
-opened ──> ready_for_review ──> ci_passed ──> approved ──> merged ──> deployed
-  │              │                  │            │           │           │
-t=0          t=2h              t=2h15m        t=4h        t=4h30m      t=5h
-
-Engineering analytics measures every gap:
-  opened→ready     = how long it sat as a draft
-  ready→merged     = THE NORTH STAR (shorten this)
-  any→ci_passed    = how long CI took to go green
-  merged→deployed  = ship latency
-
-Then averages each gap across all PRs, and trends it over weeks.
-DevEx's job: watch those gaps shrink.
-```
-
-The product is: **measure every gap in a PR's life, average it, and watch it shrink.**
-
-## Why this exists
-
-The middle of PostHog's AI-to-prod loop (CI / review / merge / deploy) is invisible to both ends. This product fills it:
-
-```text
-PostHog Desktop              engineering_analytics             PostHog product analytics
-(generates code,      →   (CI / review / merge / deploy)  →    (events, errors, flags,
- opens PRs)                                                     surveys, replays)
-        ↑                                                              │
-        └───────────  Signals feed back to PostHog Desktop  ───────────┘
-```
-
-Two consumer classes, one tool set: engineers driving an agent (Claude Code, Cursor, PostHog AI) over their monorepo (we dogfood on `PostHog/posthog`), and PostHog Desktop calling the same tools autonomously on its own PRs.
-Return shapes are typed contracts whose caveats ride in honest field names (`open_to_merge_seconds`, never `cycle_time`): legible to an agent, never free-form prose it might paraphrase wrong.
+Engineers use the UI or an agent, and PostHog Desktop calls the same tools.
 
 ## The system
 
 ```mermaid
 graph LR
-    subgraph "Data in"
-        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events")]
-        LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
-        TRACES[("Traces: per-test CI spans<br/>emitted by Backend and Frontend CI")]
-    end
-    JL["Temporal job-logs pipeline<br/>fetches + thins failed jobs' logs"] --> LOGS
-    CUR["curated HogQL builders<br/>run privately, never global views"]
+    WH[("Warehouse tables<br/>GitHub, Depot and Trunk sources")]
+    LOGS[("Logs<br/>thinned CI failure lines")]
+    TRACES[("Traces<br/>per-test CI spans")]
+    JL["Temporal job-logs pipeline"] --> LOGS
+    CUR["Curated HogQL builders<br/>backend/logic"]
     WH --> CUR
     LOGS --> CUR
     TRACES --> CUR
-    EP["named typed DRF endpoints"]
-    CUR --> EP
-    EP --> MCP["MCP tools<br/>enabled subset in mcp/tools.yaml"]
+    CUR --> EP["Typed DRF endpoints"]
+    EP --> MCP["MCP tools<br/>mcp/tools.yaml"]
     EP --> UI["UI scenes"]
-    CUR --> WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures / pr_friction<br/>for insights + SQL"]
+    CUR --> WV["Managed warehouse views<br/>for insights and SQL"]
 ```
 
-- Job-level CI: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).
-- One write surface: test quarantine. The `quarantine/request` endpoint files a tracking issue plus a PR against the repo's checked-in `.test_quarantine.json` through the team's GitHub App; it is reachable via the API and MCP only, with no in-app UI. Everything else is read-only.
-- The Tests tab is the Trunk quarantine debt scoreboard: every test Trunk currently quarantines, attributed to the team that owns its file in the repository today, aged against a TTL, and rolled up per team. A quarantine masks a failure without fixing it, so the board is the standing work queue of masked tests. The flaky-test queue itself (failures plus same-commit recovery evidence from the pytest and Jest suites, counted per CI run, ranked by blast radius) remains an endpoint and MCP tool; the weekly Slack report requests each runner separately and shows up to 10 pytest tests followed by up to 10 Jest tests; it is informational, so suppressed tests stay listed with their quarantine state. With the `FLAKY_REPORT_TEAM_CHANNELS` repository variable set to `true`, each owning team also gets its rows in its own notifications channel, linked from the report thread; a week without Trunk state keeps those rows in the thread. Logs-based rescue counts and links remain pytest-only.
-- Access control: per-user warehouse RBAC at the source resolver, `engineering_analytics:read` scopes on tools, feature-flag gated.
+- The job-logs pipeline fetches the logs of failed jobs, and of jobs that passed only after a pytest retry.
+- The Tests tab lists every test that Trunk quarantines, grouped by the team that owns the test file today.
+- The flaky-test and broken-test queues are endpoints and MCP tools. The weekly Slack report (`.github/workflows/weekly-flaky-report.yml`) reads the flaky-test endpoint.
 
-## The goal: CI Signals for PostHog Desktop
+## Access and writes
 
-Backend pytest retries retain their failed-attempt diagnostics even when the job passes.
-The job-log collector uses recovered-test spans to include those successful jobs, and keeps their original conclusion.
-See [Backend test retries](../../docs/internal/backend-test-retries.md) for the retry budget and reporting path.
+- Every endpoint requires the `engineering-analytics` feature flag and the `engineering_analytics` API scope.
+- `logic/sources.py` applies the requesting user's warehouse access to each source.
+- A team enrolls when a user opens the product with a GitHub source connected. Background work runs only for enrolled teams.
+- Three endpoints write. `enable` enrolls the team. `update_ci_signals_config` turns CI Signals on or off. `quarantine/request` opens a tracking issue and a pull request against the repository's `.test_quarantine.json`, through the team's GitHub App.
+- `quarantine/request` has no UI and no MCP tool. Callers reach it through the API.
 
-Valuable CI conditions ("this check is flaky", "master went red at SHA X", "this PR is wedged on a failing required check") become [Signals](../signals): grouped, researched against the repository, and handed to PostHog Desktop for autonomous remediation.
-Detection is defined once in `logic/` over the read layer, so the emitter and the MCP tools share one definition.
-Shortening ready-for-review-to-merge is the headline metric this serves.
+## CI Signals
+
+The product turns CI conditions into [Signals](../signals) for PostHog Desktop to act on.
+`logic/signals/detectors.py` defines three: a flaky check, a broken default branch, and a CI duration regression.
+A team opts in to CI Signals separately from the product.
 
 ## The data boundary
 
-| Question                                                                     | Substrate                                                              |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                              |
-| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                            |
-| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)        |
-| Approvals, review submissions                                                | Warehouse `github_reviews` (optional; the author page reads approvals) |
-| Deploys and DORA                                                             | Warehouse `github_deployments` + `github_deployment_statuses`          |
+| Question                                                                     | Source                                                      |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse, Logs and Traces                                  |
+| Open to merge time (`open_to_merge_seconds`)                                 | `github_pull_requests` snapshot                             |
+| Ready to merge time (`ready_to_merge_seconds`), draft and ready transitions  | `github_issue_events` (a bounded window that grows forward) |
+| Approvals and review submissions                                             | `github_reviews`                                            |
+| Deploys and DORA                                                             | `github_deployments` and `github_deployment_statuses`       |
+| Quarantined tests                                                            | Trunk source                                                |
+| Depot CI runs and jobs                                                       | Depot source (`depot_job_attempts`)                         |
 
-The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
-Immutable lifecycle events are the only thing the deferred events destination is for.
-Deploys left that deferral: unlike the snapshots, `github_deployment_statuses` is an append-oriented, webhook-fed status history (one row per transition), so DORA reads don't need the events destination.
-When a deployment's merge SHA is absent from the PR snapshot, the deploy metrics reuse workflow-run `commit_pr_number` attribution for the exact deployed commit on the same repository's default branch.
-The candidate PR must have merged into that branch and must carry no merge commit of its own. One that names some other commit is evidence the suffix is wrong, not evidence the deploy carries that PR.
-That drops a cherry-pick: a commit forward-ported onto the default branch keeps the original subject line, so its `(#N)` suffix still names the PR it came from, which landed elsewhere.
-This fallback depends on the merge-message PR suffix and synced workflow history; unresolved deployments remain unattributed.
-Change failure rate and time-to-restore still lack an incident link, so they ship as honest deploy-status proxies — the caveat rides in the field docs (`failed_deployment_share`, `median_failed_deploy_to_next_success_seconds`), the aggregate-endpoint pattern; a typed `metric_quality` field is reserved for deep tools like `pr_lifecycle`.
+The product needs `pull_requests` and `workflow_runs`. Every other table is optional, and a read returns no data for a table the team has not synced.
+
+The pull request snapshot overwrites state on each update, so it cannot give the time of a transition.
+Transition timing comes from the append-only tables: issue events, reviews and deployment statuses.
+The DORA failure figures have no incident link, so they are deploy-status proxies with names that say so, such as `failed_deployment_share`.
 
 ## Locked decisions
 
-Change one only in a separate PR with a written reason. Engineering-level decisions live in [SPEC.md](./SPEC.md) → Locked decisions.
+Change a locked decision only in a separate pull request that gives a written reason.
+The engineering decisions live in [SPEC.md](./SPEC.md) §6, Locked decisions.
+The product decisions are these:
 
-- Two motivations: (A) DevEx dogfood, (B) close the dark middle of PostHog's AI-to-prod loop. Every design decision serves both.
-- Unit of value = the open PR. Phase model: draft (low rigor) vs ready-for-review (high stakes).
-- North star: actionable CI Signals for PostHog Desktop. Ready-for-review-to-merge time is the headline metric, not the end in itself.
-- Two first-class surfaces, one endpoint set: the in-app UI and MCP tools. Named typed endpoints run the curated read layer privately (no global HogQL views, core imports only the viewset); keep `mcp/tools.yaml` current whenever endpoints change.
-- One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App). The write now lives behind the API and MCP tool only; the Tests tab became the Trunk quarantine debt scoreboard because Trunk's auto-quarantine outran the file-based flow as the thing teams need to see. No saved views or stateful filters; persisted surfaces are a separate decision.
-- Data path: HogQL over the warehouse, plus reads from Logs and Traces. PR lifecycle event ingestion deferred. Product Postgres DB stays empty.
-- No developer performance rankings, ever. The surveillance risk is a performance scorecard: output or speed turned into an ordered population of people. An engineer inspecting their own friction is not that risk, and neither is a deliberate comparison with a colleague they already know. So author figures may be read one author at a time, and compared on purpose with another author, a GitHub team, or the repository. The product must never rank, sort, score or enumerate authors by delivery performance. Friction is not performance: scoring and ordering the friction developers meet (red CI they did not cause, merge-queue kickouts, review waits, rework) finds the people the dev loop costs most, and a friction figure never counts how much or how fast someone ships. The author page (one author's PRs, CI cost, delivery timing and lead time against the repository) is reached from PR-row author links, and a colleague's page may be opened directly for such a comparison. The author page and the pull request page also set the ready-to-merge time next to the author's own team, as an aggregate. The team page renders the same delivery figures for one GitHub team, as an aggregate and never a per-member figure. It leaves out the author page's per-pull-request day view, which is too long to read at team size.
-- Bots and drafts excluded by default in throughput / cycle-time reads; bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
-- Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping.
-- Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse, and named so. `ready_to_merge_seconds` is the precise companion (last observed ready-for-review to merge, from `github_issue_events`); NULL means "not observed", never zero.
-- The GitHub `reviews` endpoint syncs; the author page is its first reader (the approval split and the review states of a PR timeline).
-
-## Glossary
-
-| Term                | Definition                                                                                   |
-| ------------------- | -------------------------------------------------------------------------------------------- |
-| Good / bad friction | Checks that catch real problems (keep, optimize) vs checks engineers ignore (remove)         |
-| Wedge               | End-to-end code visibility, served via MCP to PostHog Desktop and engineers driving agents   |
-| The dark middle     | The CI / review / merge / deploy steps between PostHog Desktop and PostHog product analytics |
+- The product serves the DevEx team's own use on `PostHog/posthog`, and PostHog Desktop's view of CI, review, merge and deploy.
+- The goal is CI Signals that PostHog Desktop can act on. Ready-for-review to merge time is the headline metric.
+- The unit of value is the open pull request. Draft and ready-for-review are separate phases.
+- The UI and the MCP tools call one endpoint set.
+- The product has no saved views and no stored filters.
+- The product never ranks developers by delivery performance, and it has no leaderboard. SPEC §2 and §6 define what author pages, team pages and friction scores may show.
+- The product is a model for other products in this repository. SPEC §1 states the design rules it must keep.
+- An author is `Author{handle, display_name, avatar_url, is_bot}`. The product does not map an author to a PostHog user.
+- The product does not ingest pull request lifecycle events. Transitions that no synced table records stay unmeasured.

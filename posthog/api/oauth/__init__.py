@@ -7,6 +7,7 @@ from posthog.api.oauth.dcr import (
     DCRSustainedThrottle,
     DynamicClientRegistrationView,
 )
+from posthog.api.oauth.device import OAuthDeviceAuthorizationView, OAuthDeviceViewSet
 from posthog.api.oauth.views import (
     OAuthAuthorizationSerializer,
     OAuthAuthorizationServerMetadataView,
@@ -36,6 +37,8 @@ __all__ = [
     "OAuthJwksInfoView",
     "OAuthUserInfoView",
     "OAuthValidator",
+    "OAuthDeviceAuthorizationView",
+    "OAuthDeviceViewSet",
     # dcr
     "DCRBurstThrottle",
     "DCRSustainedThrottle",

@@ -2,22 +2,23 @@ import { useActions, useValues } from 'kea'
 
 import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
 import {
+    FREQUENCY_CAP_HOLD_HELP,
+    FREQUENCY_CAP_HOLD_INFO,
+    MAX_FREQUENCY_CAP_HOLD_HOURS,
     MAX_FREQUENCY_CAP_MESSAGES,
     MAX_FREQUENCY_CAP_WINDOW_DAYS,
     frequencyCapFieldError,
+    frequencyCapHoldError,
     toFrequencyCapInputValue,
 } from '../../scenes/settings/frequencyCap'
 import { WorkflowsEmailTrackingConsentSettings } from '../../scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { FrequencyCapChoice } from './onboardingWizardSteps'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
-
-const ADMIN_ONLY_REASON = 'Only project admins can change sending rules'
 
 const CAP_OPTIONS: LemonRadioOption<FrequencyCapChoice>[] = [
     {
@@ -50,23 +51,23 @@ function SendingRule({
 }
 
 export function WizardSendingRulesStep(): JSX.Element {
-    const { shownFrequencyCapChoice, shownCustomFrequencyCap, canEditSendingRules, shownEngagementEvents } =
-        useValues(workflowsOnboardingWizardLogic)
-    const { setFrequencyCapChoice, setCustomFrequencyCap, setEngagementEventsChoice } =
+    const {
+        shownFrequencyCapChoice,
+        shownCustomFrequencyCap,
+        shownHoldHours,
+        sendingRulesDisabledReason,
+        shownEngagementEvents,
+    } = useValues(workflowsOnboardingWizardLogic)
+    const { setFrequencyCapChoice, setCustomFrequencyCap, setHoldHours, setEngagementEventsChoice } =
         useActions(workflowsOnboardingWizardLogic)
-    const disabledReason = canEditSendingRules ? undefined : ADMIN_ONLY_REASON
+    const disabledReason = sendingRulesDisabledReason ?? undefined
     const { maxMessages, windowDays } = shownCustomFrequencyCap
-    const showSendCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
 
     return (
         <div className="flex flex-col gap-6">
             <SendingRule
                 title="Frequency cap"
-                description={`The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped.${
-                    showSendCalendar
-                        ? ' When you schedule a broadcast, its calendar suggests a day within this cap. With no cap, it keeps sends to the same people 2 days apart.'
-                        : ''
-                }`}
+                description="The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped. When you schedule a broadcast, its calendar suggests a day within this cap. With no cap, it keeps sends to the same people 2 days apart."
             >
                 <LemonRadio
                     value={shownFrequencyCapChoice}
@@ -119,6 +120,28 @@ export function WizardSendingRulesStep(): JSX.Element {
                             />
                         </LemonField.Pure>
                     </div>
+                )}
+                {shownFrequencyCapChoice !== 'off' && (
+                    <LemonField.Pure
+                        className="max-w-80"
+                        label="Hold capped messages for up to (hours)"
+                        info={FREQUENCY_CAP_HOLD_INFO}
+                        help={FREQUENCY_CAP_HOLD_HELP}
+                        htmlFor="workflows-onboarding-wizard-frequency-cap-hold-hours"
+                        error={frequencyCapHoldError(shownHoldHours)}
+                    >
+                        <LemonInput
+                            id="workflows-onboarding-wizard-frequency-cap-hold-hours"
+                            type="number"
+                            min={1}
+                            max={MAX_FREQUENCY_CAP_HOLD_HOURS}
+                            value={shownHoldHours ?? undefined}
+                            onChange={(value) => setHoldHours(toFrequencyCapInputValue(value))}
+                            placeholder="Don't hold"
+                            disabledReason={disabledReason}
+                            data-attr="workflows-onboarding-wizard-frequency-cap-hold-hours"
+                        />
+                    </LemonField.Pure>
                 )}
             </SendingRule>
             <LemonDivider className="my-0" />

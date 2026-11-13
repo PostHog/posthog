@@ -13,11 +13,19 @@ are the served contract: training (`products/signals/dags/inbox_ranking/training
 `feature_names` match the serving matrix by construction. The sweep reads the vector at scoring
 time, and reads the latest priority judgment only for a model whose set declares the `priority`
 state column. `report_embeddings_priority_sources` adds the source products of the report's signals.
-Only an experiment family trains on it, and the sweep cannot build it yet.
+Training reads them as of the moment from the emission log, and the sweep reads the live ones at
+scoring time. Both turn a report's products into columns through the one `source_columns`.
+`report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Training
+reads them from the report-state snapshot, and the sweep reads them from `ReportFacts` at scoring time.
+Both turn them into columns through the one `report_fact_matrix`.
+
+The pair sets (`PairUserHistoryFeatureSet`) build one row per (report, user) for the pair-grain
+experiments: the priority set's columns, then the user's history and reviewer columns.
 """
 
 import abc
 import datetime
+import itertools
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
@@ -48,9 +56,11 @@ EMBEDDING_FEATURE_NAMES = tuple(f"emb_{index}" for index in range(EMBEDDING_DIME
 PRIORITY_COLUMN = "priority"
 PRIORITY_LEVELS = ("P0", "P1", "P2", "P3", "P4")
 
-# The source products of a report's signals, under this key in `extras`: the metadata columns of the
-# dataset dag's `inbox_signal_embeddings` emission log, one row per signal emission, with the moment
-# the emission landed in `SIGNAL_INSERTED_AT_COLUMN`.
+# The source products of a report's signals, under this key in `extras`. As of a moment, it holds the
+# metadata columns of the dataset dag's `inbox_signal_embeddings` emission log, one row per signal
+# emission, with the moment the emission landed in `SIGNAL_INSERTED_AT_COLUMN`. At serving
+# (`as_of=None`), it holds `REPORT_LIVE_SOURCES_COLUMNS`: one row per live signal of a report at
+# scoring time.
 REPORT_SOURCES_EXTRA = "report_sources"
 SIGNAL_INSERTED_AT_COLUMN = "embedding_inserted_at"
 REPORT_SOURCES_COLUMNS = (
@@ -61,6 +71,12 @@ REPORT_SOURCES_COLUMNS = (
     "is_deleted",
     SIGNAL_INSERTED_AT_COLUMN,
 )
+REPORT_LIVE_SOURCES_COLUMNS = ("report_id", "source_product")
+# The report facts the scoring sweep recorded when it first scored each report, under this key in
+# `extras`: the rows of the dataset dag's `inbox_report_scored_facts`, one per report, known from
+# `SCORED_AT_COLUMN`. A report scored before recording began has no row.
+REPORT_SCORED_FACTS_EXTRA = "report_scored_facts"
+SCORED_AT_COLUMN = "scored_at"
 # A fixed vocabulary, so a new source product does not change the feature names. A product outside
 # it sets `source_other`.
 SOURCE_PRODUCTS = (
@@ -79,14 +95,61 @@ SOURCE_PRODUCTS = (
     "signals_check",
 )
 SOURCE_FEATURE_NAMES = (*(f"source_{product}" for product in SOURCE_PRODUCTS), "source_other")
+SOURCES_GROUP_FEATURE_NAMES = (*SOURCE_FEATURE_NAMES, "source_count", "has_sources")
 
-# The team's project-vector kinds, in the order a network that reads them takes them. The dataset
-# dag's `inbox_project_vectors` writes one row per (team, kind), and the training and serving
-# inputs both read these names, so the two sides cannot order the kinds differently.
+# The report-state columns the report facts set reads, and its bucket edges. An edge is the lowest
+# value of a bucket, and the first bucket starts at 0. The edges are part of the set's recipe, so a
+# change to one takes a new schema version and a new family.
+TITLE_CHARS_COLUMN = "title_chars"
+SUMMARY_CHARS_COLUMN = "summary_chars"
+SIGNAL_COUNT_COLUMN = "signal_count"
+ACTIONABILITY_COLUMN = "actionability"
+ALREADY_ADDRESSED_COLUMN = "already_addressed"
+REPORT_CREATED_AT_COLUMN = "report_created_at"
+CONTENT_COUNT_COLUMNS = ("chart_count", "metric_count", "suggested_prompt_count", "tag_count")
+USER_AUTHORED_COLUMN = "user_authored"
+CONTENT_COLUMNS = (*CONTENT_COUNT_COLUMNS, USER_AUTHORED_COLUMN)
+TITLE_CHARS_EDGES = (50, 60, 70, 80)
+SUMMARY_CHARS_EDGES = (250, 1000, 1600, 1900, 2500)
+SIGNAL_COUNT_EDGES = (2, 3, 5, 10)
+CONTENT_COUNT_EDGES = (1, 2)
+CREATED_HOUR_BUCKET_HOURS = 4
+# The values of `ActionabilityChoice`, fixed here so the feature names never move with the enum.
+ACTIONABILITY_LEVELS = ("immediately_actionable", "requires_human_input", "not_actionable")
+
+# The default project-vector kinds of a family, in the order a network that reads them takes them.
+# The training and serving inputs both read these names, so the two sides cannot order the kinds
+# differently. The pair lane and `user_offsets` read only these kinds.
 PROJECT_VECTOR_KINDS = ("typical", "open", "action", "dismiss")
+# Every kind `project_vectors()` can build. The dataset dag's `inbox_project_vectors` writes one row
+# per (team, kind) of these, and serving gives each model the kinds it reads, in its own order.
+ALL_PROJECT_VECTOR_KINDS = (*PROJECT_VECTOR_KINDS, "fixed")
 # Below this many reports, a kind's mean is mostly one report's text, so the row keeps an all-zero
 # vector and the kind has no history.
 MIN_PROJECT_HISTORY_REPORTS = 5
+
+# The user-history kinds a pair network reads, in its input order. The dataset dag builds one user
+# vector per kind (`user_vectors()`), and each kind has a project-vector kind of the same name.
+USER_HISTORY_KINDS = ("open", "dismiss")
+# The pair examples' user-input columns: the reports in each kind's user vector, the capped days
+# since the user's last view, and whether the user had any usable history.
+USER_REPORTS_COLUMNS = tuple(f"user_{kind}_reports" for kind in USER_HISTORY_KINDS)
+DAYS_SINCE_LAST_VIEW_COLUMN = "days_since_last_view"
+USER_HAS_HISTORY_COLUMN = "has_history"
+SUGGESTED_REVIEWER_COLUMN = "is_suggested_reviewer"
+DAYS_SINCE_LAST_VIEW_CAP = 90.0
+PAIR_STATE_COLUMNS = (
+    *USER_REPORTS_COLUMNS,
+    DAYS_SINCE_LAST_VIEW_COLUMN,
+    USER_HAS_HISTORY_COLUMN,
+    SUGGESTED_REVIEWER_COLUMN,
+)
+USER_HISTORY_FEATURE_NAMES = (
+    *(f"user_{kind}_log_reports" for kind in USER_HISTORY_KINDS),
+    "user_days_since_last_view",
+    "has_user_history",
+)
+PAIR_FEATURE_NAMES = (*USER_HISTORY_FEATURE_NAMES, SUGGESTED_REVIEWER_COLUMN)
 
 # How many rows one report contributes to a head's examples. The default is `birth`, one row per
 # report at the snapshot of the day it was created; `examples.py` holds the reasoning.
@@ -112,6 +175,16 @@ class FeatureSet(abc.ABC):
     feature_names: tuple[str, ...]
     state_columns: tuple[str, ...]
     extras_keys: tuple[str, ...] = ()
+    # State columns that older snapshots lack. A row or an examples object without them still
+    # builds, and the set says in its own columns that they were not recorded.
+    optional_state_columns: tuple[str, ...] = ()
+    # Named groups of `feature_names` whose holdout importance an experiment reads, empty for none.
+    feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType({})
+    # Named groups of `feature_names` built from `optional_state_columns`. A report enters the
+    # holdout days before it enters the training rows, so such a group can be set in the holdout
+    # while no training row has it. Its weights then hold their initial random values, and training
+    # zeroes the group on every row until enough training rows carry it.
+    late_feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType({})
     example_grain: str = BIRTH_GRAIN
     # Rows one head's examples may keep, or None for every row the grain produces.
     max_examples_per_head: int | None = None
@@ -143,6 +216,10 @@ class FeatureSet(abc.ABC):
     def missing_extras(self, extras: Extras) -> tuple[str, ...]:
         """The side inputs this set declares that `extras` does not carry."""
         return tuple(key for key in self.extras_keys if key not in extras)
+
+    def required_state_columns(self) -> tuple[str, ...]:
+        """The state columns without which this set cannot build at all."""
+        return tuple(column for column in self.state_columns if column not in self.optional_state_columns)
 
 
 class ReportEmbeddingsFeatureSet(FeatureSet):
@@ -249,7 +326,7 @@ class ReportEmbeddingsPriorityFeatureSet(ReportEmbeddingsFeatureSet):
 
     schema_version = 1
     feature_names = (*EMBEDDING_FEATURE_NAMES, *(f"priority_{level}" for level in PRIORITY_LEVELS))
-    state_columns = (PRIORITY_COLUMN,)
+    state_columns: tuple[str, ...] = (PRIORITY_COLUMN,)
 
     def build_matrix(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
@@ -266,29 +343,26 @@ class ReportEmbeddingsPriorityFeatureSet(ReportEmbeddingsFeatureSet):
 
 
 class ReportEmbeddingsPrioritySourcesFeatureSet(ReportEmbeddingsPriorityFeatureSet):
-    """The priority set, then the source products of the report's signals as of the moment.
+    """The priority set, then the source products of the report's signals.
 
     One column per product in `SOURCE_PRODUCTS`, `source_other` for any other or a missing product,
     `source_count` for the number of distinct products, and `has_sources`. The signals come from the
-    `REPORT_SOURCES_EXTRA` side input, an emission log with one row per signal emission. A moment
-    reads only the emissions inserted at or before it, takes the latest emission per
-    (team_id, signal_id), and drops a signal whose latest emission is a retraction. A signal can
-    move to another report when it is regrouped, so the report comes from that latest emission.
+    `REPORT_SOURCES_EXTRA` side input. As of a moment, that is an emission log with one row per
+    signal emission: a moment reads only the emissions inserted at or before it, takes the latest
+    emission per (team_id, signal_id), and drops a signal whose latest emission is a retraction. A
+    signal can move to another report when it is regrouped, so the report comes from that latest
+    emission. At serving (`as_of=None`), the side input already holds the live signals at scoring
+    time. Both paths build the columns through `source_columns`.
 
     The impression labels also carry a `source_products` column, but it holds the value of the
     latest impression, so it can postdate the moment. This set never reads it.
 
-    A report with no live signal at the moment gets zero in every source column, `has_sources`
-    included. `buildable` is the parent's, so this set keeps the same rows as its baseline.
+    A report with no live signal gets zero in every source column, `has_sources` included.
+    `buildable` is the parent's, so this set keeps the same rows as its baseline.
     """
 
     schema_version = 1
-    feature_names = (
-        *ReportEmbeddingsPriorityFeatureSet.feature_names,
-        *SOURCE_FEATURE_NAMES,
-        "source_count",
-        "has_sources",
-    )
+    feature_names = (*ReportEmbeddingsPriorityFeatureSet.feature_names, *SOURCES_GROUP_FEATURE_NAMES)
 
     def __init__(self, *, name: str, extras_key: str, sources_key: str) -> None:
         super().__init__(name=name, extras_key=extras_key)
@@ -297,32 +371,262 @@ class ReportEmbeddingsPrioritySourcesFeatureSet(ReportEmbeddingsPriorityFeatureS
     def build_matrix(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
     ) -> pd.DataFrame:
-        if as_of is None:
-            raise ValueError(f"the {self.name} feature set reads its sources only as of a moment")
         matrix = super().build_matrix(rows, extras, as_of=as_of)
-        sources = self._sources_as_of(extras[self.extras_keys[1]], rows.index, as_of)
-        for column in (*SOURCE_FEATURE_NAMES, "source_count", "has_sources"):
+        signals = extras[self.extras_keys[1]]
+        live = signals if as_of is None else self._live_as_of(signals, as_of)
+        sources = source_columns(live, rows.index)
+        for column in SOURCES_GROUP_FEATURE_NAMES:
             matrix[column] = sources[column].to_numpy(dtype=np.float32)
         return matrix
 
     @staticmethod
-    def _sources_as_of(signals: pd.DataFrame, report_ids: pd.Index, as_of: datetime.datetime) -> pd.DataFrame:
+    def _live_as_of(signals: pd.DataFrame, as_of: datetime.datetime) -> pd.DataFrame:
         known = signals.loc[signals[SIGNAL_INSERTED_AT_COLUMN] <= as_of]
         latest = known.sort_values(SIGNAL_INSERTED_AT_COLUMN, kind="stable").drop_duplicates(
             ["team_id", "signal_id"], keep="last"
         )
-        live = latest.loc[~latest["is_deleted"].astype(bool) & latest["report_id"].isin(report_ids)]
-        product = live["source_product"].where(live["source_product"].isin(SOURCE_PRODUCTS), "other")
-        one_hot = (
-            pd.crosstab(live["report_id"], "source_" + product.astype(str))
-            .clip(upper=1)
-            .reindex(index=report_ids, columns=list(SOURCE_FEATURE_NAMES), fill_value=0)
+        return latest.loc[~latest["is_deleted"].astype(bool)]
+
+
+def source_columns(live: pd.DataFrame, report_ids: pd.Index) -> pd.DataFrame:
+    """`SOURCES_GROUP_FEATURE_NAMES` for each of `report_ids`, from `live`: one row per live signal, with its
+    `report_id` and its `source_product` (null when the signal names none).
+
+    Training and serving both build the source columns here, so the vocabulary and the
+    `source_other` rule cannot differ between them.
+    """
+    live = live.loc[live["report_id"].isin(report_ids)]
+    product = live["source_product"].where(live["source_product"].isin(SOURCE_PRODUCTS), "other")
+    one_hot = (
+        pd.crosstab(live["report_id"], "source_" + product.astype(str))
+        .clip(upper=1)
+        .reindex(index=report_ids, columns=list(SOURCE_FEATURE_NAMES), fill_value=0)
+    )
+    # A missing product counts as one source of its own, so `has_sources` implies a count of 1 or more.
+    distinct = live["source_product"].fillna("").groupby(live["report_id"]).nunique()
+    one_hot["source_count"] = distinct.reindex(report_ids, fill_value=0).to_numpy()
+    one_hot["has_sources"] = (one_hot["source_count"] > 0).astype(int).to_numpy()
+    return one_hot
+
+
+def bucket_names(column: str, edges: Sequence[int]) -> tuple[str, ...]:
+    """One name per bucket of `edges`: `<column>_<low>_<high>`, `<column>_<value>` for a bucket of one
+    value, and `<column>_<last edge>_plus`."""
+    names = [
+        f"{column}_{low}" if high - low == 1 else f"{column}_{low}_{high - 1}"
+        for low, high in itertools.pairwise((0, *edges))
+    ]
+    return (*names, f"{column}_{edges[-1]}_plus")
+
+
+def _hour_bucket_names() -> tuple[str, ...]:
+    starts = range(0, 24, CREATED_HOUR_BUCKET_HOURS)
+    return tuple(f"created_hour_{start}_{start + CREATED_HOUR_BUCKET_HOURS - 1}" for start in starts)
+
+
+# The report facts by group, in the set's column order. `ReportEmbeddingsPriorityMLFeaturesFeatureSet`
+# appends them after its parent's columns, and a group is shuffled as one when its importance is read.
+REPORT_FACT_GROUPS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "length": (
+            *bucket_names(TITLE_CHARS_COLUMN, TITLE_CHARS_EDGES),
+            *bucket_names(SUMMARY_CHARS_COLUMN, SUMMARY_CHARS_EDGES),
+        ),
+        "judgments": (
+            *(f"{ACTIONABILITY_COLUMN}_{level}" for level in ACTIONABILITY_LEVELS),
+            f"{ALREADY_ADDRESSED_COLUMN}_true",
+            f"{ALREADY_ADDRESSED_COLUMN}_false",
+        ),
+        "signals": bucket_names(SIGNAL_COUNT_COLUMN, SIGNAL_COUNT_EDGES),
+        "content": (
+            *(name for column in CONTENT_COUNT_COLUMNS for name in bucket_names(column, CONTENT_COUNT_EDGES)),
+            USER_AUTHORED_COLUMN,
+            "content_recorded",
+        ),
+        # Monday is 0, and both read the creation time in UTC.
+        "timing": (*(f"created_weekday_{day}" for day in range(7)), *_hour_bucket_names()),
+    }
+)
+REPORT_FACT_FEATURE_NAMES = tuple(name for names in REPORT_FACT_GROUPS.values() for name in names)
+
+
+def _column(rows: pd.DataFrame, name: str) -> pd.Series:
+    return rows[name] if name in rows else pd.Series(None, index=rows.index, dtype=object)
+
+
+def _one_hot_buckets(values: pd.Series, edges: Sequence[int]) -> np.ndarray:
+    """(rows, len(edges) + 1) with a 1 in each known value's bucket, and an all-zero row for a
+    missing value."""
+    numbers = pd.to_numeric(values, errors="coerce").to_numpy(dtype=np.float64)
+    known = np.flatnonzero(~np.isnan(numbers))
+    matrix = np.zeros((len(numbers), len(edges) + 1), dtype=np.float32)
+    matrix[known, np.searchsorted(np.asarray(edges, dtype=np.float64), numbers[known], side="right")] = 1.0
+    return matrix
+
+
+def _one_hot_values(values: pd.Series, levels: Sequence[object]) -> np.ndarray:
+    """(rows, levels) with a 1 where the row holds the level. A missing value, or one outside
+    `levels`, gives an all-zero row. A flag matches only a real bool, so a null reads as neither."""
+    matrix = np.zeros((len(values), len(levels)), dtype=np.float32)
+    for column, level in enumerate(levels):
+        if isinstance(level, bool):
+            matrix[:, column] = values.map(
+                lambda value, level=level: isinstance(value, bool | np.bool_) and value == level
+            ).to_numpy(dtype=np.float32)
+        else:
+            matrix[:, column] = (values == level).to_numpy(dtype=np.float32)
+    return matrix
+
+
+def report_fact_matrix(rows: pd.DataFrame) -> np.ndarray:
+    """(rows, `REPORT_FACT_FEATURE_NAMES`) float32, every column 0 or 1.
+
+    A row is `content_recorded` when its snapshot holds every column of `CONTENT_COLUMNS`. A
+    snapshot written before those columns existed did not record them, which is not the same as
+    zero, so such a row gets 0 in every content column and in `content_recorded`, and keeps its
+    other groups.
+    """
+    created_at = pd.to_datetime(_column(rows, REPORT_CREATED_AT_COLUMN), utc=True)
+    content_recorded = np.ones(len(rows), dtype=bool)
+    for name in CONTENT_COLUMNS:
+        content_recorded &= _column(rows, name).notna().to_numpy()
+    content = (
+        np.hstack(
+            [
+                *(_one_hot_buckets(_column(rows, name), CONTENT_COUNT_EDGES) for name in CONTENT_COUNT_COLUMNS),
+                _one_hot_values(_column(rows, USER_AUTHORED_COLUMN), [True]),
+            ]
         )
-        # A missing product counts as one source of its own, so `has_sources` implies a count of 1 or more.
-        distinct = live["source_product"].fillna("").groupby(live["report_id"]).nunique()
-        one_hot["source_count"] = distinct.reindex(report_ids, fill_value=0).to_numpy()
-        one_hot["has_sources"] = (one_hot["source_count"] > 0).astype(int).to_numpy()
-        return one_hot
+        * content_recorded[:, None]
+    )
+    blocks = [
+        _one_hot_buckets(_column(rows, TITLE_CHARS_COLUMN), TITLE_CHARS_EDGES),
+        _one_hot_buckets(_column(rows, SUMMARY_CHARS_COLUMN), SUMMARY_CHARS_EDGES),
+        _one_hot_values(_column(rows, ACTIONABILITY_COLUMN), ACTIONABILITY_LEVELS),
+        _one_hot_values(_column(rows, ALREADY_ADDRESSED_COLUMN), [True, False]),
+        _one_hot_buckets(_column(rows, SIGNAL_COUNT_COLUMN), SIGNAL_COUNT_EDGES),
+        content,
+        content_recorded[:, None],
+        _one_hot_values(created_at.dt.weekday, range(7)),
+        _one_hot_values(created_at.dt.hour // CREATED_HOUR_BUCKET_HOURS, range(24 // CREATED_HOUR_BUCKET_HOURS)),
+    ]
+    return np.hstack(blocks).astype(np.float32, copy=False)
+
+
+class ReportEmbeddingsPriorityMLFeaturesFeatureSet(ReportEmbeddingsPrioritySourcesFeatureSet):
+    """The sources set, then the report facts of `REPORT_FACT_GROUPS` as one-hot columns.
+
+    The network appends the report columns after the vector to its trunk input without scaling them,
+    so every column here is 0 or 1: counts and lengths go into the buckets of their `*_EDGES`, the
+    actionability judgment one column per level of `ACTIONABILITY_LEVELS`, `already_addressed` one
+    column per value, and the creation time into a weekday and a 4-hour bucket in UTC. A missing
+    value gives zero in every column of its bucket set. In training, the facts come from the row's
+    own snapshot, taken at the end of the day. The sweep reads them from `ReportFacts` when it scores a
+    report, minutes after creation, so the training counts can be higher. The coarse buckets limit that.
+
+    The content columns and `already_addressed` are optional state columns: snapshots written before
+    they were recorded lack them (`report_fact_matrix`). `total_weight`, `run_count`,
+    `corroboration_count` and `content_revision_count` are left out on purpose.
+
+    `feature_groups` names each group's columns, the parent's `sources` included, so a group's
+    importance is read by shuffling its columns together. `late_feature_groups` names the columns
+    built from the optional state columns, which training zeroes until enough training rows carry
+    them. `buildable` is the parent's.
+    """
+
+    schema_version = 1
+    feature_names = (*ReportEmbeddingsPrioritySourcesFeatureSet.feature_names, *REPORT_FACT_FEATURE_NAMES)
+    state_columns = (
+        PRIORITY_COLUMN,
+        TITLE_CHARS_COLUMN,
+        SUMMARY_CHARS_COLUMN,
+        ACTIONABILITY_COLUMN,
+        ALREADY_ADDRESSED_COLUMN,
+        SIGNAL_COUNT_COLUMN,
+        *CONTENT_COLUMNS,
+        REPORT_CREATED_AT_COLUMN,
+    )
+    optional_state_columns = (ALREADY_ADDRESSED_COLUMN, *CONTENT_COLUMNS)
+    feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType(
+        {"sources": SOURCES_GROUP_FEATURE_NAMES, **REPORT_FACT_GROUPS}
+    )
+    late_feature_groups: Mapping[str, tuple[str, ...]] = MappingProxyType(
+        {
+            "content": REPORT_FACT_GROUPS["content"],
+            ALREADY_ADDRESSED_COLUMN: (f"{ALREADY_ADDRESSED_COLUMN}_true", f"{ALREADY_ADDRESSED_COLUMN}_false"),
+        }
+    )
+
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
+        missing = [column for column in self.required_state_columns() if column not in rows]
+        if missing:
+            raise ValueError(f"the {self.name} feature set needs the {', '.join(missing)} columns")
+        matrix = super().build_matrix(rows, extras, as_of=as_of)
+        facts = pd.DataFrame(report_fact_matrix(rows), index=rows.index, columns=list(REPORT_FACT_FEATURE_NAMES))
+        return pd.concat([matrix, facts], axis=1)
+
+
+class PairUserHistoryFeatureSet(FeatureSet):
+    """The input of one (report, user) pair: a report set's columns, then `PAIR_FEATURE_NAMES`.
+
+    The report part comes from `report_feature_set` and is the same for every pair of a report. The
+    pair part is per pair and comes from the pair examples' `PAIR_STATE_COLUMNS`: `log1p` of the
+    reports in each user vector, the days since the last view over `DAYS_SINCE_LAST_VIEW_CAP`,
+    `has_user_history` and `is_suggested_reviewer`. A network also reads the user's vectors as
+    offsets from the team's project vectors (`user_offsets`), outside this matrix.
+
+    With `user_history` False, every user-history column is zero whatever the rows hold, and the
+    caller holds the user offsets at zero too. Only `is_suggested_reviewer` stays. That set is the
+    pair baseline: the same width and the same reviewer flag, without the user's history.
+
+    A pair set is not a report-state set, so it stays out of `FEATURE_SETS`: the state snapshot has
+    no pair columns, and the scoring sweep cannot build a pair input.
+    """
+
+    schema_version = 1
+
+    def __init__(self, *, name: str, report_feature_set: FeatureSet, user_history: bool) -> None:
+        self.name = name
+        self.report_feature_set = report_feature_set
+        self.user_history = user_history
+        self.feature_names = (*report_feature_set.feature_names, *PAIR_FEATURE_NAMES)
+        self.state_columns = (*report_feature_set.state_columns, *PAIR_STATE_COLUMNS)
+        self.extras_keys = report_feature_set.extras_keys
+        self.example_grain = report_feature_set.example_grain
+        self.max_examples_per_head = report_feature_set.max_examples_per_head
+
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
+        matrix = self.report_feature_set.build_matrix(rows, extras, as_of=as_of)
+        pair = self.pair_matrix(rows)
+        for column, name in enumerate(PAIR_FEATURE_NAMES):
+            matrix[name] = pair[:, column]
+        return matrix
+
+    def buildable(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.Series:
+        return self.report_feature_set.buildable(rows, extras, as_of=as_of)
+
+    def pair_matrix(self, rows: pd.DataFrame) -> np.ndarray:
+        """(rows, `PAIR_FEATURE_NAMES`) float32, one row per pair of `rows`."""
+        missing = [column for column in PAIR_STATE_COLUMNS if column not in rows]
+        if missing:
+            raise ValueError(f"the {self.name} feature set needs the {', '.join(missing)} columns")
+        matrix = np.zeros((len(rows), len(PAIR_FEATURE_NAMES)), dtype=np.float32)
+        matrix[:, PAIR_FEATURE_NAMES.index(SUGGESTED_REVIEWER_COLUMN)] = rows[SUGGESTED_REVIEWER_COLUMN].to_numpy(
+            dtype=np.float32
+        )
+        if self.user_history:
+            kinds = len(USER_HISTORY_KINDS)
+            matrix[:, :kinds] = np.log1p(rows[list(USER_REPORTS_COLUMNS)].to_numpy(dtype=np.float32))
+            days = np.minimum(rows[DAYS_SINCE_LAST_VIEW_COLUMN].to_numpy(dtype=np.float32), DAYS_SINCE_LAST_VIEW_CAP)
+            matrix[:, kinds] = days / DAYS_SINCE_LAST_VIEW_CAP
+            matrix[:, kinds + 1] = rows[USER_HAS_HISTORY_COLUMN].to_numpy(dtype=np.float32)
+        return matrix
 
 
 REPORT_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="report_embeddings", extras_key=REPORT_EMBEDDINGS_EXTRA)
@@ -332,6 +636,19 @@ REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET = ReportEmbeddingsPriorityFeatureSet(
 REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET = ReportEmbeddingsPrioritySourcesFeatureSet(
     name="report_embeddings_priority_sources", extras_key=REPORT_EMBEDDINGS_EXTRA, sources_key=REPORT_SOURCES_EXTRA
 )
+REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET = ReportEmbeddingsPriorityMLFeaturesFeatureSet(
+    name="report_embeddings_priority_ml_features", extras_key=REPORT_EMBEDDINGS_EXTRA, sources_key=REPORT_SOURCES_EXTRA
+)
+PAIR_BASE_FEATURE_SET = PairUserHistoryFeatureSet(
+    name="pair_report_embeddings_priority",
+    report_feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    user_history=False,
+)
+PAIR_USER_HISTORY_FEATURE_SET = PairUserHistoryFeatureSet(
+    name="pair_report_embeddings_priority_user_history",
+    report_feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    user_history=True,
+)
 
 # Every set this build can produce, by name. A model that names a set absent from here cannot be
 # scored, the same way a model whose feature names have moved on cannot.
@@ -340,6 +657,7 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
         REPORT_EMBEDDINGS_FEATURE_SET.name: REPORT_EMBEDDINGS_FEATURE_SET,
         REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
         REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
+        REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
     }
 )
 
@@ -348,23 +666,26 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
 class ProjectInputs:
     """The project vectors of some teams, one row per team in the order the caller asked for."""
 
-    # (teams, kinds, EMBEDDING_DIMENSIONS) float32, in `PROJECT_VECTOR_KINDS` order. All zero where
+    # (teams, kinds, EMBEDDING_DIMENSIONS) float32, in the caller's kind order. All zero where
     # the team has no row for the kind or its history is too thin.
     vectors: np.ndarray
     # (teams, kinds) float32, 1.0 where the kind had at least `MIN_PROJECT_HISTORY_REPORTS` reports.
     has_history: np.ndarray
 
 
-def project_inputs(project_vectors: pd.DataFrame, team_ids: Sequence[int]) -> ProjectInputs:
-    """The project vectors of `team_ids` from one day of `inbox_project_vectors`.
+def project_inputs(
+    project_vectors: pd.DataFrame, team_ids: Sequence[int], kinds: Sequence[str] = PROJECT_VECTOR_KINDS
+) -> ProjectInputs:
+    """The project vectors of `team_ids` from one day of `inbox_project_vectors`, in `kinds` order.
 
     `project_vectors` carries the `team_id`, `kind`, `vector` and `n_reports` columns of that table.
     Training and serving both build the network's `project` and `has_history` inputs here, so a
     team without a row, a kind without a row and a thin kind read the same on both sides.
     """
     position = {int(team_id): index for index, team_id in enumerate(team_ids)}
-    vectors = np.zeros((len(team_ids), len(PROJECT_VECTOR_KINDS), EMBEDDING_DIMENSIONS), dtype=np.float32)
-    has_history = np.zeros((len(team_ids), len(PROJECT_VECTOR_KINDS)), dtype=np.float32)
+    kind_position = {kind: index for index, kind in enumerate(kinds)}
+    vectors = np.zeros((len(team_ids), len(kinds), EMBEDDING_DIMENSIONS), dtype=np.float32)
+    has_history = np.zeros((len(team_ids), len(kinds)), dtype=np.float32)
     for team_id, kind, vector, n_reports in zip(
         project_vectors["team_id"],
         project_vectors["kind"],
@@ -373,12 +694,29 @@ def project_inputs(project_vectors: pd.DataFrame, team_ids: Sequence[int]) -> Pr
         strict=True,
     ):
         team = position.get(int(team_id))
-        if team is None or kind not in PROJECT_VECTOR_KINDS:
+        kind_index = kind_position.get(kind)
+        if team is None or kind_index is None:
             continue
-        kind_index = PROJECT_VECTOR_KINDS.index(kind)
         vectors[team, kind_index] = vector
         has_history[team, kind_index] = float(int(n_reports) >= MIN_PROJECT_HISTORY_REPORTS)
     return ProjectInputs(vectors=vectors, has_history=has_history)
+
+
+def user_offsets(
+    user_vectors: np.ndarray, user_reports: np.ndarray, project_vectors: np.ndarray, project_has_history: np.ndarray
+) -> np.ndarray:
+    """(n, `USER_HISTORY_KINDS`, D) float32: each user vector minus the team's project vector of the
+    same kind, zero where the user has no report of the kind or the team's kind has no history.
+
+    `user_vectors` is (n, user kinds, D) and `user_reports` (n, user kinds), in `USER_HISTORY_KINDS`
+    order. `project_vectors` and `project_has_history` are the `ProjectInputs` arrays of each row's
+    team, in `PROJECT_VECTOR_KINDS` order. An offset says how this person's taste differs from the
+    team's, so a user who reads what the team reads gets a small one.
+    """
+    kinds = [PROJECT_VECTOR_KINDS.index(kind) for kind in USER_HISTORY_KINDS]
+    present = (user_reports > 0) & (project_has_history[:, kinds] > 0)
+    offsets = np.where(present[..., None], user_vectors - project_vectors[:, kinds], 0.0)
+    return offsets.astype(np.float32, copy=False)
 
 
 def feature_set_by_name(name: str | None) -> FeatureSet | None:

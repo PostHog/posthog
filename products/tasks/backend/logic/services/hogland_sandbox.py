@@ -49,7 +49,7 @@ from products.tasks.backend.logic.services.cpu_billing import (
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
 )
-from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import redact_sandbox_command, sandbox_repo_path
 from products.tasks.backend.logic.services.sandbox_config import BURSTABLE_REQUEST_CPU_CORES
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
@@ -250,12 +250,16 @@ class HoglandSandbox(AgentServerLaunchMixin):
                 "Hogland run provisioning from the pluggable-memory golden",
                 extra={"config_name": config.name, "snapshot_alias": snapshot_alias},
             )
-        if config.snapshot_id or config.snapshot_external_id:
+        if config.snapshot_id or config.snapshot_external_id or config.resume_snapshot_external_id:
             # Backend resolution forces resume snapshots off for hogland runs; if an id
             # slips through anyway, cold-boot loudly rather than restoring the wrong thing.
             logger.warning(
                 "Hogland backend ignores resume snapshot; cold-booting from the golden image",
-                extra={"snapshot_id": config.snapshot_id, "snapshot_external_id": config.snapshot_external_id},
+                extra={
+                    "snapshot_id": config.snapshot_id,
+                    "snapshot_external_id": config.snapshot_external_id,
+                    "resume_snapshot_external_id": config.resume_snapshot_external_id,
+                },
             )
         config.snapshot_restored = False
         config.image_fallback = None
@@ -448,8 +452,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(repository)
 
         result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         return not result.stdout.strip(), result.stdout

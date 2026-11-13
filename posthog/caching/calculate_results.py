@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 import orjson
 import structlog
@@ -16,8 +16,7 @@ from posthog.hogql_queries.query_runner import get_query_runner_or_none, respons
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.contracts import AppliedDashboard
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
@@ -56,19 +55,19 @@ def _model_list_field_as_dicts(model: BaseModel, field: str) -> Optional[list]:
     return [item.model_dump(by_alias=True) if isinstance(item, BaseModel) else item for item in value]
 
 
-def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
-    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
+def calculate_cache_key(insight: Insight, *, dashboard: AppliedDashboard | None) -> Optional[str]:
+    """The cache key of the insight's query, with the dashboard's filters applied when the insight runs on one.
 
-    if insight is not None:
-        with upgrade_insight(insight):
-            if insight.query:
-                query_runner = get_query_runner_or_none(insight.query, insight.team)
-                if query_runner is None:
-                    return None  # Uncacheable query-based insight
-                if dashboard is not None and dashboard.filters:
-                    query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
-                return query_runner.get_cache_key()
+    The filter overrides of the insight's tile are not applied.
+    """
+    with upgrade_insight(insight):
+        if insight.query:
+            query_runner = get_query_runner_or_none(insight.query, insight.team)
+            if query_runner is None:
+                return None  # Uncacheable query-based insight
+            if dashboard is not None and dashboard.filters:
+                query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
+            return query_runner.get_cache_key()
 
     return None
 
@@ -77,7 +76,7 @@ def calculate_for_query_based_insight(
     insight: Insight,
     *,
     team: Team,
-    dashboard: Optional[Dashboard] = None,
+    dashboard: AppliedDashboard | None = None,
     execution_mode: ExecutionMode,
     user: Optional[User],
     user_access_control: Optional["UserAccessControl"] = None,
@@ -94,7 +93,7 @@ def calculate_for_query_based_insight(
 
     tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     if dashboard:
-        tag_queries(dashboard_id=dashboard.pk)
+        tag_queries(dashboard_id=dashboard.id)
 
     dashboard_filters_json = (
         filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
@@ -121,7 +120,7 @@ def calculate_for_query_based_insight(
         user=user,
         user_access_control=user_access_control,
         insight_id=insight.pk,
-        dashboard_id=dashboard.pk if dashboard else None,
+        dashboard_id=dashboard.id if dashboard else None,
         limit_context=limit_context,
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
@@ -173,6 +172,7 @@ def calculate_for_query_based_insight(
             types=getattr(process_response, "types", None),
             resolved_date_range=_model_field_as_dict(process_response, "resolved_date_range"),
             resolved_compare_date_range=_model_field_as_dict(process_response, "resolved_compare_date_range"),
+            action_names=getattr(process_response, "action_names", None),
             query_scan=_model_field_as_dict(process_response, "query_scan"),
             warnings=_model_list_field_as_dicts(process_response, "warnings"),
         )
@@ -180,24 +180,4 @@ def calculate_for_query_based_insight(
     response = process_response
     assert isinstance(response, dict)
 
-    return InsightResult(
-        # Translating `QueryResponse` to legacy insights shape
-        # The response may not be conformant with that, hence these are all `.get()`s
-        result=response.get("results"),
-        has_more=response.get("hasMore"),
-        columns=response.get("columns"),
-        last_refresh=response.get("last_refresh"),
-        cache_key=response.get("cache_key"),
-        is_cached=response.get("is_cached", False),
-        timezone=response.get("timezone"),
-        next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
-        cache_target_age=response.get("cache_target_age"),
-        timings=response.get("timings"),
-        query_status=response.get("query_status"),
-        hogql=response.get("hogql"),
-        types=response.get("types"),
-        resolved_date_range=response.get("resolved_date_range"),
-        resolved_compare_date_range=response.get("resolved_compare_date_range"),
-        query_scan=response.get("query_scan"),
-        warnings=response.get("warnings"),
-    )
+    return InsightResult.from_response_dict(response)

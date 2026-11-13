@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { withoutLeadingEmoji } from './leadingEmoji'
 import { TodayLogo } from './TodayLogo'
 import { ProjectMenuActionKey, todayProjectMenuLogic } from './todayProjectMenuLogic'
 import { TodaySwitcherMenu, TodaySwitcherRow } from './TodaySwitcherMenu'
@@ -24,29 +25,49 @@ const ACTION_ROWS: Record<ProjectMenuActionKey, Pick<TodaySwitcherRow, 'label' |
 // names differ only near the end, so a narrower menu truncates the part that tells them apart.
 const MENU_DEFAULT_WIDTH = 335
 
+function nameBesideLogo(name: string, mediaId: string | null | undefined): string {
+    return mediaId ? name : withoutLeadingEmoji(name)
+}
+
 /** The project switcher shortcut opens this menu too. */
-export function TodayProjectMenu(): JSX.Element {
+export function TodayProjectMenu({ placement = 'top-bar' }: { placement?: 'top-bar' | 'phone-header' }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentProject } = useValues(projectLogic)
     const { isProjectSwitcherOpen, projectSearchValue, projectGroups } = useValues(newAccountMenuLogic)
     const { openProjectSwitcher, closeProjectSwitcher, setProjectSearchValue } = useActions(newAccountMenuLogic)
     const { projectMenuActions } = useValues(todayProjectMenuLogic)
     const { runProjectMenuAction, switchProject } = useActions(todayProjectMenuLogic)
+    const asTitle = placement === 'phone-header'
 
     return (
         <TodaySwitcherMenu
             trigger={
-                <Button className="min-w-0 gap-1.5 px-1.5" data-attr="today-top-bar-project-menu">
-                    {currentTeam && (
-                        <TodayLogo
-                            name={currentTeam.name}
-                            mediaId={currentProject?.logo_media_id}
-                            colorSeed={null}
-                            size="trigger"
-                        />
-                    )}
-                    <span className="max-w-48 min-w-0 truncate">{currentTeam?.name ?? 'Select project'}</span>
-                </Button>
+                asTitle ? (
+                    <Button
+                        size="lg"
+                        className="ms-0.5 min-w-0 shrink gap-0.5 pe-1.5 text-base font-semibold tracking-[-0.015em]"
+                        data-attr="today-top-bar-project-menu"
+                    >
+                        <span className="min-w-0 truncate">{currentTeam?.name ?? 'Select project'}</span>
+                        <IconChevronDown className="size-4.5 shrink-0 text-muted-foreground" />
+                    </Button>
+                ) : (
+                    <Button className="min-w-0 gap-1.5 px-1.5" data-attr="today-top-bar-project-menu">
+                        {currentTeam && (
+                            <TodayLogo
+                                name={currentTeam.name}
+                                mediaId={currentProject?.logo_media_id}
+                                colorSeed={null}
+                                size="trigger"
+                            />
+                        )}
+                        <span className="max-w-48 min-w-0 truncate">
+                            {currentTeam
+                                ? nameBesideLogo(currentTeam.name, currentProject?.logo_media_id)
+                                : 'Select project'}
+                        </span>
+                    </Button>
+                )
             }
             open={isProjectSwitcherOpen}
             onOpenChange={(open) => (open ? openProjectSwitcher() : closeProjectSwitcher())}
@@ -56,21 +77,17 @@ export function TodayProjectMenu(): JSX.Element {
             noMatchLabel="No projects match your search"
             groups={projectGroups.map((group) => ({
                 label: group.name ?? 'Projects',
-                rows: group.projects.map(({ team }) => ({
-                    value: String(team.id),
-                    label: team.name,
-                    leading: (
-                        <TodayLogo
-                            name={team.name}
-                            // The org's project list carries no logos, so only the current project shows its upload.
-                            mediaId={team.project_id === currentProject?.id ? currentProject.logo_media_id : null}
-                            colorSeed={null}
-                            size="row"
-                        />
-                    ),
-                    dataAttr: 'today-top-bar-project-item',
-                    onSelect: () => switchProject(team.id, team.project_id),
-                })),
+                rows: group.projects.map(({ team }) => {
+                    // The org's project list carries no logos, so only the current project shows its upload.
+                    const mediaId = team.project_id === currentProject?.id ? currentProject.logo_media_id : null
+                    return {
+                        value: String(team.id),
+                        label: nameBesideLogo(team.name, mediaId),
+                        leading: <TodayLogo name={team.name} mediaId={mediaId} colorSeed={null} size="row" />,
+                        dataAttr: 'today-top-bar-project-item',
+                        onSelect: () => switchProject(team.id, team.project_id),
+                    }
+                }),
             }))}
             actions={projectMenuActions.map(({ key, disabledReason }) => ({
                 value: key,

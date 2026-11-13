@@ -126,16 +126,16 @@ class TestPRFrictionView(_WarehouseMixin):
                 _run(3401, "sha34", "success", 0, 15, pr_number=34),
                 _gate(3402, 34, "first", "failure", 60, 30),
                 _gate(3403, 34, "second", "success", 120, 30),
-                # 35: two runs of one workflow start in the same second. The unfinished one has the higher id and
-                # stopped reporting days ago, so it ends at its start instead of running until the merge.
+                # 35: two runs of one workflow start in the same second. The unfinished one has the higher id
+                # and stopped reporting.
                 _run(3501, "sha35", "success", 0, 5, pr_number=35, name="Lint"),
                 _run(3502, "sha35", None, 0, 0, pr_number=35, name="Lint"),
                 # 37: approved three hours after ready, then pushed again.
                 _run(3701, "sha37a", "success", 0, 10, pr_number=37),
                 _run(3702, "sha37b", "success", 300, 10, pr_number=37),
                 _run(3801, "sha38", "success", 0, 10, pr_number=38),
-                # 40: kicked out, pushed again and merged. A skipped gate run of the first attempt stayed
-                # in_progress, which must not hold the queue open until the merge.
+                # 40: kicked out, pushed again and merged. A skipped gate run of the first attempt stays
+                # in_progress.
                 _run(4001, "sha40a", "success", 0, 10, pr_number=40),
                 _gate(4002, 40, "first", "failure", 20, 30),
                 _gate(4003, 40, "first", None, 20, 0),
@@ -149,7 +149,7 @@ class TestPRFrictionView(_WarehouseMixin):
                 _run(4201, "sha42a", "failure", 90, 10, pr_number=42, run_attempt=2, created_offset=0),
                 _run(4202, "sha42a", "failure", 30, 10, pr_number=42, run_attempt=2, created_offset=0, name="Lint"),
                 _run(4203, "sha42b", "success", 150, 10, pr_number=42),
-                # 43: stopped reporting with a stale conclusion, which must not turn the run red.
+                # 43: stopped reporting with a stale conclusion.
                 _run(4301, "sha43", "failure", 0, 20, pr_number=43, status="in_progress"),
                 # 44: a first attempt stopped reporting, but its job row settled as a failure before a fixing push.
                 _run(4401, "sha44a", None, 0, 0, pr_number=44),
@@ -182,7 +182,7 @@ class TestPRFrictionView(_WarehouseMixin):
             ISSUE_EVENTS_COLUMNS,
             [
                 _issue_event_row(1, "ready_for_review", 37, _at(60)),
-                # 39 has events, just no ready event, so its ready time reads as NULL rather than missing.
+                # 39 has events but no ready event.
                 _issue_event_row(2, "review_requested", 39, _at(30)),
             ],
         )
@@ -217,6 +217,8 @@ class TestPRFrictionView(_WarehouseMixin):
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
         )
         assert response.columns == list(pr_friction.FIELDS)
+        # A materialization would store a UInt8 flag as Int16, which a stored read cannot use as a condition.
+        assert dict(response.types or [])["is_bot"] == "Nullable(Bool)"
         return {row[2]: dict(zip(response.columns, row)) for row in response.results}
 
     def _seed_depot_ci(self) -> None:
@@ -338,5 +340,5 @@ class TestPRFrictionView(_WarehouseMixin):
         assert self._github_source is not None
         assert {row["source_id"] for row in rows.values()} == {str(self._github_source.id)}
         assert rows[35]["ci_wait_seconds"] == [0.0]
-        # The first gate attempt ends when its finished runs end: 30 minutes, plus 40 from the second gate to the merge.
+        # The first gate attempt ends when its finished runs end, so the unfinished run adds no queue time.
         assert rows[40]["queue_seconds"] == timedelta(minutes=70).total_seconds()

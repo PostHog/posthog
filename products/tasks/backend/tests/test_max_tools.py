@@ -9,10 +9,10 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized_class
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
@@ -713,16 +713,19 @@ class TestListTasksTool(BaseTaskToolTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_list_tasks_includes_run_status(self):
+    async def test_list_tasks_includes_task_status(self):
         task = await self._create_task("Task with run")
-        await self._create_task_run(task, status=TaskRun.Status.COMPLETED)
+        await self._create_task_run(task, status=TaskRun.Status.FAILED)
+        await Task.objects.filter(pk=task.pk).aupdate(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE
+        )
 
         tool = self._create_tool(ListTasksTool)
 
         content, artifact = await tool._arun_impl()
 
-        assert "Completed" in content
-        assert artifact["tasks"][0]["status"] == TaskRun.Status.COMPLETED
+        assert "Status: Idle (unexpected failure)" in content
+        assert artifact["tasks"][0]["status"] == Task.Status.IDLE
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

@@ -2,12 +2,10 @@
 
 import re
 
-from django.db import transaction
-
+from posthog.integrations.contracts import IntegrationConflict, IntegrationRecord
 from posthog.models.user import User
-from posthog.models.utils import IntegrityError
 
-from . import model
+from . import model, row_writes
 
 
 class SnowflakeIntegrationError(Exception):
@@ -46,12 +44,12 @@ class SnowflakeIntegration:
     user: str
     authentication_type: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.SNOWFLAKE:
             raise SnowflakeIntegrationError(
                 f"Integration provided is not a Snowflake integration (got kind='{integration.kind}')"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         try:
             self.account = integration.config["account"]
             self.user = integration.config["user"]
@@ -97,7 +95,7 @@ class SnowflakeIntegration:
         private_key: str | None = None,
         private_key_passphrase: str | None = None,
         created_by: User | None = None,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         if not (name and account and user):
             raise SnowflakeIntegrationError("Name, account, and user must be provided")
         if not all(isinstance(value, str) for value in (name, account, user, authentication_type)):
@@ -128,21 +126,18 @@ class SnowflakeIntegration:
         # connection, so we create rather than upsert: re-using a name is a 400, not a silent
         # overwrite of an unrelated credential set.
         try:
-            # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
-            # surrounding transaction.
-            with transaction.atomic():
-                return model.Integration.objects.create(
-                    team_id=team_id,
-                    kind=model.Integration.IntegrationKind.SNOWFLAKE,
-                    integration_id=name,
-                    config={
-                        "name": name,
-                        "account": account,
-                        "user": user,
-                        "authentication_type": authentication_type,
-                    },
-                    sensitive_config=sensitive_config,
-                    created_by=created_by,
-                )
-        except IntegrityError:
+            # The SDK creates the row in a savepoint, so a conflict does not abort the surrounding transaction.
+            return row_writes.creator_accessor(model.Integration.IntegrationKind.SNOWFLAKE.value).create(
+                team_id,
+                external_id=name,
+                config={
+                    "name": name,
+                    "account": account,
+                    "user": user,
+                    "authentication_type": authentication_type,
+                },
+                sensitive_config=sensitive_config,
+                created_by_id=created_by.id if created_by else None,
+            )
+        except IntegrationConflict:
             raise SnowflakeIntegrationError(f"An integration named '{name}' already exists")

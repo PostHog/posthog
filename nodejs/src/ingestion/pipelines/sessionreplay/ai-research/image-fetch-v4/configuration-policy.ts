@@ -1,4 +1,5 @@
 import type { ParsedRobots, RobotsParseHandler } from '@trybyte/robotstxt-parser'
+import { LRUCache } from 'lru-cache'
 import { Token, parseDictionary } from 'structured-headers'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -6,9 +7,9 @@ import { fetchStreamed } from '~/common/utils/request'
 
 import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configurationCacheKey } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
-import { canonicalizeUrl, politenessKey } from './politeness-key'
 import { ConfigurationFetchReason, ImageFetchProcessingMetrics } from './processing-metrics'
 import { BOT_NAME, REQUEST_IDENTITY_HEADERS } from './request-identity'
+import { canonicalizeUrl, politenessKey } from './v4-native'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 
@@ -221,23 +222,35 @@ interface ParsedRobotsConfiguration {
     fields: Array<{ name: string; value: string }>
 }
 
+const PARSED_BODIES_MAX_BYTES = 128 * 1024 * 1024
+const PARSED_BODIES_MAX_ENTRIES = 20_000
+// A parse of a short body takes far more memory than the body, so each entry counts at least this much.
+const PARSED_BODY_OVERHEAD_BYTES = 1024
+
+/** Keyed by the body, so every item that holds a body shares its parse, also the items of jobs that waited on one fetch. */
 interface ParsedConfigurationCache {
-    robots: Map<string, Promise<ParsedRobotsConfiguration>>
-    tdmrep: Map<string, unknown>
+    robots: LRUCache<string, Promise<ParsedRobotsConfiguration>>
+    tdmrep: LRUCache<string, { document: unknown }>
+}
+
+function parsedBodies<V extends object>(): LRUCache<string, V> {
+    return new LRUCache({
+        max: PARSED_BODIES_MAX_ENTRIES,
+        maxSize: PARSED_BODIES_MAX_BYTES,
+        // The body as a key, and a parse that holds about as much again.
+        sizeCalculation: (_parsed, body) => 4 * body.length + PARSED_BODY_OVERHEAD_BYTES,
+    })
 }
 
 export class ConfigurationPolicyService {
     private readonly inFlight = new Map<string, Promise<ConfigurationFetchResult>>()
+    private readonly parsed: ParsedConfigurationCache = { robots: parsedBodies(), tdmrep: parsedBodies() }
 
     constructor(private readonly fetcher: HttpConfigurationFetcher) {}
 
     public createPass(): ConfigurationPolicyPass {
-        const parsed: ParsedConfigurationCache = {
-            robots: new Map(),
-            tdmrep: new Map(),
-        }
         return {
-            check: (url, cached, nowMs) => this.checkWithParsedCache(url, cached, nowMs, parsed),
+            check: (url, cached, nowMs) => this.checkWithParsedCache(url, cached, nowMs, this.parsed),
         }
     }
 
@@ -473,14 +486,82 @@ class ExtensionCollector implements RobotsParseHandler {
     }
 }
 
-function selectedExtensionFields(
+/** Collects only the rules that apply to this bot, because ParsedRobots keeps a copy of a group's rules for each of its user agents. */
+class RobotsCollector extends ExtensionCollector {
+    public readonly botRules: string[] = []
+    public readonly wildcardRules: string[] = []
+    private forBot = false
+    private forWildcard = false
+    private groupHasRules = false
+
+    constructor(private readonly maxLineLength: number) {
+        super()
+    }
+
+    override handleUserAgent(lineNum: number, value: string): void {
+        super.handleUserAgent(lineNum, value)
+        if (this.groupHasRules) {
+            this.forBot = false
+            this.forWildcard = false
+            this.groupHasRules = false
+        }
+        if (/^\*(?:\s|$)/.test(value)) {
+            this.forWildcard = true
+        } else if (/^[a-z_-]+/i.exec(value)?.[0].toLowerCase() === BOT_NAME.toLowerCase()) {
+            this.forBot = true
+        }
+    }
+
+    override handleAllow(_lineNum?: number, value = ''): void {
+        super.handleAllow()
+        this.addRule('Allow', value)
+    }
+
+    override handleDisallow(_lineNum?: number, value = ''): void {
+        super.handleDisallow()
+        this.addRule('Disallow', value)
+    }
+
+    /** The robots.txt that decides the same URLs for this bot, with one group for the bot and one for `*`. */
+    public applicableBody(): string {
+        return [
+            ...(this.botRules.length ? [`User-agent:${BOT_NAME}`, ...this.botRules] : []),
+            ...(this.wildcardRules.length ? ['User-agent:*', ...this.wildcardRules] : []),
+        ].join('\n')
+    }
+
+    private addRule(directive: string, value: string): void {
+        if (!value) {
+            return
+        }
+        this.groupHasRules = true
+        const line = `${directive}:${value}`
+        // The second parse truncates a line past the limit. A truncated Allow permits more than its rule, so it goes. A truncated Disallow only refuses more.
+        if (directive === 'Allow' && line.length > this.maxLineLength) {
+            return
+        }
+        if (this.forBot) {
+            this.botRules.push(line)
+        }
+        if (this.forWildcard) {
+            this.wildcardRules.push(line)
+        }
+    }
+}
+
+export function collectRobots(
     body: string,
-    parseRobotsTxt: typeof import('@trybyte/robotstxt-parser').parseRobotsTxt
-): Array<{ name: string; value: string }> {
-    const collector = new ExtensionCollector()
+    { parseRobotsTxt, K_MAX_LINE_LEN }: typeof import('@trybyte/robotstxt-parser')
+): RobotsCollector {
+    // The parser keeps one character less than K_MAX_LINE_LEN on a line.
+    const collector = new RobotsCollector(K_MAX_LINE_LEN - 1)
     parseRobotsTxt(body, collector)
+    return collector
+}
+
+function selectedExtensionFields(groups: ExtensionGroup[]): Array<{ name: string; value: string }> {
     const bot = BOT_NAME.toLowerCase()
-    const matches = collector.groups.map((group) => ({
+    const matches = groups.map((group) => ({
         group,
         specificity: Math.max(
             ...group.userAgents.map((agent) => (agent !== '*' && bot.startsWith(agent) ? agent.length : 0)),
@@ -509,10 +590,10 @@ export async function parseRobotsPolicy(
 
 async function parseRobotsConfiguration(body: string): Promise<ParsedRobotsConfiguration> {
     const robotsParser = await import('@trybyte/robotstxt-parser')
-    const { ParsedRobots, parseRobotsTxt } = robotsParser
+    const collector = collectRobots(body, robotsParser)
     return {
-        matcher: ParsedRobots.parse(body),
-        fields: selectedExtensionFields(body, parseRobotsTxt),
+        matcher: robotsParser.ParsedRobots.parse(collector.applicableBody()),
+        fields: selectedExtensionFields(collector.groups),
     }
 }
 
@@ -600,25 +681,24 @@ async function parsedRobotsConfiguration(
     item: ConfigurationCacheItem,
     parsed: ParsedConfigurationCache
 ): Promise<ParsedRobotsConfiguration> {
-    const revision = configurationRevision(item)
-    let configuration = parsed.robots.get(revision)
+    const body = item.body ?? ''
+    let configuration = parsed.robots.get(body)
     if (!configuration) {
-        configuration = parseRobotsConfiguration(item.body ?? '')
-        parsed.robots.set(revision, configuration)
+        configuration = parseRobotsConfiguration(body)
+        parsed.robots.set(body, configuration)
+        configuration.catch(() => parsed.robots.delete(body))
     }
     return await configuration
 }
 
 function parsedTdmrepDocument(item: ConfigurationCacheItem, parsed: ParsedConfigurationCache): unknown {
-    const revision = configurationRevision(item)
-    if (!parsed.tdmrep.has(revision)) {
-        parsed.tdmrep.set(revision, parseTdmrepDocument(item.body ?? ''))
+    const body = item.body ?? ''
+    let held = parsed.tdmrep.get(body)
+    if (!held) {
+        held = { document: parseTdmrepDocument(body) }
+        parsed.tdmrep.set(body, held)
     }
-    return parsed.tdmrep.get(revision)
-}
-
-function configurationRevision(item: ConfigurationCacheItem): string {
-    return `${item.key}\0${item.fetchedAtMs}`
+    return held.document
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

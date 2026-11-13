@@ -23,6 +23,9 @@ from posthog.models.scoping import team_scope
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.customer_analytics.backend.facade.testing import create_account
+from products.experiments.backend.facade.testing import create_experiment
+from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
+from products.signals.backend.anomaly_scores.queue import SCORE_EVENT
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
@@ -323,11 +326,115 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         assert result is not None
         assert (result.outcome, result.query_source) == (outcome, "skill_default")
 
-    def test_project_outside_the_rollout_runs_as_before(self) -> None:
-        result, capture = self._evaluate(rollout_percent=0)
+    @parameterized.expand(
+        [
+            ("team_managed", SignalScoutConfig.ManagedBy.TEAM, True, False),
+            ("background_lane_without_require_precheck", SignalScoutConfig.ManagedBy.BACKGROUND, False, False),
+            ("background_lane_with_require_precheck", SignalScoutConfig.ManagedBy.BACKGROUND, True, True),
+        ]
+    )
+    def test_project_outside_the_rollout(self, _name, managed_by, require_precheck, expect_gated) -> None:
+        SignalScoutConfig.all_teams.filter(team=self.team).update(managed_by=managed_by)
+        lanes = [{"skill_name": SURVEYS_SKILL, "require_precheck": require_precheck}]
+        with patch(
+            "products.signals.backend.scout_harness.team_limits._read_flag_payload",
+            return_value={"background_lanes": lanes},
+        ):
+            result, capture = self._evaluate(rollout_percent=0)
 
-        assert result is None
-        capture.assert_not_called()
+        if expect_gated:
+            assert result is not None
+            assert (result.outcome, result.query_source) == ("skip", "skill_default")
+        else:
+            assert result is None
+            capture.assert_not_called()
+
+
+ANOMALY_SKILL = "signals-scout-anomaly-detection"
+TEAM = SignalScoutConfig.ManagedBy.TEAM
+BACKGROUND = SignalScoutConfig.ManagedBy.BACKGROUND
+# Four quiet weeks with a weekly rhythm. Each case appends its own latest bucket.
+QUIET_SERIES = [(day, 100.0 if day % 7 else 80.0, 0) for day in range(29, 1, -1)]
+
+
+@time_machine.travel(NOW, tick=False)
+class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team, name=ANOMALY_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        self.config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=ANOMALY_SKILL)
+
+    def _score(self, days_ago: int, value: float, flag: int, *, series_key: str = "s1", insight_id: int = 7) -> None:
+        bucket = (NOW - timedelta(days=days_ago)).replace(hour=0, minute=0, second=0, microsecond=0)
+        _create_event(
+            team=self.team,
+            event=SCORE_EVENT,
+            distinct_id=SCORER_DISTINCT_ID,
+            timestamp=bucket,
+            properties={
+                "$anomaly_source": "insight",
+                "$anomaly_interval": "day",
+                "$anomaly_insight_id": insight_id,
+                "$anomaly_series_key": series_key,
+                "$anomaly_series_label": "Signups",
+                "$anomaly_bucket_start": bucket.isoformat(),
+                "$anomaly_flag": flag,
+                "$anomaly_value": value,
+                "$anomaly_scored_at": (bucket + timedelta(days=1, hours=1)).isoformat(),
+                "$anomaly_details": '{"raw_zscore": 6.0}',
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "flagged_episode_start",
+                [*QUIET_SERIES, (1, 400.0, 1)],
+                30,
+                TEAM,
+                "run",
+                "scored",
+            ),
+            # The day before was flagged too, so the episode started earlier and a past run saw it.
+            (
+                "flagged_episode_continues",
+                [*QUIET_SERIES[:-1], (2, 400.0, 1), (1, 400.0, 1)],
+                30,
+                TEAM,
+                "skip",
+                None,
+            ),
+            # Flagged, but within 30% of its baselines.
+            ("flagged_small_move", [*QUIET_SERIES, (1, 110.0, 1)], 30, TEAM, "skip", None),
+            ("flagged_drop_below_floor", [*QUIET_SERIES, (1, 5.0, 1)], 30, TEAM, "run", "scored"),
+            ("scored_quiet", [*QUIET_SERIES, (1, 100.0, 0)], 30, TEAM, "skip", None),
+            ("no_scores_team_due", [], 30, TEAM, "run", "legacy"),
+            ("few_scored_days_team_due", QUIET_SERIES[-5:], 30, TEAM, "run", "legacy"),
+            ("no_scores_team_ran_recently", [], 2, TEAM, "skip", None),
+            ("no_scores_background", [], 30, BACKGROUND, "skip", None),
+        ]
+    )
+    def test_default_picks_the_mode(self, _name, scores, quiet_hours, managed_by, outcome, mode) -> None:
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
+            managed_by=managed_by, created_at=NOW - timedelta(hours=quiet_hours)
+        )
+        for days_ago, value, flag in scores:
+            self._score(days_ago, value, flag)
+        flush_persons_and_events()
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, ANOMALY_SKILL)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+        if mode is not None:
+            assert result.row_count == 1
+            assert f'"mode": "{mode}"' in (result.rows_text or "")
 
 
 # Non-atomic: ClickHouse reads `system.*` tables over its own Postgres connection, so rows must be committed.
@@ -348,12 +455,14 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def _seed_experiment(self, *, started: bool, days_since_update: int) -> None:
         FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
-        Experiment = apps.get_model("experiments", "Experiment")
         flag = FeatureFlag.objects.create(team=self.team, key=f"exp_flag_{started}_{days_since_update}")
-        experiment = Experiment.objects.create(
-            team=self.team, name="e", feature_flag=flag, start_date=NOW - timedelta(days=60) if started else None
+        create_experiment(
+            team_id=self.team.id,
+            name="e",
+            feature_flag_id=flag.id,
+            start_date=NOW - timedelta(days=60) if started else None,
+            updated_at=NOW - timedelta(days=days_since_update),
         )
-        Experiment.objects.filter(pk=experiment.pk).update(updated_at=NOW - timedelta(days=days_since_update))
 
     def _seed_report(self, status: str, *, days_since_update: int) -> None:
         report = SignalReport.objects.create(team=self.team, status=status, title="r")
@@ -572,6 +681,15 @@ class TestScoutPrecheckTestAPI(ClickhouseTestMixin, APIBaseTest):
                 {"precheck_query": DASHBOARDS_QUERY},
                 False,
                 "false_value",
+                1,
+                False,
+            ),
+            (
+                "binds_managed_by_from_the_config",
+                None,
+                {"precheck_query": "SELECT {managed_by} = 'team'"},
+                True,
+                "rows",
                 1,
                 False,
             ),

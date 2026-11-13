@@ -1,64 +1,23 @@
-"""Curated workflow-jobs query builder.
+"""The workflow jobs builder: one row per job attempt.
 
-Maps the raw GitHub workflow-jobs warehouse snapshot (``WORKFLOW_JOBS_COLUMNS`` in
-``source_schema``) into honest job-level columns: ``status`` / ``conclusion`` pass through
-unchanged, ``duration_seconds`` is computed only for completed jobs, and ``labels`` (the
-runner-tier JSON the cost model parses) is unwrapped from its Nullable column. ``run_id`` joins
-back to ``github_workflow_runs``. The source table name is resolved per-team and passed in (see
-``logic.sources``); it is never hardcoded.
+``provisioning_seconds`` is the time from the job's ``started_at`` to its first step's start. It is
+NULL when the ``steps`` payload is missing or empty. Depot does not bill that time, so only cost reads it.
 
-Same layered shape as ``workflow_runs``: the inner SELECT parses timestamps with
-``parseDateTimeBestEffortOrNull`` (a queued/running job has no start/finish) and unwraps Nullable
-JSON with ``ifNull``; the outer SELECT derives the durations and the copy flag off the parsed columns.
+``is_rerun_copy`` marks a row GitHub lists again under a later ``run_attempt`` for a job that did not
+run again. A read that counts executions must exclude those rows. The flag comes from a join against
+the duplicated groups and never from a window function, which sorts its whole input in memory.
 
-**``provisioning_seconds`` — the VM boot Depot does not bill.** GitHub stamps a job's ``started_at``
-the moment Depot accepts it, but the machine then boots before the first step ("Set up job") runs, and
-Depot bills only the time after the job started running, not provisioning. The gap is the job's
-``started_at`` to its first step's ``started_at`` — tens of seconds per job, a few percent of billed
-minutes at scale (the tail at the other end, last step to ``completed_at``, is negligible). NULL when the ``steps`` payload is missing or empty, which ``logic.cost`` reads as "don't
-correct" — an under-correction, never an over-correction. ``duration_seconds`` stays the full
-wall-clock, because that is what queue and duration UX is about; only cost reads this.
-
-**``is_rerun_copy`` — rows for jobs that never executed.** "Re-run failed jobs" re-lists every job
-that already passed under the new ``run_attempt``: new job ids, but ``started_at`` / ``completed_at``
-copied verbatim from the attempt that actually ran (a partial re-run of a large matrix re-lists every
-passed job and re-runs only the failed ones; GitHub's ``filter=latest`` returns the re-listings too, so
-the source can't drop them). Those rows are re-listings, not executions — nothing ran and Depot billed
-nothing — and they are a few percent of job rows and minutes. A row is a copy when the same
-``(run_id, name, started_at, completed_at)`` exists at a LOWER ``run_attempt``. Consumers counting
-executions (cost, retry pressure, duration percentiles) must exclude them; the flag is defined here
-so nobody re-derives it.
-
-A narrow aggregate scan finds the duplicated ``(run_id, name, started_at, completed_at)`` groups,
-and each job LEFT JOINs against them. Never compute this flag with a window function: a window sorts
-every selected column of its whole input in memory, and an outer date filter cannot pass a window
-step. The exposed views have no scan floor, so a windowed flag made every query sort the team's
-entire job history and exceed the per-query memory limit. The aggregate reads five columns and keeps
-only the duplicated groups, so memory scales with the re-runs, not the history.
-
-The raw ``created_at`` string rides along as ``created_at_raw`` (unparsed) because ISO-8601 strings
-compare correctly lexicographically. A parsed-column predicate never pushes down to the parquet/S3
-scan, so a raw-column floor (``created_at_raw >= '<date>'``) is the only windowing predicate the scan
-can prune on — the parsed ``created_at`` stays the precise filter, the raw twin lets the scan skip.
-A caller's own outer ``created_at_raw`` predicate can prune the jobs scan, but never the duplicate
-scan, which reads no ``created_at_raw``. Windowed callers therefore pass ``created_floor=True`` and
-register the ``{job_created_floor}`` placeholder (see ``run_started_floor_constant``, shared with
-the runs builder). The floor is a prefilter on the RAW column inside the source of each scan, so it
-bounds both scans. The trade is exact: a run whose
-earlier attempt falls below the floor loses the evidence that its later attempt is a copy, so a
-boundary re-run reads as billable — the same coarseness the floor already has, and why the floor sits
-a day below the window.
-
-Embedded as a subquery by the jobs query module (see ``_curated``); nothing registers a global view.
+``created_at_raw`` is the unparsed ``created_at`` string. The parquet scan can prune on a predicate
+over it and cannot prune on one over the parsed ``created_at``. An outer ``created_at_raw`` predicate
+does not reach the duplicate scan, so a windowed caller passes ``created_floor=True`` and registers
+the ``{job_created_floor}`` placeholder (see ``job_created_floor_constant``).
 """
 
 from posthog.dataclasses import frozen
 
-# The moment the job actually began running: the first entry of the ``steps`` JSON array. ``steps`` is
-# a Nullable JSON string, and ClickHouse rejects an Array nested inside a Nullable, so it is
-# ``ifNull``-unwrapped before ``JSONExtractArrayRaw`` (``toString`` keeps this correct if the pipeline
-# ever lands the column as a JSON type rather than a String). An empty array yields '' from
-# ``arrayElement``, which extracts to '' and parses to NULL — the "steps not synced" fallback.
+# ClickHouse rejects an Array nested inside a Nullable, so ``steps`` is unwrapped before
+# ``JSONExtractArrayRaw``. The ``toString`` covers a pipeline that lands the column as a JSON type.
+# An empty array parses to NULL.
 _FIRST_STEP_STARTED_AT = (
     "parseDateTimeBestEffort("
     "JSONExtractString(arrayElement(JSONExtractArrayRaw(ifNull(toString(steps), '[]')), 1), 'started_at')"
@@ -67,18 +26,16 @@ _FIRST_STEP_STARTED_AT = (
 
 
 def branch(jobs_alias: str, runs_alias: str) -> str:
-    """A job's branch: its own, else its run's. A reader that joins a job to its run reads this, because
-    Depot CI job rows carry no branch."""
+    """The job's branch, or its run's branch when the job has none. Depot CI job rows carry no branch."""
     return f"coalesce(nullIf({jobs_alias}.head_branch, ''), {runs_alias}.head_branch)"
 
 
 @frozen
 class JobsTable:
-    """The jobs a read returns, and the source of the builder's duplicate scan.
+    """``rows`` is the source of the jobs a read returns, and ``duplicates`` is the source of the duplicate scan.
 
-    ``duplicates`` may hold runs that ``rows`` leaves out, because the join only gives a job row the first
-    attempt of its own run. A source that pays to leave runs out, like the hand-off shell filter, then pays
-    once per jobs read.
+    ``duplicates`` may hold runs that ``rows`` leaves out, because a job row only joins to duplicates of
+    its own run.
     """
 
     rows: str
@@ -86,18 +43,47 @@ class JobsTable:
 
     @classmethod
     def of(cls, table: str) -> "JobsTable":
-        """One table for both scans."""
         return cls(rows=table, duplicates=table)
 
 
-def build_query(table: JobsTable, *, created_floor: bool = False, include_steps: bool = False) -> str:
-    """``include_steps`` appends the raw ``steps`` JSON as the last column. It is the widest column of
-    the table, so only a read bounded to one run asks for it."""
+COLUMNS = (
+    "id",
+    "run_id",
+    "run_attempt",
+    "name",
+    "workflow_name",
+    "head_sha",
+    "head_branch",
+    "status",
+    "conclusion",
+    "labels",
+    "runner_name",
+    "created_at",
+    "created_at_raw",
+    "started_at",
+    "completed_at",
+    "duration_seconds",
+    "queue_seconds",
+    "provisioning_seconds",
+    "is_rerun_copy",
+    "ci_engine",
+    "native_run_id",
+    "native_workflow_run_id",
+    "native_job_id",
+    "native_attempt_id",
+)
 
-    # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
-    # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
-    # so a WHERE there would compare the parsed DateTime against the floor string. The jobs scan and
-    # the duplicate scan each read a floored source, so the one floor bounds both.
+
+def build_query(
+    table: JobsTable, *, created_floor: bool = False, include_steps: bool = False, compact_duplicates: bool = True
+) -> str:
+    """Returns the ``COLUMNS`` in order. ``include_steps`` appends the raw ``steps`` JSON as the last column.
+
+    ``steps`` is the widest column of the table, so only a read bounded to one run should ask for it.
+    """
+
+    # The floor needs its own innermost SELECT on the raw string column. The parsing SELECT below
+    # aliases the parsed value as created_at, so a WHERE there would compare a DateTime with the floor string.
     def floored(source: str) -> str:
         return f"(SELECT * FROM {source} WHERE created_at >= {{job_created_floor}})" if created_floor else source
 
@@ -105,6 +91,11 @@ def build_query(table: JobsTable, *, created_floor: bool = False, include_steps:
     duplicates_source = floored(table.duplicates)
     steps_column = ",\n            job.steps AS steps" if include_steps else ""
     parsed_steps_column = ",\n                ifNull(toString(steps), '[]') AS steps" if include_steps else ""
+    # The HAVING saves memory on an unbounded read. A materialized view passes compact_duplicates=False,
+    # because incremental validation rejects a query that removes groups.
+    duplicate_filter = (
+        "HAVING count() > 1 AND started_key IS NOT NULL AND completed_key IS NOT NULL" if compact_duplicates else ""
+    )
     return f"""
         SELECT
             job.id AS id,
@@ -149,11 +140,11 @@ def build_query(table: JobsTable, *, created_floor: bool = False, include_steps:
                 ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 run_id,
                 run_attempt,
-                name,
+                ifNull(name, '') AS name,
                 ifNull(workflow_name, '') AS workflow_name,
                 ifNull(head_sha, '') AS head_sha,
                 ifNull(head_branch, '') AS head_branch,
-                status,
+                ifNull(status, '') AS status,
                 conclusion,
                 ifNull(labels, '[]') AS labels,
                 ifNull(runner_name, '') AS runner_name,
@@ -181,7 +172,7 @@ def build_query(table: JobsTable, *, created_floor: bool = False, include_steps:
                 min(run_attempt) AS first_attempt
             FROM {duplicates_source}
             GROUP BY ci_engine, run_id, name, started_key, completed_key
-            HAVING count() > 1 AND started_key IS NOT NULL AND completed_key IS NOT NULL
+            {duplicate_filter}
         ) AS dupes
             ON job.run_id = dupes.run_id AND job.ci_engine = dupes.ci_engine
             AND job.name = dupes.name

@@ -63,7 +63,8 @@ const DISCOVER_ONLY: &str = concat!(
     discoverable_run!(),
     ")",
     "\n      AND backfill_kind = ANY($2)",
-    "\n      AND team_id = ANY($1)",
+    "\n      AND ",
+    processing_team!(),
     "\n    ORDER BY created_at\n"
 );
 
@@ -644,6 +645,8 @@ struct BoundaryRow {
     boundary_at: DateTime<Utc>,
 }
 
+/// `allowlist` is the env list. `Only` also admits the grants that `processing_team!` reads from the
+/// access record.
 pub async fn discover_runs(
     pool: &PgPool,
     allowlist: &TeamAllowlist,

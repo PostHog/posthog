@@ -7,6 +7,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+export const modulesWithStrictBodies = new Set(['email_templates', 'ui_customization'])
+
 /**
  * Resolve the OpenAPI schema path, respecting OPENAPI_SCHEMA_PATH env override.
  *
@@ -85,4 +87,16 @@ export function isQueryWrappersConfig(parsed) {
  */
 export function isToolsConfig(parsed) {
     return typeof parsed === 'object' && parsed !== null && 'tools' in parsed
+}
+
+/**
+ * Orval's export name for an operation: `messaging_templates_create` becomes `MessagingTemplatesCreate`.
+ * @param {string} operationId
+ * @returns {string}
+ */
+export function operationIdToPascal(operationId) {
+    return operationId
+        .split(/[_.]/)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join('')
 }

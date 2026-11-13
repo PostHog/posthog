@@ -1,14 +1,27 @@
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
+from django.conf import settings
+
 import structlog
+from openai import OpenAI
 from openai.types.shared_params import ReasoningEffort, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
-from posthog.llm.gateway_client import Product, build_anthropic_client, build_openai_client, trace_id_from_seed
+from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import (
+    GatewayNotConfiguredError,
+    build_ai_gateway_anthropic_client,
+    build_ai_gateway_openai_client,
+    trace_id_from_seed,
+)
+from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
 from posthog.llm.semantic_enrichment import extract_json_object
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneRequestFailed
+from posthog.llm.system_one_client import build_system_one_client
+from posthog.models.integration import SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
@@ -26,6 +39,13 @@ from products.slack_app.backend.prompt_templates import PromptTemplates
 from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    get_integration,
+    require_workspace_integration,
+    workspace_integrations,
+)
+from products.slack_app.backend.temporal.activities.repo_selection import capture_repository_resolved
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
@@ -44,9 +64,6 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # The classifiers bill the customer's PostHog AI credits, the same as the Slack agent's runs,
 # so they share its product.
 CLASSIFIER_AI_PRODUCT = "slack_app"
-# The Python gateway's `slack_app` route refuses API keys, so its fallback keeps the
-# `slack_app_routing` route, which accepts them. The usage report does not bill that route.
-CLASSIFIER_FALLBACK_ROUTE: Product = "slack_app_routing"
 
 # Every classifier here and every Slack agent run share `ai_product="slack_app"`, so the captured
 # generation carries this property to say which classifier made the call. An online evaluation
@@ -61,6 +78,15 @@ def _classifier_properties(classifier: str, team_id: int | None) -> dict[str, st
     if team_id is not None:
         properties["team_id"] = str(team_id)
     return properties
+
+
+def _classifier_openai_client(classifier: str, team_id: int | None, trace_id: str | None) -> OpenAI:
+    return build_ai_gateway_openai_client(
+        settings.AI_GATEWAY_API_KEY,
+        ai_product=CLASSIFIER_AI_PRODUCT,
+        trace_id=trace_id,
+        properties=_classifier_properties(classifier, team_id),
+    )
 
 
 def _thread_trace_id(slack_team_id: str | None, thread_ts: str | None) -> str | None:
@@ -229,8 +255,7 @@ def classify_task_needs_repo(
     )
     try:
         # The Go gateway refuses a Claude model on chat completions.
-        client = build_anthropic_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
+        client = build_ai_gateway_anthropic_client(
             ai_product=CLASSIFIER_AI_PRODUCT,
             trace_id=trace_id,
             properties=_classifier_properties("task_needs_repo", team_id),
@@ -253,6 +278,93 @@ def classify_task_needs_repo(
     except Exception:
         logger.exception("slack_app_classify_task_needs_repo_failed")
         return False
+
+
+NEEDS_REPO_DECISION_MODEL = DEFAULT_DECISION_MODEL
+# On the path to the first reply, in front of every mention from a person with a connected repository.
+NEEDS_REPO_TIMEOUT_SECONDS = 5.0
+# A miss is recoverable: a repo-less Slack run keeps its GitHub token and can clone mid-run.
+# Tune against products/slack_app/evals/eval_needs_repo.py.
+NEEDS_REPO_MIN_PROBABILITY = 0.5
+NEEDS_REPO_QUESTION_ID = "needs_code"
+
+NEEDS_REPO_INSTRUCTIONS = (
+    "`message` is a request someone sent to PostHog's assistant in Slack, and `thread` is the conversation it "
+    "sits in. The assistant can read the team's PostHog data and the PostHog documentation without any code. "
+    "It can also open one of the team's code repositories, which costs time. `routing_rules` lists kinds of "
+    "requests the team sends to a repository. Does answering `message` need the team's source code? A "
+    "question about how the team's own product, app, job or service behaves is answered from its code, even "
+    "when it does not say the word code."
+)
+NEEDS_REPO_TRUE = (
+    "Reading, changing, reviewing or debugging the team's code: fix a bug, implement or change a feature, "
+    "open or update a pull request, explain how some code works, find where something is defined or sent, "
+    "look into a failing test or CI job, or a request that matches one of `routing_rules`. This includes how "
+    "or why the team's own app, job, handler or logic does something, such as how a value is calculated or "
+    "when a retry gives up. It also includes a request to start, change or stop tracking something, such as "
+    '"can we track when someone does X?": a new event or property is sent from the team\'s app, so it is a '
+    "code change."
+)
+NEEDS_REPO_FALSE = (
+    "A question about the team's product data or setup that PostHog holds: metrics, trends, funnels, "
+    "retention, events, persons, cohorts, dashboards, insights, session recordings, feature flag or "
+    "experiment state, surveys, errors, logs or LLM traces. Also a question about how PostHog itself works or "
+    "how to use it, a request to change a PostHog setting, or a social message. Checking whether an event "
+    "already arrives is a data question."
+)
+
+
+@frozen
+class NeedsRepoVerdict:
+    probability: float
+
+    @property
+    def needs_repo(self) -> bool:
+        return self.probability >= NEEDS_REPO_MIN_PROBABILITY
+
+
+def classify_needs_repo_with_jev(
+    event_text: str,
+    thread_messages: list[SlackThreadMessage],
+    *,
+    routing_rules: list[str],
+    team_id: int,
+    distinct_id: str | None,
+    trace_id: str | None = None,
+) -> NeedsRepoVerdict:
+    """Ask Jev, a System One decision model, whether a mention needs the team's code.
+
+    Raises when no System One server is configured, the call fails or the model refuses,
+    so the caller decides what an unanswered question means.
+    """
+    recent = thread_messages[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
+    client = build_system_one_client(
+        model=NEEDS_REPO_DECISION_MODEL,
+        ai_product=CLASSIFIER_AI_PRODUCT,
+        team_id=team_id,
+        distinct_id=distinct_id,
+        trace_id=trace_id,
+        properties={CLASSIFIER_PROPERTY: "needs_repo_jev"},
+        timeout=NEEDS_REPO_TIMEOUT_SECONDS,
+    )
+    result = client.decide(
+        state={
+            "message": event_text,
+            "thread": [f"{msg.user}: {msg.text}" for msg in recent],
+            "routing_rules": routing_rules,
+        },
+        questions={
+            NEEDS_REPO_QUESTION_ID: NoulQuestion(
+                instructions=NEEDS_REPO_INSTRUCTIONS,
+                criteria_true=NEEDS_REPO_TRUE,
+                criteria_false=NEEDS_REPO_FALSE,
+            )
+        },
+    )
+    answer = result.answers.get(NEEDS_REPO_QUESTION_ID)
+    if not isinstance(answer, NoulAnswer):
+        raise SystemOneRequestFailed("Jev refused the needs-repo question")
+    return NeedsRepoVerdict(probability=answer.probability)
 
 
 @activity.defn
@@ -280,11 +392,7 @@ def classify_posthog_code_task_needs_repo_activity(
     if inputs is None:
         return classify_task_needs_repo(event_text, thread_messages)
 
-    integration = Integration.objects.get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     # Filter rules to repos the mentioner can reach, matching what selection accepts for
     # this mention. An empty list means the lookup resolved nothing (the cascade would
     # have stopped such a mention already), so treat it as unknown rather than dropping
@@ -292,13 +400,23 @@ def classify_posthog_code_task_needs_repo_activity(
     connected = {repo.lower() for repo in _get_full_repo_names(integration, user_id=inputs.user_id)}
     routing_rules = team_routing_rule_lines(integration.team_id, candidate_repos=connected or None)
     thread_ts = inputs.event.get("thread_ts") or inputs.event.get("ts")
-    return classify_task_needs_repo(
+    needs_repo = classify_task_needs_repo(
         event_text,
         thread_messages,
         routing_rules=routing_rules,
         trace_id=_thread_trace_id(inputs.slack_team_id, thread_ts),
         team_id=integration.team_id,
     )
+    # A positive answer hands off to the discovery agent, which records the final outcome.
+    capture_repository_resolved(
+        integration,
+        inputs,
+        "classifier_needs_repo" if needs_repo else "classifier_no_repo",
+        has_repository=False,
+        is_final=not needs_repo,
+        connected_repo_count=len(connected),
+    )
+    return needs_repo
 
 
 def _agent_directed_response_format() -> ResponseFormatJSONSchema:
@@ -361,12 +479,9 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("agent_directed", team_id),
-        ).with_options(timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES)
+        client = _classifier_openai_client("agent_directed", team_id, trace_id).with_options(
+            timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
+        )
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -405,7 +520,7 @@ def classify_untagged_followup_activity(
     from products.slack_app.backend.services.slack_messages import cached_collect_thread_messages
 
     try:
-        mapping = SlackThreadTaskMapping.objects.select_related("task", "integration").get(
+        mapping = SlackThreadTaskMapping.objects.select_related("task").get(
             integration_id=inputs.integration_id,
             channel=channel,
             thread_ts=thread_ts,
@@ -419,7 +534,15 @@ def classify_untagged_followup_activity(
         )
         return False
 
-    integration = mapping.integration
+    integration = get_integration(mapping.team_id, mapping.integration_id)
+    if integration is None:
+        logger.info(
+            "posthog_code_thread_message_mapping_gone",
+            integration_id=inputs.integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        return False
     slack = SlackIntegration(integration)
 
     # Asked before the history fetch and the model call, because reading the reply cannot
@@ -540,12 +663,9 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("model_override", team_id),
-        ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
+        client = _classifier_openai_client("model_override", team_id, trace_id).with_options(
+            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
+        )
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -560,6 +680,9 @@ def classify_slack_app_model_override(
         # but the model is still the classifier's word, not ours, until checked against
         # the catalogue below.
         reply = SlackAppModelOverride.model_validate(parsed)
+    except GatewayNotConfiguredError:
+        logger.exception("slack_app_model_override_classify_failed")
+        return None
     except (ValidationError, ValueError):
         logger.info("slack_app_model_override_unusable_reply")
         return None
@@ -601,11 +724,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     if not input.event_text.strip():
         return None
 
-    integration = Integration.objects.select_related("team").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
-    )
+    integration = require_workspace_integration(input.integration_id, input.slack_team_id)
     choices = available_model_choices()
     if not choices:
         # The gateway is the source of truth for what can run; with no catalogue we
@@ -632,7 +751,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     return override
 
 
-def _project_route_response_format(projects: list[Integration]) -> ResponseFormatJSONSchema:
+def _project_route_response_format(projects: Sequence[WorkspaceIntegration]) -> ResponseFormatJSONSchema:
     """A strict JSON schema pinning the reply to one id from ``projects``.
 
     The enum is what stops the classifier naming a project this mentioner cannot reach.
@@ -662,11 +781,11 @@ class _ProjectRouteReply(BaseModel):
 
 def classify_slack_app_project_route(
     event_text: str,
-    projects: list[Integration],
-    default: Integration | None = None,
+    projects: Sequence[WorkspaceIntegration],
+    default: WorkspaceIntegration | None = None,
     trace_id: str | None = None,
     team_id: int | None = None,
-) -> Integration | None:
+) -> WorkspaceIntegration | None:
     """Read the project a mention asked to be answered from, out of its text.
 
     ``default`` is the project the run is already on. It heads the list the model is
@@ -697,13 +816,10 @@ def classify_slack_app_project_route(
         event_text=event_text,
     )
 
+    client = _classifier_openai_client("project_route", team_id, trace_id).with_options(
+        timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES
+    )
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("project_route", team_id),
-        ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
         response = client.chat.completions.create(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -742,14 +858,10 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     # Cheapest gate first, and the one that answers most workspaces. Everything below is
     # two queries and an access scan, and a workspace connected to one project has
     # nothing to route between however they come out.
-    if Integration.objects.filter(kind="slack", integration_id=input.slack_team_id).count() < 2:
+    if len(workspace_integrations(input.slack_team_id)) < 2:
         return None
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
-    )
+    integration = require_workspace_integration(input.integration_id, input.slack_team_id)
     user = User.objects.filter(id=input.user_id).first()
     if user is None:
         return None

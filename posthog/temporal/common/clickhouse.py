@@ -16,6 +16,7 @@ from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
+from clickhouse_driver.errors import ServerException
 from structlog import get_logger
 from temporalio import activity
 
@@ -23,9 +24,13 @@ from posthog.hogql.escape_sql import backquote_clickhouse_identifier
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials, events_cluster_http_url
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.clickhouse.workload import Workload
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.security.outbound_proxy import internal_requests_session
+from posthog.sync import database_sync_to_async
 
 if typing.TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
@@ -169,6 +174,7 @@ class ClickHouseClientNotConnected(Exception):
         super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
 
 
+_CLICKHOUSE_ERROR_CODE_PATTERN = re.compile(r"\bCode:\s*(\d+)\b")
 _CLICKHOUSE_ERROR_START = re.compile(r"(?:(?:std::exception|Poco::Exception)\. )?Code: \d+[.,] ")
 # ClickHouse 25+ wraps the error in "__exception__" lines and closes it with "<size> <tag>".
 _CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\r?\n\d+ \w+)?\r?\n__exception__\s*$")
@@ -189,9 +195,11 @@ def extract_clickhouse_error(payload: bytes) -> str | None:
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
-    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+    def __init__(self, error_message: str, query: str | None = None, query_id: str | None = None):
         self.query = query
         self.query_id = query_id
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
+        self.code = int(code_match.group(1)) if code_match else None
         super().__init__(error_message)
 
 
@@ -258,11 +266,27 @@ class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
         super().__init__(error_message, query, query_id)
 
 
+class ClickHouseQueryPlanningError(ClickHouseError):
+    """Exception raised when a DESCRIBE probe cannot plan a rewritten query."""
+
+
+class ClickHouseUserQueryError(ClickHouseError):
+    """Exception raised when ClickHouse rejects a permanently invalid user query."""
+
+
 class ClickHouseCheckQueryStatusError(ClickHouseError):
     """Exception raised when checking the status of a query fails."""
 
     def __init__(self, error_message: str, query_id: str | None = None):
         super().__init__(error_message, query_id=query_id)
+
+
+class ClickHouseUnknownTableError(ClickHouseError):
+    """Exception raised when a table does not exist.
+
+    This should only happen in HogQL batch exports, when users try to select tables that
+    batch exports cannot reach.
+    """
 
 
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
@@ -332,9 +356,12 @@ class ClickHouseClient:
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
         password_file: str | None = None,
+        cluster: str | None = None,
         **kwargs,
     ):
         self.url = url
+        # Query status checks and KILL span this cluster, so it must be the cluster behind url.
+        self.cluster = cluster or settings.CLICKHOUSE_CLUSTER
         self.headers: dict[str, str] = {}
         self.params = {}
         self.timeout = timeout
@@ -441,10 +468,18 @@ class ClickHouseClient:
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
             "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
+            "UNKNOWN_TABLE": ClickHouseUnknownTableError,
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:
                 raise exc_class(error_message, query=query, query_id=query_id)
+
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
+        if code_match:
+            code = int(code_match.group(1))
+            server_error = ServerException(error_message, code=code)
+            if classify_query_error(server_error) == QueryErrorCategory.USER_ERROR:
+                raise ClickHouseUserQueryError(error_message, query=query, query_id=query_id)
         raise ClickHouseError(error_message, query=query, query_id=query_id)
 
     @classmethod
@@ -821,7 +856,7 @@ class ClickHouseClient:
         try:
             results = await self.read_query_as_jsonl(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster},
                 query_id=f"{query_id}-CHECK-QUERY-LOG-{uuid.uuid4()}",
             )
         except ClickHouseError as e:
@@ -890,7 +925,7 @@ class ClickHouseClient:
         try:
             results = await self.read_query_as_jsonl(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster},
                 query_id=f"{query_id}-GET-WRITTEN-ROWS",
             )
         except ClickHouseError:
@@ -927,7 +962,7 @@ class ClickHouseClient:
         try:
             resp = await self.read_query(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster},
                 query_id=f"{query_id}-CHECK-PROCESS-LIST",
             )
         except ClickHouseError as e:
@@ -946,7 +981,7 @@ class ClickHouseClient:
         Arguments:
             query_id: The ID of the query to cancel.
         """
-        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{query_id:String}}"
+        query = f"KILL QUERY ON CLUSTER '{self.cluster}' WHERE query_id = {{query_id:String}}"
 
         await self.execute_query(
             query,
@@ -1050,6 +1085,9 @@ class ClickHouseClient:
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
+        if clickhouse_test_setup.is_pending:
+            # The setup runs blocking ClickHouse queries, so keep it off the event loop.
+            await asyncio.to_thread(clickhouse_test_setup.run)
 
         def socket_factory(addr_info):
             family, type_, proto, _, _ = addr_info
@@ -1139,8 +1177,12 @@ async def get_client(
     max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
     http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
+    cluster = settings.CLICKHOUSE_CLUSTER
     if clickhouse_url is None:
-        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+        events_url = await database_sync_to_async(events_cluster_http_url)(Workload.OFFLINE, team_id)
+        url = events_url or settings.CLICKHOUSE_OFFLINE_HTTP_URL
+        if events_url:
+            cluster = settings.CLICKHOUSE_EVENTS_CLUSTER
     else:
         url = clickhouse_url
 
@@ -1150,6 +1192,7 @@ async def get_client(
         password=settings.CLICKHOUSE_PASSWORD,
         password_file=settings.CLICKHOUSE_PASSWORD_FILE,
         database=settings.CLICKHOUSE_DATABASE,
+        cluster=cluster,
         timeout=timeout,
         ssl=False,
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,

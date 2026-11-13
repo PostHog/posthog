@@ -64,7 +64,7 @@ from pathlib import Path
 
 from posthog.dataclasses import frozen
 
-from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map, lazy_reexport_prefixes
+from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map, lazy_reexport_prefixes, product_app_labels
 from .isolation import (
     COMPUTED_WIRING_LOCATIONS,
     MODEL_CROSSINGS,
@@ -239,24 +239,6 @@ def crossing_classes(products: Iterable[str] | None = None) -> list[CrossingClas
     return resolved
 
 
-def _app_labels() -> dict[str, str]:
-    """Django app label -> product name, read off each product's AppConfig."""
-    labels: dict[str, str] = {}
-    for apps_py in sorted(PRODUCTS_DIR.glob("*/backend/apps.py")):
-        product = apps_py.parents[1].name
-        try:
-            tree = ast.parse(apps_py.read_text(encoding="utf-8", errors="ignore"))
-        except (SyntaxError, OSError):
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Assign):
-                continue
-            target = node.targets[0]
-            if isinstance(target, ast.Name) and target.id == "label" and isinstance(node.value, ast.Constant):
-                labels[str(node.value.value)] = product
-    return labels
-
-
 def product_model_labels(products: Iterable[str] | None = None) -> dict[str, str]:
     """`product.Class` -> owning product, for every model class a product's app registers.
 
@@ -264,7 +246,7 @@ def product_model_labels(products: Iterable[str] | None = None) -> dict[str, str
     through the app registry, so neither tach nor import-linter sees the edge and the watched-models
     allowance never had to name the class. The label scan therefore covers every product model, not
     only the allowance ones. A product without an `apps.py` registers nothing and is skipped."""
-    registered = set(_app_labels().values())
+    registered = set(product_app_labels(PRODUCTS_DIR).values())
     wanted = registered if products is None else registered & set(products)
     return {
         f"{product}.{class_name}": product
@@ -1559,7 +1541,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
     origins = _grow_origins(candidates, seeds)
     origin_modules = {export.module for export in origins}
     query_products = {location.product for location in locations if location.location == QUERY_WIRING_LOCATION}
-    product_by_label = _app_labels()
+    product_by_label = product_app_labels(PRODUCTS_DIR)
     # Django resolves a model name case-insensitively, so the get_model scan matches on the lowered form.
     label_by_lower = {label.lower(): label for label in owning_dir}
 

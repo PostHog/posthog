@@ -1,4 +1,8 @@
+import json
 import functools
+
+from django.conf import settings
+from django.core.cache import caches
 
 import structlog
 from drf_spectacular.utils import extend_schema
@@ -6,12 +10,36 @@ from opentelemetry import trace
 from rest_framework import permissions, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.encoders import JSONEncoder
+
+from posthog.git import get_git_commit_full
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
-from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceRegistry,
+    cdc_engine,
+    load_all_sources_or_raise,
+)
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+SHARED_CATALOG_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+
+def shared_catalog_cache_key(*, include_tables: bool) -> str | None:
+    """Key for the catalog shared through the Django cache, or None when it must not be shared.
+
+    Web workers recycle often, so most catalog requests land on a process that has not imported the
+    source registry yet, and its vendor SDK imports are slow. The catalog is identical in every
+    process of a deploy, so the key is the commit. The value is JSON text, so a cache read never
+    unpickles classes from the source modules this cache exists to avoid importing.
+    """
+    commit = get_git_commit_full()
+    if settings.DEBUG or not commit:
+        # A local edit or a missing commit leaves the key unchanged, so a shared entry could hide a code change.
+        return None
+    return f"warehouse_sources:source_configs:v1:{commit}:{'tables' if include_tables else 'no_tables'}"
 
 
 @functools.cache
@@ -25,8 +53,37 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     Kept in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
 
     The catalog is deploy-static (it only changes when source code ships), so the result is
-    memoized per process — callers must treat it as read-only.
+    memoized per process and shared across processes through the Django cache — callers must
+    treat it as read-only. Both paths return the catalog decoded from JSON written with the DRF
+    encoder, so a cache hit and a miss give the same shape as the rendered response.
     """
+    cache_key = shared_catalog_cache_key(include_tables=include_tables)
+    if cache_key is not None:
+        try:
+            shared = caches["warehouse_source_catalog"].get(cache_key)
+            if shared is not None:
+                return json.loads(shared)
+        except Exception:
+            logger.exception("build_source_configs: shared cache read failed")
+
+        try:
+            with tracer.start_as_current_span("warehouse_sources.catalog.imports"):
+                load_all_sources_or_raise()
+        except Exception:
+            logger.exception("build_source_configs: source registry incomplete")
+            cache_key = None
+
+    serialized = json.dumps(_build_source_configs_from_registry(include_tables=include_tables), cls=JSONEncoder)
+
+    if cache_key is not None:
+        try:
+            caches["warehouse_source_catalog"].set(cache_key, serialized, timeout=SHARED_CATALOG_CACHE_TTL_SECONDS)
+        except Exception:
+            logger.exception("build_source_configs: shared cache write failed")
+    return json.loads(serialized)
+
+
+def _build_source_configs_from_registry(*, include_tables: bool) -> dict[str, dict]:
     with tracer.start_as_current_span("warehouse_sources.catalog.registry"):
         sources = SourceRegistry.get_all_sources()
 
@@ -42,6 +99,7 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
             config["versions"] = list(source.supported_versions)
             config["defaultVersion"] = source.default_version
             config["apiDocsUrl"] = source.api_docs_url
+            config["cdcEngine"] = cdc_engine(source_type)
             config["deprecatedVersions"] = [
                 {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
                 for d in source.deprecated_versions
@@ -78,7 +136,8 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
             "documented table catalog; empty for SQL/file sources with user-defined schemas), and "
             "vendor API version metadata: `versions` (supported version labels), `defaultVersion`, "
             "`apiDocsUrl` (vendor API docs/changelog URL or null), and `deprecatedVersions` "
-            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null)."
+            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null), and `cdcEngine` "
+            "(the change data capture engine, or null when the source has no CDC)."
         ),
     )
     def list(self, request: Request) -> Response:

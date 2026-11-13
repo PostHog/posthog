@@ -3,7 +3,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from django.conf import settings
 
@@ -15,7 +15,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import AzureBlobIntegration
 from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 from posthog.security.pinned_aiohttp import pinned_session
 from posthog.temporal.common.base import PostHogWorkflow
@@ -124,8 +125,8 @@ class AzureBlobInsertInputs(BatchExportInsertInputs):
 
 async def _get_azure_blob_integration(integration_id: int, team_id: int) -> AzureBlobIntegration:
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.azure_blob.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise AzureBlobIntegrationNotFoundError(integration_id, team_id)
 
     return AzureBlobIntegration(integration)
@@ -345,7 +346,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         blob_key,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), AsyncExitStack() as cleanup:
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_AZURE_BLOB_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
 
@@ -358,6 +359,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

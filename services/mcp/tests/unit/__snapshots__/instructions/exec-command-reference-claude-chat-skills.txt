@@ -16,7 +16,7 @@ call [--json] [--confirm] <tool_name> [json_input] — call a tool with JSON inp
 
 **SKILLS FIRST: HARD REQUIREMENT**
 
-For non-trivial PostHog/team work, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Skip only trivial lookups or unrelated chat.
+For non-trivial PostHog/team work, after any needed project clarification, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Skip only trivial lookups or unrelated chat.
 
 Load exact qualified names; never guess. Follow `SKILL.md`; fetch references on demand. If no match, continue. Advertised topics load separately.
 
@@ -36,7 +36,7 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. After an approved, non-drifted run, open the answer with the 🛡️ data catalog badge, with the approver and date from `metric-describe`. Use a proposed match only if its definition fits, and say why. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
+**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Call `metric-list` with `search` (the user's words and the likely metric name, comma-separated) before `read-data-schema`, insights, domain tools, or raw SQL. With no name, acronym, or all-words `match_reason`, read the whole catalog. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. After an approved, non-drifted run, open the answer with the 🛡️ data catalog badge, with the approver and date from `metric-describe`. Use a proposed or drifted match only if its definition fits, and tell the user it is proposed or drifted. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
@@ -81,7 +81,7 @@ Assistant: This needs analytics and visualization guidance, so I'll load both be
 [Runs `posthog:exec({"command":"learn analytics visualizations"})`]
 Assistant: A weekly count is a governed shape, so the catalog comes first.
 [Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]
-Assistant: No approved metric matches, so I fall through to the query tools.
+Assistant: No metric fits, approved or proposed, so I fall through to the query tools.
 [Runs `posthog:exec({"command":"search query-trends"})` and `posthog:exec({"command":"search read-data"})` in parallel]
 Assistant: I'll inspect both schemas.
 [Runs `posthog:exec({"command":"info query-trends"})` and `posthog:exec({"command":"info read-data-schema"})` in parallel]
@@ -151,6 +151,8 @@ If you get errors due to permissions being denied, check that you have the corre
 
 - **Plain words** (including multiple words / natural language) — ranked by relevance across tool name, title, and description, with name matches weighted highest. `search create dashboard insight` surfaces `dashboard-create` / `insight-create` at the top. Results are capped to the top matches; narrow the query if you see a truncation note.
 - **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive regular expression, matched against name/title/description. Use this for precise, narrow patterns.
+
+Quotes are ignored. A regex that matches no tool falls back to ranking by its words, so a guessed name such as "project-update" still returns the nearest tools.
 
 **Good queries:**
 

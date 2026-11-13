@@ -1,10 +1,20 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { ApiError, NetworkError } from 'lib/api-error'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { HogQLQueryString } from 'lib/utils/hogql'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { queryUsesDataWarehouse } from '~/queries/schema/node-accessors'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+} from '~/queries/schema/node-guards'
 import {
     DashboardFilter,
     DataNode,
@@ -19,17 +29,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import {
-    dataWarehouseSourcesFromResponse,
-    HogQLQueryString,
-    isAsyncResponse,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-    isInsightQueryNode,
-    isPersonsNode,
-    queryUsesDataWarehouse,
-} from './utils'
+import { dataWarehouseSourcesFromResponse, isAsyncResponse } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -108,6 +108,7 @@ const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavail
 const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
 const TRANSIENT_SUBMIT_RETRY_BUDGET_MS = 20_000
+const MAX_RECORDED_SUBMIT_TIMINGS = 6
 
 type QuerySubmitTelemetry = {
     client_query_id?: string
@@ -115,6 +116,15 @@ type QuerySubmitTelemetry = {
     retry_wait_ms: number
     retry_status: number | null
     retry_recovered: boolean
+    submit_request_timings: ApiRequestTiming[]
+    result_poll_timing?: ApiRequestTiming
+}
+
+function requestTimingProperties(telemetry: QuerySubmitTelemetry): Record<string, string | number | undefined> {
+    return {
+        ...flattenRequestTiming(telemetry.submit_request_timings.at(-1), ''),
+        ...flattenRequestTiming(telemetry.result_poll_timing, 'result_poll_'),
+    }
 }
 
 function capacityWaitMs(error: unknown): number | undefined {
@@ -199,10 +209,23 @@ export function queryExportContext<N extends DataNode>(
     return { source: query }
 }
 
+function annotatePollError(e: any, queryId: string): void {
+    // Parse error message to extract clean message and code if present
+    const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
+    e.detail = parsed.message
+
+    // Prefer the structured code from QueryStatus over one parsed out of the message
+    e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
+
+    // Attach queryId to error for downstream error handling
+    e.queryId = queryId
+}
+
 export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
-    onPoll?: (response: QueryStatus) => void
+    onPoll?: (response: QueryStatus) => void,
+    onResultPollTiming?: (timing: ApiRequestTiming) => void
 ): Promise<QueryStatus> {
     // A hidden or offline tab must not consume the polling deadline while it cannot poll.
     let activeElapsedMs = 0
@@ -217,8 +240,22 @@ export async function pollForResults(
         await waitForPollingReady(methodOptions?.signal)
 
         try {
-            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
+            let pollTiming: ApiRequestTiming | undefined
+            const statusResponse = (
+                await api.queryStatus.get(
+                    queryId,
+                    true,
+                    onResultPollTiming && {
+                        onRequestTiming: (timing) => {
+                            pollTiming = timing
+                        },
+                    }
+                )
+            ).query_status
             if (statusResponse.complete) {
+                if (pollTiming) {
+                    onResultPollTiming?.(pollTiming)
+                }
                 return statusResponse
             }
             if (onPoll) {
@@ -228,16 +265,7 @@ export async function pollForResults(
             if (e instanceof NetworkError && e.reason === 'offline') {
                 continue
             }
-            // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
-            e.detail = parsed.message
-
-            // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
-
-            // Attach queryId to error for downstream error handling
-            e.queryId = queryId
-
+            annotatePollError(e, queryId)
             throw e
         }
     }
@@ -293,7 +321,15 @@ async function executeQuery<N extends DataNode>(
                 const requestStartedAt = performance.now()
                 try {
                     return await api.query(queryNode, {
-                        requestOptions: methodOptions,
+                        requestOptions: {
+                            ...methodOptions,
+                            onRequestTiming: (timing) => {
+                                if (submitTelemetry.submit_request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
+                                    submitTelemetry.submit_request_timings.push(timing)
+                                }
+                                methodOptions?.onRequestTiming?.(timing)
+                            },
+                        },
                         clientQueryId,
                         refresh: refreshParam,
                         filtersOverride,
@@ -364,7 +400,9 @@ async function executeQuery<N extends DataNode>(
 
     let statusResponse: QueryStatus
     try {
-        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse, (timing) => {
+            submitTelemetry.result_poll_timing = timing
+        })
     } catch (e: any) {
         // A backgrounded tab can outlive the query's status. Submit once more to recover its result.
         //
@@ -401,7 +439,7 @@ async function executeQuery<N extends DataNode>(
 // Return data for a given query
 export async function performQuery<N extends DataNode>(
     queryNode: N,
-    methodOptions?: ApiMethodOptions,
+    methodOptions?: ApiMethodOptions & { queryTelemetry?: 'metadata' },
     refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
@@ -411,6 +449,8 @@ export async function performQuery<N extends DataNode>(
     limitContext?: 'posthog_ai',
     acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
+    const { queryTelemetry, ...apiMethodOptions } = methodOptions ?? {}
+    const telemetryQuery = queryTelemetry === 'metadata' ? { kind: queryNode.kind } : queryNode
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const submitTelemetry: QuerySubmitTelemetry = {
@@ -419,18 +459,19 @@ export async function performQuery<N extends DataNode>(
         retry_wait_ms: 0,
         retry_status: null,
         retry_recovered: false,
+        submit_request_timings: [],
     }
     const startTime = performance.now()
 
     try {
         if (isPersonsNode(queryNode)) {
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-            response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
+            response = await api.get(getPersonsEndpoint(queryNode), apiMethodOptions)
         } else {
             response = await executeQuery(
                 queryNode,
                 submitTelemetry,
-                methodOptions,
+                apiMethodOptions,
                 refresh,
                 queryId,
                 setPollResponse,
@@ -440,7 +481,7 @@ export async function performQuery<N extends DataNode>(
                 limitContext,
                 acceptStaleCache
             )
-            if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
+            if (queryTelemetry !== 'metadata' && isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
             if (response && typeof response === 'object') {
@@ -462,7 +503,7 @@ export async function performQuery<N extends DataNode>(
         }
         const warehouseSources = dataWarehouseSourcesFromResponse(response)
         posthog.capture('query completed', {
-            query: queryNode,
+            query: telemetryQuery,
             queryId,
             duration: performance.now() - startTime,
             is_cached: response?.is_cached,
@@ -471,6 +512,7 @@ export async function performQuery<N extends DataNode>(
             data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
             ...submitTelemetry,
+            ...requestTimingProperties(submitTelemetry),
         })
         const historySources = warehouseSources.filter((s) => s.uses_history_table)
         if (historySources.length > 0) {
@@ -490,7 +532,7 @@ export async function performQuery<N extends DataNode>(
             // Raw error detail/message can echo query fragments, so telemetry only gets status and code
             const error = e as (Error & { status?: number; code?: string | null; queryId?: string }) | null
             posthog.capture('query failed', {
-                query: queryNode,
+                query: telemetryQuery,
                 queryId: error?.queryId ?? queryId,
                 duration: performance.now() - startTime,
                 error_status: error?.status ?? null,
@@ -498,6 +540,7 @@ export async function performQuery<N extends DataNode>(
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
                 ...logParams,
                 ...submitTelemetry,
+                ...requestTimingProperties(submitTelemetry),
                 retry_recovered: false,
             })
         }

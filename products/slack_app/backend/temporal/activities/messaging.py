@@ -3,10 +3,11 @@ from typing import Any
 import structlog
 from temporalio import activity
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+from products.slack_app.backend.services.workspace_integrations import get_integration, require_workspace_integration
 from products.slack_app.backend.temporal.helpers import safe_react, swap_reaction
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
@@ -33,11 +34,7 @@ def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
     inputs = coerce_mention_workflow_inputs(inputs)
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     post_slack_thread_reply(
         slack.client,
@@ -68,11 +65,7 @@ def post_posthog_code_repo_picker_activity(
 
     from products.slack_app.backend.api import _post_repo_picker_message
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     _post_repo_picker_message(
@@ -184,11 +177,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
     if tasks_facade.user_has_usable_personal_github(user_id):
         return False
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     # A stale row (present but unusable) gets reconnect wording; a missing one gets setup wording.
     has_stale_github = UserIntegration.objects.filter(
         user_id=user_id,
@@ -236,11 +225,7 @@ def post_posthog_code_picker_timeout_activity(
     ).exists():
         return
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     post_slack_thread_reply(
         slack.client,
@@ -267,11 +252,7 @@ def post_posthog_code_internal_error_activity(
             slack_user_id=slack_user_id,
         )
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     post_slack_thread_reply(
         slack.client,
@@ -291,11 +272,7 @@ def mark_slack_app_message_processing_activity(input: SlackAppMessageReactionInp
     the conversation queue behind retries of a reaction.
     """
     try:
-        integration = Integration.objects.get(
-            id=input.integration_id,
-            kind="slack",
-            integration_id=input.slack_team_id,
-        )
+        integration = require_workspace_integration(input.integration_id, input.slack_team_id)
         slack = SlackIntegration(integration)
         swap_reaction(
             slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION, SLACK_APP_PROCESSING_REACTION
@@ -318,11 +295,7 @@ def mark_slack_app_message_queued_activity(input: SlackAppMessageReactionInput) 
     Best-effort like the processing swap above: never raises.
     """
     try:
-        integration = Integration.objects.get(
-            id=input.integration_id,
-            kind="slack",
-            integration_id=input.slack_team_id,
-        )
+        integration = require_workspace_integration(input.integration_id, input.slack_team_id)
         slack = SlackIntegration(integration)
         safe_react(slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION)
     except Exception as e:
@@ -363,17 +336,15 @@ def request_untagged_followup_confirmation_activity(
     from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode  # noqa: PLC0415
 
     inputs = coerce_mention_workflow_inputs(inputs)
-    mapping = (
-        SlackThreadTaskMapping.objects.select_related("integration")
-        .filter(integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts)
-        .first()
-    )
-    if mapping is None:
+    mapping = SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts
+    ).first()
+    integration = get_integration(mapping.team_id, mapping.integration_id) if mapping is not None else None
+    if mapping is None or integration is None:
         # The thread lost its mapping mid-run; the forward activity would drop this
         # anyway, and there is nobody left to attribute a prompt to.
         return True
 
-    integration = mapping.integration
     mode = resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id)
     if mode == UntaggedFollowupMode.AUTO:
         return False
