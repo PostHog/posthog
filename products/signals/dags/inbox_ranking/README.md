@@ -238,13 +238,13 @@ Which groups it covers:
 
 Each group carries `<group>_provenance`, `<group>_observed_at` (the moment the value was true in its source) and `<group>_source` (the object or table it came from). A row also carries `batch_id`, `reconstructed_at`, `backfill_schema_version` and `facts_schema_version`. Provenance, best first:
 
-| Provenance | Content group | `already_addressed` |
-|---|---|---|
-| `scoring_time` | the dt=D `inbox_report_scored_facts` row, when it holds every content column | the same row, when the flag is a boolean |
-| `historical` | the dt=D state row of a forward run, read within `HISTORICAL_LAG_LIMIT` of the cutoff | the actionability artefact at the dt=D cutoff, under the rules of `judgment_artefacts_as_of` |
-| `later_snapshot` | the earliest later state row that recorded the columns, up to `LATER_SNAPSHOT_MAX_DAYS`, or a dt=D row that a backfill wrote | not used |
-| `current_approximation` | the report row as it is when the batch is built | the latest actionability artefact when the batch is built, edits included |
-| `missing` | no source, for example a deleted report: every value is null | no usable artefact: null |
+| Provenance              | Content group                                                                                                                | `already_addressed`                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `scoring_time`          | the dt=D `inbox_report_scored_facts` row, when it holds every content column                                                 | the same row, when the flag is a boolean                                                     |
+| `historical`            | the dt=D state row of a forward run, read within `HISTORICAL_LAG_LIMIT` of the cutoff                                        | the actionability artefact at the dt=D cutoff, under the rules of `judgment_artefacts_as_of` |
+| `later_snapshot`        | the earliest later state row that recorded the columns, up to `LATER_SNAPSHOT_MAX_DAYS`, or a dt=D row that a backfill wrote | not used                                                                                     |
+| `current_approximation` | the report row as it is when the batch is built                                                                              | the latest actionability artefact when the batch is built, edits included                    |
+| `missing`               | no source, for example a deleted report: every value is null                                                                 | no usable artefact: null                                                                     |
 
 - **Missing is not zero.** A real empty list is a known 0, counted in Postgres as in the state snapshot. A deleted report, or a source row that names another team than the spine, gives no value.
 - **`current_approximation` can leak the label.** The report can have gained a chart or a new judgment after its outcome, so a model fit on these values can look better offline than it serves. Keep it out of the main read, and report a sensitivity run without it.
