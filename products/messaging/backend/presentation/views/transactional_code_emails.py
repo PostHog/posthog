@@ -32,7 +32,7 @@ from products.messaging.backend.facade.contracts import (
     CodeManagedEmail,
     CodeManagedEmailNotFound,
 )
-from products.messaging.backend.presentation.views.message_templates import require_email_status_read
+from products.messaging.backend.presentation.views.transactional_email_access import require_email_status_read
 from products.workflows.backend.facade.api import (
     WorkflowAccessDenied,
     WorkflowNotFound,

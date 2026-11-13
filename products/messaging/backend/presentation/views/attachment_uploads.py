@@ -41,12 +41,12 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     TOO_MANY_FILES_REASON,
     Reason,
 )
-from products.messaging.backend.presentation.views.message_templates import (
+from products.messaging.backend.presentation.views.refusals import ExplainedRefusal, RequestBodyCapMixin, request_cap
+from products.messaging.backend.presentation.views.transactional_email_access import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     require_email_from_code,
     transactional_email_authorized_by,
 )
-from products.messaging.backend.presentation.views.refusals import ExplainedRefusal, RequestBodyCapMixin, request_cap
 
 logger = structlog.get_logger(__name__)
 
