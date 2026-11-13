@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db import transaction
 
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
@@ -11,6 +13,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.user import User
 from posthog.permissions import AccessControlPermission
 
 from ..facade.api import validate_clustering_filters
@@ -125,7 +128,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     ],
                     ignore_conflicts=True,
                 )
-                request_first_clustering_runs(self.team_id, request.user)
+                request_first_clustering_runs(self.team_id, cast(User, request.user))
         report_user_action(
             request.user,
             "llma clustering enabled changed",
@@ -141,7 +144,9 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         from ..facade.api import clustering_job_progress
 
         return Response(
-            ClusteringJobProgressSerializer(clustering_job_progress(self.team_id, request.user), many=True).data
+            ClusteringJobProgressSerializer(
+                clustering_job_progress(self.team_id, cast(User, request.user)), many=True
+            ).data
         )
 
     @extend_schema(request=ClusteringRetrySerializer, responses={200: ClusteringJobProgressSerializer(many=True)})
@@ -155,7 +160,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(
                 {"detail": "Accept AI data processing before retrying clustering."}, status=status.HTTP_400_BAD_REQUEST
             )
-        request_first_clustering_runs(self.team_id, request.user, serializer.validated_data["job_id"])
+        request_first_clustering_runs(self.team_id, cast(User, request.user), serializer.validated_data["job_id"])
         report_user_action(
             request.user,
             "llma clustering first run retried",
@@ -164,7 +169,9 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
         return Response(
-            ClusteringJobProgressSerializer(clustering_job_progress(self.team_id, request.user), many=True).data
+            ClusteringJobProgressSerializer(
+                clustering_job_progress(self.team_id, cast(User, request.user)), many=True
+            ).data
         )
 
     @extend_schema(responses={200: ClusteringConfigSerializer})
@@ -194,7 +201,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        validate_clustering_filters(self.team_id, request.user, event_filters)
+        validate_clustering_filters(self.team_id, cast(User, request.user), event_filters)
         config, _ = ClusteringConfig.objects.get_or_create(team_id=self.team_id)
         config.event_filters = event_filters
         config.save(update_fields=["event_filters", "updated_at"])

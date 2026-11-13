@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db import IntegrityError, transaction
 
@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.user import User
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -153,7 +154,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .exclude(id=instance.id)
             .update(enabled=False)
         )
-        request_first_clustering_runs(self.team_id, self.request.user)
+        request_first_clustering_runs(self.team_id, cast(User, self.request.user))
 
         report_user_action(
             self.request.user,
@@ -184,7 +185,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         with transaction.atomic():
             instance = serializer.save()
-            request_first_clustering_runs(self.team_id, self.request.user)
+            request_first_clustering_runs(self.team_id, cast(User, self.request.user))
         report_user_action(
             self.request.user,
             "llma clustering job updated",

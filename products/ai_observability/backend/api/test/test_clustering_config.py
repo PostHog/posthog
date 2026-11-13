@@ -139,6 +139,7 @@ class TestClusteringConfigViewSet(APIBaseTest):
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/llm_analytics/clustering_config/progress/").data, []
         )
+        assert run.job is not None
         run.job.event_filters = []
         run.job.save()
         self.assertEqual(
@@ -147,6 +148,7 @@ class TestClusteringConfigViewSet(APIBaseTest):
         run.requested_by = reader
         run.save()
         context = clustering_run_context(ClusteringRunRef(team_id=self.team.id, run_id=str(run.id)))
+        assert context is not None
         self.assertFalse(context.active)
         run.refresh_from_db()
         self.assertEqual(run.status, "canceled")
