@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import type { NavPin } from '@/features/tabs/navPinStore'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { DashboardIcon } from '@/ui/icons/DashboardIcon'
@@ -32,7 +33,6 @@ export const BROWSE_ENTRIES: readonly BrowseEntry[] = ['dashboards', 'insights',
 
 const PINS: Partial<Record<BrowseEntry, NavPin>> = {
     web: 'web_analytics',
-    live: 'live',
     replay: 'replay',
     errors: 'errors',
 }
@@ -83,7 +83,7 @@ export function BrowseEntryRow({ entry, position, enabled, onPress, onMenu }: Br
     const styles = useStyles()
     const menu = useMenuTrigger(entry, onMenu)
     const label = LABELS[entry]
-    const pinnable = enabled && browseEntryPin(entry) !== null
+    const pinnable = NAV_PINS_ENABLED && enabled && browseEntryPin(entry) !== null
     return (
         <GroupFrame position={position}>
             <View ref={menu.ref}>

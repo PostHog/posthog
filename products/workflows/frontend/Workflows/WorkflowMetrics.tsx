@@ -55,6 +55,36 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
         description: 'Total number of events that were triggered',
         color: METRIC_COLORS['Triggered'],
     },
+    email_sandbox_sent: {
+        name: 'Sandbox emails sent',
+        description: 'Emails sent from the sandbox sender',
+        color: METRIC_COLORS['Sent'],
+    },
+    email_sandbox_failed: {
+        name: 'Sandbox emails failed',
+        description: 'Sandbox emails that could not be sent',
+        color: METRIC_COLORS['Failed'],
+    },
+    email_sandbox_blocked: {
+        name: 'Sandbox emails blocked',
+        description: 'Sandbox emails a check stopped, such as a recipient who is not a verified member',
+        color: METRIC_COLORS['Bounce prevented'],
+    },
+    email_sandbox_delivered: {
+        name: 'Sandbox emails delivered',
+        description: 'Sandbox emails the recipient mail server accepted',
+        color: METRIC_COLORS['Delivered'],
+    },
+    email_sandbox_bounced: {
+        name: 'Sandbox emails bounced',
+        description: 'Sandbox emails that bounced',
+        color: METRIC_COLORS['Bounced'],
+    },
+    email_sandbox_complained: {
+        name: 'Sandbox emails marked as spam',
+        description: 'Sandbox emails a recipient marked as spam',
+        color: METRIC_COLORS['Marked as spam'],
+    },
 }
 
 export interface WorkflowMetricsProps extends WorkflowLogicProps {

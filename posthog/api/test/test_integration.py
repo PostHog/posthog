@@ -33,6 +33,7 @@ from requests_oauthlib import OAuth1
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 from structlog.testing import capture_logs
 
 from posthog.api.github_callback.personal_state import usable_personal_github_token
@@ -54,6 +55,7 @@ from posthog.credentials_service.errors import (
 )
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.slack.client import SlackObservabilityHandler
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 from posthog.integrations.testing import fake_integrations_backend
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
@@ -81,6 +83,7 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
+from posthog.models.integration.gitlab import GitLabProject
 from posthog.models.integration.model import integration_model
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -134,6 +137,24 @@ class TestSlackIntegration:
             config={"authed_user": {"id": "test_user_id"}},
             sensitive_config={"access_token": "test-token-123"},
         )
+
+    def test_slack_client_unchanged_without_timeout(self):
+        client = SlackIntegration(self.integration).client
+
+        # Only a caller that passes `timeout_seconds` changes the client; every other caller of
+        # `post_message` keeps slack_sdk's defaults.
+        assert client.timeout == 30
+        assert [type(handler) for handler in client.retry_handlers] == [
+            SlackObservabilityHandler,
+            ConnectionErrorRetryHandler,
+        ]
+
+    def test_slack_client_with_timeout_drops_the_connection_retry(self):
+        client = SlackIntegration(self.integration, timeout_seconds=4).client
+
+        assert client.timeout == 4
+        assert [type(handler) for handler in client.retry_handlers] == [SlackObservabilityHandler]
+        assert not any(isinstance(handler, ConnectionErrorRetryHandler) for handler in client.retry_handlers)
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_list_channels_with_access(self, mock_webclient_class):
@@ -2187,6 +2208,51 @@ class TestIntegrationAPIKeyAccess:
         assert response.json() == {"teams": [{"id": "team-id", "name": "Engineering"}]}
         mock_ensure_token_valid.assert_called_once_with(linear_integration)
         mock_list_teams.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        "lookup, expected_status, expected_body",
+        [
+            (requests.Timeout(), status.HTTP_400_BAD_REQUEST, "Could not connect to GitLab. Try again."),
+            (
+                GitLabProject(
+                    id=7, path_with_namespace="acme/app", web_url="https://gitlab.com/acme/app", default_branch="main"
+                ),
+                status.HTTP_200_OK,
+                "acme/app",
+            ),
+        ],
+        ids=["transport_failure", "connected_project_only"],
+    )
+    @patch("posthog.api.integration.GitLabIntegration.get_pushable_project")
+    def test_gitlab_projects(self, mock_get_project, lookup, expected_status, expected_body, client: HttpClient):
+        if isinstance(lookup, Exception):
+            mock_get_project.side_effect = lookup
+        else:
+            mock_get_project.return_value = lookup
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/app"},
+            sensitive_config={"access_token": "token123"},
+        )
+        key_value = "test_key_gitlab_projects"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        with patch("posthog.api.integration.GitLabIntegration.list_projects") as mock_list_projects:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{integration.id}/gitlab_projects/",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == expected_status
+        assert expected_body in str(response.json())
+        mock_get_project.assert_called_once_with("acme/app")
+        mock_list_projects.assert_not_called()
 
     @pytest.mark.parametrize(
         "kind,url_suffix,list_method,expected_call",
@@ -8619,3 +8685,93 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         assert IntegrationManager.any.exists(self.team.id, external_id="L1") == (expected_status == 400)
         if expected_status == 400:
             assert "data warehouse sources" in json.dumps(response.json())
+
+
+class TestOauthTokenRefreshFailedResponse(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("linkedin-ads", "linkedin_ads_accounts"),
+            ("google-ads", "google_accessible_accounts"),
+        ]
+    )
+    def test_picker_answers_with_a_stable_code_when_the_token_cannot_be_refreshed(
+        self, kind: str, picker_path: str
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=kind,
+            integration_id="account-1",
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "access", "refresh_token": "refresh"},
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/integrations/{integration.id}/{picker_path}/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "integration_token_refresh_failed"
+
+
+@override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+@patch("tenacity.nap.time.sleep")
+@patch("posthog.models.integration.google_ads.requests.request")
+class TestGoogleAdsConversionActions(APIBaseTest):
+    def _get_conversion_actions(self) -> Any:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            integration_id="google-ads-1",
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "access", "refresh_token": "refresh"},
+        )
+        return self.client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/google_conversion_actions/",
+            {"customerId": "1234567890", "parentId": "6501924158"},
+        )
+
+    @staticmethod
+    def _search_stream() -> MagicMock:
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [
+            {
+                "results": [
+                    {
+                        "conversionAction": {
+                            "id": "111",
+                            "name": "Purchase",
+                            "resourceName": "customers/1234567890/conversionActions/111",
+                        }
+                    }
+                ]
+            }
+        ]
+        return stream
+
+    @parameterized.expand([("first_attempt", False), ("after_one_read_timeout", True)])
+    def test_lists_conversion_actions(
+        self, mock_request: MagicMock, _sleep: MagicMock, _name: str, first_attempt_times_out: bool
+    ) -> None:
+        timeouts = [requests.exceptions.ReadTimeout("read timed out")] if first_attempt_times_out else []
+        mock_request.side_effect = [*timeouts, self._search_stream()]
+
+        response = self._get_conversion_actions()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "conversionActions": [
+                {"id": "111", "name": "Purchase", "resourceName": "customers/1234567890/conversionActions/111"}
+            ]
+        }
+
+    @patch("posthog.api.integration.capture_exception")
+    def test_asks_the_user_to_try_again_when_every_attempt_times_out(
+        self, mock_capture_exception: MagicMock, mock_request: MagicMock, _sleep: MagicMock
+    ) -> None:
+        timeout = requests.exceptions.ReadTimeout("read timed out")
+        mock_request.side_effect = timeout
+
+        response = self._get_conversion_actions()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Google Ads did not respond in time. Try again."
+        mock_capture_exception.assert_called_once_with(timeout)

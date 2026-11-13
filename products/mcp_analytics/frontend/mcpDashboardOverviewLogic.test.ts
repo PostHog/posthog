@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { MCPDashboardQuery, MCPDashboardSection } from '~/queries/schema/schema-general'
@@ -19,6 +20,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
 import { mcpLeaderboardHomeLogic } from './leaderboardHome/mcpLeaderboardHomeLogic'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
     type ActivityRow,
     type BucketRow,
@@ -979,6 +981,57 @@ describe('mcpDashboardOverviewLogic', () => {
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         }
+
+        const TOGGLE = (): void => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
+        const TEAM_DEFAULT = (): void =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                test_account_filters_default_checked: true,
+            })
+        it.each([
+            ['the test-account toggle', TOGGLE, urls.mcpAnalyticsDashboard(), {}],
+            ["the team's test-account default", TEAM_DEFAULT, urls.mcpAnalyticsDashboard(), {}],
+            [
+                'the test-account toggle on a route with another date',
+                TOGGLE,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
+            ],
+            [
+                "the team's test-account default on a route with another date",
+                TEAM_DEFAULT,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
+            ],
+        ])('reloads the dashboard once on %s', async (_label, change, path, searchParams) => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.push(path, searchParams)
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(queriesSince(callsBefore).map((query) => query.filterTestAccounts)).toEqual([true])
+        })
+
+        it.each([
+            ['no URL params', {}],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+            ],
+        ])('loads the dashboard once when mounting with %s', async (_label, searchParams) => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), searchParams)
+
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockApi.query).toHaveBeenCalledTimes(1)
+        })
 
         it.each([
             { label: 'shared filters', params: {}, dateFrom: '-7d' },

@@ -2,8 +2,7 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconInsightFunnels, IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -11,31 +10,19 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
-import {
-    INSIGHT_TYPES_METADATA,
-    QUERY_TYPES_METADATA,
-    isInsightTypeCreatable,
-} from 'scenes/saved-insights/insightTypesMetadata'
-import { urls } from 'scenes/urls'
-
-import { NodeKind } from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
 
 import { AddSavedInsightsToDashboard } from 'products/product_analytics/frontend/insights/savedInsights/AddSavedInsightsToDashboard'
 
 import { addInsightToDashboardLogic } from '../../addInsightToDashboardModalLogic'
-
-const QUICK_CREATE_TYPES = [
-    { type: InsightType.TRENDS, icon: IconInsightTrends, label: 'Trend' },
-    { type: InsightType.FUNNELS, icon: IconInsightFunnels, label: 'Funnel' },
-    { type: InsightType.RETENTION, icon: IconInsightRetention, label: 'Retention' },
-]
+import { addInsightToDashboardCreateOptions } from './addInsightToDashboardCreateOptions'
+import { QuillAddInsightToDashboardModal } from './QuillAddInsightToDashboardModal'
 
 export function AddInsightToDashboardModal(): JSX.Element {
     const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
     const { dashboard, newTileGroupKey } = useValues(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleClose = (): void => {
         posthog.capture('insight dashboard modal - closed')
@@ -49,17 +36,25 @@ export function AddInsightToDashboardModal(): JSX.Element {
         handleClose()
     }
 
-    const additionalTypes = Object.entries(INSIGHT_TYPES_METADATA).filter(
-        ([type, meta]) =>
-            isInsightTypeCreatable(meta, featureFlags) &&
-            type !== InsightType.JSON &&
-            type !== InsightType.HOG &&
-            !QUICK_CREATE_TYPES.some((qt) => qt.type === type)
-    )
+    const { quickCreate, moreCreate } = addInsightToDashboardCreateOptions({
+        dashboardId: dashboard?.id,
+        tileGroupKey: newTileGroupKey,
+        featureFlags,
+    })
 
-    const metricsEnabled =
-        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
-    const MetricsIcon = QUERY_TYPES_METADATA[NodeKind.MetricsQuery].icon
+    if (todayRailNav) {
+        return (
+            <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
+                <QuillAddInsightToDashboardModal
+                    isOpen={addInsightToDashboardModalVisible}
+                    onClose={handleClose}
+                    onCreateClicked={handleNewInsightClicked}
+                    quickCreate={quickCreate}
+                    moreCreate={moreCreate}
+                />
+            </BindLogic>
+        )
+    }
 
     return (
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
@@ -80,19 +75,15 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2 sm:ml-auto flex-wrap pr-0.5">
-                                {QUICK_CREATE_TYPES.map(({ type, icon: Icon, label }) => (
+                                {quickCreate.map(({ type, icon: Icon, label, url, dataAttr, tooltip }) => (
                                     <LemonButton
                                         key={type}
                                         type="primary"
                                         size="small"
-                                        icon={<Icon />}
-                                        to={urls.insightNew({
-                                            type: type,
-                                            dashboardId: dashboard?.id,
-                                            tileGroupKey: newTileGroupKey,
-                                        })}
-                                        tooltip={INSIGHT_TYPES_METADATA[type]?.description}
-                                        data-attr={`quick-create-${type.toLowerCase()}`}
+                                        icon={Icon ? <Icon /> : undefined}
+                                        to={url}
+                                        tooltip={tooltip}
+                                        data-attr={dataAttr}
                                         onClick={() => handleNewInsightClicked(type)}
                                     >
                                         {label}
@@ -103,49 +94,19 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                     onClickOutside={() => toggleShowMoreInsightTypes()}
                                     overlay={
                                         <div className="p-2 space-y-1 min-w-48">
-                                            {additionalTypes.map(([type, metadata]) => {
-                                                const Icon = metadata.icon
-                                                const typeUrl =
-                                                    type === InsightType.SQL
-                                                        ? urls.sqlEditor({
-                                                              dashboard: dashboard?.id,
-                                                              tileGroupKey: newTileGroupKey,
-                                                          })
-                                                        : urls.insightNew({
-                                                              type: type as InsightType,
-                                                              dashboardId: dashboard?.id,
-                                                              tileGroupKey: newTileGroupKey,
-                                                          })
-                                                return (
-                                                    <LemonButton
-                                                        key={type}
-                                                        type="tertiary"
-                                                        fullWidth
-                                                        icon={Icon ? <Icon /> : undefined}
-                                                        to={typeUrl}
-                                                        data-attr={`create-${type.toLowerCase()}`}
-                                                        onClick={() => handleNewInsightClicked(type)}
-                                                    >
-                                                        {metadata.name}
-                                                    </LemonButton>
-                                                )
-                                            })}
-                                            {metricsEnabled && (
+                                            {moreCreate.map(({ type, icon: Icon, label, url, dataAttr }) => (
                                                 <LemonButton
+                                                    key={type}
                                                     type="tertiary"
                                                     fullWidth
-                                                    icon={<MetricsIcon />}
-                                                    to={urls.insightNew({
-                                                        type: InsightType.METRICS,
-                                                        dashboardId: dashboard?.id,
-                                                        tileGroupKey: newTileGroupKey,
-                                                    })}
-                                                    data-attr="create-metrics"
-                                                    onClick={() => handleNewInsightClicked(InsightType.METRICS)}
+                                                    icon={Icon ? <Icon /> : undefined}
+                                                    to={url}
+                                                    data-attr={dataAttr}
+                                                    onClick={() => handleNewInsightClicked(type)}
                                                 >
-                                                    {QUERY_TYPES_METADATA[NodeKind.MetricsQuery].name}
+                                                    {label}
                                                 </LemonButton>
-                                            )}
+                                            ))}
                                         </div>
                                     }
                                 >
