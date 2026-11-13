@@ -258,6 +258,10 @@
                 }
             }
         },
+        "DomainConnectSenderIdSchema": {
+            "type": "number",
+            "description": "ID of the email sender integration, the `id` from integrations-email-create or integrations-list."
+        },
         "EmailSenderConfigSchema": {
             "type": "object",
             "properties": {
