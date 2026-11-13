@@ -109,7 +109,6 @@ interface CalendarProps {
     startDate: Date
     endDate: Date
     minDate?: Date
-    /** No max means no upper limit */
     maxDate?: Date
     onSelect: (day: Date) => void
     onViewChange: (month: Date) => void
@@ -154,7 +153,6 @@ export function Calendar({
     const minYearVal = getYear(floorDate)
     const minMonthAtMinYear = getMonth(floorDate)
     const floorKey = minYearVal * 12 + minMonthAtMinYear
-    // Without a max, the month list runs a year past the latest month in view
     const ceilDate =
         maxDate ?? new Date(Math.max(getYear(new Date()), getYear(viewing), getYear(siblingViewing ?? viewing)) + 1, 11, 1)
     const ceilKey = maxDate ? getYear(maxDate) * 12 + getMonth(maxDate) : Infinity

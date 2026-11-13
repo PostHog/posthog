@@ -20,10 +20,9 @@ export const DATE_FORMAT_LABELS: Record<DateFormatOrder, string> = {
 
 const PAD_2 = { minimumIntegerDigits: 2 } as const
 
-export // The year segment holds two digits, so the end of 2099 is the latest date it can show
 const TWO_DIGIT_YEAR_CEILING = new Date(2099, 11, 31)
 
-interface SegmentedDateInputProps {
+export interface SegmentedDateInputProps {
     date: Date
     maxDate?: Date
     onChange: (date: Date) => void

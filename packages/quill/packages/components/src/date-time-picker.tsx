@@ -50,7 +50,6 @@ export interface DateTimePickerProps {
     onApply: (value: DateTimeValue) => void
     onCancel?: () => void
     minDate?: Date
-    /** Latest selectable day. Defaults to today; `null` means no upper limit. */
     maxDate?: Date | null
     dateFormat?: DateFormatOrder
     weekStartsOn?: Day
@@ -96,7 +95,6 @@ export function DateTimePicker({
     const [rightViewing, setRightViewing] = React.useState<Date>(value.end)
     const [leftViewing, setLeftViewing] = React.useState<Date>(subMonths(value.end, 1))
 
-    // With time shown, a clicked day keeps the endpoint's time of day
     const onDayAt = (date: Date, time: Date): Date =>
         new Date(date.getFullYear(), date.getMonth(), date.getDate(), time.getHours(), time.getMinutes(), time.getSeconds())
 
