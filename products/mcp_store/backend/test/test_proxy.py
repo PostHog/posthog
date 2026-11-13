@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import ipaddress
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
+from posthog.models.oauth import OAuthApplication, find_oauth_access_token, mint_oauth_access_token
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import (
@@ -1143,6 +1145,47 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         self.client.force_login(other_user)
         response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_teammate_on_shared_posthog_connection_gets_a_credential_limited_to_the_project(self, mock_client_cls):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
+        application = OAuthApplication.objects.create(
+            name="MCP store client",
+            client_id="mcp-store-proxy-test",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://app.example.com/callback",
+            algorithm="RS256",
+        )
+        owner_token = mint_oauth_access_token(
+            application=application, user=owner, scope="project:read", lifetime=timedelta(hours=1), scoped_teams=[]
+        ).token
+        installation = self._create_installation(
+            self.team, owner, scope="shared", sensitive_configuration={"api_key": owner_token}
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data=self.JSON_RPC_BODY,
+            format="json",
+            headers={"x-posthog-project-id": "999", "x-posthog-organization-id": "other-org"},
+        )
+
+        assert response.status_code == 200
+        _, kwargs = mock_client.build_request.call_args
+        forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
+        forwarded_token = forwarded["authorization"].removeprefix("Bearer ")
+        assert forwarded_token != owner_token
+        forwarded_row = find_oauth_access_token(forwarded_token)
+        assert forwarded_row is not None and forwarded_row.scoped_teams == [self.team.id]
+        assert forwarded["x-posthog-project-id"] == str(self.team.id)
+        assert "x-posthog-organization-id" not in forwarded
 
     def test_proxy_rejects_get_and_other_http_methods(self):
         installation = self._create_installation(self.team, self.user)

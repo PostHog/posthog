@@ -1366,7 +1366,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         try:
-            result = call_upstream_tool(installation, tool_name, arguments)
+            result = call_upstream_tool(
+                installation, tool_name, arguments, borrowed=installation.user_id != request.user.id
+            )
         except (ToolCallError, ToolsFetchError) as exc:
             logger.warning(
                 "mcp_store call_tool failed",

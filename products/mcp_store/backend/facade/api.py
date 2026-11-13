@@ -1056,7 +1056,7 @@ def call_member_server_tool(
         return ConnectorCallOutcome(status="blocked", detail=f"Tool '{tool_name}' is turned off by team policy.")
 
     try:
-        result = call_upstream_tool(installation, tool_name, arguments)
+        result = call_upstream_tool(installation, tool_name, arguments, borrowed=installation.user_id != user_id)
     except (ToolCallError, ToolsFetchError) as exc:
         logger.warning(
             "mcp_store member tool call failed",

@@ -20,6 +20,7 @@ from posthog.redis import get_client
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 
+from .borrowed_credential import BorrowedCredentialRefused
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .oauth_credentials import oauth_credentials_source_is_allowed
@@ -183,6 +184,8 @@ def call_upstream_tool(
     installation: MCPServerInstallation,
     tool_name: str,
     arguments: dict[str, Any],
+    *,
+    borrowed: bool,
 ) -> dict[str, Any]:
     """Invoke one tool on the upstream MCP server and return its ``result`` object.
 
@@ -200,7 +203,10 @@ def call_upstream_tool(
 
     _ensure_valid_token_for_fetch(installation)
 
-    auth_headers = build_upstream_auth_headers(installation)
+    try:
+        auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
+    except BorrowedCredentialRefused as exc:
+        raise ToolCallError(str(exc)) from exc
     base_headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
