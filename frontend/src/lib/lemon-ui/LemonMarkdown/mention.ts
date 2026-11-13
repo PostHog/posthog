@@ -3,7 +3,11 @@ import { findAndReplace } from 'mdast-util-find-and-replace'
 
 import { RichContentNodeType } from 'lib/components/RichContentEditor/types'
 
-const mentionRegex = new RegExp(/(?:^|\s)@(member|role):(\d+)/, 'gi')
+// A member id is a user id; a role id is a role uuid.
+const mentionRegex = new RegExp(
+    /(?:^|\s)@(?:(member):(\d+)|(role):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))/,
+    'gi'
+)
 
 type MentionNode =
     | {
@@ -20,7 +24,15 @@ type MentionNode =
       }
 
 export default function remarkMentions() {
-    const replaceMention = (value: string, mentionType: string, id: string): MentionNode[] => {
+    const replaceMention = (
+        value: string,
+        memberType: string | undefined,
+        memberId: string | undefined,
+        roleType: string | undefined,
+        roleId: string | undefined
+    ): MentionNode[] => {
+        const mentionType = (memberType ?? roleType ?? '').toLowerCase()
+        const id = memberId ?? roleId
         const nodes = []
 
         // Separate leading white space

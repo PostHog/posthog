@@ -14,6 +14,7 @@ import {
 import type { ScoutNoteApi, SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction, captureScoutAction } from '../inboxAnalytics'
+import { noteMentionCounts } from '../utils/reportNotes'
 import { prettifyScoutSkillName, scoutDisplayName } from '../utils/scoutRunsWindow'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxReportDetailLogic } from './inboxReportDetailLogic'
@@ -299,7 +300,11 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
                     report: detailLogic?.props.report,
                     actionType: 'add_note',
                     surface: 'detail_pane',
-                    extra: { sent_to_scouts: scoutTarget !== null, note_target: noteTarget },
+                    extra: {
+                        sent_to_scouts: scoutTarget !== null,
+                        note_target: noteTarget,
+                        ...noteMentionCounts(content),
+                    },
                 })
                 if (scoutTarget !== null) {
                     // Scout surfaces count notes left from every surface through this event.

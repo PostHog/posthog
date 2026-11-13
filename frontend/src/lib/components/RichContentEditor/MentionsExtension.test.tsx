@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { act, render } from '@testing-library/react'
+import { JSONContent, generateText } from '@tiptap/core'
 import { Editor } from '@tiptap/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -11,7 +12,9 @@ import { createRef } from 'react'
 import { useMocks } from '~/mocks/jest'
 import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
+import { RoleType } from '~/types'
 
+import { DEFAULT_EXTENSIONS, serializationOptions } from './LemonRichContentEditor'
 import { Mentions } from './MentionsExtension'
 
 type MentionsHandle = { onKeyDown: (event: KeyboardEvent) => boolean }
@@ -48,7 +51,7 @@ function createMockEditor(): { editor: Editor; run: jest.Mock; insertContentAt: 
     return { editor: { chain } as unknown as Editor, run, insertContentAt }
 }
 
-function renderMentions(editor: Editor, onClose: () => void): React.RefObject<MentionsHandle> {
+function renderMentions(editor: Editor, onClose: () => void, roles?: RoleType[]): React.RefObject<MentionsHandle> {
     const ref = createRef<MentionsHandle>()
     render(
         <Provider>
@@ -58,6 +61,7 @@ function renderMentions(editor: Editor, onClose: () => void): React.RefObject<Me
                 range={{ from: 0, to: 1 }}
                 query=""
                 onClose={onClose}
+                roles={roles}
             />
         </Provider>
     )
@@ -151,5 +155,24 @@ describe('Mentions', () => {
 
         expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key }))).toBe(true)
         expect(editor.chain).not.toHaveBeenCalled()
+    })
+
+    it('inserts a role mention that the note text carries as a role token', () => {
+        const role = {
+            id: '0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d',
+            name: 'Self-driving',
+            members: [],
+        } as unknown as RoleType
+        const { editor, insertContentAt } = createMockEditor()
+        const ref = renderMentions(editor, jest.fn(), [role])
+
+        act(() => {
+            ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }))
+        })
+
+        const inserted = (insertContentAt.mock.calls[0] as unknown[])[1] as JSONContent[]
+        expect(inserted).toEqual([expect.objectContaining({ attrs: { id: role.id, kind: 'role' } })])
+        const doc: JSONContent = { type: 'doc', content: [{ type: 'paragraph', content: inserted }] }
+        expect(generateText(doc, DEFAULT_EXTENSIONS, serializationOptions)).toBe(`@role:${role.id}`)
     })
 })

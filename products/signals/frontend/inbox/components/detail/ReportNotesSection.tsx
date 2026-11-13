@@ -1,4 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
@@ -13,6 +18,15 @@ import { ReportNoteRow } from './ReportNoteRow'
 export function ReportNotesSection({ report }: { report: SignalReport }): JSX.Element {
     const { reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const notes = reportNotesFromArtefacts(reportArtefacts ?? [])
+    const mentionsEnabled = useFeatureFlag('SIGNALS_REPORT_NOTE_MENTIONS')
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
+
+    // Member chips in the notes and the mention picker both read the organization's members.
+    useEffect(() => {
+        if (mentionsEnabled) {
+            ensureAllMembersLoaded()
+        }
+    }, [mentionsEnabled, ensureAllMembersLoaded])
 
     return (
         <div className="mb-4 flex flex-col gap-2" data-attr="inbox-report-notes">

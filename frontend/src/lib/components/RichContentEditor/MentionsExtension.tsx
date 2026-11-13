@@ -4,14 +4,16 @@ import Suggestion from '@tiptap/suggestion'
 import { useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
+import { IconPeople } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { isKeyOf } from 'lib/utils/guards'
+import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
 import { membersLogic } from '~/models/membersLogic'
-import { OrganizationMemberType } from '~/types'
+import { OrganizationMemberType, RoleType } from '~/types'
 
 import { EditorRange, RichContentNodeType } from './types'
 
@@ -21,19 +23,24 @@ type MentionsProps = {
     decorationNode?: any
     onClose?: () => void
     editor: Editor
+    /** Roles to offer after the members. Omit to offer members only. */
+    roles?: RoleType[]
 }
 
 type MentionsPopoverProps = MentionsProps & {
     visible: boolean
     children?: JSX.Element
+    includeRoles?: boolean
 }
+
+type MentionOption = { kind: 'member'; member: OrganizationMemberType } | { kind: 'role'; role: RoleType }
 
 type MentionsRef = {
     onKeyDown: (event: KeyboardEvent) => boolean
 }
 
 export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCommands(
-    { range, onClose, query, editor }: MentionsProps,
+    { range, onClose, query, editor, roles }: MentionsProps,
     ref
 ): JSX.Element | null {
     const { meFirstMembers } = useValues(membersLogic)
@@ -48,20 +55,24 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
         })
     }, [meFirstMembers])
 
-    const filteredMembers = useMemo(() => {
-        if (!query) {
-            return meFirstMembers
-        }
-        return fuse.search(query).map((result) => result.item)
-    }, [query, fuse, meFirstMembers])
+    const rolesFuse = useMemo(() => createFuse(roles ?? [], { keys: ['name'] }), [roles])
+
+    const filteredOptions = useMemo((): MentionOption[] => {
+        const members = query ? fuse.search(query).map((result) => result.item) : meFirstMembers
+        const matchingRoles = query ? rolesFuse.search(query).map((result) => result.item) : (roles ?? [])
+        return [
+            ...members.map((member): MentionOption => ({ kind: 'member', member })),
+            ...matchingRoles.map((role): MentionOption => ({ kind: 'role', role })),
+        ]
+    }, [query, fuse, meFirstMembers, rolesFuse, roles])
 
     useEffect(() => {
         setSelectedIndex(0)
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const execute = async (member: OrganizationMemberType | undefined): Promise<void> => {
-        if (editor && member) {
+    const execute = async (option: MentionOption | undefined): Promise<void> => {
+        if (editor && option) {
             editor
                 .chain()
                 .focus()
@@ -69,9 +80,10 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
                 .insertContentAt(range.from, [
                     {
                         type: RichContentNodeType.Mention,
-                        attrs: {
-                            id: member.user.id,
-                        },
+                        attrs:
+                            option.kind === 'role'
+                                ? { id: option.role.id, kind: 'role' }
+                                : { id: option.member.user.id },
                     },
                 ])
                 .run()
@@ -81,17 +93,17 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     }
 
     const onPressEnter = (): boolean => {
-        const member = filteredMembers[selectedIndex]
+        const option = filteredOptions[selectedIndex]
         // No match (e.g. members still loading or no results) — let the editor
         // handle Enter normally instead of swallowing it.
-        if (!member) {
+        if (!option) {
             return false
         }
-        void execute(member)
+        void execute(option)
         return true
     }
     const onPressUp = (): boolean => {
-        const count = filteredMembers.length
+        const count = filteredOptions.length
         if (count === 0) {
             return true
         }
@@ -99,7 +111,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
         return true
     }
     const onPressDown = (): boolean => {
-        const count = filteredMembers.length
+        const count = filteredOptions.length
         if (count === 0) {
             return true
         }
@@ -122,7 +134,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
             return false
         },
         // oxlint-disable-next-line exhaustive-deps
-        [selectedIndex, selectedHorizontalIndex, filteredMembers]
+        [selectedIndex, selectedHorizontalIndex, filteredOptions]
     )
 
     // Expose the keydown handler to the tiptap extension
@@ -134,36 +146,60 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
 
     return (
         <div className="deprecated-space-y-px">
-            {filteredMembers.map((member, index) => (
-                <LemonButton
-                    key={member.id}
-                    fullWidth
-                    icon={<ProfilePicture user={member.user} size="sm" />}
-                    active={index === selectedIndex}
-                    onClick={() => void execute(member)}
-                >
-                    <span className="ph-no-capture">{`${member.user.first_name} <${member.user.email}>`}</span>
-                </LemonButton>
-            ))}
+            {filteredOptions.map((option, index) =>
+                option.kind === 'member' ? (
+                    <LemonButton
+                        key={option.member.id}
+                        fullWidth
+                        icon={<ProfilePicture user={option.member.user} size="sm" />}
+                        active={index === selectedIndex}
+                        onClick={() => void execute(option)}
+                    >
+                        <span className="ph-no-capture">{`${option.member.user.first_name} <${option.member.user.email}>`}</span>
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        key={option.role.id}
+                        fullWidth
+                        icon={<IconPeople />}
+                        active={index === selectedIndex}
+                        onClick={() => void execute(option)}
+                    >
+                        <span className="ph-no-capture">{option.role.name}</span>
+                    </LemonButton>
+                )
+            )}
 
-            {filteredMembers.length === 0 && (
+            {filteredOptions.length === 0 && (
                 <div className="text-secondary p-1">
-                    No member matching <code>@{query}</code>
+                    No {roles ? 'member or role' : 'member'} matching <code>@{query}</code>
                 </div>
             )}
         </div>
     )
 })
 
+// Mounts rolesLogic only where roles are offered, so a members-only editor never loads them.
+const MentionsWithRoles = forwardRef<MentionsRef, MentionsProps>(function MentionsWithRoles(props, ref) {
+    const { roles } = useValues(rolesLogic)
+    return <Mentions ref={ref} {...props} roles={roles} />
+})
+
 const MentionsPopover = forwardRef<MentionsRef, MentionsPopoverProps>(function MentionsPopover(
-    { visible = true, decorationNode, children, onClose, ...props }: MentionsPopoverProps,
+    { visible = true, decorationNode, children, onClose, includeRoles, ...props }: MentionsPopoverProps,
     ref
 ): JSX.Element | null {
     return (
         <Popover
             placement="bottom-start"
             fallbackPlacements={['top-start', 'right-start']}
-            overlay={<Mentions ref={ref} onClose={onClose} {...props} />}
+            overlay={
+                includeRoles ? (
+                    <MentionsWithRoles ref={ref} onClose={onClose} {...props} />
+                ) : (
+                    <Mentions ref={ref} onClose={onClose} {...props} />
+                )
+            }
             referenceElement={decorationNode}
             visible={visible}
             onClickOutside={onClose}
@@ -175,10 +211,15 @@ const MentionsPopover = forwardRef<MentionsRef, MentionsPopoverProps>(function M
 
 const MentionsPluginKey = new PluginKey('mentions')
 
-export const MentionsExtension = Extension.create({
+export const MentionsExtension = Extension.create<{ includeRoles: boolean }>({
     name: 'mentions',
 
+    addOptions() {
+        return { includeRoles: false }
+    },
+
     addProseMirrorPlugins() {
+        const includeRoles = this.options.includeRoles
         return [
             Suggestion({
                 pluginKey: MentionsPluginKey,
@@ -191,13 +232,13 @@ export const MentionsExtension = Extension.create({
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(MentionsPopover, {
-                                props: props,
+                                props: { ...props, includeRoles },
                                 editor: props.editor,
                             })
                         },
 
                         onUpdate(props) {
-                            renderer.updateProps(props)
+                            renderer.updateProps({ ...props, includeRoles })
 
                             if (!props.clientRect) {
                                 return

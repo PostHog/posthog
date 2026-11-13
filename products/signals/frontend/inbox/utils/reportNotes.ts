@@ -28,3 +28,11 @@ export function isPersonReportNote(artefact: SignalReportArtefact): boolean {
 export function reportNotesFromArtefacts(artefacts: SignalReportArtefact[]): SignalReportArtefact[] {
     return artefacts.filter(isPersonReportNote).sort((a, b) => a.created_at.localeCompare(b.created_at))
 }
+
+/** How many people and roles a note mentions, for analytics. Counts tokens, never names. */
+export function noteMentionCounts(text: string): { mention_count: number; role_mention_count: number } {
+    return {
+        mention_count: new Set(text.match(/(?<!\S)@member:\d+/g)).size,
+        role_mention_count: new Set(text.match(/(?<!\S)@role:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi)).size,
+    }
+}
