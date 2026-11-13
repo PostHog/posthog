@@ -14,7 +14,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -270,42 +270,56 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     return runtime_by_public_id(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
 
 
+class PlatformHistoryUnavailable(APIException):
+    status_code = 503
+    default_detail = "Couldn't load alert history. Try again in a minute."
+    default_code = "platform_history_unavailable"
+
+
+def _read_platform_history[T](read: Callable[[], T]) -> T:
+    # The logs rows stopped moving at the cutover, so an error is a better answer than their stale history.
+    try:
+        return read()
+    except Exception as error:
+        capture_exception(error)
+        raise PlatformHistoryUnavailable() from error
+
+
 def _platform_history_of(
     alerts: list[LogsAlertConfiguration], window: tuple[datetime, datetime]
-) -> dict[UUID, PlatformAlertHistory] | None:
-    """None when ClickHouse fails. The logs row then stands in, because a stale timeline is a
-    better answer than a failed list."""
+) -> dict[UUID, PlatformAlertHistory]:
+    """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
     owned = [alert for alert in alerts if alert.platform_owned]
     if not owned:
         return {}
-    try:
-        return history_by_public_id(
+    return _read_platform_history(
+        lambda: history_by_public_id(
             team_id=owned[0].team_id,
             public_ids=[alert.id for alert in owned],
             since=window[0],
             until=window[1],
         )
-    except Exception as error:
-        capture_exception(error)
-        return None
+    )
 
 
 def _platform_control_of(
     alerts: list[LogsAlertConfiguration], window: tuple[datetime, datetime]
-) -> dict[UUID, PlatformControlTimeline] | None:
-    """None when ClickHouse fails. The logs rows then stand in, as in `_platform_history_of`."""
+) -> dict[UUID, PlatformControlTimeline]:
+    """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
     owned = [alert for alert in alerts if alert.platform_owned]
     if not owned:
         return {}
-    try:
-        return platform_control_timelines(
+    return _read_platform_history(
+        lambda: platform_control_timelines(
             team_id=owned[0].team_id, alert_ids=[alert.id for alert in owned], since=window[0], until=window[1]
         )
-    except Exception as error:
-        capture_exception(error)
-        return None
+    )
 
 
+# Set by the viewset for a response to a write that has committed. A history read that fails there must not
+# turn the committed write into an error, because a client that retries a create would create a second alert.
+_HISTORY_OPTIONAL_CONTEXT_KEY: Final = "platform_history_optional"
+_WRITE_ACTIONS: Final = frozenset({"create", "update", "partial_update", "reset"})
 # Set by the list serializer, whose alerts reach the child serializer already shown from their copies.
 _COPIES_SHOWN_CONTEXT_KEY: Final = "platform_copies_shown"
 _ROW_ANNOTATIONS: Final = ("_state_timeline_events", "_latest_error_message", "_pre_window_toggle_kind")
@@ -824,17 +838,22 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
 
-        histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY, _NOT_ANNOTATED)
         window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
-        if histories is _NOT_ANNOTATED:
-            histories = _platform_history_of([instance], window)
-        if histories is None:
+        try:
+            histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY)
+            if histories is None:
+                histories = _platform_history_of([instance], window)
+            controls = self.context.get(_PLATFORM_CONTROL_CONTEXT_KEY)
+            if controls is None:
+                controls = _platform_control_of([instance], window)
+        except PlatformHistoryUnavailable:
+            if not self.context.get(_HISTORY_OPTIONAL_CONTEXT_KEY):
+                raise
+            # An empty timeline rather than the logs rows' stale one. The next read shows the error.
+            data["state_timeline"] = []
             return data
-        history = cast(dict[UUID, PlatformAlertHistory], histories).get(instance.id)
-        controls = self.context.get(_PLATFORM_CONTROL_CONTEXT_KEY, _NOT_ANNOTATED)
-        if controls is _NOT_ANNOTATED:
-            controls = _platform_control_of([instance], window)
-        control = cast(dict[UUID, PlatformControlTimeline], controls).get(instance.id) if controls is not None else None
+        history = histories.get(instance.id)
+        control = controls.get(instance.id)
         data["state_timeline"] = self._platform_state_timeline(instance, history, control, runtime.state, window)
         # With no platform check in the window, the logs row is the newest check anyone made.
         if history is not None:
@@ -1557,8 +1576,8 @@ def _with_platform_history(
     `rows_needed` is the end of the requested page, because a merged page needs that many rows
     from each source.
 
-    Returns `events` unchanged for an alert the logs stack owns, and when ClickHouse fails, because
-    the logs rows are a better answer than a failed list.
+    Returns `events` unchanged for an alert the logs stack owns. Raises `PlatformHistoryUnavailable`
+    when ClickHouse fails.
     """
     if not alert.platform_owned:
         return events
@@ -1570,25 +1589,25 @@ def _with_platform_history(
     logs_events = events
     if reads_checks:
         logs_events = logs_events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
-    try:
-        checks = (
-            platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
-            if reads_checks and cutover_at is not None
-            else None
+    checks = (
+        _read_platform_history(
+            lambda: platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
         )
-        changes = (
-            platform_control_rows(
+        if reads_checks and cutover_at is not None
+        else None
+    )
+    changes = (
+        _read_platform_history(
+            lambda: platform_control_rows(
                 team_id=alert.team_id,
                 alert_id=alert.id,
                 kinds=PLATFORM_CONTROL_KINDS if kind is None else [kind],
                 limit=rows_needed,
             )
-            if reads_changes
-            else None
         )
-    except Exception as error:
-        capture_exception(error)
-        return events
+        if reads_changes
+        else None
+    )
     if (reads_checks and checks is None) or (reads_changes and changes is None):
         return events
     if changes is not None and changes.oldest_at is not None:
@@ -1701,6 +1720,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["state_timeline_window"] = (
             getattr(self, "_state_timeline_window", None) or _state_timeline_window_bounds()
         )
+        context[_HISTORY_OPTIONAL_CONTEXT_KEY] = self.action in _WRITE_ACTIONS
         return context
 
     @cached_property
