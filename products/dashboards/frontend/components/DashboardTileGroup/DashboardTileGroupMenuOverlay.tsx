@@ -135,7 +135,7 @@ export function DashboardTileGroupMenuOverlay(actions: DashboardTileGroupMenuAct
                     >
                         <LemonButton
                             fullWidth
-                            sideIcon={<IconChevronRight />}
+                            sideIcon={<IconChevronRight className="text-sm" />}
                             data-attr="dashboard-tile-group-menu-add"
                         >
                             Add tile

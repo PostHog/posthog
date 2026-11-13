@@ -1280,6 +1280,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(
             f"SELECT person.properties.email, count() FROM events SAMPLE 0.1 WHERE {MIXED} GROUP BY 1",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert sql.count("SAMPLE 0.1") == 2
@@ -1395,6 +1396,32 @@ class TestReadFlagCallsWithUnion(BaseTest):
         persons = sql[sql.index("FROM person_distinct_id_overrides") :]
         assert "GLOBAL IN" in sql or "globalIn" in sql
         assert "probe-distinct-id" in persons
+
+    @parameterized.expand(
+        [
+            ("union", f"FROM events WHERE {MIXED}", None, True),
+            (
+                "flag_calls_swapped_to_flag_evaluations",
+                "FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = 'f'",
+                None,
+                True,
+            ),
+            ("flag_evaluations", "FROM posthog.flag_evaluations WHERE flag_key = 'f'", None, True),
+            ("flag_evaluations_turned_off", "FROM posthog.flag_evaluations WHERE flag_key = 'f'", False, False),
+            ("events_only", "FROM events WHERE event = '$pageview'", None, False),
+        ]
+    )
+    def test_person_id_pushdown_defaults_on_for_flag_evaluations(
+        self, _name: str, from_where: str, person_id_pushdown: bool | None, pushed: bool
+    ):
+        sql = self._sql(
+            f"SELECT person.properties.email {from_where} AND timestamp >= now() - INTERVAL 7 DAY",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=person_id_pushdown,
+        )
+
+        persons = sql[sql.index("FROM person_distinct_id_overrides") :]
+        assert ("SELECT DISTINCT" in persons) is pushed
 
     @parameterized.expand(
         [
@@ -1528,6 +1555,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(
             f"SELECT person_id, person.properties.email FROM events WHERE {MIXED}",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert sql.count("FROM person_distinct_id_overrides") == 2  # one inner, one outer for `person_id`
@@ -1539,6 +1567,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             f"SELECT toFloatOrZero(properties.amount), properties.amount FROM events "
             f"WHERE {MIXED} AND properties.amount > 9 AND person.properties.amount > 9",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert "accurateCastOrNull(accurateCastOrNull" not in sql

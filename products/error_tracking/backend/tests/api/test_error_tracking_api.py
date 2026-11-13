@@ -1,7 +1,7 @@
 import os
 import json
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
@@ -44,7 +44,9 @@ from products.error_tracking.backend.logic import (
 )
 from products.error_tracking.backend.logic.issue_tags import registry
 from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
-from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, JevTaggerConfig
+from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
+from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -76,7 +78,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     description="The error stops a user from paying.",
     question_version=1,
     enabled_flag="error-tracking-issue-tag-blocks-checkout",
-    taggers=(),
+    taggers=(JevTaggerConfig(instructions="Does this error stop a user from paying?", yes_at=0.8, no_at=0.2),),
 )
 NEEDS_LOGIN = IssueTagDefinition(
     key="needs_login",
@@ -86,6 +88,7 @@ NEEDS_LOGIN = IssueTagDefinition(
     enabled_flag="error-tracking-issue-tag-needs-login",
     taggers=(),
 )
+JEV_YES = TagAnswer(value=True, probability=0.9, model="jev-model", question_version=1, set_by=None)
 
 
 class OversizedReportingUploadHandler(MemoryFileUploadHandler):
@@ -227,13 +230,9 @@ class TestErrorTracking(APIBaseTest):
                 team=self.team, issue=issue, key=key, value=value, source=source, question_version=1
             )
 
-        with (
-            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
-            patch.object(
-                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+        self._enable_issue_tags(enabled_flags)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
 
         assert response.status_code == 200
         expected: dict[str, object] = {
@@ -267,13 +266,9 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_tag_definitions_lists_the_enabled_tags(
         self, _name: str, enabled_flags: set[str], expected: list[IssueTagDefinition]
     ) -> None:
-        with (
-            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
-            patch.object(
-                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/tag_definitions")
+        self._enable_issue_tags(enabled_flags)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/tag_definitions")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -282,6 +277,123 @@ class TestErrorTracking(APIBaseTest):
                 for definition in expected
             ]
         }
+
+    def test_issue_tag_correction_holds_against_jev_and_logs_the_person(self) -> None:
+        self._enable_issue_tags()
+        issue = self.create_issue()
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+
+        with patch("products.error_tracking.backend.presentation.views.issues.is_impersonated", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/tag",
+                data={"key": BLOCKS_CHECKOUT.key, "applied": False},
+                format="json",
+            )
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "key": BLOCKS_CHECKOUT.key,
+            "label": BLOCKS_CHECKOUT.label,
+            "description": BLOCKS_CHECKOUT.description,
+            "source": "manual",
+            "applied": False,
+        }
+        tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key=BLOCKS_CHECKOUT.key)
+        assert (tag.source, tag.value, tag.set_by_id) == ("manual", False, self.user.id)
+        correction_logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id), user=self.user
+        )
+        assert list(correction_logs.values_list("was_impersonated", flat=True)) == [True]
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_key",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                "unknown_key",
+                False,
+                400,
+                "This project has no enabled tag with this key.",
+            ),
+            (
+                "disabled_key",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                NEEDS_LOGIN.key,
+                False,
+                400,
+                "This project has no enabled tag with this key.",
+            ),
+            (
+                "issue_tags_off",
+                {BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                404,
+                "Issue tags are off for this project.",
+            ),
+            (
+                "other_team_issue",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                True,
+                404,
+                "Issue not found",
+            ),
+            (
+                "malformed_issue_id",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                404,
+                "Issue not found",
+                True,
+            ),
+            (
+                "null_applied",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                400,
+                "This field may not be null.",
+                False,
+                None,
+            ),
+        ]
+    )
+    def test_issue_tag_correction_writes_nothing_when_rejected(
+        self,
+        _name: str,
+        enabled_flags: set[str],
+        key: str,
+        other_team: bool,
+        expected_status: int,
+        expected_detail: str,
+        malformed_id: bool = False,
+        applied: bool | None = True,
+    ) -> None:
+        self._enable_issue_tags(enabled_flags)
+        team = Team.objects.create(organization=self.organization) if other_team else self.team
+        issue = ErrorTrackingIssue.objects.create(team=team)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{'not-a-uuid' if malformed_id else issue.id}/tag",
+            data={"key": key, "applied": applied},
+            format="json",
+        )
+
+        assert (response.status_code, response.json()["detail"]) == (expected_status, expected_detail)
+        assert not ErrorTrackingIssueTag.objects.for_team(team.id).filter(issue=issue).exists()
+
+    def _enable_issue_tags(
+        self, enabled_flags: Collection[str] = (ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag)
+    ) -> None:
+        self.enterContext(patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)))
+        self.enterContext(
+            patch.object(
+                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
+            )
+        )
 
     def test_issue_list_paginates_without_aggregating_all_fingerprints(self) -> None:
         issues = [ErrorTrackingIssue.objects.create(team=self.team) for _ in range(3)]
@@ -460,6 +572,26 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
         return "post", f"issues/{issue.id}/split", {"fingerprints": [{"fingerprint": "fingerprint_two"}]}
 
+    def _issue_tag_correction(self) -> tuple[str, str, dict]:
+        self._enable_issue_tags()
+        issue = self.create_issue(["fingerprint"])
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": False}
+
+    def _issue_tag_repeated_correction(self) -> tuple[str, str, dict]:
+        method, path, data = self._issue_tag_correction()
+        self.client.patch(f"/api/environments/{self.team.id}/error_tracking/{path}", data=data, format="json")
+        return method, path, data
+
+    def _issue_tag_first_answer(self) -> tuple[str, str, dict]:
+        self._enable_issue_tags()
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": True}
+
+    def _issue_tag_confirmation(self) -> tuple[str, str, dict]:
+        method, path, data = self._issue_tag_correction()
+        return method, path, {**data, "applied": True}
+
     @parameterized.expand(
         [
             ("update_without_change", _issue_noop_update, None),
@@ -476,6 +608,35 @@ class TestErrorTracking(APIBaseTest):
                 {"action": "merge", "merged_issue_count": 1},
             ),
             ("split", _issue_split, {"action": "split", "fingerprint_count": 1, "new_issue_count": 1}),
+            (
+                "tag",
+                _issue_tag_correction,
+                {
+                    "action": "tag",
+                    "tag_key": BLOCKS_CHECKOUT.key,
+                    "previous_tag_source": "jev",
+                    "previous_tag_probability": 0.9,
+                    "previous_tag_applied": True,
+                    "tag_applied": False,
+                },
+            ),
+            ("tag_with_the_same_answer", _issue_tag_repeated_correction, None),
+            (
+                "tag_without_a_previous_answer",
+                _issue_tag_first_answer,
+                {
+                    "action": "tag",
+                    "previous_tag_source": None,
+                    "previous_tag_probability": None,
+                    "previous_tag_applied": False,
+                    "tag_applied": True,
+                },
+            ),
+            (
+                "tag_confirming_jev",
+                _issue_tag_confirmation,
+                {"action": "tag", "previous_tag_source": "jev", "previous_tag_applied": True, "tag_applied": True},
+            ),
         ]
     )
     def test_issue_changed_event_counts_actual_changes(

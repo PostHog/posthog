@@ -9,6 +9,7 @@ import type { TileGroupDisplay } from '~/types'
 import { type DashboardSection, getTileGroupLabel } from '../../dashboardTileSections'
 import { DashboardTileGroupEmptyTab } from './DashboardTileGroupEmptyTab'
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
+import { DashboardTileGroupMoveButtons, type TileGroupMoveActions } from './DashboardTileGroupMoveButtons'
 import { DashboardTileGroupTitleInput } from './DashboardTileGroupTitleInput'
 import { QuillDashboardTileGroupContextMenu } from './QuillDashboardTileGroupContextMenu'
 import { QuillDashboardTileGroupMenu } from './QuillDashboardTileGroupMenu'
@@ -21,6 +22,7 @@ interface DashboardTileGroupTabsProps {
     onRenameGroup?: (groupKey: string, title: string) => void
     renamingGroupKey?: string | null
     onRenamingGroupKeyChange?: (groupKey: string | null) => void
+    getMoveActions?: (groupKey: string) => TileGroupMoveActions | undefined
     onRemoveGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
@@ -39,6 +41,7 @@ export function DashboardTileGroupTabs({
     onRenameGroup,
     renamingGroupKey = null,
     onRenamingGroupKeyChange,
+    getMoveActions,
     onRemoveGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
@@ -74,6 +77,7 @@ export function DashboardTileGroupTabs({
     }
 
     const activeMenuActions = getMenuActions(activeSection)
+    const activeMoveActions = activeSection?.kind === 'group' ? getMoveActions?.(activeSection.groupKey) : undefined
 
     return (
         <Tabs
@@ -81,7 +85,7 @@ export function DashboardTileGroupTabs({
             onValueChange={(value) => onSelect(String(value))}
             render={<section data-attr="dashboard-tile-group-tabs" />}
         >
-            <div className="flex items-center gap-1 border-b">
+            <div className="group/tile-group-tabs flex items-center gap-1 border-b">
                 <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
                     <TabsList variant="line">
                         {sections.map((section) =>
@@ -139,9 +143,19 @@ export function DashboardTileGroupTabs({
                         </Button>
                     )}
                 </div>
-                {hasTileGroupMenuActions(activeMenuActions) && (
-                    <div className="ml-auto shrink-0">
-                        <QuillDashboardTileGroupMenu {...activeMenuActions} />
+                {(activeMoveActions || hasTileGroupMenuActions(activeMenuActions)) && (
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                        {activeMoveActions && activeSection?.kind === 'group' && (
+                            <DashboardTileGroupMoveButtons
+                                groupDisplay="tabs"
+                                moveActions={activeMoveActions}
+                                groupHasTiles={activeSection.tiles.length > 0}
+                                className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/tile-group-tabs:opacity-100 motion-reduce:transition-none"
+                            />
+                        )}
+                        {hasTileGroupMenuActions(activeMenuActions) && (
+                            <QuillDashboardTileGroupMenu {...activeMenuActions} />
+                        )}
                     </div>
                 )}
             </div>
