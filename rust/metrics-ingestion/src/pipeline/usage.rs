@@ -1,5 +1,3 @@
-//! `metrics-usage.ts` and the emit half of `metrics-usage-steps.ts`.
-
 use std::sync::{Arc, Mutex};
 
 use ingestion_framework::KafkaMessage;
@@ -20,7 +18,6 @@ pub struct UsageStats {
 
 type StatReader = fn(&UsageStats) -> f64;
 
-/// `USAGE_METRIC_NAMES`, in the order Node queues the app metric rows.
 pub const USAGE_METRIC_NAMES: [(StatReader, &str); 7] = [
     (|s| s.bytes_received, "bytes_received"),
     (|s| s.records_received, "records_received"),
@@ -111,7 +108,6 @@ impl MetricsUsageAccumulator {
     }
 }
 
-/// `MetricsUsageBatchContext`. Steps of one batch share it, so it sits behind a lock.
 #[derive(Debug, Default)]
 pub struct MetricsUsageBatchContext {
     pub usage: Mutex<MetricsUsageAccumulator>,

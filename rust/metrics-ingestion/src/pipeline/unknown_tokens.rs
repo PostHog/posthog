@@ -1,5 +1,3 @@
-//! `logs/services/unknown-token-recorder.ts`. capture-logs reads the set to turn away tokens that belong to no team.
-
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

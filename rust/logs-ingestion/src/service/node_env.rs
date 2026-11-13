@@ -134,7 +134,6 @@ pub fn get_bool(config: &JsObject, key: &str) -> bool {
     matches!(config.get(key), Some(JsValue::Bool(true)))
 }
 
-/// The `getDefaultCommonConfig` keys that `buildPosthogDatabaseUrl` reads besides `DATABASE_URL`.
 pub fn posthog_database_defaults() -> Vec<(&'static str, JsValue)> {
     vec![
         ("POSTHOG_DB_NAME", JsValue::Null),
@@ -145,7 +144,6 @@ pub fn posthog_database_defaults() -> Vec<(&'static str, JsValue)> {
     ]
 }
 
-/// `encodeURIComponent` for a well-formed string.
 fn encode_uri_component(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.bytes() {

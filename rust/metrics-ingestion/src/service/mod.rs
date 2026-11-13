@@ -1,5 +1,3 @@
-//! The consumer service. Kafka, Postgres, Redis and usage-ingestion clients come from `logs_ingestion::service`.
-
 pub mod config;
 
 use std::sync::Arc;
@@ -36,7 +34,6 @@ impl BatchProcessor for MetricsPipelineConsumer {
     }
 }
 
-/// The shadow-mode rules, applied to any set of dependencies (README.md lists them).
 pub fn shadow_deps(mut deps: MetricsPipelineConsumerDeps) -> MetricsPipelineConsumerDeps {
     deps.team_manager = Arc::new(shadow::ReadOnlyTeamManager(deps.team_manager));
     deps.usage_batch = Arc::new(shadow::DiscardUsageRecords);

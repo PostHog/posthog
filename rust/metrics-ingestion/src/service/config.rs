@@ -71,7 +71,6 @@ fn b(v: bool) -> JsValue {
     JsValue::Bool(v)
 }
 
-/// `getDefaultMetricsIngestionConsumerConfig`, the outputs and producer configs, and the `defaultConfig` keys the server reads.
 fn node_defaults(env: &Env) -> Vec<(String, JsValue)> {
     let node_env = determine_node_env(env);
     let prod = node_env == NodeEnv::Production;

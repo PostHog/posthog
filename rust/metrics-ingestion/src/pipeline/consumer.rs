@@ -1,5 +1,3 @@
-//! `metrics-pipeline-consumer.ts` and `metrics-ingestion-pipeline.ts`.
-
 use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
@@ -121,7 +119,6 @@ impl SideEffectScheduler for FailureLatchingScheduler {
 }
 
 impl FailureLatchingScheduler {
-    /// `waitForAll` rejects with a pending failure first, then the latch decides.
     pub async fn wait_for_all_or_fail(&self) -> anyhow::Result<()> {
         self.inner.wait_for_all().await?;
         match self.failure.lock().unwrap().as_ref() {
@@ -227,7 +224,6 @@ impl MetricsPipelineConsumer {
         .boxed())
     }
 
-    /// Lets every scheduled side effect settle, as `stop` does before the disconnect.
     pub async fn stop(&self) {
         self.scheduler.wait_for_all_settled().await;
     }

@@ -12,7 +12,6 @@ pub struct MetricsPipelineInput {
     pub message: Arc<KafkaMessage>,
 }
 
-/// `MetricsMessageContext`. Result handling reads the message from it for the DLQ.
 #[derive(Debug, Clone)]
 pub struct MetricsMessageContext {
     pub message: Arc<KafkaMessage>,
@@ -24,7 +23,6 @@ impl HasMessage for MetricsMessageContext {
     }
 }
 
-/// The size headers, each a non-negative safe integer.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MetricsSizes {
     pub bytes_uncompressed: u64,

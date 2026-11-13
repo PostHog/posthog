@@ -116,7 +116,6 @@ async fn resolve_team(
     }
 }
 
-/// `prepareMetricsMessageStep`: parse the headers, resolve the team, record the received usage, and drop quota-limited teams.
 pub fn create_prepare_metrics_message_step(
     context: Arc<MetricsPipelineContext>,
 ) -> ProcessingStep<Batched<MetricsPipelineInput>, Batched<MetricsIngestionMessage>> {

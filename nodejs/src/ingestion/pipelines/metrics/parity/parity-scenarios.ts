@@ -50,7 +50,6 @@ function message(headers: ParityHeader[], options: MessageOptions): ParityMessag
     }
 }
 
-/** The headers capture writes for one OTLP request. */
 function sized(token: string, bytes: number, records: number, extra: ParityHeader[] = []): ParityHeader[] {
     return [
         ['token', token],

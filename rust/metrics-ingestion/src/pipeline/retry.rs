@@ -1,5 +1,3 @@
-//! `metrics-retry.ts`, with Node's `isRetriable` read from the Rust error types.
-
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +32,6 @@ pub fn is_retriable(error: &anyhow::Error) -> Option<bool> {
     None
 }
 
-/// Node's `error.name`, read through a scheduler's shared error.
 pub fn error_name(error: &anyhow::Error) -> String {
     match error.downcast_ref::<SharedError>() {
         Some(shared) => error_name(&shared.0),

@@ -16,7 +16,6 @@ export type MetricsParityError = {
 
 export type MetricsParityProduceFault = {
     output: 'metrics' | 'dlq' | 'app_metrics'
-    /** Absent matches every message. */
     team_id?: string
     times: number
     error: MetricsParityError
@@ -34,7 +33,6 @@ export type MetricsParityScenario = {
     config: Record<string, string | number | boolean>
     teams: { id: number; api_token: string }[]
     quota_limited_tokens: string[]
-    /** Keyed by token. The lookup fails `times` times, then succeeds. */
     team_lookup_faults: Record<string, MetricsParityError & { times: number }>
     produce_faults: MetricsParityProduceFault[]
     batches: ParityMessage[][]

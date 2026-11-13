@@ -225,7 +225,6 @@ impl UsageRecordBatch for ScenarioUsage {
     }
 }
 
-/// The service tests swap the outputs for Kafka ones.
 pub struct ScenarioParts {
     pub config: MetricsLimiterConfig,
     pub deps: MetricsPipelineConsumerDeps,

@@ -43,7 +43,6 @@ fn parse_team_id_list(config: &str) -> Option<TeamList> {
     ))
 }
 
-/// A later pair for a team replaces the earlier value, as `Map.set` does.
 fn parse_team_config(config: &str) -> Vec<(f64, f64)> {
     let mut result: Vec<(f64, f64)> = Vec::new();
     for entry in config.split(',').filter(|_| !config.is_empty()) {
@@ -200,7 +199,6 @@ impl MetricsRateLimiter {
         Ok(tokens)
     }
 
-    /// `filterMessages`, as one `dropped` flag per message in input order.
     pub async fn dropped(
         &self,
         messages: &[&MetricsIngestionMessage],
