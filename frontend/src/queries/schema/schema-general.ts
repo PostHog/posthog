@@ -752,8 +752,15 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    /**
+     * Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own.
+     * True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`.
+     * Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.
+     */
     hasMore?: boolean
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: integer
+    /** Rows skipped before the default row limit applied. */
     offset?: integer
 }
 
@@ -781,6 +788,11 @@ export interface HogQLVariable {
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
+    /**
+     * The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response,
+     * or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit.
+     * With `sendRawQuery`, no default limit applies and `hasMore` is not set.
+     */
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
