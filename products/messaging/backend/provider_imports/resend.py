@@ -392,7 +392,6 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
     contacts = ContactCollector()
     for page in client.pages("/contacts"):
         _collect(contacts, page.data)
-    everyone = contacts.everyone
     segments = []
     for page in client.pages("/segments"):
         for segment in page.data:
@@ -413,6 +412,8 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
                     rows=tuple(members),
                 )
             )
+    # Read last, so a contact who joined a segment after the contact list was read still becomes a person.
+    everyone = contacts.everyone
     yield ImportPage(
         processed=len(everyone),
         save=partial(
