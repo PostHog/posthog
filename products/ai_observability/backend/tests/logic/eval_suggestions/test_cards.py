@@ -18,6 +18,17 @@ def test_code_check_headline(_name: str, failure_rate: float, segment: str | Non
 
 @parameterized.expand(
     [
+        ("all_traffic", 100.0, "Checks every trace for a tool or model call"),
+        ("sampled", 0.74, "Checks 0.74% of traces for a tool or model call"),
+    ]
+)
+def test_code_check_outcome_says_how_much_it_checks(_name: str, rollout: float, opening: str) -> None:
+    text = cards.code_check_text(adapters.unrecovered_errors([]), 0.01, None, rollout)
+    assert text.outcome.startswith(opening)
+
+
+@parameterized.expand(
+    [
         (
             "top_priorities_read_as_urgent",
             "findings[].priority",
