@@ -121,7 +121,7 @@ export const analyticsTagsLogic = kea<analyticsTagsLogicType>([
                 if (target.type === 'dashboard') {
                     await dashboardsPartialUpdate(projectId, Number(target.ref), { tags })
                 } else {
-                    await insightsPartialUpdate(projectId, target.ref, { tags })
+                    await insightsPartialUpdate(projectId, encodeURIComponent(target.ref), { tags })
                 }
             } catch {
                 actions.saveTagsFailure()
