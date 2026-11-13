@@ -53,20 +53,29 @@ describe('webhook template', () => {
     // The queue payload is stored as plaintext JSON, so the template must pass
     // an input-key reference for the executor to resolve at fetch time, never
     // the secret itself.
-    it('passes a signing secret reference, not the secret, to the fetch queue', async () => {
-        const response = await tester.invoke({
-            url: 'https://example.com',
-            signing_secret: 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw',
-        })
+    it.each([
+        [undefined, 'standard_webhooks'],
+        ['standard_webhooks', 'standard_webhooks'],
+        ['hmac_sha256', 'hmac_sha256'],
+    ])(
+        'passes a signing secret reference, not the secret, to the fetch queue for format %s',
+        async (signingFormat, signing) => {
+            const response = await tester.invoke({
+                url: 'https://example.com',
+                signing_secret: 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw',
+                signing_format: signingFormat,
+            })
 
-        expect(response.error).toBeUndefined()
-        const params = response.invocation.queueParameters as any
-        expect(params.standard_webhooks).toEqual({
-            secret_input: 'signing_secret',
-            webhook_id: expect.any(String),
-        })
-        expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
-    })
+            expect(response.error).toBeUndefined()
+            const params = response.invocation.queueParameters as any
+            expect(params).not.toHaveProperty(signing === 'hmac_sha256' ? 'standard_webhooks' : 'hmac_sha256')
+            expect(params[signing]).toEqual({
+                secret_input: 'signing_secret',
+                webhook_id: expect.any(String),
+            })
+            expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
+        }
+    )
 
     it('passes a secret headers reference, not the values, to the fetch queue', async () => {
         const response = await tester.invoke({
