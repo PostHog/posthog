@@ -4,16 +4,13 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
-
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
 
 const NOW = '2026-03-15T12:00:00.000Z'
 const LATER = '2026-03-15T12:05:00.000Z'
 const LAST_WEEK = { date_from: '2026-03-08T00:00:00.000Z', date_to: NOW, limit: '50' }
 
-const sends = (count: number): TransactionalEmailLogEntryApi[] =>
-    Array.from({ length: count }, (_, i) => ({ message_id: `msg-${i}` }) as TransactionalEmailLogEntryApi)
+const sends = (n: number): { message_id: string }[] => Array.from({ length: n }, (_, i) => ({ message_id: `msg-${i}` }))
 
 describe('transactionalEmailLogLogic', () => {
     let logic: ReturnType<typeof transactionalEmailLogLogic.build>

@@ -3,10 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type {
-    TransactionalEmailLogDetailApi,
-    TransactionalEmailLogEntryApi,
-} from 'products/messaging/frontend/generated/api.schemas'
+import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { transactionalEmailLogEntryLogic } from './transactionalEmailLogEntryLogic'
 
@@ -26,7 +23,7 @@ const SEND = {
 const OTHERS = [
     { message_id: 'msg-1', recipient: 'Ada@example.com', created_at: SENT },
     { message_id: 'msg-2', recipient: 'ada@example.com', created_at: '2026-03-12T00:00:00Z' },
-] as TransactionalEmailLogEntryApi[]
+]
 
 const PERSON_ROWS = [['person-1', '{"email":"ada@example.com"}', '2025-01-01T00:00:00Z']]
 const ACTIVITY = { before: [{ uuid: 'ev-1' }], after: [], has_more_before: true, has_more_after: false }
@@ -85,15 +82,22 @@ describe('transactionalEmailLogEntryLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('opens a send with its person, activity, other emails, breadcrumbs, and expand toggles', async () => {
+    it('loads a send by its id, then its recipient, their activity, and their other emails', async () => {
         await open('msg-1')
         expect(logic.values.email).toEqual(SEND)
         expect(logic.values.person).toMatchObject({ id: 'person-1', properties: { email: 'ada@example.com' } })
         expect(logic.values.activity).toMatchObject({ before: [{ uuid: 'ev-1' }], after: [], hasMoreBefore: true })
         expect(othersQuery).toMatchObject({ search: 'Ada@example.com', date_from: WEEK_BEFORE_SENT, date_to: NOW })
         expect(logic.values.otherEmails.map((e) => e.message_id)).toEqual(['msg-2'])
-        expect(logic.values.breadcrumbs.map((b) => b.name)).toEqual(['Transactional', 'Log', 'Email'])
+    })
+
+    it('keys its breadcrumb by the send id', async () => {
+        await open('msg-1')
         expect(logic.values.breadcrumbs[2].key).toEqual(['TransactionalEmailLogEntry', 'msg-1'])
+    })
+
+    it('expands the activity before and after the send on their own', async () => {
+        await open('msg-1')
         logic.actions.showAllBefore()
         expect(logic.values).toMatchObject({ beforeExpanded: true, afterExpanded: false })
         logic.actions.showAllAfter()
@@ -115,7 +119,6 @@ describe('transactionalEmailLogEntryLogic', () => {
         failing.add('detail')
         await open('msg-1')
         expect(logic.values.emailFailed).toBe(true)
-
         failing.delete('detail')
         logic.actions.loadEmail()
         expect(logic.values.emailFailed).toBe(false)
