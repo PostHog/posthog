@@ -82,11 +82,11 @@ export function BroadcastPerformance({
         ...(stats.awaitingResult > 0
             ? [
                   {
-                      label: 'No result yet',
+                      label: 'No result reported',
                       value: share(stats.awaitingResult, stats.sent),
                       detail: stats.awaitingResult,
                       tooltip:
-                          "Your email provider accepted these emails but hasn't reported a delivery or bounce for them yet. This often means the receiving mail server asked to try again later. The number goes down as results come in.",
+                          "Your email provider accepted these emails but hasn't reported a delivery or bounce for them. Often the receiving mail server asked to try again later. Results that arrive later move to Delivered or Bounced, and some emails never get one.",
                   },
               ]
             : []),

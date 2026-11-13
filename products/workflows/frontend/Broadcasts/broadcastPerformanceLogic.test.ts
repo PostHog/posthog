@@ -268,7 +268,7 @@ describe('broadcastPerformanceLogic', () => {
             expected: { opened: 5, clicked: 8, engagementCountsPeople: false },
         },
         {
-            name: 'a send where some emails have no result yet',
+            name: 'a send where some emails have no result reported',
             runStartedAt: '2026-11-10T22:28:56Z',
             totals: [
                 [24, 'email_sent'],
