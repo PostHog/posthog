@@ -8,7 +8,6 @@ import secrets
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import timedelta
-from enum import StrEnum
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -30,7 +29,7 @@ from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.schema_enums import SlackIntegrationScope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.scopes import get_oauth_scopes_supported
 
 from . import apple_ads, common, model, refresh_tracking, row_writes
@@ -247,12 +246,6 @@ class OauthConfig:
 #
 # Every scope here is approved for the public Cloud app, so every instance requests it.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
-
-
-# Mirrors SlackIntegrationScopeInReview in frontend/src/types.ts. The schema codegen rejects an empty enum,
-# so this copy is written by hand. Empty while no scope waits on review. Keep it for the next scope that needs review.
-class SlackIntegrationScopeInReview(StrEnum):
-    pass
 
 
 def posthog_slack_scope() -> str:
