@@ -26,7 +26,6 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingIssueTagFilter,
-    ErrorTrackingIssueTagFilterValue,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
     ErrorTrackingSimilarIssuesQuery,
@@ -100,11 +99,10 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     taggers=(),
 )
 OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag")
-UNANSWERED_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="unanswered_tag", label="Unanswered tag")
 
 
 @frozen
-class _TagAnswerRow:
+class _TagRow:
     issue_id: str
     key: str
     value: bool | None
@@ -766,21 +764,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ErrorTrackingIssue.objects.filter(id=issue_id).update(severity=severity)
         sync_issues_to_clickhouse(issue_ids=list(severities), team_id=self.team.pk)
 
-    def _write_tag_answers(self, *answers: _TagAnswerRow) -> None:
-        # One insert per answer, with merges stopped, keeps every answer in its own part, as ClickHouse holds them
-        # before a merge. One batched insert or a merge leaves only the newest row, which hides an older answer.
+    def _write_tag_rows(self, *rows: _TagRow) -> None:
+        # One insert per row, with merges stopped, keeps every row in its own part, as ClickHouse holds them before a
+        # merge. One batched insert or a merge leaves only the newest row, which hides an older version.
         sync_execute(f"SYSTEM STOP MERGES {ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE}")
         self.addCleanup(sync_execute, f"SYSTEM START MERGES {ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE}")
-        for answer in answers:
+        for row in rows:
             sync_execute(
                 INSERT_ERROR_TRACKING_ISSUE_TAG,
                 {
                     "team_id": self.team.pk,
-                    "issue_id": answer.issue_id,
-                    "key": answer.key,
-                    "value": None if answer.value is None else int(answer.value),
-                    "is_deleted": int(answer.is_deleted),
-                    "version": answer.version,
+                    "issue_id": row.issue_id,
+                    "key": row.key,
+                    "value": None if row.value is None else int(row.value),
+                    "is_deleted": int(row.is_deleted),
+                    "version": row.version,
                 },
             )
 
@@ -1323,35 +1321,33 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_issue_tag_filter(self, _name: str, legacy_shape: bool, enabled_flags: set[str], filter_applies: bool):
         self._create_issues_four_and_five()
-        self._write_tag_answers(
-            _TagAnswerRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=True),
-            _TagAnswerRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=True),
-            _TagAnswerRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=False, version=2),
-            _TagAnswerRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=True),
-            _TagAnswerRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=None, version=2),
-            _TagAnswerRow(issue_id=self.issue_id_four, key=OTHER_TAG.key, value=True),
-            _TagAnswerRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True),
-            _TagAnswerRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True, version=2, is_deleted=True),
+        self._write_tag_rows(
+            _TagRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=False, version=2),
+            _TagRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=None, version=2),
+            _TagRow(issue_id=self.issue_id_four, key=OTHER_TAG.key, value=True),
+            _TagRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True, version=2, is_deleted=True),
         )
         filter_group = self._status_is_set_filter() if legacy_shape else None
-        tag_filters = [(BLOCKS_CHECKOUT.key, value) for value in ErrorTrackingIssueTagFilterValue]
-        tag_filters.append((OTHER_TAG.key, ErrorTrackingIssueTagFilterValue.NO))
-        tag_filters.append((UNANSWERED_TAG.key, ErrorTrackingIssueTagFilterValue.UNKNOWN))
 
         with (
-            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG, UNANSWERED_TAG)),
+            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT,)),
             mock.patch.object(
                 team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
             ),
         ):
-            by_filter = {
-                f"{key} {value}": {
+            by_applied = {
+                applied: {
                     result["id"]
                     for result in self._calculate(
-                        filterGroup=filter_group, issueTag=ErrorTrackingIssueTagFilter(key=key, value=value)
+                        filterGroup=filter_group,
+                        issueTag=ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, applied=applied),
                     )["results"]
                 }
-                for key, value in tag_filters
+                for applied in (True, False)
             }
 
         every_issue = {
@@ -1362,47 +1358,41 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             self.issue_id_five,
         }
         expected = {
-            "blocks_checkout yes": {self.issue_id_one},
-            "blocks_checkout no": {self.issue_id_two},
-            "blocks_checkout unknown": {self.issue_id_three, self.issue_id_four, self.issue_id_five},
-            # No issue has this answer, so the filter matches nothing.
-            "other_tag no": set(),
-            # No issue has an answer, so every issue is unknown.
-            "unanswered_tag unknown": every_issue,
+            True: {self.issue_id_one},
+            False: {self.issue_id_two, self.issue_id_three, self.issue_id_four, self.issue_id_five},
         }
-        self.assertEqual(by_filter, expected if filter_applies else dict.fromkeys(expected, every_issue))
+        self.assertEqual(by_applied, expected if filter_applies else dict.fromkeys(expected, every_issue))
 
     @parameterized.expand([("issue_tags_on", True), ("issue_tags_off", False)])
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_results_carry_the_enabled_tags_of_each_issue(self, _name: str, issue_tags_on: bool):
-        self._write_tag_answers(
-            _TagAnswerRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=True),
-            _TagAnswerRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=None, version=2),
-            _TagAnswerRow(issue_id=self.issue_id_one, key=OTHER_TAG.key, value=False),
-            _TagAnswerRow(issue_id=self.issue_id_one, key="retired_tag", value=True),
-            _TagAnswerRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=False),
+    def test_results_carry_the_applied_tags_of_each_issue(self, _name: str, issue_tags_on: bool):
+        self._write_tag_rows(
+            _TagRow(issue_id=self.issue_id_one, key=OTHER_TAG.key, value=True),
+            _TagRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_one, key="retired_tag", value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=False, version=2),
         )
 
         with (
             mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG)),
             mock.patch.object(team_flags, "feature_enabled_or_false", return_value=issue_tags_on),
-            # A default limit below the answer count fails the test if the tag read relies on the default.
+            # A default limit below the applied tag count fails the test if the tag read relies on the default.
             mock.patch("posthog.hogql.query.get_default_limit_for_context", return_value=1),
         ):
             results = self._calculate()["results"]
 
-        def tag(definition: IssueTagDefinition, value: bool | None) -> dict[str, object]:
+        def tag(definition: IssueTagDefinition) -> dict[str, object]:
             return {
                 "key": definition.key,
                 "label": definition.label,
                 "description": definition.description,
-                "value": value,
                 "source": None,
             }
 
         expected = {
-            self.issue_id_one: [tag(BLOCKS_CHECKOUT, None), tag(OTHER_TAG, False)],
-            self.issue_id_two: [tag(BLOCKS_CHECKOUT, False)],
+            self.issue_id_one: [tag(BLOCKS_CHECKOUT), tag(OTHER_TAG)],
+            self.issue_id_two: [],
             self.issue_id_three: [],
         }
         self.assertEqual(

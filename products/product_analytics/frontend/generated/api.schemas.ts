@@ -4721,10 +4721,8 @@ export interface ErrorTrackingIssueTagApi {
     key: string
     /** Short name of the tag. */
     label: string
-    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
     source?: string | null
-    /** The answer: true for yes, false for no, null when the tagger was unsure. */
-    value: boolean | null
 }
 
 export interface ErrorTrackingIssueApi {
@@ -4744,7 +4742,7 @@ export interface ErrorTrackingIssueApi {
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
-    /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
     tags?: ErrorTrackingIssueTagApi[] | null
 }
 
@@ -4798,7 +4796,7 @@ export interface ErrorTrackingCorrelatedIssueApi {
     population: PopulationApi
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
-    /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
     tags?: ErrorTrackingIssueTagApi[] | null
 }
 
@@ -7479,20 +7477,11 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
-export type ErrorTrackingIssueTagFilterValueApi =
-    (typeof ErrorTrackingIssueTagFilterValueApi)[keyof typeof ErrorTrackingIssueTagFilterValueApi]
-
-export const ErrorTrackingIssueTagFilterValueApi = {
-    Yes: 'yes',
-    No: 'no',
-    Unknown: 'unknown',
-} as const
-
 export interface ErrorTrackingIssueTagFilterApi {
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
     /** Key of the tag definition. */
     key: string
-    /** The answer to match. `unknown` matches issues where the tagger was unsure or never answered. */
-    value: ErrorTrackingIssueTagFilterValueApi
 }
 
 export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
@@ -7568,7 +7557,7 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
-    /** Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project. */
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
     issueTag?: ErrorTrackingIssueTagFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null

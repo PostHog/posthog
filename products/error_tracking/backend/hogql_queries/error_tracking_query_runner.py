@@ -28,6 +28,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.applied_issue_tags import applied_issue_tags_query
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
@@ -37,7 +38,6 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     latest_issue_state_watermark,
     load_recent_issue_states,
 )
-from products.error_tracking.backend.hogql_queries.issue_tag_answers import latest_issue_tag_answers_query
 from products.error_tracking.backend.logic.issue_tags.enabled import enabled_issue_tag_definitions
 from products.error_tracking.backend.logic.issue_tags.reader import group_issue_tags
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
@@ -206,7 +206,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         keys = [definition.key for definition in self._enabled_tag_definitions]
         with self.timings.measure("error_tracking_query_tags"):
             response = execute_hogql_query(
-                query=latest_issue_tag_answers_query(keys, [result["id"] for result in results]),
+                query=applied_issue_tags_query(keys, [result["id"] for result in results]),
                 team=self.team,
                 query_type="ErrorTrackingIssueTagsQuery",
                 timings=self.timings,
@@ -218,10 +218,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
                     team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
                 ),
             )
-        rows = (
-            (issue_id, key, None if answer is None else bool(answer), None)
-            for answer, issue_id, key in response.results
-        )
+        rows = ((issue_id, key, None) for _latest_value, issue_id, key in response.results)
         tags_by_issue = group_issue_tags(rows, self._enabled_tag_definitions)
         for result in results:
             result["tags"] = [dataclasses.asdict(tag) for tag in tags_by_issue.get(result["id"], [])]

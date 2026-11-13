@@ -20,6 +20,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.models.team.team import Team
 
+from products.error_tracking.backend.hogql_queries.applied_issue_tags import issue_tag_filter_expr
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     extract_aggregations,
     extract_event,
@@ -28,7 +29,6 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
     search_tokenizer,
     select_sparkline_array,
 )
-from products.error_tracking.backend.hogql_queries.issue_tag_answers import issue_tag_filter_expr
 
 
 def _bin_idx_expr(date_from: datetime.datetime, date_to: datetime.datetime, resolution: int) -> ast.Call:
