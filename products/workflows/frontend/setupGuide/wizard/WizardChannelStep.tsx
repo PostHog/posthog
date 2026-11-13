@@ -15,9 +15,10 @@ export function WizardChannelStep(): JSX.Element {
     const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
     const { journeyFirst, wizardPath } = useValues(workflowsOnboardingWizardLogic)
     const hasEmailChannel = !!integrations?.some((integration) => integration.kind === 'email')
-    const domainNeed = journeyFirst
-        ? `To send your ${wizardPath === 'broadcast' ? 'broadcast' : 'journey'}, you need a domain you control`
-        : 'You need a domain you control'
+    const domainNeed =
+        journeyFirst && wizardPath === 'broadcast'
+            ? 'To send your broadcast, you need a domain you control'
+            : 'You need a domain you control'
 
     return (
         <>

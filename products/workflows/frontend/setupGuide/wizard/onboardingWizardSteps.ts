@@ -185,16 +185,6 @@ const JOURNEY_FIRST_STEP_COPY: Record<
             description:
                 'Start from a template or from scratch. Next, you set up how it reaches people. Then it opens in the editor as a draft, and nothing sends until you launch it.',
         },
-        channel: {
-            title: 'Connect the address your journey sends from',
-            description:
-                'Your journey sends email from your own domain. Add the address that people see in their inbox.',
-        },
-        domain: {
-            title: 'Verify the domain your journey sends from',
-            description:
-                'Add a few DNS records, so mailbox providers trust the email your journey sends. Verification can take up to an hour, so you can continue and come back later.',
-        },
     },
     broadcast: {
         broadcast: {
