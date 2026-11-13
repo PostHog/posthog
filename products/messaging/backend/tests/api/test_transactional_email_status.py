@@ -595,6 +595,17 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         assert [response.status_code for response in responses] == [404, 404]
         assert self.cdp.jobs.get((self.team.id, self.message_id)) == "waiting"
 
+    def test_an_id_that_is_not_a_uuid_is_not_found(self, mock_post, _flag):
+        url = self._url("not-a-uuid")
+
+        with self.cdp.serving(mock_post):
+            responses = [
+                self.client.post(f"{url}cancel/"),
+                self.client.patch(url, {"scheduled_at": "2026-06-17T00:00:00Z"}, format="json"),
+            ]
+
+        assert [response.status_code for response in responses] == [404, 404]
+
     def test_another_projects_repeat_cancel_after_ours_is_not_found(self, mock_post, _flag):
         self._job("waiting")
         self._cancel(mock_post)
