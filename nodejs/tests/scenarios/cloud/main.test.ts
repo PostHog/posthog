@@ -824,17 +824,24 @@ describe('cloud controller', () => {
         expect(cloud.schedules.size).toBe(0)
     })
 
-    it.each<[string, string, (fake: FakeCloud) => void]>([
-        ['AWS::EC2::Volume', '', () => undefined],
-        ['AWS::SecretsManager::Secret', '', () => undefined],
+    it.each<[string, string, (fake: FakeCloud) => void, (fake: FakeCloud) => void]>([
+        ['AWS::EC2::Volume', '', () => undefined, () => undefined],
+        ['AWS::SecretsManager::Secret', '', () => undefined, () => undefined],
         [
             'AWS::SecretsManager::Secret',
             ', even when listing the cluster snapshots fails',
             (fake) => fake.failOnCall('describe-db-cluster-snapshots', 2),
+            () => undefined,
         ],
-    ])('keeps the schedules and names a %s that outlives the stack%s', async (type, _, arrange) => {
+        [
+            'AWS::SecretsManager::Secret',
+            ', even after a cleanup that cannot read the last receipt',
+            () => undefined,
+            (fake) => fake.failOnCall('get-object', 2),
+        ],
+    ])('keeps the schedules and names a %s that outlives the stack%s', async (type, _, beforeRun, beforeCleanup) => {
         const { controller } = prepare({ cloud: { outlives: [type] } })
-        arrange(cloud)
+        beforeRun(cloud)
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
@@ -843,6 +850,8 @@ describe('cloud controller', () => {
         expect(err.join('\n')).toContain(`- ${left[0]}`)
         expect(cloud.schedules.size).toBe(2)
 
+        beforeCleanup(cloud)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
         await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
 
         expect(cloud.schedules.size).toBe(2)

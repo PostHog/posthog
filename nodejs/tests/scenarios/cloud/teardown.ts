@@ -292,12 +292,17 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
             const last = await lastReceiptOf(evidence, manifest)
             return last === GONE ? [] : last.resources.map(({ type, id }) => ({ type, id }))
         })
+        const lastReceiptLost = lost.length > 0
         lost.push(...(await discover(controller, manifest, inventory)).failures)
         await deleteStack(controller, profile, manifest, until).catch((error: Error) =>
             controller.warn(`Could not delete stack ${manifest.stackName}: ${error.message}`)
         )
         receipt = await receiptOf(controller, manifest, inventory, lost, until)
-        await evidence.put(keyOf(manifest.runId, 'receipt.json'), JSON.stringify(receipt, null, 2))
+        if (lastReceiptLost) {
+            controller.warn(`Kept the last receipt of run ${manifest.runId}, because it could not be read.`)
+        } else {
+            await evidence.put(keyOf(manifest.runId, 'receipt.json'), JSON.stringify(receipt, null, 2))
+        }
     } catch (error) {
         controller.warn(
             [
