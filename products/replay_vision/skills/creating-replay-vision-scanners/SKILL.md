@@ -6,7 +6,7 @@ description: "Guides agents through creating and safely sizing a Replay Vision s
 # Creating Replay Vision scanners
 
 A scanner is a standing LLM probe over session recordings. Once created and enabled, it runs on a
-**Temporal schedule that sweeps every 5 minutes**, applying its prompt to each new matching recording and
+**Temporal schedule that sweeps as often as every 5 minutes**, applying its prompt to each new matching recording and
 recording the result as an observation (a queryable `$recording_observed` event). Each observation spends
 **credits** (1 credit = $0.01) from the org's budget for the current billing period, and an observation's
 price depends on the scanner's `model` — so size spend in credits, and convert any observation count a user gives you into credits at that model's price.

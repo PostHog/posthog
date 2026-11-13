@@ -2,8 +2,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -17,10 +15,6 @@ import { Cluster, ClusterMetrics, ClusteringLevel, ClusteringRun } from './types
 describe('cluster level navigation', () => {
     it('closes the open trace when changing the clustering level', async () => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: true,
-        })
         router.actions.push(urls.aiObservabilityClusters(), { order: '-size' })
         const query = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] })
         const logic = clustersLogic()

@@ -63,24 +63,26 @@ describe('AccountViewRenderer', () => {
         featureFlagLogic.unmount()
     })
 
-    it.each([undefined, false, true])(
-        'renders a saved Automations widget only when its flag is enabled (%s)',
-        (enabled) => {
-            featureFlagLogic.actions.setFeatureFlags(
-                [],
-                enabled === undefined ? {} : { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET]: enabled }
-            )
-            const view = {
-                ...createView(''),
-                content: createAccountViewContent([{ nodeId: 'automations', kind: 'automations', span: 12 }]),
-            }
-            render(
+    it.each([
+        ['automations', FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET],
+        ['dot_matrix', FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX],
+    ] as const)('renders a saved %s widget only when its flag is enabled', (kind, flag) => {
+        const view = {
+            ...createView(''),
+            content: createAccountViewContent([{ nodeId: 'gated', kind, span: 12 }]),
+        }
+        const { rerender } = render(
+            <AccountViewRenderer view={view} projectId={1} accountId="account-1" externalId="external-account-1" />
+        )
+        expect(screen.queryByTestId('account-view-tile-gated')).not.toBeInTheDocument()
+        for (const enabled of [false, true]) {
+            act(() => featureFlagLogic.actions.setFeatureFlags([], { [flag]: enabled }))
+            rerender(
                 <AccountViewRenderer view={view} projectId={1} accountId="account-1" externalId="external-account-1" />
             )
-
-            expect(screen.queryByTestId('account-view-tile-automations') !== null).toBe(enabled === true)
+            expect(screen.queryByTestId('account-view-tile-gated') !== null).toBe(enabled)
         }
-    )
+    })
 
     it('remounts a tile only after a failed save reloads persisted config at the same version', () => {
         const { rerender } = render(
@@ -108,5 +110,37 @@ describe('AccountViewRenderer', () => {
             accountViewsLogic({ projectId: 1 }).actions.resetViewComponentConfig('11111111-2222-4333-8444-555555555555')
         )
         expect(screen.getByTestId('mounted-search-term')).toHaveTextContent('persisted')
+    })
+
+    it('keeps a dot matrix tile mounted through a failed save, so its unsaved query survives', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX]: true,
+        })
+        const view = (searchTerm: string): AccountViewApi => ({
+            ...createView(searchTerm),
+            content: createAccountViewContent([
+                { nodeId: 'matrix-1', kind: 'dot_matrix', span: 12, config: { searchTerm } },
+            ]),
+        })
+        const { rerender } = render(
+            <AccountViewRenderer
+                view={view('optimistic')}
+                projectId={1}
+                accountId="account-1"
+                externalId="external-account-1"
+            />
+        )
+        rerender(
+            <AccountViewRenderer
+                view={view('persisted')}
+                projectId={1}
+                accountId="account-1"
+                externalId="external-account-1"
+            />
+        )
+        act(() =>
+            accountViewsLogic({ projectId: 1 }).actions.resetViewComponentConfig('11111111-2222-4333-8444-555555555555')
+        )
+        expect(screen.getByTestId('mounted-search-term')).toHaveTextContent('optimistic')
     })
 })

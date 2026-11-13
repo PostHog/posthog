@@ -615,6 +615,25 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod.string().nullish().describe('Distinct ID of the event (optional, improves lookup performance).'),
 })
 
+/**
+ * Hide the suggestion. The same suggestion stays hidden for 90 days.
+ */
+export const EvaluationSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .union([
+            zod
+                .enum(['not_relevant', 'already_covered', 'too_noisy', 'fixed_cause'])
+                .describe(
+                    '\* `not_relevant` - Not relevant\n\* `already_covered` - Already covered\n\* `too_noisy` - Too noisy\n\* `fixed_cause` - Fixed the cause'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.\n\n\* `not_relevant` - Not relevant\n\* `already_covered` - Already covered\n\* `too_noisy` - Too noisy\n\* `fixed_cause` - Fixed the cause'
+        ),
+})
+
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`

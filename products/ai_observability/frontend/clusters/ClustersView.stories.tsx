@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -49,7 +48,6 @@ const meta: Meta<typeof ClustersView> = {
     parameters: {
         layout: 'padded',
         mockDate: '2026-08-01T12:00:00Z',
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN],
         testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="clusters-card-title-link"]' },
     },
     decorators: [

@@ -28,7 +28,6 @@ export function ClusterScatterPlot(): JSX.Element {
         mapHighlight,
     } = useValues(clustersLogic)
     const { setMapSizeBy, setMapHighlight } = useActions(clustersLogic)
-    const { isEnabled } = useValues(traceDrawerLogic({ listId: 'clusters' }))
     const { openRow } = useActions(traceDrawerLogic({ listId: 'clusters' }))
     const theme = useChartTheme()
     const [zoom, setZoom] = useState<ScatterAreaSelection | null>(null)
@@ -48,7 +47,7 @@ export function ClusterScatterPlot(): JSX.Element {
 
     const handlePointClick = (point: ScatterPointDatum<ClusterScatterMeta>): void => {
         const meta = point.meta
-        if (meta?.itemId && isEnabled) {
+        if (meta?.itemId) {
             const info = sortedClusters.find((cluster) => cluster.cluster_id === meta.clusterId)?.traces[meta.itemId]
             if (info) {
                 const row = toClusterTraceDrawerRow(

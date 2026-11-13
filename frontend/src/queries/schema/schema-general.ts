@@ -194,7 +194,6 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     SessionQuery = 'SessionQuery',
-    TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
@@ -203,6 +202,10 @@ export enum NodeKind {
     AccountsQuery = 'AccountsQuery',
     AccountsTableQuery = 'AccountsTableQuery',
     AccountUsersQuery = 'AccountUsersQuery',
+    AccountActivityMatrixQuery = 'AccountActivityMatrixQuery',
+    BookActivityMatrixQuery = 'BookActivityMatrixQuery',
+    BookActivityPeopleQuery = 'BookActivityPeopleQuery',
+    BookActivityFirstsQuery = 'BookActivityFirstsQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -294,12 +297,15 @@ export type AnyDataNode =
     | TracesQuery
     | TraceQuery
     | SessionQuery
-    | TraceNeighborsQuery
     | VectorSearchQuery
     | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
+    | AccountActivityMatrixQuery
+    | BookActivityMatrixQuery
+    | BookActivityPeopleQuery
+    | BookActivityFirstsQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -428,7 +434,6 @@ export type QuerySchema =
     | TracesQuery
     | TraceQuery
     | SessionQuery
-    | TraceNeighborsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -436,6 +441,10 @@ export type QuerySchema =
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
+    | AccountActivityMatrixQuery
+    | BookActivityMatrixQuery
+    | BookActivityPeopleQuery
+    | BookActivityFirstsQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -740,8 +749,15 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    /**
+     * Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own.
+     * True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`.
+     * Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.
+     */
     hasMore?: boolean
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: integer
+    /** Rows skipped before the default row limit applied. */
     offset?: integer
 }
 
@@ -769,6 +785,11 @@ export interface HogQLVariable {
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
+    /**
+     * The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response,
+     * or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit.
+     * With `sendRawQuery`, no default limit applies and `hasMore` is not set.
+     */
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
@@ -2076,6 +2097,7 @@ export interface ResultCustomizationByPosition extends ResultCustomizationBase {
 
 export interface ResultCustomizationByValue extends ResultCustomizationBase {
     customColor?: string
+    label?: string
     assignmentBy: ResultCustomizationBy.Value
 }
 
@@ -3523,6 +3545,237 @@ export interface AccountUsersQuery extends DataNode<ActorsQueryResponse> {
     accountId: string
 }
 
+export interface AccountActivityMatrixRow {
+    key: string
+    label: string
+}
+
+export interface AccountActivityMatrixColumn {
+    key: string
+    partial: boolean
+}
+
+export interface AccountActivityMatrixSeries {
+    key: string
+    label: string
+}
+
+export interface AccountActivityMatrixCell {
+    row: string
+    column: string
+    series: string
+    value: number
+}
+
+export type AccountActivityMatrixEmptyReason = 'no_external_id' | 'no_group_type' | 'no_metrics'
+
+export interface AccountActivityMatrixResult {
+    rows: AccountActivityMatrixRow[]
+    columns: AccountActivityMatrixColumn[]
+    series: AccountActivityMatrixSeries[]
+    data: AccountActivityMatrixCell[]
+    truncated: boolean
+    skippedMetricIds: string[]
+    emptyReason?: AccountActivityMatrixEmptyReason
+}
+
+export interface AccountActivityMatrixQueryResponse extends AnalyticsQueryResponseBase {
+    results: AccountActivityMatrixResult
+}
+
+export type CachedAccountActivityMatrixQueryResponse = CachedQueryResponse<AccountActivityMatrixQueryResponse>
+
+export interface AccountActivityMatrixQuery extends DataNode<AccountActivityMatrixQueryResponse> {
+    kind: NodeKind.AccountActivityMatrixQuery
+    accountId: string
+    weeks?: integer
+    metricIds?: string[]
+    rowLimit?: integer
+}
+
+export type BookActivityInterval = 'day' | 'week' | 'month'
+
+export type BookActivityMatrixEmptyReason = 'no_group_type' | 'empty_book'
+
+export interface BookActivityMatrixRow {
+    key: string
+    label: string
+    externalId: string
+}
+
+export interface BookActivityMatrixGroup {
+    key: string
+    label: string
+    items: string[]
+}
+
+export interface BookActivityMatrixGrouping {
+    key: string
+    label: string
+    groups: BookActivityMatrixGroup[]
+}
+
+export interface BookActivityMatrixProduct {
+    key: string
+    label: string
+}
+
+export interface BookActivityMatrixCell {
+    row: string
+    column: string
+    series: string
+    users: integer
+}
+
+export interface BookActivityMatrixCombination {
+    row: string
+    column: string
+    mask: integer
+    users: integer
+}
+
+export interface BookActivityMatrixFirstUse {
+    row: string
+    series: string
+    date: string
+}
+
+export interface BookActivityMatrixResult {
+    rows: BookActivityMatrixRow[]
+    columns: AccountActivityMatrixColumn[]
+    groupings: BookActivityMatrixGrouping[]
+    series: BookActivityMatrixProduct[]
+    data: BookActivityMatrixCell[]
+    combinations: BookActivityMatrixCombination[]
+    firstUse?: BookActivityMatrixFirstUse[]
+    truncated: boolean
+    emptyReason?: BookActivityMatrixEmptyReason
+}
+
+export interface BookActivityMatrixQueryResponse extends AnalyticsQueryResponseBase {
+    results: BookActivityMatrixResult
+}
+
+export type CachedBookActivityMatrixQueryResponse = CachedQueryResponse<BookActivityMatrixQueryResponse>
+
+export interface BookActivityMatrixQuery extends DataNode<BookActivityMatrixQueryResponse> {
+    kind: NodeKind.BookActivityMatrixQuery
+    relationshipDefinitionId?: string
+    accountIds?: string[]
+    userId?: integer
+    dateRange: DateRange
+    interval: BookActivityInterval
+    includeFirstUse?: boolean
+    rowLimit?: integer
+}
+
+export interface BookActivityPersonAction {
+    event: string
+    count: integer
+}
+
+export interface BookActivityPersonPath {
+    /** The page path without its `/project/<id>` prefix. */
+    path: string
+    seconds: integer
+}
+
+export interface BookActivityPerson {
+    /** Account ID, the same as `BookActivityMatrixRow.key`. */
+    row: string
+    /** Bucket start, the same as `AccountActivityMatrixColumn.key`. */
+    column: string
+    /** Product key, the same as `BookActivityMatrixProduct.key`. */
+    series: string
+    personId: string
+    /** The person's email, then their name, then "User" and the start of their person ID. */
+    label: string
+    /** 1 is the most active person in this cell, by engaged seconds plus action count. */
+    rank: integer
+    engagedSeconds: integer
+    actionCount: integer
+    /** Every action event that qualified this person, most frequent first. */
+    actions: BookActivityPersonAction[]
+    /** The top 5 pages by engaged time. */
+    topPaths: BookActivityPersonPath[]
+}
+
+export interface BookActivityPeopleResult {
+    rows: BookActivityMatrixRow[]
+    columns: AccountActivityMatrixColumn[]
+    /** Ordered by account, product, bucket and rank. */
+    people: BookActivityPerson[]
+    /** Accounts were dropped or the row cap was hit. A cell trimmed by `peopleLimit` doesn't count. */
+    truncated: boolean
+    emptyReason?: BookActivityMatrixEmptyReason
+}
+
+export interface BookActivityPeopleQueryResponse extends AnalyticsQueryResponseBase {
+    results: BookActivityPeopleResult
+}
+
+export type CachedBookActivityPeopleQueryResponse = CachedQueryResponse<BookActivityPeopleQueryResponse>
+
+export interface BookActivityPeopleQuery extends DataNode<BookActivityPeopleQueryResponse> {
+    kind: NodeKind.BookActivityPeopleQuery
+    relationshipDefinitionId?: string
+    accountIds?: string[]
+    userId?: integer
+    dateRange: DateRange
+    interval: BookActivityInterval
+    rowLimit?: integer
+    /** Limits the result to these product keys. Empty means every product. */
+    productKeys?: string[]
+    /**
+     * People per account, product and bucket. Defaults to 3.
+     * @asType integer
+     * @minimum 1
+     * @maximum 50
+     */
+    peopleLimit?: number
+    /** Returns everyone in each cell, ignoring `peopleLimit`. Needs exactly one account and one product. */
+    allPeople?: boolean
+}
+
+export interface BookActivityPersonFirstUse {
+    /** Account ID, the same as `BookActivityMatrixRow.key`. */
+    row: string
+    /** Product key, the same as `BookActivityMatrixProduct.key`. */
+    series: string
+    personId: string
+    /** The person's email, then their name, then "User" and the start of their person ID. */
+    label: string
+    /** The first day this person qualified for this product, in the team's timezone. */
+    date: string
+}
+
+export interface BookActivityFirstsResult {
+    rows: BookActivityMatrixRow[]
+    people: BookActivityPersonFirstUse[]
+    /** Each account's first day per product, the earliest of its people. Stays exact when `people` is cut. */
+    accounts: BookActivityMatrixFirstUse[]
+    /** Accounts or person rows were dropped by a limit. A missing person first-use date may be unknown. */
+    truncated: boolean
+    emptyReason?: BookActivityMatrixEmptyReason
+}
+
+export interface BookActivityFirstsQueryResponse extends AnalyticsQueryResponseBase {
+    results: BookActivityFirstsResult
+}
+
+export type CachedBookActivityFirstsQueryResponse = CachedQueryResponse<BookActivityFirstsQueryResponse>
+
+/** First use over all history. Scans history and is cached for 24 hours, so only request it when it's needed. */
+export interface BookActivityFirstsQuery extends DataNode<BookActivityFirstsQueryResponse> {
+    kind: NodeKind.BookActivityFirstsQuery
+    relationshipDefinitionId?: string
+    accountIds?: string[]
+    userId?: integer
+    rowLimit?: integer
+    /** Limits the result to these product keys. Empty means every product. */
+    productKeys?: string[]
+}
+
 export interface TimelineEntry {
     /** Session ID. None means out-of-session events */
     sessionId?: string
@@ -4655,6 +4908,13 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+export interface ErrorTrackingIssueTagFilter {
+    /** Key of the tag definition. */
+    key: string
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -4669,6 +4929,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -4872,6 +5134,17 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+export interface ErrorTrackingIssueTag {
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -4883,6 +5156,8 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTag[] | null
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -5378,6 +5653,9 @@ export interface MetricsDisplaySettings {
      * @default latest
      * @deprecated Use `reduce`. */
     statSummary?: MetricsStatSummary
+    /** `stat` display only: whether a graph of the series shows under the value.
+     * @default true */
+    statSparkline?: boolean
     /** How scalar panels and legend calcs collapse a series to one number.
      * @default last */
     reduce?: MetricsReducer
@@ -6756,6 +7034,7 @@ export type ExperimentExposureHealthFindingActionKind =
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'
+    | 'move_start_date'
 
 /** A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`. */
 export interface ExperimentExposureHealthFinding {
@@ -8091,38 +8370,9 @@ export interface SessionQuery extends DataNode<SessionQueryResponse> {
     includeSentiment?: boolean
 }
 
-export interface TraceNeighborsQueryResponse {
-    /** ID of the newer trace (chronologically after current) */
-    newerTraceId?: string
-    /** Timestamp of the newer trace */
-    newerTimestamp?: string
-    /** ID of the older trace (chronologically before current) */
-    olderTraceId?: string
-    /** Timestamp of the older trace */
-    olderTimestamp?: string
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTiming[]
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
-}
-
-export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
-    kind: NodeKind.TraceNeighborsQuery
-    /** ID of the current trace to find neighbors for */
-    traceId: string
-    /** Timestamp of the current trace to find neighbors for */
-    timestamp: string
-    dateRange?: DateRange
-    filterTestAccounts?: boolean
-    filterSupportTraces?: boolean
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
 export type CachedSessionQueryResponse = CachedQueryResponse<SessionQueryResponse>
-export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -8892,6 +9142,11 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
     /**
+     * Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.
+     * @default false
+     */
+    includeResolved?: boolean
+    /**
      * Resource names of the Google Ads conversion actions that count as conversions, such as
      * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
      * account with none of them counts its primary actions. Selected actions count every conversion, including
@@ -8927,6 +9182,34 @@ export interface MarketingAnalyticsRecommendationStep {
     url?: string | null
     /** The words in `text` that link to `url`, usually the section name. */
     linkText?: string | null
+}
+
+// A const array, not a single-value union, so the Python schema gets a StrEnum the model choices can derive from.
+export const MARKETING_ANALYTICS_RECOMMENDATION_SOURCE_TYPES = ['google_ads'] as const
+export type MarketingAnalyticsRecommendationIdentitySourceType =
+    (typeof MARKETING_ANALYTICS_RECOMMENDATION_SOURCE_TYPES)[number]
+
+/** What a dismissal or an applied mark keys on. A client sends this object as is as the `identity` of a resolution in the recommendation resolutions API. */
+export interface MarketingAnalyticsRecommendationIdentity {
+    rule: MarketingAnalyticsRecommendationRule
+    /** The ad platform the ids belong to. */
+    source_type: MarketingAnalyticsRecommendationIdentitySourceType
+    /** The Google Ads account id. Empty when the recommendation is not tied to one account. */
+    customer_id: string
+    /** The Google Ads campaign id. Empty when the recommendation is not about one campaign. */
+    campaign_id: string
+    /** The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject. */
+    subject: string
+}
+
+export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
+
+export interface MarketingAnalyticsRecommendationResolution {
+    /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+    id: string
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+    resolved_at: string
 }
 
 /**
@@ -8975,6 +9258,11 @@ export interface MarketingAnalyticsRecommendation {
     subject: string
     /** The campaign a search term recommendation applies to, when it applies to one. */
     campaign?: string | null
+    identity: MarketingAnalyticsRecommendationIdentity
+    /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
+    key: string
+    /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+    resolution?: MarketingAnalyticsRecommendationResolution | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */

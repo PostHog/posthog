@@ -21,7 +21,6 @@ export function ClusterDetailScatterPlot(): JSX.Element {
     const { cluster, traceSummaries, scatterPlotSeries, clusteringLevel, filteredItemIds, mapHighlight, mapSizeBy } =
         useValues(clusterDetailLogic)
     const { setMapHighlight, setMapSizeBy } = useActions(clusterDetailLogic)
-    const { isEnabled } = useValues(traceDrawerLogic({ listId: 'cluster-traces' }))
     const { openRow } = useActions(traceDrawerLogic({ listId: 'cluster-traces' }))
     const theme = useChartTheme()
     const [zoom, setZoom] = useState<ScatterAreaSelection | null>(null)
@@ -44,7 +43,7 @@ export function ClusterDetailScatterPlot(): JSX.Element {
         if (!meta) {
             return
         }
-        if (meta.itemId && isEnabled && cluster?.traces[meta.itemId]) {
+        if (meta.itemId && cluster?.traces[meta.itemId]) {
             const row = toClusterTraceDrawerRow(
                 { traceId: meta.itemId, traceInfo: cluster.traces[meta.itemId], summary: traceSummaries[meta.itemId] },
                 clusteringLevel

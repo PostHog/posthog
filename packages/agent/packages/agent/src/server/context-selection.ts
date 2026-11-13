@@ -1,10 +1,13 @@
 import { ZodError } from "zod/v4";
+import { injectedReferenceKeys } from "../context-selection/reference-keys";
 import { type PostHogAPIClient, PostHogAPIError } from "../posthog-api";
 
 export interface HumanMessage {
   messageId: string;
   text: string;
 }
+
+const MAX_EXCLUDED_REFERENCES = 200;
 
 function tail(value: string, limit: number): string {
   return Array.from(value).slice(-limit).join("");
@@ -13,6 +16,7 @@ function tail(value: string, limit: number): string {
 export class ContextSelection {
   private history = "";
   private disabled = false;
+  private injected = new Set<string>();
 
   constructor(
     private readonly api: Pick<PostHogAPIClient, "prepareContextSelection">,
@@ -22,12 +26,24 @@ export class ContextSelection {
     ) => void = () => {},
     private readonly runtimeVersion = "unknown",
     history = "",
+    injected: string[] = [],
   ) {
-    this.resetHistory(history);
+    this.resetHistory(history, injected);
   }
 
-  resetHistory(history = ""): void {
+  resetHistory(history = "", injected: string[] = []): void {
     this.history = tail(history, 12_000);
+    this.injected = new Set(injected);
+  }
+
+  recordInjected(context: string): void {
+    for (const key of injectedReferenceKeys(context)) {
+      this.injected.add(key);
+    }
+  }
+
+  forgetInjected(): void {
+    this.injected.clear();
   }
 
   async prepare(message: HumanMessage): Promise<string> {
@@ -39,6 +55,7 @@ export class ContextSelection {
         prompt: tail(message.text, 20_000),
         history: this.history,
         runtime_version: this.runtimeVersion,
+        exclude: [...this.injected].slice(-MAX_EXCLUDED_REFERENCES),
       });
       if (prepared.mode === "disabled" && prepared.reason === "disabled")
         this.disabled = true;
