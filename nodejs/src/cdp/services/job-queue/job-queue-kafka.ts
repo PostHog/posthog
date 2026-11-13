@@ -158,6 +158,10 @@ export class CyclotronJobQueueKafka implements JobQueue {
     public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
+    public stillOwns(_invocation: CyclotronJobInvocation): Promise<boolean> {
+        return Promise.resolve(true)
+    }
+
     public async deferInvocations(
         deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
     ): Promise<void> {

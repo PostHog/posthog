@@ -2353,6 +2353,7 @@ export namespace Schemas {
         color: DataColorToken | null;
         customColor: string | null;
         hidden: boolean | null;
+        label: string | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
         assignmentBy: string;
@@ -7546,6 +7547,21 @@ export namespace Schemas {
         | "resolved"
         | "pending_release"
         | "suppressed";
+    export type ErrorTrackingIssueTag = {
+        /**
+         * What the tag means, for a tooltip.
+         */
+        description: string;
+        /**
+         * Key of the tag definition.
+         */
+        key: string;
+        /**
+         * Short name of the tag.
+         */
+        label: string;
+        source?: (string | null) | undefined;
+    };
     export type ErrorTrackingIssue = {
         aggregations?: (ErrorTrackingIssueAggregations | null) | undefined;
         assignee?: (ErrorTrackingIssueAssignee | null) | undefined;
@@ -7565,6 +7581,7 @@ export namespace Schemas {
         severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         source?: (string | null) | undefined;
         status: ErrorTrackingIssueStatus;
+        tags?: (Array<ErrorTrackingIssueTag> | null) | undefined;
     };
     export type Response14 = {
         columns?: (Array<string> | null) | undefined;
@@ -7618,6 +7635,7 @@ export namespace Schemas {
         population: Population;
         severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status: ErrorTrackingIssueStatus;
+        tags?: (Array<ErrorTrackingIssueTag> | null) | undefined;
     };
     export type Response15 = {
         columns?: (Array<string> | null) | undefined;
@@ -8847,6 +8865,16 @@ export namespace Schemas {
         version?: (number | null) | undefined;
         webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
+    export type ErrorTrackingIssueTagFilter = {
+        /**
+         * True matches the issues the tag is applied to. False matches every other issue.
+         */
+        applied: boolean;
+        /**
+         * Key of the tag definition.
+         */
+        key: string;
+    };
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8907,6 +8935,7 @@ export namespace Schemas {
         groupKey?: (string | null) | undefined;
         groupTypeIndex?: (number | null) | undefined;
         issueId?: (string | null) | undefined;
+        issueTag?: (ErrorTrackingIssueTagFilter | null) | undefined;
         kind?: string | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -9405,6 +9434,24 @@ export namespace Schemas {
         | "medium"
         | "high"
         | "critical";
+    export type ErrorTrackingIssueTagRead = {
+        /**
+         * Key of the tag. Pass it as `issueTag.key` to filter the issue list.
+         */
+        key: string;
+        /**
+         * Short name of the tag.
+         */
+        label: string;
+        /**
+         * What the tag means, for a tooltip.
+         */
+        description: string;
+        /**
+         * The tagger that applied the tag: `jev` for AI, `manual` for a person.
+         */
+        source: string;
+    };
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
@@ -9421,6 +9468,10 @@ export namespace Schemas {
         assignee: ErrorTrackingIssueAssigneeRead | null;
         external_issues: Array<ErrorTrackingExternalReferenceResult>;
         cohort: ErrorTrackingIssueCohortRead | null;
+        /**
+         * Read-only serializer for issue contract types returned by the facade.
+         */
+        tags?: Array<ErrorTrackingIssueTagRead> | undefined;
     };
     export type ErrorTrackingIssueRedirectResponse = {
         /**
