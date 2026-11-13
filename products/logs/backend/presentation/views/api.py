@@ -1697,6 +1697,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
+        query_started_at = monotonic()
         try:
             # Replay asks for session logs on every recording open, and most of those teams send no logs.
             if query.sessionId and not team_has_logs(self.team, cache_negative=True):
@@ -1718,6 +1719,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except QueryError as e:
             # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        duration_ms = round((monotonic() - query_started_at) * 1000)
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
@@ -1737,6 +1739,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             event_properties: dict[str, object] = {
                 "results_count": len(results),
                 "has_more": has_more,
+                "duration_ms": duration_ms,
                 **self._filter_analytics_props(query_data),
                 "is_paginated": bool(after_cursor),
                 # Session and person scopes come from embeds that load on page open, not from a search.
@@ -1792,10 +1795,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
+        query_started_at = monotonic()
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
         )
+        duration_ms = round((monotonic() - query_started_at) * 1000)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
@@ -1804,6 +1809,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             {
                 **self._filter_analytics_props(query_data),
                 "breakdown_by": query_data.get("sparklineBreakdownBy"),
+                "duration_ms": duration_ms,
             },
             team=self.team,
             request=request,
