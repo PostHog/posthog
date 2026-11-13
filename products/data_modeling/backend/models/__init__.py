@@ -9,6 +9,7 @@ from .github_sync_config import GitHubSyncConfig, GitHubSyncStatus
 from .github_sync_plan import GitHubSyncPlan, GitHubSyncPlanStatus
 from .github_synced_model import GitHubSyncedModel
 from .node import Node, NodeType
+from .node_subscription import NodeSubscription
 
 __all__ = [
     "DAG",
@@ -31,5 +32,6 @@ __all__ = [
     "GitHubSyncPlanStatus",
     "GitHubSyncedModel",
     "Node",
+    "NodeSubscription",
     "NodeType",
 ]

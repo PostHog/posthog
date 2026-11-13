@@ -14,13 +14,14 @@ from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import EventDefinition, PersonalAPIKey
+from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.event_definitions.backend.models import EventDefinition
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS
@@ -637,7 +638,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
     @patch(_GENERATE_PATH)
     def test_a_chosen_query_scoped_to_an_experiment_keeps_its_variant(self, mock_generate):
-        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
         mock_generate.return_value = _draft(
             filter_experiment="Billing upgrade prompt", filter_experiment_variant="test"
         )
@@ -649,7 +650,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "free_only": True,
                 "query": {
                     "kind": "RecordingsQuery",
-                    "experiment_exposure": {"experiment_id": experiment.id, "variant": "control"},
+                    "experiment_exposure": {"experiment_id": experiment_id, "variant": "control"},
                 },
             },
             format="json",
@@ -657,7 +658,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
         assert resp.status_code == status.HTTP_200_OK, resp.json()
         assert resp.json()["scanner_type"] == "experiment"
-        assert resp.json()["scanner_config"]["experiment_id"] == experiment.id
+        assert resp.json()["scanner_config"]["experiment_id"] == experiment_id
         assert resp.json()["scanner_config"]["variants"] == ["control"]
         assert "experiment_exposure" not in resp.json()["query"]
 
@@ -665,7 +666,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
     @parameterized.expand([("unknown name", "holdout"), ("empty name", "")])
     @patch(_GENERATE_PATH)
     def test_a_chosen_variant_the_experiment_lacks_is_refused(self, _name, variant, mock_generate):
-        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
         mock_generate.return_value = _draft(filter_experiment="Billing upgrade prompt")
 
         resp = self.client.post(
@@ -675,7 +676,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "free_only": True,
                 "query": {
                     "kind": "RecordingsQuery",
-                    "experiment_exposure": {"experiment_id": experiment.id, "variant": variant},
+                    "experiment_exposure": {"experiment_id": experiment_id, "variant": variant},
                 },
             },
             format="json",
@@ -858,7 +859,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         else:
             experiment_id = _launched_experiment(
                 self.team, self.user, "Checkout test", launched=case == "token_without_experiment_read"
-            ).id
+            )
         if case == "token_without_experiment_read":
             headers["HTTP_AUTHORIZATION"] = (
                 f"Bearer {self._personal_api_key(['replay_scanner:write', 'session_recording:read'])}"
@@ -942,7 +943,7 @@ class TestEventsForGoal(_VisionAPITestCase):
         assert events[0] == "cta hit"
 
 
-def _launched_experiment(team, user, name: str, *, launched: bool = True):
+def _launched_experiment(team, user, name: str, *, launched: bool = True) -> int:
     flag = FeatureFlag.objects.create(
         team=team,
         key=name.lower().replace(" ", "-"),
@@ -957,11 +958,11 @@ def _launched_experiment(team, user, name: str, *, launched: bool = True):
             }
         },
     )
-    return Experiment.objects.create(
-        team=team,
+    return create_experiment(
+        team_id=team.id,
         name=name,
-        feature_flag=flag,
-        created_by=user,
+        feature_flag_id=flag.id,
+        created_by_id=user.id,
         start_date=timezone.now() if launched else None,
         exposure_criteria={},
     )
@@ -974,14 +975,14 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_experiment_named_in_the_goal_comes_back_with_its_variants(self):
         # Who a change was shown to is not in the taxonomy: no page or event filter separates the
         # participants who got the new experience from everyone else who reached the same screen.
-        experiment = _launched_experiment(self.team, self.user, "Onboarding checklist")
+        experiment_id = _launched_experiment(self.team, self.user, "Onboarding checklist")
 
         matches = _goal_entity_matches(
             self.team, "summarize sessions in the onboarding checklist experiment", _access_control(allow=True)
         )
 
         assert [(e.name, e.experiment_id, e.variants) for e in matches.experiments] == [
-            ("Onboarding checklist", experiment.id, ("control", "test"))
+            ("Onboarding checklist", experiment_id, ("control", "test"))
         ]
 
     def test_an_experiment_the_exposure_filter_would_refuse_never_reaches_the_briefing(self):
@@ -1010,7 +1011,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
         # An action is the team's own curated definition of a behavior, so a goal naming one is the
         # sharpest filter available and must come back with the id the query needs.
-        action = Action.objects.create(team=self.team, name="Completed checkout")
+        action = create_action(team=self.team, name="Completed checkout")
 
         matches = _goal_entity_matches(
             self.team, "sessions where someone completed checkout", _access_control(allow=True)
@@ -1021,7 +1022,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
         # Surveys and actions are access-controlled, so naming one back would leak its existence.
         self._survey("Pricing feedback")
-        Action.objects.create(team=self.team, name="Pricing feedback click")
+        create_action(team=self.team, name="Pricing feedback click")
 
         matches = _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False))
         assert (matches.surveys, matches.actions, matches.cohorts) == ([], [], [])
@@ -1044,7 +1045,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         # A token with scanner and recording scopes but not survey:read must not learn a survey's
         # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
         self._survey("Pricing feedback")
-        Action.objects.create(team=self.team, name="Pricing feedback click")
+        create_action(team=self.team, name="Pricing feedback click")
         Cohort.objects.create(team=self.team, name="Pricing feedback cohort")
 
         matches = _goal_entity_matches(
@@ -1081,7 +1082,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         # the recordings query drops a cohort filter it cannot resolve, so the scan widens to every
         # session while the rationale still describes an audience.
         Cohort.objects.create(team=self.team, name="Power users", deleted=True)
-        Action.objects.create(team=self.team, name="Power users click", deleted=True)
+        create_action(team=self.team, name="Power users click", deleted=True)
 
         matches = _goal_entity_matches(self.team, "what do power users struggle with", _access_control(allow=True))
 
@@ -2103,7 +2104,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
     ):
         # The projection has to count that experiment's participants, not every session the pages
         # match, while the query the wizard saves stays the exposure-free blob the API accepts.
-        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
         counted: list[RecordingsQuery] = []
 
         def estimate(*, team, query, user, sampling_mode, budget):
@@ -2113,21 +2114,21 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         draft = self._drafted_with(
             _draft(filter_pages=["/billing"], filter_experiment_variant="test", **overrides),
             estimate,
-            experiment_id=experiment.id if picked else None,
+            experiment_id=experiment_id if picked else None,
             experiment_variants=chosen_variants,
             chosen_query={"kind": "RecordingsQuery"} if chosen_variants else None,
         )
 
         assert draft.scanner_type == "experiment"
-        assert draft.scanner_config["experiment_id"] == experiment.id
+        assert draft.scanner_config["experiment_id"] == experiment_id
         assert draft.scanner_config["variants"] == expected_variants
         assert draft.query is not None and "experiment_exposure" not in draft.query
         assert counted[0].experiment_exposure is not None
-        assert counted[0].experiment_exposure.experiment_id == experiment.id
+        assert counted[0].experiment_exposure.experiment_id == experiment_id
         assert counted[0].experiment_exposure.variants == expected_variants
 
     def test_a_picked_experiment_that_never_launched_is_refused_before_the_model_runs(self):
-        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt", launched=False)
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt", launched=False)
 
         with patch(_GENERATE_PATH) as generate, pytest.raises(UnwatchableExperimentError):
             draft_scanner_from_goal(
@@ -2136,7 +2137,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
                 goal="track my experiment",
                 monthly_credit_budget=10_000,
                 user_access_control=_access_control(allow=True),
-                experiment_id=experiment.id,
+                experiment_id=experiment_id,
             )
         generate.assert_not_called()
 

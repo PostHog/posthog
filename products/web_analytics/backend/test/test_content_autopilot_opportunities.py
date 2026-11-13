@@ -1,12 +1,15 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
+from posthog.models.team import Team
+
+from products.aeo.backend.facade.api import create_brand
+from products.aeo.backend.facade.contracts import BrandCreate, BrandKind, CitationGap, EngineAnswer
 from products.web_analytics.backend.content_autopilot.lifecycle import ContentAutopilotLifecycleError
 from products.web_analytics.backend.content_autopilot.opportunities import (
     MAX_DRAFTS_PER_RUN,
@@ -78,10 +81,10 @@ class TestOpportunityScoring(SimpleTestCase):
         assert mentioned > consistent
 
 
-@override_settings(AEO_TARGET_DOMAINS=["example.com"])
 class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        create_brand(self.team.id, BrandCreate(domain="example.com", kind=BrandKind.OWN))
         self.profile = create_content_autopilot_profile(self.team)
 
     def _refresh(
@@ -95,10 +98,26 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
             )
 
     def test_only_a_site_the_aeo_checks_track_gets_opportunities(self) -> None:
-        other = create_content_autopilot_profile(self.team, domain="https://other.example")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        create_brand(other_team.id, BrandCreate(domain="other.example.org", kind=BrandKind.OWN))
+        other = create_content_autopilot_profile(self.team, domain="https://other.example.org")
 
         assert self._refresh([_gap("What is the best CRM?")], profile_id=str(other.id)) == []
         assert len(self._refresh([_gap("What is the best CRM?")])) == 1
+
+    @parameterized.expand(
+        [
+            ("subdomain", "https://docs.example.com", 1),
+            ("www_subdomain", "https://www.docs.example.com", 1),
+            ("lookalike_domain", "https://notexample.com", 0),
+        ]
+    )
+    def test_a_site_on_a_subdomain_of_an_own_brand_gets_opportunities(
+        self, _name: str, domain: str, expected: int
+    ) -> None:
+        site = create_content_autopilot_profile(self.team, domain=domain)
+
+        assert len(self._refresh([_gap("What is the best CRM?")], profile_id=str(site.id), page_urls=[])) == expected
 
     def test_an_empty_sitemap_still_limits_cited_pages_to_the_site_boundaries(self) -> None:
         self.profile.content_boundaries = ["/docs"]
@@ -273,7 +292,7 @@ class TestDraftOpportunities(BaseTest):
             )
 
     def test_rejects_opportunities_from_another_site_already_queued_or_dismissed(self) -> None:
-        other_profile = create_content_autopilot_profile(self.team, domain="https://other.example")
+        other_profile = create_content_autopilot_profile(self.team, domain="https://other.example.org")
         foreign = create_content_autopilot_opportunity(self.team, other_profile)
         with self.assertRaisesRegex(ContentAutopilotLifecycleError, "selected site"):
             draft_opportunities(

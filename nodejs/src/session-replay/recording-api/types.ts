@@ -42,19 +42,20 @@ export {
  *
  * `RECORDING_API_JWT_SECRET` is a dedicated signing secret (comma-separated `new_key,old_key` for
  * rotation), kept off the fleet-wide `JWT_SIGNING_KEY` so only the designated minters can produce
- * valid tokens. `RECORDING_API_ALLOW_LEGACY_SECRET` keeps the old `X-Internal-Api-Secret` accepted
- * during migration; flip it off at cutover.
+ * valid tokens.
  */
 export type RecordingApiAuthConfig = {
     RECORDING_API_JWT_SECRET: string
-    RECORDING_API_ALLOW_LEGACY_SECRET: boolean
 }
+
+// Local defaults that match the Django and Temporal minters. They are public in this repo, so a cloud process never accepts them.
+export const DEV_RECORDING_API_JWT_SECRET = 'dev-recording-api-jwt-secret'
+export const DEV_RECORDING_API_BLOCKS_JWT_SECRET = 'dev-recording-api-blocks-jwt-secret'
 
 export function getDefaultRecordingApiAuthConfig(): RecordingApiAuthConfig {
     return {
         // Dev/test default matches the Django/Temporal minters so local end-to-end calls validate.
-        RECORDING_API_JWT_SECRET: isProdEnv() ? '' : 'dev-recording-api-jwt-secret',
-        RECORDING_API_ALLOW_LEGACY_SECRET: true,
+        RECORDING_API_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_JWT_SECRET,
     }
 }
 
@@ -87,13 +88,19 @@ export type RecordingApiBlocksConfig = {
     RECORDING_API_AWS_TIMEOUT_MS: number
     // Deadline for a Redis command and for checking a connection out of the pool.
     RECORDING_API_REDIS_TIMEOUT_MS: number
+    // The browser route refuses a larger block, and the player reads it through Django instead.
+    RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: number
+    // Bytes of browser-route blocks one process reads and decrypts at once. A request over it gets a 503.
+    RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: number
+    // Deadline for one browser-route S3 read, body included. It sits under the Envoy route timeout.
+    RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: number
 }
 
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
     return {
         RECORDING_API_ROLE: 'internal',
         // Dev/test default matches the Django minter so local end-to-end calls validate.
-        RECORDING_API_BLOCKS_JWT_SECRET: isProdEnv() ? '' : 'dev-recording-api-blocks-jwt-secret',
+        RECORDING_API_BLOCKS_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_BLOCKS_JWT_SECRET,
         RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: true,
         RECORDING_API_BLOCK_RATE_LIMITS: JSON.stringify({
             browser: [2000, 8],
@@ -104,6 +111,9 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
         // Deletes, which are mostly KMS and DynamoDB calls, almost never take over 2.5s in total.
         RECORDING_API_AWS_TIMEOUT_MS: 5000,
         RECORDING_API_REDIS_TIMEOUT_MS: 2000,
+        RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: 32 * 1024 * 1024,
+        RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: 256 * 1024 * 1024,
+        RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: 10000,
     }
 }
 
@@ -142,7 +152,7 @@ export function parseRecordingApiRole(role: string): RecordingApiRole {
  */
 export type RecordingApiConfig = Pick<
     CommonConfig,
-    'KAFKA_CLIENT_RACK' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE' | 'INTERNAL_API_SECRET'
+    'KAFKA_CLIENT_RACK' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'
 > &
     Pick<
         SessionRecordingApiConfig,
@@ -198,4 +208,32 @@ export interface RecordingBlock {
     end_byte: number
     start_timestamp: string
     end_timestamp: string
+}
+
+export interface PublicBlockLimits {
+    maxBlockBytes: number
+    bytesInFlight: number
+    readTimeoutMs: number
+}
+
+// An empty or mistyped env value parses to NaN, which every comparison treats as no limit, so it must stop startup.
+export function parsePublicBlockLimits(config: Partial<RecordingApiBlocksConfig>): PublicBlockLimits {
+    const defaults = getDefaultRecordingApiBlocksConfig()
+    const read = (
+        name:
+            | 'RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'
+            | 'RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'
+            | 'RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'
+    ): number => {
+        const value = config[name] ?? defaults[name]
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error(`${name} must be a positive number`)
+        }
+        return value
+    }
+    return {
+        maxBlockBytes: read('RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'),
+        bytesInFlight: read('RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'),
+        readTimeoutMs: read('RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'),
+    }
 }

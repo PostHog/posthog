@@ -446,7 +446,7 @@ function HogFunctionHeader(): JSX.Element {
                             logicKey={logicProps.id ?? 'new'}
                             src={configuration.icon_url}
                             onChange={(val) => setConfigurationValue('icon_url', val)}
-                            size="small"
+                            size="xsmall"
                         />
                     ),
                 }}

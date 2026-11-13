@@ -1,23 +1,29 @@
-"""Where a scoring pass writes: one `ranking_score` artefact per report, and one event per model.
+"""Where a scoring pass writes: one `ranking_score` artefact per report, one event per model, and one
+facts event per report.
 
 `ranking_score` is in `NON_WRITABLE_ARTEFACT_TYPES`, so this system path is its only writer. The
 events go to PostHog's own project, where the inbox label streams join them on `report_id` like
 every other ranking event.
 """
 
-from collections.abc import Sequence
+import dataclasses
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 
 from django.conf import settings
+from django.db import transaction
 
 from posthog.ph_client import ScopedCapture, ph_scoped_capture
 
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
+from products.signals.backend.ranking.cache import RANKING_CACHE_FIELDS, apply_ranking_cache, latest_edit_ats
 from products.signals.backend.ranking.model_contract import classification_thresholds, head_lifts, readable_head_names
 from products.signals.backend.ranking.overrides import RankingOverrides
+from products.signals.backend.ranking.report_facts import FACTS_SCHEMA_VERSION, ReportFacts
 
 REPORT_SCORED_EVENT = "inbox_ranking_report_scored"
+REPORT_FACTS_EVENT = "inbox_ranking_report_facts_recorded"
 DISTINCT_ID = "inbox_ranking_scoring"
 
 
@@ -25,61 +31,87 @@ def persist_scores(
     team_id: int,
     scores: Sequence[tuple[str, RankingScore]],
     *,
+    facts: Mapping[str, ReportFacts],
     capture: ScopedCapture | None = None,
     served_override: RankingOverrides | None = None,
 ) -> int:
     """Write one artefact per `(report_id, score)` of the team, then capture its events.
+
+    Every model of a pass sees the same report, so a report gets one facts event, not one per model. A
+    report without an entry in `facts` gets none.
 
     A report id that is not one of the team's reports is dropped. Returns the rows written. Without
     `capture`, the call opens its own scope, which blocks on a flush when it closes. A caller that
     persists many teams passes one `capture` for all of them, so it pays that flush once.
     """
     report_ids = [report_id for report_id, _ in scores]
-    owned = {
-        str(report_id)
-        for report_id in SignalReport.objects.filter(team_id=team_id, id__in=report_ids).values_list("id", flat=True)
-    }
-    kept = [(report_id, score) for report_id, score in scores if report_id in owned]
-    SignalReportArtefact.objects.bulk_create(
-        [
-            SignalReportArtefact(
-                team_id=team_id,
-                report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
-                content=score.model_dump_json(),
-                actor_kind=SignalActorKind.SYSTEM,
-            )
-            for report_id, score in kept
-        ]
-    )
+    with transaction.atomic():
+        reports = {
+            str(report.id): report
+            for report in SignalReport.objects.select_for_update(no_key=True)
+            .filter(team_id=team_id, id__in=report_ids)
+            .order_by("id")
+        }
+        kept = [(report_id, score) for report_id, score in scores if report_id in reports]
+        SignalReportArtefact.objects.bulk_create(
+            [
+                SignalReportArtefact(
+                    team_id=team_id,
+                    report_id=report_id,
+                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+                    content=score.model_dump_json(),
+                    actor_kind=SignalActorKind.SYSTEM,
+                )
+                for report_id, score in kept
+            ]
+        )
+        edit_ats = latest_edit_ats(list(reports))
+        for report_id, score in kept:
+            apply_ranking_cache(reports[report_id], score, edit_ats.get(report_id))
+        SignalReport.objects.bulk_update([reports[report_id] for report_id, _ in kept], RANKING_CACHE_FIELDS)
     override_expires_at = (
         served_override.expires_at.isoformat() if served_override and served_override.expires_at else None
     )
     with ph_scoped_capture() if capture is None else nullcontext(capture) as active_capture:
         for report_id, score in kept:
+            report_properties = {
+                "$process_person_profile": False,
+                "environment": settings.CLOUD_DEPLOYMENT,
+                "team_id": team_id,
+                "report_id": report_id,
+                "manifest_version": score.manifest_version,
+                "embedding_inserted_at": score.embedding_inserted_at.isoformat()
+                if score.embedding_inserted_at
+                else None,
+            }
             for model_key, result in score.results.items():
                 active_capture(
                     distinct_id=DISTINCT_ID,
                     event=REPORT_SCORED_EVENT,
                     properties={
-                        "$process_person_profile": False,
-                        "environment": settings.CLOUD_DEPLOYMENT,
-                        "team_id": team_id,
-                        "report_id": report_id,
+                        **report_properties,
                         "model_key": model_key,
                         "model_name": result.model_name,
                         "model_version": result.model_version,
                         "roles": result.roles,
                         "status": result.status,
                         "skip_reason": result.skip_reason,
-                        "manifest_version": score.manifest_version,
-                        "embedding_inserted_at": score.embedding_inserted_at.isoformat()
-                        if score.embedding_inserted_at
-                        else None,
                         "override_served": served_override.served if served_override else None,
                         "override_expires_at": override_expires_at,
                         **{f"p_{head}": probability for head, probability in result.scores.items()},
                         **classification_properties(result),
+                    },
+                )
+            report_facts = facts.get(report_id)
+            if report_facts is not None:
+                active_capture(
+                    distinct_id=DISTINCT_ID,
+                    event=REPORT_FACTS_EVENT,
+                    properties={
+                        **report_properties,
+                        "scored_at": score.scored_at.isoformat(),
+                        "facts_schema_version": FACTS_SCHEMA_VERSION,
+                        **dataclasses.asdict(report_facts),
                     },
                 )
     return len(kept)

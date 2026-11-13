@@ -83,6 +83,7 @@ export type CanvasBodyState =
     | 'loading'
     | 'error'
     | 'missing'
+    | 'forbidden'
     | 'empty'
     | 'generating'
     | 'generation-ended'
@@ -189,6 +190,7 @@ export interface canvasSceneLogicValues {
     space: CanvasSpace | null
     spaceLoading: boolean
     view: CanvasViewResponseApi | null
+    viewForbidden: boolean
     viewLoading: boolean
     viewMissing: boolean
     viewUnavailable: boolean
@@ -397,6 +399,7 @@ export interface canvasSceneLogicMeta {
             view: CanvasViewResponseApi | null,
             viewLoading: boolean,
             viewMissing: boolean,
+            viewForbidden: boolean,
             viewUnavailable: boolean,
             liveBuild: CanvasBuildApi | null,
             draftCode: string | null,
@@ -575,6 +578,13 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 loadViewFailure: (_, { errorObject }) => errorObject?.status === 404,
             },
         ],
+        viewForbidden: [
+            false,
+            {
+                loadView: () => false,
+                loadViewFailure: (_, { errorObject }) => errorObject?.status === 403,
+            },
+        ],
         viewUnavailable: [
             false,
             {
@@ -729,6 +739,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 s.view,
                 s.viewLoading,
                 s.viewMissing,
+                s.viewForbidden,
                 s.viewUnavailable,
                 s.liveBuild,
                 s.draftCode,
@@ -739,6 +750,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 view: CanvasViewResponseApi | null,
                 viewLoading: boolean,
                 missing: boolean,
+                forbidden: boolean,
                 unavailable: boolean,
                 liveBuild: CanvasBuildApi | null,
                 draftCode: string | null,
@@ -747,6 +759,9 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             ): CanvasBodyState => {
                 if (missing) {
                     return 'missing'
+                }
+                if (forbidden) {
+                    return 'forbidden'
                 }
                 if (!view) {
                     return unavailable ? 'error' : 'loading'
@@ -783,7 +798,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         // The panel has nothing to add to a canvas that has not loaded, or to an empty one whose composer fills the body.
         sidePanelAvailable: [
             (s) => [s.bodyState],
-            (bodyState: CanvasBodyState): boolean => !['loading', 'error', 'missing', 'empty'].includes(bodyState),
+            (bodyState: CanvasBodyState): boolean =>
+                !['loading', 'error', 'missing', 'forbidden', 'empty'].includes(bodyState),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [(_, props: CanvasSceneLogicProps) => props.id, s.blocksCanvasId],

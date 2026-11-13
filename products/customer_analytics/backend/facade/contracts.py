@@ -27,6 +27,16 @@ if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
 
 
+class PersonAccount(TypedDict):
+    id: str
+    name: str
+
+
+class PersonAccounts(TypedDict):
+    person_id: str
+    accounts: list[PersonAccount]
+
+
 class AccountPersonsPropertyAccessError(Exception):
     pass
 
@@ -60,6 +70,18 @@ class AccountPersonsPage:
     offset: int
     has_more: bool
     next_offset: int | None
+
+
+@frozen
+class AccountAutomation:
+    workflow_id: str
+    workflow_name: str
+    invocation_id: str
+    status: str
+    triggered_at: datetime
+    last_completed_step_at: datetime | None
+    expected_resume_at: datetime | None
+    last_completed_step_name: str | None = None
 
 
 class InvalidCustomPropertyOptions(ValueError):
@@ -1261,6 +1283,7 @@ class AccountNotebookView:
     created_by: UserBasicInfo | None = None
     last_modified_at: datetime | None = None
     last_modified_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1276,6 +1299,7 @@ class AccountNoteView:
     account_id: UUID
     account_name: str
     created_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 # --- Presentation wave: input contracts for the CRUD write paths ---
@@ -1336,6 +1360,14 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+    tags: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class UpdateAccountNotebookInput:
+    """Validated body for a partial update of an account notebook. ``None`` leaves the tags untouched."""
+
+    tags: list[str] | None = None
 
 
 @dataclass(frozen=True)

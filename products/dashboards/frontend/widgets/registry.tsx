@@ -3,7 +3,9 @@ import { type ComponentType, type LazyExoticComponent } from 'react'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
+import type { DashboardFilter } from '~/queries/schema/schema-general'
+
+import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardTopHeading'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
@@ -15,6 +17,7 @@ export type DashboardWidgetTileFiltersProps = {
     canMutateErrorTrackingIssues?: boolean
 }
 import { parseActivityEventsWidgetConfigApiError } from './activity/activityEventsWidgetConfigValidation'
+import { parseCanvasAppWidgetConfigApiError } from './canvas/canvasAppWidgetConfigValidation'
 import { parseConversationsWidgetConfigApiError } from './conversations/conversationsWidgetConfigValidation'
 import type {
     WidgetIssueMetadataContext,
@@ -47,10 +50,21 @@ const NotebookDashboardWidgetMenu = lazyWithRetry(() =>
         default: m.NotebookDashboardWidgetMenu,
     }))
 )
+const QuillNotebookDashboardWidgetMenu = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/QuillNotebookDashboardWidgetMenu').then((m) => ({
+        default: m.QuillNotebookDashboardWidgetMenu,
+    }))
+)
 const EditNotebookWidgetModal = lazyWithRetry(() =>
     import('products/notebooks/frontend/NotebookDashboardWidget/EditNotebookWidgetModal').then((m) => ({
         default: m.EditNotebookWidgetModal,
     }))
+)
+const CanvasAppWidget = lazyWithRetry(() =>
+    import('./canvas/CanvasAppWidget').then((m) => ({ default: m.CanvasAppWidget }))
+)
+const EditCanvasAppWidgetModal = lazyWithRetry(() =>
+    import('./canvas/EditCanvasAppWidgetModal').then((m) => ({ default: m.EditCanvasAppWidgetModal }))
 )
 const ConversationsWidget = lazyWithRetry(() =>
     import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidget }))
@@ -197,6 +211,7 @@ export type DashboardWidgetSlot<P> = ComponentType<P> | LazyExoticComponent<Comp
 export type DashboardWidgetDefinition = {
     Component: DashboardWidgetSlot<DashboardWidgetComponentProps>
     MenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
+    QuillMenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
     bodyPadding?: boolean
     TileFilters?: DashboardWidgetSlot<DashboardWidgetTileFiltersProps>
     EditModal?: DashboardWidgetSlot<DashboardWidgetEditModalProps>
@@ -214,6 +229,9 @@ export type DashboardWidgetComponentProps = {
     result: unknown
     loading: boolean
     error?: string | null
+    /** The date range and interval the dashboard forces on its insight tiles. Widget queries ignore them,
+     * but a widget that opens charts of its own uses them so the charts line up with the dashboard. */
+    dashboardFilters?: Pick<DashboardFilter, 'date_from' | 'date_to' | 'interval'>
     onRefresh?: () => void
     /** Debounced run_widgets refresh after tile data changes (filters). */
     onRefreshData?: () => void
@@ -255,6 +273,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
     notebook_widget: {
         Component: NotebookDashboardWidget,
         MenuItems: NotebookDashboardWidgetMenu,
+        QuillMenuItems: QuillNotebookDashboardWidgetMenu,
         bodyPadding: false,
         EditModal: EditNotebookWidgetModal,
         parseConfigApiError: () => null,
@@ -321,6 +340,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditMetricsTableWidgetModal,
         parseConfigApiError: parseMetricsTableWidgetConfigApiError,
         productAccess: 'metrics',
+    },
+    canvas_app: {
+        Component: CanvasAppWidget,
+        // The canvas owns its whole frame; the card body adds no padding around the iframe.
+        bodyPadding: false,
+        EditModal: EditCanvasAppWidgetModal,
+        parseConfigApiError: parseCanvasAppWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

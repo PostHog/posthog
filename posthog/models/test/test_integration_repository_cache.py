@@ -1,6 +1,7 @@
 import base64
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest
@@ -16,11 +17,16 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.integration_repository_cache import (
+    ACTIVITY_REFRESH_INTERVAL,
     GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS,
     SYNC_LOCK_KEY_PREFIX,
     GitHubRepositoryFullCache,
     IntegrationRepositoryCacheEntry,
+    RepositoryActivity,
     SyncFullCacheTimeoutError,
+    TreeSummary,
+    parse_repository_activity,
+    summarize_tree,
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -105,6 +111,8 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert entry.readme == "# Hello"
         assert entry.tree_paths == "README.md\nsrc/app.py"
         assert entry.tree_truncated is False
+        assert (entry.file_count, entry.top_extensions) == (2, ["md", "py"])
+        assert entry.tree_hash is not None
 
     def test_sync_full_cache_entry_returns_cached_within_ttl_without_api_calls(self):
         integration = self._create_integration()
@@ -663,6 +671,133 @@ class TestGitHubRepositoryFullCache(BaseTest):
             async_to_sync(repo_cache.sync_full_cache)()
 
         assert IntegrationRepositoryCacheEntry.objects.filter(pk=other_team_row.pk).exists()
+
+    def _activity_row(self, integration: Integration, full_name: str, **fields) -> IntegrationRepositoryCacheEntry:
+        return IntegrationRepositoryCacheEntry.objects.create(
+            integration=integration,
+            team=self.team,
+            full_name=full_name,
+            default_branch="main",
+            default_branch_sha="SHA",
+            tree_paths="a.py\nb.py",
+            **fields,
+        )
+
+    @parameterized.expand(
+        [
+            ("answered", None, 2),
+            ("failed_batch_moves_on", {"data": None, "errors": [{"type": "FORBIDDEN", "message": "no"}]}, 2),
+            # GitHub answers an exhausted GraphQL point budget with a 200, not a 403 or 429.
+            ("rate_limit_stops", {"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}, 1),
+        ]
+    )
+    @patch("posthog.models.integration_repository_cache.ACTIVITY_BATCH_SIZE", 1)
+    def test_refresh_activity_stores_figures_and_skips_failures(
+        self, _name: str, error_body: dict | None, batches: int
+    ) -> None:
+        integration = self._create_integration()
+        due = self._activity_row(integration, "posthog/posthog")
+        missing = self._activity_row(integration, "posthog/gone")
+        fresh = self._activity_row(
+            integration,
+            "posthog/fresh",
+            file_count=2,
+            activity_updated_at=timezone.now() - ACTIVITY_REFRESH_INTERVAL / 2,
+            merged_pull_request_count=7,
+        )
+        synced_at = IntegrationRepositoryCacheEntry.objects.get(pk=due.pk).updated_at
+        queried: list[list[str]] = []
+
+        def api_request(self_, method, path, *, json_body, **kwargs):
+            variables = json_body["variables"]
+            names = [f"{variables[f'o{i}']}/{variables[f'n{i}']}" for i in range(len(variables) // 2)]
+            queried.append(names)
+            node = {
+                "merged": {"totalCount": 120},
+                "defaultBranchRef": {
+                    "target": {
+                        "recent": {"totalCount": 30},
+                        "authors": {"nodes": [{"author": {"name": "A", "user": {"login": "a"}}}]},
+                    }
+                },
+            }
+            data = {f"r{i}": node if name == "posthog/posthog" else None for i, name in enumerate(names)}
+            body = error_body if error_body is not None else {"data": data}
+            return SimpleNamespace(status_code=200, json=lambda: body, headers={}, text="")
+
+        with patch.object(GitHubIntegration, "api_request", autospec=True, side_effect=api_request):
+            self._cache_for(integration).refresh_activity()
+
+        assert queried == [["posthog/gone"], ["posthog/posthog"]][:batches]
+        due.refresh_from_db()
+        missing.refresh_from_db()
+        fresh.refresh_from_db()
+        assert (due.file_count, due.top_extensions) == (2, ["py"])
+        assert due.updated_at == synced_at
+        assert fresh.merged_pull_request_count == 7
+        figures = (due.commits_last_30_days, due.recent_author_count, due.merged_pull_request_count)
+        if error_body is None:
+            assert figures == (30, 1, 120)
+            assert due.activity_updated_at is not None
+            assert missing.activity_updated_at is not None and missing.merged_pull_request_count is None
+        else:
+            assert figures == (None, None, None)
+            assert due.activity_updated_at is None and missing.activity_updated_at is None
+
+
+@parameterized.expand(
+    [
+        ("empty", "", TreeSummary(file_count=0, top_extensions=(), tree_hash=None)),
+        (
+            "dotfiles_and_unsafe_extensions_are_not_extensions",
+            ".gitignore\nsrc/.eslintrc.json\nMakefile\nnotes.ignore_previous_instructions\na.PY\nb.py\nc.ts",
+            TreeSummary(file_count=7, top_extensions=("py", "json", "ts"), tree_hash="hash"),
+        ),
+    ]
+)
+def test_summarize_tree(_name: str, tree_paths: str, expected: TreeSummary) -> None:
+    summary = summarize_tree(tree_paths)
+    assert (summary.file_count, summary.top_extensions) == (expected.file_count, expected.top_extensions)
+    assert (summary.tree_hash is None) == (expected.tree_hash is None)
+
+
+def test_summarize_tree_hash_ignores_path_order() -> None:
+    assert summarize_tree("a.py\nb.py").tree_hash == summarize_tree("b.py\na.py").tree_hash
+    assert summarize_tree("a.py\nb.py").tree_hash != summarize_tree("a.py\nc.py").tree_hash
+
+
+@parameterized.expand(
+    [
+        ("not_returned", None, None),
+        (
+            "empty_repository",
+            {"merged": {"totalCount": 0}, "defaultBranchRef": None},
+            RepositoryActivity(commits_last_30_days=0, recent_author_count=0, merged_pull_request_count=0),
+        ),
+        (
+            "authors_by_login_else_name",
+            {
+                "merged": {"totalCount": 5},
+                "defaultBranchRef": {
+                    "target": {
+                        "recent": {"totalCount": 4},
+                        "authors": {
+                            "nodes": [
+                                {"author": {"name": "Ada L", "user": {"login": "ada"}}},
+                                {"author": {"name": "Ada Lovelace", "user": {"login": "Ada"}}},
+                                {"author": {"name": "build bot", "user": None}},
+                                {"author": {"name": "", "user": None}},
+                            ]
+                        },
+                    }
+                },
+            },
+            RepositoryActivity(commits_last_30_days=4, recent_author_count=2, merged_pull_request_count=5),
+        ),
+    ]
+)
+def test_parse_repository_activity(_name: str, node: dict | None, expected: RepositoryActivity | None) -> None:
+    assert parse_repository_activity(node) == expected
 
 
 class TestSyncFullCacheLock(BaseTest):

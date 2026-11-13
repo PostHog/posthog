@@ -26,6 +26,19 @@ export interface ApiRequestTiming {
     resource_download_ms?: number
     // Includes browser scheduling, body decoding, and parsing after network completion.
     resource_callback_ms?: number
+    // From the first response byte reaching the browser to page code receiving the headers. A busy main thread
+    // delays this even when the network is fast.
+    resource_headers_delay_ms?: number
+    // Long animation frames that overlapped the request. Only Chromium reports them, so these stay unset elsewhere.
+    long_frame_count?: number
+    long_frame_blocking_ms?: number
+    long_frame_max_ms?: number
+    long_frame_forced_layout_ms?: number
+    long_frame_extension_script_ms?: number
+    long_frame_app_script_ms?: number
+    long_frame_other_script_ms?: number
+    // The extension ID is a public store identifier, which tells which extension to opt out of.
+    long_frame_top_extension_id?: string
 }
 
 const FLATTENED_REQUEST_TIMING_FIELDS = [
@@ -39,6 +52,15 @@ const FLATTENED_REQUEST_TIMING_FIELDS = [
     'resource_ttfb_ms',
     'request_total_ms',
     'http_status',
+    'resource_headers_delay_ms',
+    'long_frame_count',
+    'long_frame_blocking_ms',
+    'long_frame_max_ms',
+    'long_frame_forced_layout_ms',
+    'long_frame_extension_script_ms',
+    'long_frame_app_script_ms',
+    'long_frame_other_script_ms',
+    'long_frame_top_extension_id',
 ] as const
 
 export function flattenRequestTiming(
@@ -52,6 +74,36 @@ export function flattenRequestTiming(
 }
 
 const MAX_PENDING_RESOURCES = 32
+const MAX_LONG_FRAMES = 64
+const LONG_FRAME_ENTRY_TYPE = 'long-animation-frame'
+const EXTENSION_URL_PATTERN = /^(?:chrome|moz|safari-web)-extension:\/\/([^/]+)/
+
+type LongFrameTiming = Pick<
+    ApiRequestTiming,
+    | 'long_frame_count'
+    | 'long_frame_blocking_ms'
+    | 'long_frame_max_ms'
+    | 'long_frame_forced_layout_ms'
+    | 'long_frame_extension_script_ms'
+    | 'long_frame_app_script_ms'
+    | 'long_frame_other_script_ms'
+    | 'long_frame_top_extension_id'
+>
+
+interface LongFrameScript {
+    sourceURL?: string
+    duration: number
+    forcedStyleAndLayoutDuration?: number
+}
+
+interface LongFrameEntry extends PerformanceEntry {
+    blockingDuration?: number
+    scripts?: LongFrameScript[]
+}
+
+function supportsLongFrames(): boolean {
+    return (PerformanceObserver.supportedEntryTypes ?? []).includes(LONG_FRAME_ENTRY_TYPE)
+}
 
 type ResourceTiming = Pick<
     ApiRequestTiming,
@@ -60,6 +112,7 @@ type ResourceTiming = Pick<
     | 'resource_ttfb_ms'
     | 'resource_download_ms'
     | 'resource_callback_ms'
+    | 'resource_headers_delay_ms'
 >
 
 function serverRequestIds(entry: PerformanceResourceTiming): string[] {
@@ -79,14 +132,20 @@ export class ApiRequestTimingRecorder {
     private resourceEntries: PerformanceResourceTiming[] = []
     private resourceCollectionOverflowed = false
     private fetchAttempts = 0
+    private headersAt?: number
+    private observesLongFrames = false
+    private longFrames: LongFrameEntry[] = []
 
     constructor(private readonly clock: Pick<Performance, 'now'> = performance) {
         this.startedAt = clock.now()
         this.fetchStartedAt = this.startedAt
         try {
             this.observer = new PerformanceObserver((list) => this.collectResources(list.getEntries()))
+            this.observesLongFrames = supportsLongFrames()
             // Observe only new entries: the global buffer can fill during a long-lived app session.
-            this.observer.observe({ type: 'resource' })
+            this.observer.observe({
+                entryTypes: this.observesLongFrames ? ['resource', LONG_FRAME_ENTRY_TYPE] : ['resource'],
+            })
         } catch {
             this.observer?.disconnect()
             this.observer = undefined
@@ -109,7 +168,8 @@ export class ApiRequestTimingRecorder {
     }
 
     recordHeaders(response: { status?: number; headers?: Headers; url?: string }): void {
-        this.timing.time_to_headers_ms = this.clock.now() - this.startedAt
+        this.headersAt = this.clock.now()
+        this.timing.time_to_headers_ms = this.headersAt - this.startedAt
         this.recordResponseMetadata(response)
     }
 
@@ -148,6 +208,12 @@ export class ApiRequestTimingRecorder {
 
     private collectResources(entries: PerformanceEntry[]): void {
         for (const entry of entries as PerformanceResourceTiming[]) {
+            if (entry.entryType === LONG_FRAME_ENTRY_TYPE) {
+                if (this.longFrames.length < MAX_LONG_FRAMES) {
+                    this.longFrames.push(entry as LongFrameEntry)
+                }
+                continue
+            }
             if (entry.entryType !== 'resource') {
                 continue
             }
@@ -205,6 +271,9 @@ export class ApiRequestTimingRecorder {
             if (timing.http_request_id) {
                 Object.assign(timing, this.resourceTiming(timing.http_request_id, finishedAt))
             }
+            if (this.observesLongFrames) {
+                Object.assign(timing, this.longFrameTiming(finishedAt))
+            }
         } catch {
             timing.resource_timing_status = 'unavailable'
         } finally {
@@ -236,7 +305,62 @@ export class ApiRequestTimingRecorder {
             resource_ttfb_ms: entry.responseStart - entry.requestStart,
             resource_download_ms: entry.responseEnd - entry.responseStart,
             resource_callback_ms: finishedAt - entry.responseEnd,
+            ...(this.headersAt !== undefined && this.headersAt >= entry.responseStart
+                ? { resource_headers_delay_ms: this.headersAt - entry.responseStart }
+                : {}),
         }
+    }
+
+    private longFrameTiming(finishedAt: number): LongFrameTiming {
+        let assetOrigin: string | undefined
+        try {
+            assetOrigin = window.JS_URL ? new URL(window.JS_URL, location.href).origin : undefined
+        } catch {
+            // An invalid asset URL cannot identify application scripts.
+        }
+        const frames = this.longFrames.filter(
+            (frame) => frame.startTime < finishedAt && frame.startTime + frame.duration > this.startedAt
+        )
+        const timing: Required<
+            Omit<LongFrameTiming, 'long_frame_top_extension_id' | 'long_frame_extension_script_ms'>
+        > &
+            Pick<LongFrameTiming, 'long_frame_extension_script_ms'> = {
+            long_frame_count: frames.length,
+            long_frame_blocking_ms: 0,
+            long_frame_max_ms: 0,
+            long_frame_forced_layout_ms: 0,
+            long_frame_app_script_ms: 0,
+            long_frame_other_script_ms: 0,
+        }
+        const extensionMs = new Map<string, number>()
+        for (const frame of frames) {
+            timing.long_frame_blocking_ms += frame.blockingDuration ?? 0
+            timing.long_frame_max_ms = Math.max(timing.long_frame_max_ms, frame.duration)
+            for (const script of frame.scripts ?? []) {
+                timing.long_frame_forced_layout_ms += script.forcedStyleAndLayoutDuration ?? 0
+                const extensionId = EXTENSION_URL_PATTERN.exec(script.sourceURL ?? '')?.[1]
+                if (extensionId) {
+                    // Isolated-world extension scripts are not attributed by LoAF, so even this is a lower bound.
+                    timing.long_frame_extension_script_ms =
+                        (timing.long_frame_extension_script_ms ?? 0) + script.duration
+                    extensionMs.set(extensionId, (extensionMs.get(extensionId) ?? 0) + script.duration)
+                } else {
+                    let origin: string | undefined
+                    try {
+                        origin = script.sourceURL ? new URL(script.sourceURL, location.href).origin : undefined
+                    } catch {
+                        // Unknown URLs belong in the other bucket.
+                    }
+                    if (origin && (origin === location.origin || origin === assetOrigin)) {
+                        timing.long_frame_app_script_ms += script.duration
+                    } else {
+                        timing.long_frame_other_script_ms += script.duration
+                    }
+                }
+            }
+        }
+        const topExtension = [...extensionMs].sort((left, right) => right[1] - left[1])[0]?.[0]
+        return topExtension ? { ...timing, long_frame_top_extension_id: topExtension } : timing
     }
 
     private matchedEntryStatus(

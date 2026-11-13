@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import QuarantineLiftState, ShiftBandKind
+from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -435,6 +435,7 @@ class QuarantinedIdentifierEntry:
     # failing snapshot prompted it). None for quarantines opened from the
     # snapshot history page or pre-dating this column.
     source_run: QuarantineSourceRun | None = None
+    lift_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -489,6 +490,7 @@ class UpdateRepoRequestInput:
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
     debt_digest_enabled: bool | None = None
+    auto_quarantine_mode: AutoQuarantineMode | None = None
 
 
 @dataclass(frozen=True)
@@ -499,6 +501,7 @@ class UpdateRepoInput:
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
     debt_digest_enabled: bool | None = None
+    auto_quarantine_mode: AutoQuarantineMode | None = None
 
 
 @dataclass(frozen=True)
@@ -539,6 +542,7 @@ class Repo:
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
     debt_digest_enabled: bool
+    auto_quarantine_mode: AutoQuarantineMode
     created_at: datetime
 
 
@@ -689,6 +693,36 @@ FLAKINESS_EXPIRY_SOON_DAYS = 7
 # Latest expiry an agent's quarantine gets, and the one it gets when the call names
 # none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
 AGENT_QUARANTINE_MAX_DAYS = 30
+
+# Short, because automatic release and the weekly debt digest follow up on the story.
+AUTO_QUARANTINE_DAYS = 14
+
+# The runs of a flake proof must be close in time, because the further apart two trees are, the more
+# code differs between them that the proof does not account for.
+AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
+
+# Past this many automatic quarantines per repo in 24 hours, a proof is only logged. Many new flakes
+# at once mean the capture harness regressed, so the limit sits above a busy day and below a regression.
+# As of November 2026, people opened at most 8 quarantines a day on 95 percent of days in this repo,
+# and a capture regression produced 12 proofs in 24 hours.
+AUTO_QUARANTINE_DAILY_LIMIT = 10
+
+# A run count and not days, because a slow week would lift a story on too little evidence.
+# As of November 2026, 3 percent of clean streaks in this repo relapsed after 500 default-branch runs,
+# against 15 percent after 300.
+AUTO_LIFT_CLEAN_RUNS = 500
+
+# Bounds GitHub requests, so a storm of failures cannot stall run completion.
+AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
+
+# Each candidate can cost GitHub requests, and the newest ones are the most likely to hold.
+AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY = 5
+
+# A proof needs runs close to the finishing run, so the newest few bound the rows read per story.
+AUTO_QUARANTINE_RUNS_READ = 80
+
+# Runs inside the diff task. A story left over is checked again by a later run.
+AUTO_QUARANTINE_BUDGET_SECONDS = 20
 
 # Safety cap on rows returned by the flakiness endpoint. The population is
 # already narrow (only identifiers carrying variants or a quarantine), so this

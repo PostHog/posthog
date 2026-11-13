@@ -655,7 +655,7 @@ export function VisualImageDiffViewer({
 
                         {/* Flicker overlay — full image swap inside image area */}
                         {flicker && mode === 'split' && activeOverlayUrl && (
-                            <div className="absolute top-0 left-0 w-full h-full overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-full overflow-hidden bg-bg-light">
                                 <img
                                     src={activeOverlayUrl}
                                     alt="Flicker frame"
@@ -672,7 +672,7 @@ export function VisualImageDiffViewer({
                         {/* Blend overlay — inside image area only */}
                         {mode === 'blend' && activeOverlayUrl && (
                             <div
-                                className="absolute top-0 left-0 w-full h-full overflow-hidden"
+                                className="absolute top-0 left-0 w-full h-full overflow-hidden bg-bg-light"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     opacity: !flicker ? Math.max(0, Math.min(1, blendPercentage / 100)) : 1,
@@ -761,7 +761,7 @@ export function VisualImageDiffViewer({
                                 <span>After</span>
                             </div>
                             <div
-                                className="relative overflow-hidden"
+                                className="relative overflow-hidden bg-bg-light"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={stageAspectRatio ? { aspectRatio: stageAspectRatio } : undefined}
                             >
@@ -944,11 +944,13 @@ export function VisualImageDiffViewer({
 
                 {supportsComparison ? renderComparisonBody() : renderSingleImageBody()}
             </section>
+            {/* The viewer also renders inside the toolbar's modals, which sit above popovers, so the zoom must too. */}
             <LemonModal
                 isOpen={!!zoomedImage}
                 onClose={() => setZoomedImage(null)}
                 fullScreen
                 simple
+                forceAbovePopovers
                 data-attr="visual-review-zoomed-image"
             >
                 <div className="flex h-full min-h-0 items-center justify-center bg-bg-3000 p-4">

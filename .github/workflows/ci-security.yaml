@@ -45,6 +45,7 @@ jobs:
             # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
             idor-rule: ${{ steps.filter.outputs.idor-rule || 'false' }}
+            devex-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex-rules || 'false' }}
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
@@ -126,12 +127,15 @@ jobs:
                         - '!docs/**'
                         - '!services/**'
                       # Keep these paths aligned with semgrep-devex's scan targets.
+                      # The test sleep step can target any changed Python file, so '**/*.py' is listed too.
                       devex:
+                        - '**/*.py'
                         - 'bin/**'
                         - 'common/**'
                         - 'docs/onboarding/**'
                         - 'ee/**'
                         - 'frontend/**'
+                        - 'hog/**'
                         - 'packages/**'
                         - 'posthog/**'
                         - 'products/**'
@@ -159,6 +163,15 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       idor-rule:
                         - '.semgrep/rules/security/idor-team-scoped-models.yaml'
+                      # An edited devex rule can match code the pull request does not
+                      # touch, so a pull request that edits one scans the whole tree.
+                      # Only the rule files are listed. Editing this workflow or a
+                      # rule's README cannot change what an unchanged rule matches in
+                      # unchanged code, and paying a full scan for either would cost
+                      # more than it guards.
+                      devex-rules:
+                        - '.semgrep/rules/devex/**'
+                        - '!.semgrep/rules/devex/**/*.md'
 
     semgrep-python:
         needs: changes
@@ -472,6 +485,15 @@ jobs:
     #     (used while migrating away from a pattern with a known backlog).
     #   - ERROR-severity rules fail the job on any finding (regression guards).
     # See `.semgrep/rules/devex/README.md`.
+    #
+    # The two passes whose name ends in "(informational)" cannot fail this job:
+    # they print a backlog that is a property of the tree, not of the diff. A pull
+    # request's own findings are gated by "New warnings (blocking)", which applies
+    # the same WARNING rules against the PR base in a median 20s. So the informational
+    # passes run on pushes and the hourly schedule only. On a pull request they were a
+    # median 309s and 43s of a 743s job (7 runs on 2026-11-11), and this job ended the
+    # required-check lane for 27 of 34 recently merged pull requests, so that scan time
+    # was the pull request's wait rather than a signal.
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
@@ -503,8 +525,9 @@ jobs:
 
             # Pass 1: print WARNING-severity findings. No --error — this step
             # does not fail CI. Backlogs from migration-in-progress rules show
-            # up here.
+            # up here. Informational, so master-level; see the job comment.
             - name: Warnings (informational)
+              if: github.event_name != 'pull_request'
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
@@ -515,24 +538,43 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
-            # Pass 2: enforce ERROR-severity rules. Any finding fails the
-            # job — regression guards live here.
-            - name: Errors (blocking)
+            # Informational, so master-level; see the job comment.
+            - name: Authorization migration (informational)
+              if: github.event_name != 'pull_request'
               run: |
+                  if [ ! -f .semgrep/rules/devex/authorization-through-sdk.yaml ]; then
+                      echo "authorization-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
-                      --config ".semgrep/rules/devex/" \
-                      --severity=ERROR \
-                      --exclude "products/desktop" \
-                      --error \
+                      --config .semgrep/rules/devex/authorization-through-sdk.yaml \
                       --metrics=off \
-                      --verbose \
                       --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      common/ ee/ posthog/ products/
+
+            # Pass 2: enforce ERROR-severity rules. Any finding fails the
+            # job — regression guards live here.
+            #
+            # Uses the shared action like every other semgrep job, so a pull
+            # request scans only the files it changes and a push scans the whole
+            # tree. Master passes the whole-tree scan, so a finding in a changed
+            # file is one the pull request introduces. A pull request that edits a
+            # devex rule keeps the whole-tree scan (devex-rules above), because an
+            # edited rule can match code the pull request does not touch.
+            # `--include` per top-level directory keeps the target set identical to
+            # the whole-tree scan this replaced.
+            - name: Errors (blocking)
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.devex-rules }}
+                  args: >-
+                      --config .semgrep/rules/devex/ --severity=ERROR --include /bin --include /common --include /docs/onboarding --include /ee --include /frontend --include /hog --include /packages --include /posthog --include /products --include /services --include /tools --exclude products/desktop
 
             # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
             # baseline file lists the allowed count per file. More findings than the baseline fails, and
@@ -576,7 +618,26 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
+
+            - name: New sleeps in Python tests (blocking)
+              if: github.event_name == 'pull_request'
+              run: |
+                  # The baseline scan reports findings only in files the pull request changes.
+                  # The rule's paths.include selects the test files among them.
+                  mapfile -d '' -t python_files < <(git diff -z --name-only --diff-filter=d HEAD^1 HEAD -- '*.py')
+                  if [ "${#python_files[@]}" -eq 0 ]; then
+                      echo "no changed Python files"
+                      exit 0
+                  fi
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config .semgrep/rules/devex/no-fixed-sleeps-in-tests.yaml \
+                      --baseline-commit "$(git rev-parse HEAD^1)" \
+                      --error --metrics=off --timeout 300 \
+                      -- "${python_files[@]}"
 
     semgrep-test-rules:
         needs: changes
@@ -658,6 +719,11 @@ jobs:
               uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
+                  sparse-checkout: |
+                      /products/desktop/
+                      /.gitignore
+                      /.semgrepignore
+                  sparse-checkout-cone-mode: false
 
             - name: Run Semgrep (desktop, universal security packs)
               run: |

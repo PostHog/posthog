@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
-import { detectCi } from './telemetry'
+import { detectCi } from './ci'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
 const ON = { telemetryToken: 'phc_test' }
@@ -63,6 +63,7 @@ describe('telemetry', () => {
         ['with no identity cache', {}],
         // A broken cache must not fail the command.
         ['with a cache that is not an object', { '/home/test/.posthog/hog-telemetry-identity.json': 'null' }],
+        ['with a broken cache entry', { '/home/test/.posthog/hog-telemetry-identity.json': '{"other": null}' }],
     ])(
         'a PostHog Cloud key ties events to its user and groups, and hog looks them up once, %s',
         async (_name, files) => {

@@ -10,18 +10,28 @@ typed column.
 import uuid
 import dataclasses
 from collections.abc import Collection, Iterable, Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
-from django.db.models import Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 
-from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SuspensionMarker
+from posthog.dataclasses import frozen
+
+from products.data_modeling.backend.facade.contracts import (
+    NodeIdentity,
+    SavedQueryFrequencyBounds,
+    SavedQueryNodeState,
+    SavedQuerySchedule,
+    SuspensionMarker,
+    TargetBounds,
+    TargetOption,
+)
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     ClampedCadence,
-    TargetBounds,
-    TargetOption,
+    InvalidTarget,
+    all_source_floor_bounds,
     all_source_floors,
     ancestors_of,
     clamp_to_source_floor,
@@ -29,14 +39,17 @@ from products.data_modeling.backend.logic.freshness import (
     compute_target_bounds,
     descendants_broken_by_pin,
     descendants_of,
+    find_invalid_targets,
     intersect_target_bounds,
     max_data_age,
     nodes_below_source_floor,
     normalize_seed_target,
 )
-from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
+from products.data_modeling.backend.logic.node_suspension import is_node_suspended, merged_suspension_state
+from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -54,17 +67,15 @@ _ORIGIN_POSTHOG = "posthog"
 _ORIGIN_WAREHOUSE = "warehouse"
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class NodeIdentity:
-    """What a node is in access-control terms, so a caller can decide whether to name it.
-
-    All three empty means the node predates the origin stamp, and a caller that redacts should
-    treat it as withheld rather than guess.
-    """
-
-    saved_query_id: str | None  # views, materialized views and endpoints, under `warehouse_view`
-    warehouse_table_id: str | None  # imported source tables, under `warehouse_table`
-    is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
+def parse_warehouse_table_id(properties: Mapping[str, Any] | None) -> uuid.UUID | None:
+    """The imported table a node stands for, or None when its properties hold no valid id."""
+    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY) if isinstance(properties, Mapping) else None
+    if not isinstance(table_id, str):
+        return None
+    try:
+        return uuid.UUID(table_id)
+    except ValueError:
+        return None
 
 
 def node_identity(node: Node) -> NodeIdentity:
@@ -72,7 +83,7 @@ def node_identity(node: Node) -> NodeIdentity:
     if node.saved_query_id is not None:
         return NodeIdentity(saved_query_id=str(node.saved_query_id), warehouse_table_id=None, is_posthog_table=False)
     properties = node.properties or {}
-    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY)
+    table_id = parse_warehouse_table_id(properties)
     return NodeIdentity(
         saved_query_id=None,
         warehouse_table_id=str(table_id) if table_id else None,
@@ -156,6 +167,12 @@ def set_declared_target(node: Node, target: timedelta | None) -> None:
 
     Clearing the target also clears the pin, because a pin holds the target and has nothing to hold without one.
     """
+    stage_declared_target(node, target)
+    node.save(update_fields=["properties"])
+
+
+def stage_declared_target(node: Node, target: timedelta | None) -> None:
+    """`set_declared_target` without the save, for callers that write many nodes in one update."""
     properties = node.properties or {}
     frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
     if target is None:
@@ -164,7 +181,6 @@ def set_declared_target(node: Node, target: timedelta | None) -> None:
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
     node.properties = properties
-    node.save(update_fields=["properties"])
 
 
 def set_declared_pin(node: Node, pinned: bool) -> None:
@@ -278,7 +294,7 @@ def resolve_source_intervals(source_nodes: list[Node]) -> tuple[dict[str, timede
     return source_intervals, best_effort
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class FrequencyGraph:
     """The primitives `freshness.py` operates on, extracted from one DAG's Node/Edge rows."""
 
@@ -291,17 +307,61 @@ class FrequencyGraph:
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
+    stand_ins: dict[str, str]  # stand-in source id -> the node that sets its interval
+
+    def target_bounds(self, node_id: str) -> TargetBounds:
+        """Every cadence `node_id` may be set to, with each blocker given as a real node id."""
+        bounds = compute_target_bounds(
+            node_id=node_id,
+            edges=self.edges,
+            declared_targets=self.declared_targets,
+            source_intervals=self.source_intervals,
+            pinned=self.pinned,
+        )
+
+        def real(blocker: str | None) -> str | None:
+            return self.stand_ins.get(blocker, blocker) if blocker is not None else None
+
+        # A stand-in is a source with no parents, so only the floor side of the bounds can name one.
+        return dataclasses.replace(
+            bounds,
+            options=tuple(dataclasses.replace(option, blocker=real(option.blocker)) for option in bounds.options),
+            floor=bounds.floor and dataclasses.replace(bounds.floor, blocker=real(bounds.floor.blocker)),
+        )
+
+    def invalid_targets(self, declared_targets: dict[str, timedelta] | None = None) -> list[InvalidTarget]:
+        """Declared targets outside their bounds. A provider's cadence may sit below its source floor."""
+        return find_invalid_targets(
+            edges=self.edges,
+            declared_targets=self.declared_targets if declared_targets is None else declared_targets,
+            source_intervals=self.source_intervals,
+            floor_exempt=self.managed_node_ids,
+            pinned=self.pinned,
+        )
+
+
+def _managed_view_source_id(managed_node_id: str) -> str:
+    """The stand-in source a managed view's readers see in its place."""
+    return f"{managed_node_id}:managed-view"
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     """Extract the freshness graph for a DAG: schedulable nodes, edges, targets, source floors."""
     nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True))
-    edges = [
-        (str(source_id), str(target_id))
-        for source_id, target_id in Edge.objects.filter(dag=dag)
-        .exclude(NON_SCHEDULING_EDGES)
-        .values_list("source_id", "target_id")
-    ]
+    managed_node_ids = {
+        str(node_id)
+        for node_id in Node.objects.filter(dag=dag, saved_query__managed_viewset__isnull=False).values_list(
+            "id", flat=True
+        )
+    }
+    edges: list[tuple[str, str]] = []
+    managed_reader_edges: list[tuple[str, str]] = []
+    for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id"):
+        edge = (str(source_id), str(target_id))
+        # The same split as NON_SCHEDULING_EDGES, from ids already loaded instead of a second join.
+        is_managed_reader = edge[0] in managed_node_ids and edge[1] not in managed_node_ids
+        (managed_reader_edges if is_managed_reader else edges).append(edge)
 
     schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
     declared_targets: dict[str, timedelta] = {}
@@ -319,6 +379,42 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
+    names = {str(node.id): node.name for node in nodes}
+    identities = {str(node.id): node_identity(node) for node in nodes}
+
+    # A reader never sets a managed view's cadence, and it cannot be fresher than that view's data.
+    # The view's readers see a stand-in source that changes as often as that data does.
+    stand_ins: dict[str, str] = {}
+    if managed_reader_edges:
+        runs_every, _clamped = clamp_to_source_floor(
+            compute_effective_cadences(
+                nodes=schedulable, edges=edges, declared_targets=declared_targets, pinned=pinned
+            ),
+            edges=edges,
+            source_intervals=source_intervals,
+            pinned=pinned,
+        )
+        # A materialized view's data changes once per run, whatever its inputs do, so it counts as a
+        # source at its run cadence. A query-time view passes its inputs' changes straight through.
+        materialized = {str(node.id) for node in nodes if node.type == NodeType.MAT_VIEW}
+        run_intervals = {
+            node_id: interval
+            for node_id, interval in runs_every.items()
+            if node_id in materialized and interval is not None
+        }
+        refreshes = all_source_floor_bounds(edges, {**source_intervals, **run_intervals})
+        for managed_id, reader_id in managed_reader_edges:
+            if managed_id not in names:
+                continue
+            stand_in = _managed_view_source_id(managed_id)
+            if stand_in not in stand_ins:
+                refresh = refreshes.get(managed_id)
+                blamed = refresh.blocker if refresh is not None and refresh.blocker in names else managed_id
+                stand_ins[stand_in] = blamed
+                source_intervals[stand_in] = refresh.value if refresh is not None else STREAMING
+                names[stand_in] = names[blamed]
+                identities[stand_in] = identities[blamed]
+            edges.append((stand_in, reader_id))
 
     return FrequencyGraph(
         nodes=schedulable,
@@ -328,22 +424,11 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         pinned=pinned,
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
-        names={str(node.id): node.name for node in nodes},
-        identities={str(node.id): node_identity(node) for node in nodes},
+        names=names,
+        identities=identities,
+        managed_node_ids=managed_node_ids,
+        stand_ins=stand_ins,
     )
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class SavedQueryFrequencyBounds:
-    """A saved query's selectable cadences, plus what a caller needs to name the blockers."""
-
-    bounds: TargetBounds
-    names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
-    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
-    best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
-    max_data_age: timedelta
-    speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
-    pinned: bool
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -372,15 +457,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         if dag_key not in graphs:
             graphs[dag_key] = build_frequency_graph(node.dag)
         graph = graphs[dag_key]
-        per_dag.append(
-            compute_target_bounds(
-                node_id=str(node.id),
-                edges=graph.edges,
-                declared_targets=graph.declared_targets,
-                source_intervals=graph.source_intervals,
-                pinned=graph.pinned,
-            )
-        )
+        per_dag.append(graph.target_bounds(str(node.id)))
         names.update(graph.names)
         identities.update(graph.identities)
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
@@ -430,13 +507,7 @@ def saved_query_pin_preview(team_id: int, saved_query_id: str | uuid.UUID) -> Sa
             graphs[dag_key] = build_frequency_graph(node.dag)
         graph = graphs[dag_key]
         node_id = str(node.id)
-        options = compute_target_bounds(
-            node_id=node_id,
-            edges=graph.edges,
-            declared_targets=graph.declared_targets,
-            source_intervals=graph.source_intervals,
-            pinned=graph.pinned,
-        ).options
+        options = graph.target_bounds(node_id).options
         for cadence, delayed in _delays_if_pinned_by_cadence(node_id, graph, options).items():
             delays_if_pinned.setdefault(cadence, set()).update(delayed)
         below_floor = nodes_below_source_floor(
@@ -541,6 +612,14 @@ def _unpinned_cadence_by_cadence(
     return result
 
 
+def scheduled_cadences_by_node(team_id: int, dag_ids: Iterable[uuid.UUID | str]) -> dict[str, timedelta | None]:
+    """The cadence the scheduler runs each node of these DAGs at, keyed by node id."""
+    result: dict[str, timedelta | None] = {}
+    for dag in DAG.objects.filter(team_id=team_id, id__in=set(dag_ids)):
+        result.update(scheduled_cadences(build_frequency_graph(dag))[0])
+    return result
+
+
 def scheduled_cadences(
     graph: FrequencyGraph,
     *,
@@ -556,6 +635,70 @@ def scheduled_cadences(
     pins = graph.pinned if pinned is None else pinned
     effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared, pinned=pins)
     return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=pins)
+
+
+def _latest_materialized_at(team_id: int, saved_queries: Mapping[str, Any]) -> dict[str, datetime]:
+    """Latest successful materialization per saved query id, in one query.
+
+    The batched twin of `saved_query_materialized_at`: the newest completed ClickHouse job, or the
+    frozen v1 `last_run_at` when that is later. Queries that never ran are absent. Each query reads
+    its newest job through the `(saved_query, engine, -last_run_at)` index, so the cost does not
+    grow with a view's run history.
+    """
+    newest_job = (
+        DataModelingJob.objects.filter(
+            saved_query_id=OuterRef("pk"),
+            status=DataModelingJobStatus.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        .order_by("-last_run_at")
+        .values("last_run_at")[:1]
+    )
+    rows = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=saved_queries.keys())
+        .annotate(latest_job_at=Subquery(newest_job))
+        .values_list("id", "latest_job_at")
+    )
+    job_at = {str(query_id): latest for query_id, latest in rows}
+    result: dict[str, datetime] = {}
+    for query_id, saved_query in saved_queries.items():
+        candidates = [ts for ts in (job_at.get(query_id), saved_query.last_run_at) if ts is not None]
+        if candidates:
+            result[query_id] = max(candidates)
+    return result
+
+
+def saved_query_schedules(team_id: int, saved_queries: Iterable[Any]) -> dict[str, SavedQuerySchedule]:
+    """The cadence and next due time of each materialized saved query, keyed by saved query id.
+
+    Batched: one node read, one graph build per DAG and one job read for the whole set. Queries that
+    are not materialized, have no DAG node, or whose node the scheduler gives no cadence are absent.
+    A node suspended for ClickHouse is skipped, since the scheduler skips it until it resumes. When a
+    query holds several nodes the finest cadence wins, since that is how often it is refreshed.
+    """
+    materialized = {str(query.id): query for query in saved_queries if query.is_materialized}
+    if not materialized:
+        return {}
+
+    nodes = list(Node.objects.filter(team_id=team_id, saved_query_id__in=materialized.keys()))
+    cadences = scheduled_cadences_by_node(team_id, {node.dag_id for node in nodes})
+    finest: dict[str, timedelta] = {}
+    for node in nodes:
+        cadence = cadences.get(str(node.id))
+        query_id = str(node.saved_query_id)
+        if cadence is None or is_node_suspended(node, DataModelingJobEngine.CLICKHOUSE):
+            continue
+        if query_id not in finest or cadence < finest[query_id]:
+            finest[query_id] = cadence
+
+    materialized_at = _latest_materialized_at(team_id, {query_id: materialized[query_id] for query_id in finest})
+    return {
+        query_id: SavedQuerySchedule(
+            interval=interval,
+            next_run_at=materialized_at[query_id] + interval if query_id in materialized_at else None,
+        )
+        for query_id, interval in finest.items()
+    }
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
@@ -589,11 +732,12 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
 def seed_targets(dag: DAG) -> dict[str, timedelta]:
     """Derive a starting target per schedulable node from what the DAG already carries.
 
-    A node inherits its saved query's `sync_frequency_interval` if set, else the DAG's
-    `sync_frequency_interval`; nodes with neither are omitted. This deliberately preserves the
-    distinct per-query frequencies of teams still on v1 (whose DAG runs several schedules at
-    different cadences) rather than flattening everything to a single DAG cadence. Read-only;
-    the preview overlays these in memory, and a backfill can persist them.
+    A node inherits its saved query's legacy `sync_frequency_interval` column if set, else the DAG's
+    `sync_frequency_interval`; nodes with neither are omitted. The column is no longer written, but
+    teams still on v1 have it populated: their DAG runs several schedules at different cadences, and
+    reading it keeps those distinct per-query frequencies through the conversion instead of
+    flattening everything to a single DAG cadence. Read-only; the preview overlays these in memory,
+    and a backfill can persist them.
     """
     seeds: dict[str, timedelta] = {}
     for node in schedulable_nodes(dag).select_related("saved_query"):

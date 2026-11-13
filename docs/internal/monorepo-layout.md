@@ -80,8 +80,8 @@ Turbo cannot hash files behind a path link, so `products/desktop/scripts/build-a
 
 Most products are a Django app plus React scenes — and most already carry more: an `mcp/` directory of MCP tool definitions, often a `skills/` directory of agent skills. A product can own anything attributable to it, runtime and tooling alike. Nest it under the product instead of scattering it across top-level dirs:
 
-- `products/<product>/mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (most products)
-- `products/<product>/skills/` — agent skills for the product (many products)
+- `products/<product>/mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (most products). Hand-written tool hooks stay in `services/mcp/src/tools/`, because `tools.yaml` resolves `hooks:` paths there.
+- `products/<product>/skills/` — published agent skills for the product (many products). A skill that needs a checkout of this repository goes in `.agents/skills/`, even when one product owns it (see `/writing-skills`).
 - `products/<product>/services/<svc>/` — a service or worker the product deploys
 - `products/<product>/packages/<lib>/` — a library or CLI the product owns
 - dev/CI/backfill scripts, benchmarks, audits, fixtures and dummy-data generators, a standalone console — same idea

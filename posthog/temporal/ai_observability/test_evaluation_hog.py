@@ -1,13 +1,15 @@
 import json
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_bytecode, finalize_hog_eval_result
+from posthog.temporal.ai_observability.evaluation_hog import finalize_hog_eval_result
 
+from products.ai_observability.backend.facade.evaluation_runtime import execute_hog_eval_bytecode
 from products.ai_observability.backend.hog import compile_ai_observability_hog
 
 # The failure shape these tests exercise: an operator applied to a property the source assumes is a
@@ -293,3 +295,25 @@ class TestFinalizeHogEvalResult:
                 allows_na=False,
                 unit_label=unit_label,
             )
+
+
+@parameterized.expand(
+    [
+        (
+            "direct_print",
+            "for (let i := 0; i < 2000; i := i + 1) { print('line', i) }\nreturn true",
+            "line 0\nline 1\nline 2",
+        ),
+        (
+            "aliased_print",
+            "let p := print\nfor (let i := 0; i < 2000; i := i + 1) { p('line', i) }\nreturn true",
+            "line 0\nline 1\nline 2",
+        ),
+        ("empty_print", "for (let i := 0; i < 2000; i := i + 1) { print('') }\nreturn true", "\n" * 19),
+    ]
+)
+def test_printed_output_stops_growing_at_its_cap(_name: str, source: str, expected: str) -> None:
+    with patch("products.ai_observability.backend.logic.evaluations.hog_runtime.MAX_HOG_OUTPUT_CHARS", 20):
+        raw = execute_hog_eval_bytecode(compile_ai_observability_hog(source, "destination"), {}, False)
+
+    assert (raw["verdict"], raw["reasoning"]) == (True, expected)

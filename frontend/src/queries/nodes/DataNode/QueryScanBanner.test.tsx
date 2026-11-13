@@ -108,7 +108,7 @@ describe('QueryScanBanner', () => {
             </Provider>
         )
 
-        expect(screen.getByText(/Read 8,400,000,000 rows in 19.0 s/)).toBeVisible()
+        expect(screen.getByText(/Scanned 8,400,000,000 rows in 19.0 s/)).toBeVisible()
         const shown = findings.map((finding) => finding.message).filter((message) => screen.queryByText(message))
         expect(shown).toEqual(advice)
         expect(!!container.querySelector('.LemonBanner')).toBe(banner)

@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import {
@@ -34,6 +34,7 @@ import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
+import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
@@ -75,6 +76,8 @@ function TimeCell({ time }: { time: string | null }): JSX.Element {
 const VISIBLE_TAGS = 2
 
 function TagsCell({ tags }: { tags: string[] }): JSX.Element {
+    const { filters } = useValues(analyticsListLogic)
+    const { setFilters } = useActions(analyticsListLogic)
     if (!tags.length) {
         return (
             <Text size="xs" variant="muted">
@@ -87,7 +90,19 @@ function TagsCell({ tags }: { tags: string[] }): JSX.Element {
         <div className="flex min-w-0 items-center gap-1">
             <ChipGroup className="min-w-0 max-w-full flex-1 flex-nowrap">
                 {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                    <Chip key={tag} size="xs" className="min-w-0 max-w-24 flex-1" title={tag}>
+                    <Chip
+                        key={tag}
+                        size="xs"
+                        className="min-w-0 max-w-24 flex-1"
+                        title={`Filter by ${tag}`}
+                        render={<button type="button" />}
+                        onClick={() => {
+                            if (!filters.tags.includes(tag)) {
+                                setFilters({ tags: [...filters.tags, tag] })
+                            }
+                        }}
+                        data-attr="analytics-list-row-tag"
+                    >
                         <span className="min-w-0 truncate">{tag}</span>
                     </Chip>
                 ))}
@@ -263,11 +278,14 @@ function ItemTitle({
     item,
     backUrl,
     draggable,
+    position,
 }: {
     item: AnalyticsItem
     backUrl: string
     draggable: boolean
+    position: number
 }): JSX.Element {
+    const { itemOpened } = useActions(analyticsListLogic)
     const title = (
         <>
             <Tooltip>
@@ -292,6 +310,10 @@ function ItemTitle({
                 render={<LinkPrimitive to={analyticsOpenHref(item, backUrl)} />}
                 className="min-w-0 shrink"
                 data-attr={`analytics-list-row-${item.type}`}
+                // Capture-phase, so Cmd/Ctrl-clicks count too: the link's own handler returns
+                // for those before it calls onClick. Middle-clicks only fire auxclick.
+                onClickCapture={() => itemOpened(item, position)}
+                onAuxClick={(event) => event.button === 1 && itemOpened(item, position)}
             >
                 <span className="truncate">{item.name}</span>
             </Button>
@@ -330,7 +352,7 @@ export function analyticsListColumns({
                 row.original.kind === 'folder' ? (
                     <FolderTitle folder={row.original.folder} draggable={draggable} />
                 ) : (
-                    <ItemTitle item={row.original.item} backUrl={backUrl} draggable={draggable} />
+                    <ItemTitle item={row.original.item} backUrl={backUrl} draggable={draggable} position={row.index} />
                 ),
         },
         ...(showSpace
@@ -373,7 +395,7 @@ export function analyticsListColumns({
             ? ([
                   {
                       id: 'last_viewed_at',
-                      header: 'Last viewed',
+                      header: 'Last viewed by me',
                       accessorFn: (row) => (row.kind === 'item' ? (row.item.entry?.last_viewed_at ?? null) : null),
                       sortDescFirst: true,
                       enableMultiSort: false,

@@ -939,25 +939,77 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(resp.json()["error"], "invalid_client")
 
-    def test_rejects_missing_resource_claim(self) -> None:
-        assertion = jwt.encode(
-            {
-                "iss": _IDP_ISSUER,
-                "sub": "user@example.com",
-                "aud": _AUTH_SERVER_URL,
-                "client_id": _RESOURCE_CLIENT_ID,
-                # resource intentionally missing
-                "scope": "feature_flag:read",
-                "iat": int(time.time()),
-                "exp": int(time.time()) + 300,
-            },
-            _IDP_PRIVATE_KEY_PEM,
-            algorithm="RS256",
-            headers={"typ": ID_JAG_TOKEN_TYPE},
-        )
+    @parameterized.expand(
+        [
+            ("ema_names_its_organization", True, True, "own", status.HTTP_200_OK),
+            ("ema_names_another_organization", True, True, "other", status.HTTP_400_BAD_REQUEST),
+            ("ema_without_claim", True, True, None, status.HTTP_400_BAD_REQUEST),
+            ("ema_application_no_longer_approved", True, False, "own", status.HTTP_400_BAD_REQUEST),
+            ("manual_config_ignores_claim", False, False, "other", status.HTTP_200_OK),
+        ]
+    )
+    def test_ema_registered_issuer_requires_its_organization_and_an_approved_application(
+        self,
+        _name: str,
+        registered_through_ema: bool,
+        application_approved: bool,
+        aud_tenant: str | None,
+        expected_status: int,
+    ) -> None:
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
+        if registered_through_ema:
+            application = OAuthApplication.objects.get(client_id=_RESOURCE_CLIENT_ID)
+            application.can_manage_ema_issuer = application_approved
+            application.save()
+            config.id_jag_registered_by_application = application
+            config.save()
+
+        claims: dict[str, Any] = {}
+        if aud_tenant is not None:
+            claims["aud_tenant"] = str(self.organization.id) if aud_tenant == "own" else str(uuid.uuid4())
+        assertion = _make_id_jag(extra_claims=claims)
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["error"], "invalid_grant")
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+
+    @parameterized.expand(
+        [
+            ("parameter_only", None, "https://mcp.posthog.com/mcp", "https://mcp.posthog.com/mcp", None),
+            ("neither", None, None, _SITE_URL, None),
+            ("claim_and_parameter_differ", _SITE_URL, "https://mcp.posthog.com/mcp", None, "invalid_target"),
+            ("parameter_not_allowed", None, "https://other-resource.example.com", None, "invalid_target"),
+        ]
+    )
+    @override_settings(ID_JAG_ALLOWED_RESOURCES=["https://mcp.posthog.com/mcp"])
+    def test_resource_from_claim_or_request_parameter(
+        self,
+        _name: str,
+        claim_resource: str | None,
+        requested_resource: str | None,
+        expected_aud: str | None,
+        expected_error: str | None,
+    ) -> None:
+        assertion = _make_id_jag(resource=claim_resource) if claim_resource else _make_id_jag(omit_claims=("resource",))
+        body = {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}
+        if requested_resource:
+            body["resource"] = requested_resource
+
+        resp = self._post_token(body)
+
+        if expected_error:
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+            self.assertEqual(resp.json()["error"], expected_error)
+            return
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=expected_aud,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["aud"], expected_aud)
 
     def test_get_sub_format(self) -> None:
         self.assertEqual(_get_sub("example.com", "alice@example.com"), "example.com:alice@example.com")

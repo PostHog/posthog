@@ -109,6 +109,12 @@ class TestParseUrl:
                 StorageUrl(bucket="acme-exports", key="orders/*.csv", account=R2_ACCOUNT),
             ),
             (
+                "r2_jurisdiction",
+                parse_r2_url,
+                f"https://{R2_ACCOUNT}.eu.r2.cloudflarestorage.com/acme-exports/orders/*.csv",
+                StorageUrl(bucket="acme-exports", key="orders/*.csv", account=R2_ACCOUNT, jurisdiction="eu"),
+            ),
+            (
                 "azure",
                 parse_azure_url,
                 "https://acmestore.blob.core.windows.net/exports/orders/**",
@@ -150,7 +156,12 @@ class TestParseUrl:
             ("gcs_other_host", parse_gcs_url, "https://storage.cloud.google.com/acme/a.csv", "isn't a Google Cloud"),
             ("gcs_virtual_hosted", parse_gcs_url, "https://acme.storage.googleapis.com/a.csv", "isn't a Google Cloud"),
             ("gcs_s3_scheme", parse_gcs_url, "s3://acme/a.csv", "gs://"),
-            ("r2_jurisdiction", parse_r2_url, f"https://{R2_ACCOUNT}.eu.r2.cloudflarestorage.com/a/b.csv", "R2 URL"),
+            (
+                "r2_unknown_jurisdiction",
+                parse_r2_url,
+                f"https://{R2_ACCOUNT}.apac.r2.cloudflarestorage.com/a/b.csv",
+                "R2 URL",
+            ),
             ("r2_short_account", parse_r2_url, "https://abc.r2.cloudflarestorage.com/a/b.csv", "R2 URL"),
             ("r2_other_host", parse_r2_url, f"https://{R2_ACCOUNT}.example.com/a/b.csv", "R2 URL"),
             ("azure_other_cloud", parse_azure_url, "https://acme.blob.core.chinacloudapi.cn/x/a.csv", "Azure Blob"),
@@ -236,6 +247,16 @@ class TestUrlLocationChecks:
                     secret_access_key="secret",
                 ),
                 f"https://{R2_ACCOUNT}.r2.cloudflarestorage.com/acme-exports/raw/",
+            ),
+            (
+                "r2_jurisdiction",
+                ObjectStoreConfig.from_url(
+                    ObjectStoreProvider.R2,
+                    parse_r2_url(f"https://{R2_ACCOUNT}.fedramp.r2.cloudflarestorage.com/acme-exports/raw/a.csv"),
+                    access_key_id="AKIAEXAMPLE",
+                    secret_access_key="secret",
+                ),
+                f"https://{R2_ACCOUNT}.fedramp.r2.cloudflarestorage.com/acme-exports/raw/",
             ),
             (
                 "azure",

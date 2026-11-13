@@ -1,19 +1,17 @@
-import crypto from 'crypto'
 import { NextFunction, Request, Response } from 'ultimate-express'
 
-import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt } from '~/cdp/utils/jwt-utils'
-import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/common/api/middleware/internal-api-auth'
+import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt, parseJwtKeys } from '~/cdp/utils/jwt-utils'
 import { logger } from '~/common/utils/logger'
 
-import { RecordingApiRole } from './types'
+import { RecordingApiMetrics } from './metrics'
+import { DEV_RECORDING_API_BLOCKS_JWT_SECRET, DEV_RECORDING_API_JWT_SECRET, RecordingApiRole } from './types'
 
 /**
  * Authorization for recording-api routes.
  *
  * Each route requires a team + operation scoped JWT (audience `posthog:recording_api`) minted by
  * an authorized service: the token's `team_id` must match the `:team_id` in the path and its `op`
- * must match the route (read, delete or write). During migration the legacy `X-Internal-Api-Secret` is
- * accepted as a fallback while `allowLegacySecret` is true; the final cutover flips that flag off.
+ * must match the route (read, delete or write).
  */
 
 export type RecordingApiOp = 'read' | 'delete' | 'write'
@@ -21,11 +19,11 @@ export type RecordingApiOp = 'read' | 'delete' | 'write'
 // jsonwebtoken tolerates up to this many seconds of clock skew between minter and verifier.
 const CLOCK_TOLERANCE_SECONDS = 30
 
+const MIN_BLOCKS_SECRET_BYTES = 32
+
 export interface RecordingApiAuthOptions {
     // Comma-separated keys (newest first) for zero-downtime rotation. Empty disables JWT auth (dev only).
     jwtSecret: string
-    legacySecret: string
-    allowLegacySecret: boolean
     op: RecordingApiOp
 }
 
@@ -66,42 +64,47 @@ function verifyBearer(
         })
         return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined
     } catch (err) {
-        logger.warn('Recording API JWT verification failed', {
-            audience,
-            reason: err instanceof Error ? err.name : 'unknown',
-        })
+        const reason = err instanceof Error ? err.name : 'unknown'
+        RecordingApiMetrics.incrementJwtVerificationFailure(audience, reason)
+        // Anyone on the internet can send a bad browser token, so only a failed service token is worth a log line.
+        if (audience !== PosthogJwtAudience.REPLAY_BLOCKS) {
+            logger.warn('Recording API JWT verification failed', { audience, reason })
+        }
         return undefined
     }
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-    // Trim so a secret mounted from a file with a trailing newline still matches a sender that
-    // trimmed it (mirrors the shared internal-api-auth middleware's newline handling).
-    const ab = Buffer.from(a.trim())
-    const bb = Buffer.from(b.trim())
-    return ab.length === bb.length && crypto.timingSafeEqual(ab, bb)
+// The dev keys are public in this repo, so anyone could sign with them. A deployed pod refuses them outright. The local and
+// E2E containers run the production image with the dev keys, so they are not deployed.
+function refuseDevKey(secret: string, devKey: string, name: string): void {
+    if (parseJwtKeys(secret || '').includes(devKey)) {
+        throw new Error(`recording-api refuses the public dev ${name} on a deployed environment`)
+    }
 }
 
 /**
- * Fail closed in production: recording routes must have at least one auth mechanism active. Before the
- * JWT scheme is rolled out the legacy X-Internal-Api-Secret protects prod; once RECORDING_API_JWT_SECRET
- * is set, the JWT does. Only refuse to boot if neither is configured. Uses the same key parsing as the
- * verifier so a malformed-but-truthy value (e.g. ',') counts as "no JWT configured".
+ * Fail closed in production: recording routes must have a JWT secret, because without one the
+ * middleware below lets every request through. Uses the same key parsing as the verifier so a
+ * malformed-but-truthy value (e.g. ',') counts as "no JWT configured".
  */
 export function assertRecordingApiAuthConfigured(opts: {
     isProd: boolean
+    deployed?: boolean
     jwtSecret: string
-    allowLegacySecret: boolean
-    legacySecret: string
 }): void {
-    const hasJwtSecret = hasJwtKeys(opts.jwtSecret || '')
-    const hasLegacySecret = opts.allowLegacySecret && !!opts.legacySecret
-    if (opts.isProd && !hasJwtSecret && !hasLegacySecret) {
+    if (opts.deployed) {
+        refuseDevKey(opts.jwtSecret, DEV_RECORDING_API_JWT_SECRET, 'RECORDING_API_JWT_SECRET')
+    }
+    if (hasJwtKeys(opts.jwtSecret || '')) {
+        return
+    }
+    if (opts.isProd) {
         throw new Error(
-            'recording-api has no auth configured in production: set RECORDING_API_JWT_SECRET, ' +
-                'or keep RECORDING_API_ALLOW_LEGACY_SECRET enabled with INTERNAL_API_SECRET set'
+            'recording-api has no auth configured in production: set RECORDING_API_JWT_SECRET ' +
+                '(hobby installs: run bin/upgrade-hobby)'
         )
     }
+    logger.warn('recording-api has no RECORDING_API_JWT_SECRET: recording routes accept every request')
 }
 
 /**
@@ -112,13 +115,19 @@ export function assertRecordingApiAuthConfigured(opts: {
 export function assertRecordingApiRoleAuthConfigured(opts: {
     role: RecordingApiRole
     isProd: boolean
+    deployed?: boolean
     blocksJwtSecret: string
     jwtSecret: string
-    allowLegacySecret: boolean
-    legacySecret: string
 }): void {
     if (opts.role !== 'internal' && opts.isProd && !hasJwtKeys(opts.blocksJwtSecret || '')) {
         throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
+    }
+    if (opts.role !== 'internal' && opts.deployed) {
+        refuseDevKey(opts.blocksJwtSecret, DEV_RECORDING_API_BLOCKS_JWT_SECRET, 'RECORDING_API_BLOCKS_JWT_SECRET')
+        // jsonwebtoken accepts an HMAC key of any length, and a short one can be guessed offline from one token.
+        if (parseJwtKeys(opts.blocksJwtSecret || '').some((key) => Buffer.byteLength(key) < MIN_BLOCKS_SECRET_BYTES)) {
+            throw new Error(`RECORDING_API_BLOCKS_JWT_SECRET keys must be at least ${MIN_BLOCKS_SECRET_BYTES} bytes`)
+        }
     }
     if (opts.role !== 'public') {
         assertRecordingApiAuthConfigured(opts)
@@ -131,49 +140,36 @@ export function internalApiAuthExcludedPathPrefixes(role: RecordingApiRole): str
 }
 
 export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOptions) {
-    const { jwtSecret, legacySecret, allowLegacySecret, op } = options
+    const { jwtSecret, op } = options
     // Build the verifier once. Comma-separated keys give zero-downtime rotation (verify against all);
     // a malformed/empty value yields no keys and disables JWT (null) rather than throwing. `|| ''`
     // guards against a partial runtime config where the field is absent.
     const jwt = makeOptionalJwt(jwtSecret || '')
-    const legacyEnabled = allowLegacySecret && !!legacySecret
 
     return (req: Request, res: Response, next: NextFunction): void => {
-        // Nothing configured at all (local dev): allow. In every other case some auth is required —
-        // before the JWT scheme is enabled in an environment, the legacy secret still protects it.
-        if (!jwt && !legacyEnabled) {
+        // No JWT secret configured (local dev): allow. Production refuses to boot in this state, see
+        // assertRecordingApiAuthConfigured.
+        if (!jwt) {
             next()
             return
         }
 
-        if (jwt) {
-            const bearer = getBearerToken(req)
-            if (bearer) {
-                // An invalid token falls through to the legacy secret (transition) or a 401.
-                const claims = verifyBearer(jwt, bearer, PosthogJwtAudience.RECORDING_API)
-                if (claims) {
-                    const tokenTeamId = Number(claims.team_id)
-                    const requestTeamId = pathTeamId(req)
-                    if (!Number.isInteger(tokenTeamId) || tokenTeamId !== requestTeamId) {
-                        logger.warn('Recording API token team mismatch', { path: req.path })
-                        res.status(403).json({ error: 'Forbidden: token not scoped to this team' })
-                        return
-                    }
-                    if (claims.op !== op) {
-                        logger.warn('Recording API token operation mismatch', { path: req.path, expected: op })
-                        res.status(403).json({ error: 'Forbidden: token not valid for this operation' })
-                        return
-                    }
-                    next()
+        const bearer = getBearerToken(req)
+        if (bearer) {
+            const claims = verifyBearer(jwt, bearer, PosthogJwtAudience.RECORDING_API)
+            if (claims) {
+                const tokenTeamId = Number(claims.team_id)
+                const requestTeamId = pathTeamId(req)
+                if (!Number.isInteger(tokenTeamId) || tokenTeamId !== requestTeamId) {
+                    logger.warn('Recording API token team mismatch', { path: req.path })
+                    res.status(403).json({ error: 'Forbidden: token not scoped to this team' })
                     return
                 }
-                // Bearer present but invalid — fall through to the legacy secret (transition) or reject.
-            }
-        }
-
-        if (legacyEnabled) {
-            const provided = getHeader(req, INTERNAL_SERVICE_CALL_HEADER_NAME)
-            if (provided && timingSafeEqual(provided, legacySecret)) {
+                if (claims.op !== op) {
+                    logger.warn('Recording API token operation mismatch', { path: req.path, expected: op })
+                    res.status(403).json({ error: 'Forbidden: token not valid for this operation' })
+                    return
+                }
                 next()
                 return
             }
@@ -187,7 +183,7 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
 const REPLAY_BLOCKS_TOKEN_MAX_AGE = '2h'
 
 // The browser block route accepts only browser tokens, a separate audience from the service tokens above.
-// There is no legacy fallback and no dev bypass: without a secret, every request is refused.
+// There is no dev bypass: without a secret, every request is refused.
 export function createReplayBlocksAuthMiddleware(jwtSecret: string) {
     const jwt = makeOptionalJwt(jwtSecret)
 

@@ -2,9 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -226,8 +224,6 @@ describe('accountViewsLogic tracking', () => {
     beforeEach(async () => {
         jest.clearAllMocks()
         initKeaTests(false)
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true })
         jest.mocked(accountViewsList).mockResolvedValue([view])
         jest.mocked(accountViewsRetrieve).mockResolvedValue(updatedView)
         jest.mocked(userCustomerAnalyticsConfigRetrieve).mockResolvedValue(userConfig)
@@ -244,7 +240,6 @@ describe('accountViewsLogic tracking', () => {
 
     afterEach(() => {
         logic.unmount()
-        featureFlagLogic.unmount()
         jest.restoreAllMocks()
     })
 
@@ -353,19 +348,21 @@ describe('accountViewsLogic tracking', () => {
         await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
         const changed = { properties: [...secondConfig.properties].reverse() }
         logic.actions.openTileEditor(view.id, 'first', 'Properties', {
-            propertiesConfig: firstConfig,
+            kind: 'properties',
+            config: firstConfig,
             accountId: 'account-one',
         })
-        logic.actions.setTileEditorPropertiesConfig(changed)
+        logic.actions.setTileEditorConfig(changed)
         mockUpdate.mockRejectedValueOnce(new ApiError('Save failed', 500))
         await expectLogic(logic, () => {
             logic.actions.saveTileEditor()
             logic.actions.saveTileEditor()
         }).toFinishAllListeners()
         expect(mockUpdate).toHaveBeenCalledTimes(1)
-        expect(logic.values.tileEditor?.propertiesConfig).toEqual(changed)
+        expect(logic.values.tileEditor?.config).toEqual(changed)
         await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
         expect(logic.values.tileEditor).toBeNull()
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.PropertiesWidgetConfigured, { property_count: 2 })
         expect(parseAccountViewContent(logic.values.views[0].content).map(({ config }) => config)).toEqual([
             changed,
             secondConfig,

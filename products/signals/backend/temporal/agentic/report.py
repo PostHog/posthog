@@ -44,6 +44,7 @@ from products.signals.backend.report_check_research import check_versions
 from products.signals.backend.report_content_gates import (
     team_report_metrics_enabled,
     team_report_monitoring_enabled,
+    team_research_assignee_evidence_enabled,
     team_research_reviewer_selection_enabled,
 )
 from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
@@ -91,6 +92,7 @@ from products.signals.backend.startup_failure import (
     startup_failure_message,
 )
 from products.signals.backend.supersession import research_implementation_context
+from products.signals.backend.task_profiles import RESEARCH
 from products.signals.backend.temporal import report_safety_judge
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -99,6 +101,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.trial.reports import trial_report_activity
 from products.signals.backend.typed_report_links import (
     ReportEdge,
     linked_reports as fetch_linked_reports,
@@ -1171,9 +1174,10 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         )
         repository = input.repo_selection.repository
         if repository is not None:
-            sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
-                input.team_id, input.signals
-            )
+            async with Heartbeater():
+                sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+                    input.team_id, input.signals
+                )
             if sources is not None:
                 allowed = await database_sync_to_async(
                     filter_repository_candidates_for_sources, thread_sensitive=False
@@ -1206,7 +1210,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             if user_id is None:
                 raise ValueError("No active project member can run report research")
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, RESEARCH
             )
             agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
                 input.team_id, STEP_RESEARCH
@@ -1237,6 +1241,9 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             )
             reviewer_selection_enabled = await database_sync_to_async(
                 team_research_reviewer_selection_enabled, thread_sensitive=False
+            )(input.team_id)
+            assignee_evidence_enabled = reviewer_selection_enabled and await database_sync_to_async(
+                team_research_assignee_evidence_enabled, thread_sensitive=False
             )(input.team_id)
             # An `agent` check needs a scout fleet to dispatch it. A team with none degrades to
             # deterministic checks rather than storing a check that could never run.
@@ -1345,6 +1352,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 metrics_enabled=metrics_enabled,
                 monitoring_enabled=monitoring_enabled,
                 reviewer_selection_enabled=reviewer_selection_enabled,
+                assignee_evidence_enabled=assignee_evidence_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,
@@ -1427,6 +1435,12 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             error=str(error),
             sandbox_error_type=error.error_type,
         )
+        if error.error_type == "RepositoryAccessError" or (
+            error.error_type == "RepositoryCloneError" and "GitHub rejected the repository credentials" in str(error)
+        ):
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=error.error_type, non_retryable=True
+            ) from error
         if error.transient:
             raise temporalio.exceptions.ApplicationError(
                 str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
@@ -1455,6 +1469,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     try:
         return await _run_agentic_report(input)

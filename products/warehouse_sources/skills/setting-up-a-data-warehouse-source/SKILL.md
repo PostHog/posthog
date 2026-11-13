@@ -1,10 +1,10 @@
 ---
 name: setting-up-a-data-warehouse-source
 description: >
-  Guide the user through connecting a new data warehouse source — Postgres, MySQL, Stripe, Hubspot, MongoDB,
-  Salesforce, BigQuery, Snowflake, and so on. Use when the user wants to "connect Stripe", "import data from
-  Postgres", "add a new data source", "sync my warehouse tables", or wants to pick sync methods for each table. Walks
-  through source-type discovery, credential validation, table discovery, per-table sync_type selection, and the
+  Guide the user through connecting a new data warehouse source, including databases, SaaS tools, and bucket files.
+  Use when the user wants to "connect Stripe", "import data from Postgres", "import files from a bucket",
+  "upload a file", "add a new data source", or pick sync methods for each table. This skill covers
+  source-type discovery, credential validation, table discovery, per-table sync_type selection, and the
   final create call. Also covers picking a good prefix, what to do right after creation, and sending a source's
   tables to the user's own warehouse (Snowflake, BigQuery, Postgres, S3 and other destinations).
 ---
@@ -12,6 +12,12 @@ description: >
 # Setting up a data warehouse source
 
 Use this skill when the user wants to connect an external data source to PostHog's data warehouse for the first time.
+
+Use `AmazonS3` for Amazon S3, `GoogleCloudStorage` for Google Cloud Storage, `AzureBlob` for Azure Blob, and
+`CloudflareR2` for Cloudflare R2. For a local file, direct the user to upload it in the PostHog app. That flow
+creates a `FileUpload` source. No MCP tool uploads files.
+
+Bucket sources use `full_refresh` by default.
 
 **Default to the one-step flow:** `data-warehouse-source-setup` validates credentials, discovers every table, enables
 them with sensible sync defaults (incremental where possible), and creates the source in a single call — no
@@ -22,6 +28,7 @@ hand-pick which tables sync or set non-default sync types per table.
 ## When to use this skill
 
 - The user wants to connect a new source: "connect Stripe", "import my Postgres orders table", "sync Hubspot contacts"
+- The user wants to import bucket files or upload a local file
 - The user isn't sure what source types PostHog supports
 - The user has credentials but doesn't know how to structure the `schemas` payload
 - The user wants guidance on which sync method to pick per table
@@ -103,6 +110,17 @@ missing required fields).
    headless automation; no `schemas` array is needed. On success you get the new source `id`; call
    `external-data-schemas-list` to show the user what was enabled and how each table will sync.
 
+   The OAuth integration id key is different for every source.
+   Do not guess it: call `external-data-sources-wizard` with the `source_type` and use the name of the field whose type is `oauth`
+   (for example `google_ads_integration_id` for GoogleAds).
+   A failed call returns a 400 with a `message` that says how to fix it and, for most causes, a stable `code`
+   such as `credential_expired`, `credential_not_found`, `credential_source_type_mismatch`, `invalid_config`,
+   `credential_validation_failed`, `duplicate_source` or `no_tables_found`.
+   A failed call does not use up a stored credential, so after fixing a cause that is not in the stored details you can retry with the same `credential_id`.
+   Stored values always win over inline values, so inline corrections to them have no effect.
+   Ask the user for a new connect link when the code is `credential_expired` or `credential_not_found`.
+   Do the same when the code is `credential_validation_failed` and the stored password, key or token has changed or is wrong.
+
 Notes specific to this path:
 
 - **All discovered tables are enabled.** That's intended (incremental defaults keep ongoing cost low), but flag row
@@ -155,6 +173,9 @@ field definitions. The response is a dict keyed by source type. Each entry descr
 Match the user's request to a source. If they said "Postgres", look up `Postgres`. If they said something ambiguous
 like "database", present the top relevant matches (Postgres, MySQL, MongoDB, BigQuery, Snowflake, Redshift) and let
 them pick.
+
+For bucket files, use the canonical `source_type`: `AmazonS3`, `GoogleCloudStorage`, `AzureBlob`, or `CloudflareR2`.
+For a local file, use the app's upload flow. It creates a `FileUpload` source after the user uploads the file.
 
 For OAuth-based sources (Hubspot, Salesforce, Google Ads), the wizard entry hints at an OAuth flow. These typically
 need the user to authorize in the PostHog UI rather than pasting credentials — explain this and direct them to the
@@ -335,6 +356,10 @@ If the user wants near-real-time replication from Postgres:
    source that will immediately fail.
 3. Once prerequisites pass, proceed to db-schema and create. Set `sync_type: "cdc"` on the tables that need it, and
    include `primary_key_columns` for each (CDC requires them).
+
+To add CDC to a Postgres source that already exists, use `external-data-sources-enable-cdc-create` (it re-checks the
+prerequisites), then set `sync_type: "cdc"` on the tables. `external-data-sources-update-cdc-settings-create` tunes the
+lag thresholds. `external-data-sources-disable-cdc-create` turns CDC off and resets every CDC table, so ask first.
 
 ## Sending a source to the user's own warehouse (optional, when requested)
 

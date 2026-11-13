@@ -8,12 +8,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import page_link, previous_offset
+from posthog.api.pagination import BoundedLimitOffsetPagination, page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
@@ -21,7 +21,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 from .serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -29,6 +29,7 @@ from .serializers import (
     MCPActivityOverviewQuerySerializer,
     MCPActivityOverviewSerializer,
     MCPAnalyticsSubmissionSerializer,
+    MCPCustomHarnessSerializer,
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
     MCPIntentDigestSerializer,
@@ -50,12 +51,12 @@ def _parse_detail_date_from(raw: str | None) -> datetime | None:
     return parse_datetime(raw) if raw else None
 
 
-class MCPAnalyticsPagination(LimitOffsetPagination):
+class MCPAnalyticsPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 500
 
 
-class MCPSessionPagination(LimitOffsetPagination):
+class MCPSessionPagination(BoundedLimitOffsetPagination):
     """Returns ``{next, previous, results, has_next}`` without a ``count``. The list is an
     on-the-fly ClickHouse aggregate with no cheap total, so ``has_next`` comes from the
     logic layer over-fetching one row rather than a count query.
@@ -237,6 +238,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=params["limit"],
             offset=params["offset"],
             date_from=params.get("date_from"),
+            date_to=params.get("date_to"),
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
             user=cast(User, request.user),
@@ -317,7 +319,8 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, "
             "computed in one request. Powers the dashboard's activity view. Results are cached for up to 5 minutes, "
-            "or 20 seconds when the caller has property restrictions. An empty result is never cached."
+            "or 20 seconds when the caller has property restrictions. An empty result is never cached. "
+            "Pass refresh to skip the cache."
         ),
     )
     @action(detail=False, methods=["get"], url_path="activity_overview", pagination_class=None)
@@ -328,6 +331,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
             user=cast(User, request.user),
+            refresh=params["refresh"],
         )
         return Response(MCPActivityOverviewSerializer(overview).data)
 
@@ -422,3 +426,33 @@ class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._list_response(request, enums.SubmissionKind.MISSING_CAPABILITY)
+
+
+class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """A team's own harness names, shown in place of "Other" in MCP analytics."""
+
+    serializer_class = MCPCustomHarnessSerializer
+    scope_object = "mcp_analytics"
+    queryset = MCPCustomHarness.objects.unscoped()
+    pagination_class = None
+
+    def safely_get_queryset(self, queryset: QuerySet[MCPCustomHarness]) -> QuerySet[MCPCustomHarness]:
+        # Rows save under the parent team (`TeamScopedRootMixin.save()`), so a child environment filters on it too.
+        return queryset.filter(team_id=self.team.parent_team_id or self.team.pk)
+
+    def _should_skip_parents_filter(self) -> bool:
+        # The default parent-lookup filter adds the raw URL team id, which hides the rows a child environment
+        # saved under its parent. safely_get_queryset already scopes every read.
+        return True
+
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
+        super().perform_create(serializer)
+        api.invalidate_custom_harness_rules(self.team)
+
+    def perform_update(self, serializer: BaseSerializer[Any]) -> None:
+        super().perform_update(serializer)
+        api.invalidate_custom_harness_rules(self.team)
+
+    def perform_destroy(self, instance: MCPCustomHarness) -> None:
+        super().perform_destroy(instance)
+        api.invalidate_custom_harness_rules(self.team)

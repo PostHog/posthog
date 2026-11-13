@@ -45,6 +45,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.facade.api import get_export_asset_content_response
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -112,6 +113,7 @@ from products.replay_vision.backend.watch_rank import ISSUE_CATEGORIES, current_
 from products.replay_vision.backend.watch_themes import MAX_SUGGESTED_QUERIES, theme_suggestions
 from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import get_task_profile
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -1092,6 +1094,7 @@ class ReplayObservationViewSet(
     NEIGHBOR_SCAN_LIMIT = 5000
 
     scope_object = "replay_scanner"
+    permission_classes = [ReplayVisionCloudOnly]
     required_scopes = ["replay_scanner:read", "session_recording:read"]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
@@ -1284,7 +1287,7 @@ class ReplayObservationViewSet(
             task_id = tasks_facade.create_task_without_run(
                 team=self.team,
                 user_id=user.id,
-                origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 title=content.title,
                 description=content.description,
             )

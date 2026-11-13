@@ -44,7 +44,7 @@ def _create_schema(source, name="test_table", should_sync=True, latest_error=Non
     )
 
 
-@patch("products.warehouse_sources.backend.management.commands.reenable_schemas_by_error.update_should_sync")
+@patch("products.warehouse_sources.backend.logic.auto_disabled_schemas.update_should_sync")
 class TestReenableSchemasByError:
     def test_reenables_matching_schemas(self, mock_update, team):
         source = _create_source(team)

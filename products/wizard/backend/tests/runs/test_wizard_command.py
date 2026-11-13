@@ -17,12 +17,13 @@ class CommandSnapshotExtension(SingleFileSnapshotExtension):
 
 
 @pytest.mark.parametrize(
-    "region,debug,use_local_wizard_source,program_command",
+    "region,debug,use_local_wizard_source,program_command,context_mill_version",
     [
-        pytest.param("US", False, False, (), id="default-us"),
-        pytest.param("EU", False, False, ("audit", "web-analytics"), id="audit-eu"),
-        pytest.param("US", True, False, (), id="debug-package"),
-        pytest.param("EU", True, True, ("audit", "web-analytics"), id="debug-local"),
+        pytest.param("US", False, False, (), None, id="default-us"),
+        pytest.param("EU", False, False, ("audit", "web-analytics"), None, id="audit-eu"),
+        pytest.param("US", True, False, (), None, id="debug-package"),
+        pytest.param("EU", True, True, ("audit", "web-analytics"), None, id="debug-local"),
+        pytest.param("US", False, False, (), "1.59.0", id="pinned-context-mill"),
     ],
 )
 def test_wizard_command(
@@ -31,6 +32,7 @@ def test_wizard_command(
     debug: bool,
     use_local_wizard_source: bool,
     program_command: tuple[str, ...],
+    context_mill_version: str | None,
 ) -> None:
     with (
         override_settings(DEBUG=debug),
@@ -42,6 +44,7 @@ def test_wizard_command(
             "2.67.0",
             program_command,
             use_local_wizard_source=use_local_wizard_source,
+            context_mill_version=context_mill_version,
         )
 
     script = shlex.split(command)[-1]

@@ -13,4 +13,4 @@ serde_json = { workspace = true }
 tempfile = "3"
 
 [dev-dependencies]
-rstest = "0.26"
+rstest = "0.28"

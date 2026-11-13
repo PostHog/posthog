@@ -8,7 +8,7 @@ from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from functools import partial
+from functools import lru_cache, partial
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 
@@ -25,20 +25,21 @@ from django.db import (
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
 from django.utils.functional import SimpleLazyObject
-from django.utils.http import http_date, url_has_allowed_host_and_scheme
+from django.utils.http import escape_leading_slashes, http_date, url_has_allowed_host_and_scheme
 
+import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -54,6 +55,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.ip_restrictions import enforce_ip_restrictions, get_restriction_client_ip
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -66,13 +68,17 @@ from posthog.models.activity_logging.utils import (
 from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
-from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import find_action_team_id
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -235,7 +241,12 @@ def pop_mcp_client_ip(request: HttpRequest) -> str | None:
 
     outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MCP_CLIENT_IP_SIGNING_KEYS)
     MCP_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
-    return ip if outcome is SignedClientIPOutcome.VALID else None
+    if outcome is SignedClientIPOutcome.VALID:
+        # Keep the verified end-user IP on the request for the IP restriction checks, which run
+        # after this middleware but still need to judge the MCP caller rather than the pod address.
+        setattr(request, "verified_mcp_client_ip", ip)  # noqa: B010 — dynamic attr the stubs don't know
+        return ip
+    return None
 
 
 class ManagedProxyClientIPMiddleware:
@@ -357,6 +368,9 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
+        # Admin pages authenticate by session only, so a personal API key never stands in for their CSRF token.
+        if request.path.startswith("/admin/"):
+            return result
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
             return self._accept(request)
@@ -446,6 +460,10 @@ class AutoProjectMiddleware:
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
+            else:
+                target_team_id = self.get_target_team_id(request)
+                if target_team_id is not None:
+                    self.switch_to_team_id_if_needed_and_allowed(request, target_team_id)
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
@@ -454,12 +472,7 @@ class AutoProjectMiddleware:
         path_parts = request.path.strip("/").split("/")
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
-            if path_parts[0] == "dashboard":
-                dashboard_id = path_parts[1]
-                if dashboard_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Dashboard.objects.filter(deleted=False, id=dashboard_id)
-            elif path_parts[0] == "insights":
+            if path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
             elif path_parts[0] == "notebooks":
@@ -470,11 +483,6 @@ class AutoProjectMiddleware:
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(id=feature_flag_id)
-            elif path_parts[0] == "action":
-                action_id = path_parts[1]
-                if action_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
@@ -482,10 +490,34 @@ class AutoProjectMiddleware:
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 
+    def get_target_team_id(self, request: HttpRequest) -> Optional[int]:
+        """The team owning the object a legacy app path names, for objects read through a product facade."""
+        path_parts = request.path.strip("/").split("/")
+        # Sync the paths with urls.ts!
+        if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
+            # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
+            return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        if len(path_parts) >= 2 and path_parts[0] == "dashboard" and path_parts[1].isnumeric():
+            return find_dashboard_team_id(dashboard_id=int(path_parts[1]))
+        return None
+
+    def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
+        user = cast(User, request.user)
+        current_team = user.team
+        if current_team is not None and current_team.pk != target_team_id:
+            target_team = Team.objects.filter(pk=target_team_id).first()
+            if target_team is not None:
+                self.switch_team_if_allowed(target_team, request)
+
     def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
         user = cast(User, request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
+            if not user.is_staff:
+                # A short_id is unique per team only, and no index starts with short_id, so a lookup across all
+                # teams reads the whole table. Staff keep the lookup across all teams, because can_switch_to_team
+                # suggests users to log in as when a staff user opens an object in a team they cannot access.
+                target_queryset = target_queryset.filter(team__in=user.teams)
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
@@ -507,14 +539,11 @@ class AutoProjectMiddleware:
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
-        user_permissions = UserPermissions(user)
-        user_access_control = UserAccessControl(user=user, team=new_team)
 
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if (
-            not user_access_control.check_access_level_for_object(new_team, "member")
-            and user_permissions.team(new_team).effective_membership_level is None
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PROJECT, id=str(new_team.pk)),
+            action=AuthorizationAction.VIEW,
+            subject=Subject(user_id=user.pk),
         ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
@@ -526,13 +555,83 @@ class AutoProjectMiddleware:
         return True
 
 
+UNMATCHED_ROUTE = "unmatched"
+_PATH_CONVERTER = re.compile(r"<(?:\w+:)?(\w+)>")
+_REGEX_LEFTOVER = re.compile(r"[()\[\]*+|]")
+
+
+def _closing_paren(pattern: str, start: int) -> int:
+    depth = 0
+    in_class = False
+    i = start
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(pattern)
+
+
+@lru_cache(maxsize=8192)
+def route_template(route: str) -> str:
+    """Turn a resolver route into a readable, id-free template.
+
+    `^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/(?P<pk>[^/.]+)/?$`
+    becomes `api/projects/{project_id}/feature_flags/{pk}/`. The input comes from the URLconf,
+    never the request path, so the set of outputs is bounded by the number of URL patterns.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(route):
+        char = route[i]
+        if route.startswith("(?P<", i):
+            name = route[i + 4 : route.index(">", i)]
+            out.append("{" + name.removeprefix("parent_lookup_") + "}")
+            i = _closing_paren(route, i) + 1
+        elif route.startswith("(?:", i) and route[(end := _closing_paren(route, i)) + 1 : end + 2] == "?":
+            # Optional suffixes such as opt_slash_path's `(?:[?#].*)?` share the base route's label.
+            i = end + 2
+        elif char == "\\" and i + 1 < len(route):
+            out.append(route[i + 1])
+            i += 2
+        elif char in "^$" or (char == "?" and out and out[-1] == "/"):
+            i += 1
+        else:
+            out.append(char)
+            i += 1
+    template = _PATH_CONVERTER.sub(r"{\1}", "".join(out))
+    # DRF registers a `.json`-style format-suffix twin of every route; fold it into the base route.
+    template = template.replace(".{format}", "").replace("//", "/")
+    if not template or _REGEX_LEFTOVER.search(template):
+        return UNMATCHED_ROUTE
+    return template
+
+
+def request_route(request: HttpRequest) -> str:
+    match = getattr(request, "resolver_match", None)
+    if match is None or not match.route:
+        return UNMATCHED_ROUTE
+    return route_template(match.route)
+
+
 API_REQUESTS_LATENCY_SECONDS = Histogram(
     "posthog_api_requests_latency_seconds",
     "Latency of api/ requests, labelled to expose agent vs browser traffic.",
     # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
     # or "error" when the view raised before producing one — keeps error-path
     # latency from polluting success buckets while still recording it.
-    labelnames=["view", "method", "source", "access_method", "status_class"],
+    labelnames=["view", "route", "method", "source", "access_method", "status_class"],
     # Same buckets as django_prometheus' default so we line up with
     # django_http_requests_latency_seconds_by_view_method.
     buckets=(
@@ -566,8 +665,6 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        route = resolve(request.path)
-        route_id = f"{route.route} ({route.func.__name__})"
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
@@ -582,7 +679,6 @@ class CHQueries:
             user_id=user.pk,
             kind="request",
             id=request.path,
-            route_id=route.route,
             is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
@@ -602,20 +698,21 @@ class CHQueries:
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
 
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
                     "http_api_request_response",
-                    tags={"id": route_id, "status_code": response.status_code},
+                    tags={"id": f"{route.route} ({route.func.__name__})", "status_code": response.status_code},
                 )
 
             return response
         finally:
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
+                    route=request_route(request),
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
@@ -624,6 +721,16 @@ class CHQueries:
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
             reset_query_tags()
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[Any, ...],
+        view_kwargs: dict[str, Any],
+    ) -> None:
+        if request.resolver_match is not None:
+            tag_queries(route_id=request.resolver_match.route)
 
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
@@ -1600,6 +1707,11 @@ class SocialAuthExceptionMiddleware:
             error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
             return redirect(sso_failure_redirect_url(request, error_code))
 
+        # social-core wraps only ConnectionError from provider calls, so a read timeout or a provider 5xx
+        # arrives here as a plain requests error. The detail holds the provider URL, so it stays out of the redirect.
+        if isinstance(exception, requests.RequestException):
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
+
         return None
 
     def _error_code(self, exception: ValidationError) -> str:
@@ -1657,6 +1769,53 @@ def organization_block_page(organization: Organization) -> Optional[str]:
     if organization.is_active is False:
         return "/organization-deactivated"
     return None
+
+
+class IPRestrictionsMiddleware(MiddlewareMixin):
+    """Block requests from an IP that the caller's organization does not allow.
+
+    Runs after `AuthenticationMiddleware` for session requests. Routed viewsets defer to
+    `IPRestrictionsPermission` so the check includes the view's team and organization overrides.
+    Both use the cached organization restrictions and
+    `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
+    verified IP is available.
+    """
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[object, ...],
+        view_kwargs: dict[str, object],
+    ) -> HttpResponse | None:
+        if request.path in ("/logout", "/logout/"):
+            return None
+        try:
+            enforce_ip_restrictions(request, getattr(request, "user", None))
+        except PermissionDenied as error:
+            if (
+                request.method in ("GET", "HEAD")
+                and not request.path_info.startswith("/api/")
+                and "text/html" in request.headers.get("Accept", "")
+            ):
+                response = render(
+                    request,
+                    "ip_restricted.html",
+                    {"detail": str(error.detail), "retry_url": escape_leading_slashes(request.get_full_path())},
+                    status=403,
+                )
+                add_never_cache_headers(response)
+                return response
+            return JsonResponse(
+                {
+                    "type": "authentication_error",
+                    "code": "ip_not_allowed",
+                    "detail": str(error.detail),
+                    "ip": get_restriction_client_ip(request),
+                },
+                status=403,
+            )
+        return None
 
 
 class ActiveOrganizationMiddleware:

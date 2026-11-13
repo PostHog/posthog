@@ -2,6 +2,7 @@ import type { ComponentType, ReactElement } from 'react'
 
 import { track } from '@/lib/analytics'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
+import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { SpacesIcon } from '@/ui/icons/SpacesIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { ViewsIcon } from '@/ui/icons/ViewsIcon'
@@ -17,7 +18,12 @@ import { SettingsGroup } from './SettingsGroup'
 import { SettingsRadioRow } from './SettingsRadioRow'
 
 // The same glyphs as the bottom bar, so the rows read as the tabs they open.
-const ICONS: Record<DefaultPage, ComponentType<IconProps>> = { inbox: HomeIcon, chats: SpacesIcon, views: ViewsIcon }
+const ICONS: Record<DefaultPage, ComponentType<IconProps>> = {
+    live: HomeIcon,
+    inbox: InboxIcon,
+    chats: SpacesIcon,
+    views: ViewsIcon,
+}
 
 export function DefaultPageGroup(): ReactElement {
     const page = useDefaultPageStore((state) => effectiveDefaultPage(state.page))
@@ -32,7 +38,11 @@ export function DefaultPageGroup(): ReactElement {
     }
 
     return (
-        <SettingsGroup title="Start page" testID="settings-default-page">
+        <SettingsGroup
+            title="Start page"
+            description="Choose the home page that opens when you start the app."
+            testID="settings-default-page"
+        >
             {DEFAULT_PAGES.map((option) => (
                 <SettingsRadioRow
                     key={option}

@@ -7,11 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface InternalFeedbackResponseApi {
-    /** True when the feedback reached Slack. */
-    success: boolean
-}
-
 /**
  * * `1` - member
  * * `8` - administrator
@@ -195,6 +190,19 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning: string | null
 }
 
 export interface PaginatedOrganizationListApi {
@@ -308,6 +316,19 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution?: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning?: string | null
 }
 
 export interface OrganizationRemoveBlockedMembersResponseApi {
@@ -901,6 +922,7 @@ export interface WelcomeResponseApi {
  * * `project_secret_key` - project_secret_key
  * * `team_secret_token` - team_secret_token
  * * `id_jag` - id_jag
+ * * `oidc_workload` - oidc_workload
  * * `internal_jwt` - internal_jwt
  * * `service_jwt` - service_jwt
  * * `internal_api_secret` - internal_api_secret
@@ -927,6 +949,7 @@ export const ActivityLogCredentialTypeEnumApi = {
     ProjectSecretKey: 'project_secret_key',
     TeamSecretToken: 'team_secret_token',
     IdJag: 'id_jag',
+    OidcWorkload: 'oidc_workload',
     InternalJwt: 'internal_jwt',
     ServiceJwt: 'service_jwt',
     InternalApiSecret: 'internal_api_secret',
@@ -976,6 +999,7 @@ export interface ActivityLogApi {
      * * `project_secret_key` - project_secret_key
      * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
      * * `service_jwt` - service_jwt
      * * `internal_api_secret` - internal_api_secret
@@ -1413,26 +1437,6 @@ export interface PatchedPinnedSceneTabsApi {
     homepage?: PinnedSceneTabApi | null
 }
 
-export type InternalFeedbackCreateBody = {
-    /**
-     * What the person wants to tell the developers.
-     * @maxLength 4000
-     */
-    comment: string
-    /**
-     * URL of the page the feedback is about.
-     * @maxLength 2000
-     */
-    page_url: string
-    /**
-     * CSS selector of the element the person selected. Empty for feedback about the whole page.
-     * @maxLength 1000
-     */
-    element_identifier?: string
-    /** JPEG screenshot of the page, with the selected element outlined when there is one. */
-    screenshot?: Blob
-}
-
 export type ListParams = {
     /**
      * Number of results to return per page.
@@ -1579,6 +1583,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -1595,6 +1600,7 @@ export type ActivityLogListParams = {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -1627,6 +1633,7 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalSourceConfig` - SignalSourceConfig
      * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
@@ -1698,6 +1705,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1714,6 +1722,7 @@ export const ActivityLogListScope = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1746,6 +1755,7 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
@@ -1804,6 +1814,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
  * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
@@ -1820,6 +1831,7 @@ export const ActivityLogListScope = {
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
  * * `OAuthApplication` - OAuthApplication
  * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+ * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
  * * `User` - User
  * * `Action` - Action
  * * `AccountView` - AccountView
@@ -1852,6 +1864,7 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalSourceConfig` - SignalSourceConfig
  * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
@@ -1911,6 +1924,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1927,6 +1941,7 @@ export const ActivityLogListScopesItem = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1959,6 +1974,7 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',

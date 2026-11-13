@@ -7,8 +7,10 @@ from django.db.models import Model
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.ph_client import feature_enabled_or_false
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
@@ -30,6 +32,24 @@ RAW_QUERY_TABLE_DENIED_ERROR = (
     "You don't have access to every table on this connection, so raw SQL is not allowed here. "
     "Drop sendRawQuery to run the query as HogQL, which enforces access per table."
 )
+
+RAW_QUERY_BROWSER_SESSION_ERROR = (
+    "Raw queries on the managed warehouse need a browser session. "
+    'To query with a token, turn off "Send raw query" and use HogQL.'
+)
+
+
+def raw_query_uses_organization_grant(source: ExternalDataSource) -> bool:
+    # A dynamic source mints an organization-scoped service credential at connection time, on both the Trino
+    # and the Duckgres engine. A legacy managed source stores the organization's server login. Raw SQL on
+    # either source can name tables of every project in the organization.
+    return source.is_dynamic_managed_warehouse or source.is_legacy_managed_warehouse
+
+
+def require_browser_session_for_organization_grant() -> None:
+    # Token credentials can restrict projects while the warehouse grant spans the organization.
+    if get_query_tags().access_method is not None:
+        raise ExposedHogQLError(RAW_QUERY_BROWSER_SESSION_ERROR)
 
 
 def raw_query_denied_by_table_access(

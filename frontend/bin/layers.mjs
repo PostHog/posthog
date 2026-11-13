@@ -16,6 +16,8 @@ const RULES = [
     ['kernel', /^frontend\/src\/(styles|vendor)\//],
     ['kernel', /^frontend\/@posthog\//],
     ['kernel', /^(common|packages)\//],
+    // Web startup consumes the same protocol that EAS bundles from the mobile directory.
+    ['kernel', /^products\/mobile\/shared\/handoffProtocol\.ts$/],
     ['query', /^frontend\/src\/queries\//],
     ['shell', /^frontend\/src\/(lib|layout|models|taxonomy)\//],
     ['shell', /^frontend\/src\/scenes\/[^/]+$/],

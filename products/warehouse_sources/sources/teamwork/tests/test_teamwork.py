@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.sources.teamwork._config import TeamworkSourceConfig
@@ -102,6 +103,52 @@ class TestPagination:
         assert result.requests[0].param("updatedAfter") is None
 
 
+class TestProjectCategories:
+    def test_unpaginated_endpoint_makes_one_request_without_page_params(self) -> None:
+        # `projectcategories.json` documents no paging, so the source must not loop on a missing hasMore.
+        result = _run(
+            [
+                ScriptedResponse(
+                    status=200, json={"projectCategories": [{"id": 1}, {"id": 2}], "projectCategoryTotals": {}}
+                )
+            ],
+            endpoint="project_categories",
+        )
+        assert result.rows == [{"id": 1}, {"id": 2}]
+        assert len(result.requests) == 1
+        assert result.requests[0].param("page") is None
+        assert result.requests[0].param("pageSize") is None
+
+
+class TestWorkflowStagesFanout:
+    def test_walks_every_workflow_and_every_stage_page(self) -> None:
+        responses = route(
+            {
+                "/workflows.json": [_page("workflows", [{"id": 10}, {"id": 20}], has_more=False)],
+                "/workflows/10/stages.json": [
+                    _page("stages", [{"id": 1, "name": "To do"}], has_more=True),
+                    _page("stages", [{"id": 2, "name": "Done"}], has_more=False),
+                ],
+                "/workflows/20/stages.json": [_page("stages", [{"id": 1, "name": "Backlog"}], has_more=False)],
+            }
+        )
+        result = _run(responses, endpoint="workflow_stages")
+
+        assert result.raised is None
+        # Stage ids can repeat across workflows, so every row must carry its workflow id.
+        assert [(row["workflowId"], row["id"], row["name"]) for row in result.rows] == [
+            (10, 1, "To do"),
+            (10, 2, "Done"),
+            (20, 1, "Backlog"),
+        ]
+        assert all("_workflows_id" not in row for row in result.rows)
+        stage_requests = [r for r in result.requests if r.path.endswith("/stages.json")]
+        assert [r.param("page") for r in stage_requests] == ["1", "2", "1"]
+        assert {r.param("orderBy") for r in stage_requests} == {"id"}
+        assert result.response is not None
+        assert result.response.primary_keys == ["workflowId", "id"]
+
+
 class TestRedirectRejection:
     @parameterized.expand([("moved", 301), ("found", 302), ("temporary", 307), ("permanent", 308)])
     def test_redirect_is_rejected(self, _name: str, status: int) -> None:
@@ -120,9 +167,12 @@ class TestValidateCredentials:
 
 
 class TestEndpointCatalog:
-    def test_every_endpoint_has_id_primary_key(self) -> None:
+    def test_primary_keys_include_id_and_fanout_parent(self) -> None:
         for config in TEAMWORK_ENDPOINTS.values():
-            assert config.primary_keys == ["id"]
+            assert "id" in config.primary_keys
+            if config.fanout is not None:
+                # Fan-out child rows aggregate across parents, so the parent id must be in the key.
+                assert set(config.fanout.parent_field_renames.values()) <= set(config.primary_keys)
 
     def test_partition_keys_are_creation_fields_not_update_fields(self) -> None:
         # An update-timestamp partition key would rewrite partitions every sync.

@@ -1,11 +1,15 @@
 import { Command as Commander, CommanderError, Option } from 'commander'
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
+import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
+import { inCIWithoutAPerson } from '@/core/approval'
 import {
     argumentSyntax,
+    longFlag,
     optionFlags,
+    parseOption,
     type Command,
     type CommandTree,
     type Group,
@@ -16,12 +20,14 @@ import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
 import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
+import { parseJsonOrUndefined } from '@/core/json'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
 import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
+import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `
@@ -49,7 +55,7 @@ function helpText(command: Command): string {
     const sections = [
         command.notes,
         command.examples?.length ? `Examples:\n${command.examples.map((example) => `  ${example}`).join('\n')}` : '',
-        command.scopes?.length ? `Needs a personal API key with: ${command.scopes.join(', ')}` : '',
+        command.scopes?.length ? `Needs the scopes: ${command.scopes.join(', ')}` : '',
     ]
     return sections
         .filter(Boolean)
@@ -96,14 +102,27 @@ function notPorted(argv: readonly string[], route: LegacyRoute): HogError {
     return new HogError('not_ported', `\`hog ${route.path}\` isn't available yet. Run this instead:\n  ${invocation}`)
 }
 
-// A 403 names the scopes the command declares, which the API client doesn't know about.
-function withScopeHint(error: unknown, scopes: readonly string[] | undefined): unknown {
-    if (error instanceof ApiError && error.status === 403 && scopes?.length) {
+// A 403 without a step-up challenge names the scopes the command declares, which the API client doesn't know about.
+async function withScopeHint(error: unknown, scopes: readonly string[] | undefined, ctx: Context): Promise<unknown> {
+    if (!(error instanceof ApiError) || error.status !== 403 || error.code === 'step_up_required' || !scopes?.length) {
+        return error
+    }
+    const credentials = await ctx.requestedCredentials?.catch(() => undefined)
+    if (credentials?.source === 'workload') {
+        return error.withHint(workloadScopesHint(scopes))
+    }
+    if (!canStepUp(credentials)) {
         return error.withHint(
             `Check that the personal API key has the ${scopes.join(', ')} scope and access to this project.`
         )
     }
-    return error
+    const { scopesNotCovered } = await import('@/posthog/scopes')
+    const missing = scopesNotCovered(credentials?.key.status().scopes ?? [], scopes)
+    return error.withHint(
+        missing.length > 0
+            ? `Run \`${stepUpCommand(missing, credentials?.key.host)}\` to add the scopes to your login, and check that you can access this project.`
+            : 'Check that you can access this project.'
+    )
 }
 
 async function readArgument(runtime: Runtime, name: string, value: string): Promise<string> {
@@ -181,9 +200,14 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             let ctx: Context | undefined
             telemetry.credentials = () =>
                 ctx?.requestedCredentials ??
-                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
+                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, envOnly: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
+            // An empty value, often an unset shell variable, fails here instead of falling back to a
+            // default, such as the login's project.
+            for (const [name, spec] of Object.entries(node.options ?? {})) {
+                options[name] = parseOption(spec, options[name], longFlag(name), 'invalid_input')
+            }
             if (envFlag(runtime.env, DRY_RUN_ENV)) {
                 if (Object.hasOwn(node.options ?? {}, 'dryRun')) {
                     options.dryRun = true
@@ -204,18 +228,25 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             }
 
             ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
+            if (node.refusesCI && inCIWithoutAPerson(ctx)) {
+                throw new HogError(
+                    'not_in_ci',
+                    `\`hog ${path}\` ${node.refusesCI.reason}, so it does not run in CI.`,
+                    node.refusesCI.hint
+                )
+            }
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })
             } catch (error) {
-                throw withScopeHint(error, node.scopes)
+                throw await withScopeHint(error, node.scopes, ctx)
             }
 
             const render = mode.format === 'json' ? node.agent : node.human
             if (render && !globals.raw) {
                 render({ result, out, args, options })
             } else if (result !== undefined) {
-                out.json(result)
+                out.json(globals.raw && node.raw ? node.raw(result) : result)
             }
             state.exitCode = node.exitCode?.(result) ?? 0
             state.properties = {
@@ -233,6 +264,9 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
                     addNode(command, childName, child, path)
+                }
+                if (node.guide) {
+                    addRunnable(command, node.guide, path)
                 }
                 return
             case 'legacy':
@@ -373,6 +407,10 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         hint: 'The experimental commands are top level in hog, as in `hog endpoints pull` for `posthog-cli exp endpoints pull`.',
     },
     update: { to: 'upgrade', hint: 'Run `hog upgrade`.' },
+    skill: {
+        to: 'skills list|add',
+        hint: '`hog skills list` lists the skills, and `hog skills add <skill...>` replaces `posthog-cli api skill install`.',
+    },
 }
 
 function toHogError(caught: unknown): HogError {
@@ -407,7 +445,9 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
-// Read without the schema, so an opt-out still counts in a file another check rejects. A file
+const TelemetryOptOut = z.object({ cli: z.object({ telemetry: z.literal(false) }) })
+
+// Read without the full schema, so an opt-out still counts in a file another check rejects. A file
 // that isn't JSON stops the command later, with telemetry on.
 async function configOptsOut(runtime: Runtime): Promise<boolean> {
     const path = await findConfig(runtime)
@@ -415,7 +455,7 @@ async function configOptsOut(runtime: Runtime): Promise<boolean> {
         return false
     }
     try {
-        return (JSON.parse(await runtime.readFile(path)) as { cli?: { telemetry?: unknown } })?.cli?.telemetry === false
+        return parseJsonOrUndefined(await runtime.readFile(path), TelemetryOptOut) !== undefined
     } catch {
         return false
     }
