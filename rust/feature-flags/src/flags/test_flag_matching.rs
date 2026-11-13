@@ -13,7 +13,7 @@ mod tests {
     use crate::{
         api::{
             errors::FlagError,
-            types::{FlagValue, LegacyFlagsResponse},
+            types::{FlagValue, FlagsResponse, LegacyFlagsResponse},
         },
         cohorts::{
             cohort_cache_manager::CohortCacheManager,
@@ -44,7 +44,8 @@ mod tests {
             mock::MockInto,
             test_utils::{
                 counter_total, failing_group_type_cache, flag_list_with_metadata,
-                mock_group_type_cache, setup_invalid_pg_client, StalledPgClient, TestContext,
+                mock_group_type_cache, setup_invalid_pg_client, CountingFailingClient,
+                StalledPgClient, TestContext,
             },
         },
     };
@@ -8337,9 +8338,11 @@ mod tests {
             elapsed < deadline * 2,
             "the hash key lookup, the group type lookup, and the properties fetch share one deadline, took {elapsed:?}"
         );
+        // The hash key lookup runs alongside the group type lookup, so both take a connection
+        // before the deadline. The properties fetch starts after it and must not take one.
         assert_eq!(
             stalled_db.connection_requests.load(Ordering::SeqCst),
-            1,
+            if with_continuity_flag { 2 } else { 1 },
             "a persons call that starts after the deadline must not take a connection"
         );
         assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
@@ -8408,6 +8411,496 @@ mod tests {
         assert!(!log.outcome_marks.degraded());
     }
 
+    const PARALLEL_LOOKUP_EMAIL: &str = "parallel@example.com";
+    const STORED_HASH_KEY: &str = "stored_hash_key";
+
+    #[derive(Clone, Copy, Debug)]
+    enum DbPropertyKind {
+        Person,
+        StaticCohort,
+        Group,
+    }
+
+    /// A ten-variant flag, so a different hash key almost always picks a different variant.
+    fn multivariate_continuity_flag(team_id: TeamId, id: i32, key: &str) -> FeatureFlag {
+        let variants = (0..10)
+            .map(|i| MultivariateFlagVariant {
+                key: format!("variant_{i}"),
+                rollout_percentage: 10.0,
+                ..Default::default()
+            })
+            .collect();
+        mock!(FeatureFlag,
+            id: id,
+            team_id: team_id,
+            key: key.mock_into(),
+            ensure_experience_continuity: Some(true),
+            filters: FlagFilters {
+                multivariate: Some(MultivariateFlagOptions {
+                    variants,
+                    ..Default::default()
+                }),
+                ..mock!(FlagFilters)
+            }
+        )
+    }
+
+    fn person_email_filter() -> PropertyFilter {
+        mock!(PropertyFilter,
+            key: "email".mock_into(),
+            value: Some(json!(PARALLEL_LOOKUP_EMAIL)),
+            prop_type: PropertyType::Person
+        )
+    }
+
+    fn continuity_property_flag(team_id: TeamId) -> FeatureFlag {
+        mock!(FeatureFlag,
+            id: 3,
+            team_id: team_id,
+            key: "continuity_property_flag".mock_into(),
+            ensure_experience_continuity: Some(true),
+            filters: person_email_filter().mock_into()
+        )
+    }
+
+    fn flag_outcome(response: &FlagsResponse, key: &str) -> Option<(bool, bool, String)> {
+        response
+            .flags
+            .get(key)
+            .map(|flag| (flag.enabled, flag.failed, flag.reason.code.clone()))
+    }
+
+    /// Inserts the person, plus the cohort membership or group row that `kind` reads, and
+    /// returns a flag that matches only when the properties fetch reads those rows.
+    async fn insert_person_and_db_property_flag(
+        context: &TestContext,
+        team_id: TeamId,
+        distinct_id: &str,
+        kind: Option<DbPropertyKind>,
+    ) -> Option<FeatureFlag> {
+        let person_id = context
+            .insert_person(
+                team_id,
+                distinct_id.to_string(),
+                Some(json!({"email": PARALLEL_LOOKUP_EMAIL})),
+            )
+            .await
+            .unwrap();
+        let filter = match kind? {
+            DbPropertyKind::Person => person_email_filter(),
+            DbPropertyKind::StaticCohort => {
+                let cohort = context
+                    .insert_cohort(team_id, Some("Static".to_string()), json!({}), true)
+                    .await
+                    .unwrap();
+                context
+                    .add_person_to_cohort(cohort.id, person_id)
+                    .await
+                    .unwrap();
+                mock!(PropertyFilter,
+                    key: "id".mock_into(),
+                    value: Some(json!(cohort.id)),
+                    operator: Some(OperatorType::In),
+                    prop_type: PropertyType::Cohort
+                )
+            }
+            DbPropertyKind::Group => {
+                context
+                    .create_group(
+                        team_id,
+                        "organization",
+                        "acme",
+                        json!({"tier": "enterprise"}),
+                    )
+                    .await
+                    .unwrap();
+                organization_tier_filter(OperatorType::Exact)
+            }
+        };
+        Some(mock!(FeatureFlag,
+            id: 2,
+            team_id: team_id,
+            key: "property_flag".mock_into(),
+            filters: filter.mock_into()
+        ))
+    }
+
+    fn matcher_with_real_caches(
+        context: &TestContext,
+        team_id: TeamId,
+        distinct_id: &str,
+        router: PostgresRouter,
+    ) -> FeatureFlagMatcher {
+        FeatureFlagMatcher::new(
+            distinct_id.to_string(),
+            None,
+            team_id,
+            router,
+            Arc::new(CohortCacheManager::new(
+                context.non_persons_reader.clone(),
+                None,
+                None,
+            )),
+            Arc::new(GroupTypeCacheManager::new(
+                context.persons_reader.clone(),
+                None,
+                None,
+            )),
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        )
+    }
+
+    /// When a request needs both the hash key override lookup and the properties fetch, the
+    /// continuity flag hashes on the override and the property flag matches on DB properties.
+    /// The canonical log fields come from both paths, so a lookup moved onto another task, which
+    /// does not inherit the canonical log scope, would drop them.
+    #[rstest::rstest]
+    #[case::person_with_stored_override(Some(DbPropertyKind::Person), true, None)]
+    #[case::static_cohort_with_stored_override(Some(DbPropertyKind::StaticCohort), true, None)]
+    #[case::group_with_stored_override(Some(DbPropertyKind::Group), true, None)]
+    #[case::person_with_written_override(Some(DbPropertyKind::Person), true, Some("anon_id"))]
+    #[case::group_with_written_override(Some(DbPropertyKind::Group), true, Some("anon_id"))]
+    #[case::continuity_only(None, true, None)]
+    #[case::property_only(Some(DbPropertyKind::Person), false, None)]
+    #[tokio::test]
+    async fn test_override_lookup_and_property_fetch_results_combine(
+        #[case] property_kind: Option<DbPropertyKind>,
+        #[case] with_continuity_flag: bool,
+        #[case] anon_distinct_id: Option<&str>,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "parallel_user";
+        let property_flag =
+            insert_person_and_db_property_flag(&context, team.id, distinct_id, property_kind).await;
+        let continuity_flag = multivariate_continuity_flag(team.id, 1, "continuity_flag");
+        if with_continuity_flag {
+            context
+                .insert_flag(team.id, Some(continuity_flag.clone().mock_into()))
+                .await
+                .unwrap();
+        }
+        if anon_distinct_id.is_none() && with_continuity_flag {
+            set_feature_flag_hash_key_overrides(
+                &context.create_postgres_router(),
+                team.id,
+                vec![distinct_id.to_string()],
+                STORED_HASH_KEY.to_string(),
+            )
+            .await
+            .unwrap();
+        }
+        let expected_hash_key = anon_distinct_id.unwrap_or(STORED_HASH_KEY);
+        let mut matcher = matcher_with_real_caches(
+            &context,
+            team.id,
+            distinct_id,
+            context.create_postgres_router(),
+        );
+        let expected_variant = matcher
+            .get_match(
+                &continuity_flag,
+                None,
+                None,
+                Some(&HashMap::from([(
+                    continuity_flag.key.clone(),
+                    expected_hash_key.to_string(),
+                )])),
+                &None,
+            )
+            .unwrap()
+            .variant;
+        if with_continuity_flag {
+            let variant_without_override = matcher
+                .get_match(&continuity_flag, None, None, None, &None)
+                .unwrap()
+                .variant;
+            assert_ne!(
+                expected_variant, variant_without_override,
+                "precondition: the override must pick a different variant than the distinct_id"
+            );
+        }
+        let flags: Vec<FeatureFlag> = with_continuity_flag
+            .then(|| continuity_flag.clone())
+            .into_iter()
+            .chain(property_flag.clone())
+            .collect();
+
+        let (response, log) = run_with_canonical_log(
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "127.0.0.1".to_string()),
+            matcher.evaluate_all_feature_flags(
+                flag_list_with_metadata(flags),
+                None,
+                None,
+                anon_distinct_id.map(str::to_string),
+                Uuid::new_v4(),
+                None,
+                false,
+            ),
+        )
+        .await;
+        let response = response.unwrap();
+
+        assert!(!response.errors_while_computing_flags);
+        assert_eq!(
+            response
+                .flags
+                .get("continuity_flag")
+                .map(|flag| flag.variant.clone()),
+            with_continuity_flag.then_some(expected_variant)
+        );
+        assert_eq!(
+            response
+                .flags
+                .get("property_flag")
+                .map(|flag| (flag.enabled, flag.reason.code.as_str())),
+            property_flag.as_ref().map(|_| (true, "condition_match"))
+        );
+        assert_eq!(
+            log.hash_key_override_status,
+            with_continuity_flag.then_some("found")
+        );
+        assert_eq!(
+            log.db_property_fetches,
+            usize::from(property_flag.is_some())
+        );
+        if anon_distinct_id.is_some() {
+            let stored = context
+                .get_feature_flag_hash_key_overrides(team.id, vec![distinct_id.to_string()])
+                .await
+                .unwrap();
+            assert_eq!(
+                stored.get("continuity_flag").map(String::as_str),
+                anon_distinct_id,
+                "the override path must still write the request's anon_distinct_id"
+            );
+        }
+    }
+
+    /// A failed override lookup fails only the continuity flags. A continuity flag that also
+    /// reads DB properties keeps the override error even though the properties fetch succeeded.
+    /// The override check reads the non-persons pool and the properties fetch does not, so only
+    /// the override lookup fails here.
+    #[rstest::rstest]
+    #[case::person(DbPropertyKind::Person)]
+    #[case::static_cohort(DbPropertyKind::StaticCohort)]
+    #[case::group(DbPropertyKind::Group)]
+    #[tokio::test]
+    async fn test_override_lookup_failure_errors_only_continuity_flags(
+        #[case] property_kind: DbPropertyKind,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "parallel_user";
+        let property_flag =
+            insert_person_and_db_property_flag(&context, team.id, distinct_id, Some(property_kind))
+                .await
+                .unwrap();
+        let continuity_flag = multivariate_continuity_flag(team.id, 1, "continuity_flag");
+        let continuity_property_flag = continuity_property_flag(team.id);
+        let rollout_flag =
+            mock!(FeatureFlag, id: 4, team_id: team.id, key: "rollout_flag".mock_into());
+        let failing_non_persons =
+            Arc::new(CountingFailingClient::new(|| sqlx::Error::PoolTimedOut));
+        let router = PostgresRouter::new(
+            context.persons_reader.clone(),
+            context.persons_writer.clone(),
+            failing_non_persons.clone(),
+            context.non_persons_writer.clone(),
+        );
+        let mut matcher = matcher_with_real_caches(&context, team.id, distinct_id, router);
+
+        let response = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![
+                    continuity_flag,
+                    property_flag,
+                    continuity_property_flag,
+                    rollout_flag,
+                ]),
+                None,
+                None,
+                Some("anon_id".to_string()),
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            failing_non_persons.calls.load(Ordering::SeqCst) > 0,
+            "precondition: the override check must reach the failing pool"
+        );
+        assert!(response.errors_while_computing_flags);
+        let outcome = |key: &str| flag_outcome(&response, key);
+        let failed_with = |code: &str| Some((false, true, code.to_string()));
+        let matched = Some((true, false, "condition_match".to_string()));
+        assert_eq!(
+            outcome("continuity_flag"),
+            failed_with("hash_key_override_error")
+        );
+        assert_eq!(
+            outcome("continuity_property_flag"),
+            failed_with("hash_key_override_error")
+        );
+        assert_eq!(outcome("property_flag"), matched);
+        assert_eq!(outcome("rollout_flag"), matched);
+    }
+
+    /// A failed properties fetch fails every flag that reads DB properties. The override lookup
+    /// reads the same persons pool, so when a continuity flag is present it fails too. A flag
+    /// that needs both reports the properties error, because DB preparation writes its errors
+    /// after the override errors.
+    #[rstest::rstest]
+    #[case::with_continuity_flags(true)]
+    #[case::without_continuity_flags(false)]
+    #[tokio::test]
+    async fn test_property_fetch_failure_fails_db_property_flags(
+        #[case] with_continuity_flags: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "parallel_user";
+        let property_flag = insert_person_and_db_property_flag(
+            &context,
+            team.id,
+            distinct_id,
+            Some(DbPropertyKind::Person),
+        )
+        .await
+        .unwrap();
+        let continuity_flag = multivariate_continuity_flag(team.id, 1, "continuity_flag");
+        let continuity_property_flag = continuity_property_flag(team.id);
+        let rollout_flag =
+            mock!(FeatureFlag, id: 4, team_id: team.id, key: "rollout_flag".mock_into());
+        let mut flags = vec![property_flag, rollout_flag];
+        if with_continuity_flags {
+            flags.extend([continuity_flag, continuity_property_flag]);
+        }
+        let router = PostgresRouter::new(
+            setup_invalid_pg_client().await,
+            context.persons_writer.clone(),
+            context.non_persons_reader.clone(),
+            context.non_persons_writer.clone(),
+        );
+        let mut matcher = matcher_with_real_caches(&context, team.id, distinct_id, router);
+
+        let response = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(flags),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(response.errors_while_computing_flags);
+        let outcome = |key: &str| flag_outcome(&response, key);
+        let failed_with = |code: &str| Some((false, true, code.to_string()));
+        assert_eq!(
+            outcome("property_flag"),
+            failed_with("timeout:pool_timeout")
+        );
+        assert_eq!(
+            outcome("rollout_flag"),
+            Some((true, false, "condition_match".to_string()))
+        );
+        assert_eq!(
+            outcome("continuity_flag"),
+            with_continuity_flags
+                .then(|| failed_with("hash_key_override_error"))
+                .flatten()
+        );
+        assert_eq!(
+            outcome("continuity_property_flag"),
+            with_continuity_flags
+                .then(|| failed_with("timeout:pool_timeout"))
+                .flatten()
+        );
+    }
+
+    /// The override lookup and the properties fetch both start before either finishes. The
+    /// database never answers. When the two reads run one after the other, the second read starts
+    /// after the deadline and does not ask for a connection, so the count stays at 1.
+    #[rstest::rstest]
+    #[case::override_read(None)]
+    #[case::override_check(Some("anon_distinct_id"))]
+    #[tokio::test(start_paused = true)]
+    async fn test_override_lookup_and_property_fetch_start_together(
+        #[case] anon_distinct_id: Option<&str>,
+    ) {
+        let stalled_db = Arc::new(StalledPgClient::default());
+        let router = PostgresRouter::new(
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+        );
+        let deadline = Duration::from_millis(500);
+        let mut matcher = FeatureFlagMatcher::new(
+            "stalled_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
+            Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
+            None,
+        )
+        .with_persons_db_deadline(Some(tokio::time::Instant::now() + deadline));
+        let mut flags = flag_list_with_metadata(vec![
+            mock!(FeatureFlag,
+                id: 1,
+                key: "continuity_flag".mock_into(),
+                ensure_experience_continuity: Some(true)
+            ),
+            mock!(FeatureFlag,
+                id: 2,
+                key: "person_flag".mock_into(),
+                filters: person_email_filter().mock_into()
+            ),
+        ]);
+        // Preloaded cohorts keep the cohort definitions lookup off the stalled pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let start = tokio::time::Instant::now();
+        let response = tokio::time::timeout(
+            Duration::from_secs(60),
+            matcher.evaluate_all_feature_flags(
+                flags,
+                None,
+                None,
+                anon_distinct_id.map(str::to_string),
+                Uuid::new_v4(),
+                None,
+                false,
+            ),
+        )
+        .await
+        .expect("a stalled persons DB must not stall flag evaluation")
+        .unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            response.flags["continuity_flag"].reason.code,
+            "hash_key_override_error"
+        );
+        assert_eq!(
+            response.flags["person_flag"].reason.code,
+            "timeout:persons_db_deadline"
+        );
+        assert!(elapsed < deadline * 2, "took {elapsed:?}");
+        assert_eq!(
+            stalled_db.connection_requests.load(Ordering::SeqCst),
+            2,
+            "the override lookup and the properties fetch must both ask for a connection before the deadline"
+        );
+    }
+
     #[tokio::test]
     async fn test_hash_key_override_error_marks_continuity_flags_as_errors() {
         let context = TestContext::new(None).await;
@@ -8470,14 +8963,13 @@ mod tests {
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
             person_property_overrides: None,
             group_property_overrides: None,
-            hash_key_overrides: None, // hash_key_overrides (None simulates read failure)
-            hash_key_override_error: true, // hash_key_override_error (simulates the error occurred)
             request_hash_key_override: None,
         };
 
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
+                std::future::ready((None, true)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8587,8 +9079,6 @@ mod tests {
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
             person_property_overrides: None,
             group_property_overrides: None,
-            hash_key_overrides: None,
-            hash_key_override_error: true,
             request_hash_key_override: None,
         };
 
@@ -8597,6 +9087,7 @@ mod tests {
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
+                std::future::ready((None, true)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8695,6 +9186,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready((None, false)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8798,6 +9290,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready((None, false)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8898,6 +9391,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready((None, false)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8997,6 +9491,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready((None, false)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9095,6 +9590,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready((None, false)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -10333,6 +10829,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready((None, false)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -10425,6 +10922,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready((None, false)),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
