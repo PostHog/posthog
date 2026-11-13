@@ -2730,12 +2730,12 @@ export type SurveysSiteSnapshotRetrieveParams = {
     /**
      * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
      *
+     * * `regex` - regex
+     * * `not_regex` - not_regex
      * * `exact` - exact
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
-     * * `regex` - regex
-     * * `not_regex` - not_regex
      * @minLength 1
      */
     url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType
@@ -2753,12 +2753,12 @@ export type SurveysSiteSnapshotRetrieveUrlMatchType =
     (typeof SurveysSiteSnapshotRetrieveUrlMatchType)[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType]
 
 export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
 } as const
 
 export type SurveysStatsRetrieveParams = {
