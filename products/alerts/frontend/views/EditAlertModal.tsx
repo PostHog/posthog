@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo } from 'react'
 
 import { ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -46,7 +45,6 @@ import {
 } from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
-import { listensOnEvent } from '../logic/alertNotifications'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
@@ -204,7 +202,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
 
     const notificationLogic = alertNotificationLogic({ alertId })
-    const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading, newAlertPagerDutyAvailable } =
+    const { destinations, pendingNotifications, testDeliveryResultLoading, newAlertPagerDutyAvailable } =
         useValues(notificationLogic)
     const { sendTestDelivery, loadNewAlertPagerDutyAvailable } = useActions(notificationLogic)
     const pagerDutyAvailable = alertId ? Boolean(alert?.pagerduty_available) : newAlertPagerDutyAvailable
@@ -225,10 +223,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
     const hasTestDeliveryTargets =
         (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
-        // A test sends only the firing event.
-        existingHogFunctions.some(
-            (hogFunction) => hogFunction.enabled && listensOnEvent(hogFunction, INSIGHT_ALERT_FIRING_EVENT_ID)
-        )
+        // A test sends only the firing event, which an incident manager does not hear.
+        destinations.some((destination) => destination.enabled && destination.type !== 'pagerduty')
 
     const handleClose = useCallback(() => {
         clearSimulation()
@@ -315,11 +311,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     ])
 
     const subscribedCount = alertForm.subscribed_users?.length ?? 0
-    // A PagerDuty destination is an opened and a closed function, so the closed one is left out.
-    const destinationCount =
-        existingHogFunctions.filter(
-            (hogFunction) => !listensOnEvent(hogFunction, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID)
-        ).length + pendingNotifications.length
+    const destinationCount = destinations.length + pendingNotifications.length
     const summary = useMemo(
         () => buildAlertSummary(alertForm, subscribedCount, destinationCount),
         [alertForm, destinationCount, subscribedCount]
