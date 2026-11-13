@@ -387,7 +387,7 @@ fi
 # One watcher runs per machine, so skip the spawn when the pid in its lock file is alive.
 # POSTHOG_WATCH=0 opts out of all of it; POSTHOG_WORKTREES_AUTOCLEAN=0 and
 # POSTHOG_CLICKHOUSE_IDLE_STOP_MINUTES=0 turn off one job each.
-_WATCH_PID="$(cat "$HOME/.config/posthog/watch.lock" 2>/dev/null)"
+_WATCH_PID="$(cat "$HOME/.config/posthog/watch.lock" 2>/dev/null || true)"
 _WATCH_ALIVE=0
 if [[ -n "$_WATCH_PID" ]] && kill -0 "$_WATCH_PID" 2>/dev/null; then
   _WATCH_ALIVE=1
