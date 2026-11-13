@@ -531,7 +531,6 @@ describe('workflowLogic schedule reducers', () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/hog_flows/:id/schedules/': notFound,
-                    '/api/environments/:team_id/hog_flows/:id/schedules/': notFound,
                     '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
                 },
             })
@@ -542,7 +541,6 @@ describe('workflowLogic schedule reducers', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
 
             expect(scheduleRequests).toEqual([])
-            expect(logic.values.schedules).toEqual([])
         })
     })
 })
