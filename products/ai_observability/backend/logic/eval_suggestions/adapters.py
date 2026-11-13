@@ -260,13 +260,13 @@ return true"""
     )
 
 
-# An address starts and ends at a space or punctuation, so a fragment of a longer token, such as `connor@acme.io`
-# inside `o'connor@acme.io` or `victim@acme.io` inside `victim@acme.ioévil.com`, never counts as an address.
-_EMAIL_EDGE = "[][[:space:],;:!?()<>\"`*|/=']"
+# An address starts and ends at a character no address holds, so a fragment of a longer token, such as
+# `connor@acme.io` inside `o'connor@acme.io` or `victim@acme.io` inside `victim@acme.ioévil.com`, never counts.
+_ADDRESS_CHARS = "A-Za-z0-9._%+\\p{L}\\p{N}-"
 EMAIL_PATTERN = (
-    f"(?:^|{_EMAIL_EDGE})"
-    "([A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{2,})"
-    f"(?:$|{_EMAIL_EDGE}|[.](?:$|[[:space:]]))"
+    f"(?:^|[^{_ADDRESS_CHARS}])"
+    "([A-Za-z0-9._%+\\p{L}\\p{N}-][A-Za-z0-9._%+'\\p{L}\\p{N}-]*@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{2,})"
+    f"(?:$|[^@{_ADDRESS_CHARS}]|[.](?:$|[^{_ADDRESS_CHARS}]))"
 )
 
 

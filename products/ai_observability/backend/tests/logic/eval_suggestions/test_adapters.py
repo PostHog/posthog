@@ -358,6 +358,10 @@ class TestAdaptedChecks:
                 [_answer("Write to [jane@acme.io](mailto:jane@acme.io)")],
                 False,
             ),
+            ("address_in_braces", adapters.sensitive_data(), [_answer("Contact {jane@acme.io}")], False),
+            ("address_in_typographic_quotes", adapters.sensitive_data(), [_answer("Contact “jane@acme.io”")], False),
+            ("address_in_guillemets", adapters.sensitive_data(), [_answer("Contact «jane@acme.io»")], False),
+            ("address_with_a_non_ascii_name", adapters.sensitive_data(), [_answer("Ask jöhn@acme.io")], False),
             ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
             ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
             (
