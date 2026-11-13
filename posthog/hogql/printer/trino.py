@@ -280,6 +280,43 @@ class _JoinByTypeFinder(TraversingVisitor):
         super().visit_join_expr(node)
 
 
+class _SelectQueryIndex(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.by_type: dict[int, ast.SelectQuery] = {}
+
+    def visit(self, node: ast.AST | None) -> None:
+        # Types form one shared graph per query, and the index only needs the query nodes.
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node.type is not None:
+            self.by_type[id(node.type)] = node
+        super().visit_select_query(node)
+
+
+# Aggregates that return one of their first argument's values, so they keep its type.
+_FIRST_ARGUMENT_TYPE_AGGREGATES = frozenset(
+    {
+        "any",
+        "anyif",
+        "anylast",
+        "anylastif",
+        "anyheavy",
+        "argmax",
+        "argmaxif",
+        "argmin",
+        "argminif",
+        "max",
+        "maxif",
+        "min",
+        "minif",
+    }
+)
+
+
 class TrinoPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "trino"
     DIALECT_LABEL: ClassVar[str] = "Trino"
@@ -1590,6 +1627,16 @@ class TrinoPrinter(PostgresPrinter):
                 self._is_dynamic_property(arg) for arg in node.args
             ):
                 return ast.BooleanType()
+        if (
+            isinstance(node, ast.Call)
+            and node.name.lower() in _FIRST_ARGUMENT_TYPE_AGGREGATES
+            and node.args
+            and isinstance(node.type, ast.CallType)
+            and isinstance(node.type.return_type, ast.IntegerType)
+            and isinstance(self._resolve_type(node.args[0]), ast.BooleanType)
+        ):
+            # The resolver took the argument's integer type from a view column that holds a boolean expression.
+            return ast.BooleanType(nullable=node.type.return_type.nullable)
         if isinstance(node, ast.ArrayAccess) and isinstance(node.type, ast.UnknownType):
             # The resolver types an element read off a CTE column as unknown, though the printer can see the array.
             array_type = self._resolve_type(node.array)
@@ -1613,8 +1660,10 @@ class TrinoPrinter(PostgresPrinter):
                     # An inlined view prints its body. ClickHouse types a comparison or AND there as UInt8, so the
                     # view's saved columns record an integer, but Trino types the same expression as boolean.
                     body_type = table_type.select_query_type.resolve_column_constant_type(value_type.name, self.context)
-                    if isinstance(body_type, ast.BooleanType):
-                        return body_type
+                    if isinstance(body_type, ast.BooleanType) or self._is_boolean_column(
+                        table_type.select_query_type, value_type.name
+                    ):
+                        return ast.BooleanType(nullable=body_type.nullable)
                 select_type: ast.Type | None = None
                 if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
                     select_type = table_type.select_query_type
@@ -1627,6 +1676,11 @@ class TrinoPrinter(PostgresPrinter):
                 if isinstance(select_type, ast.SelectQueryType):
                     column_type = select_type.columns.get(value_type.name)
                     if column_type is not None:
+                        column_constant_type = column_type.resolve_constant_type(self.context)
+                        if isinstance(column_constant_type, ast.IntegerType) and self._is_boolean_column(
+                            select_type, value_type.name
+                        ):
+                            return ast.BooleanType(nullable=column_constant_type.nullable)
                         value_type = column_type
                         continue
                 if isinstance(table_type, ast.ColumnAliasedTableType):
@@ -1656,6 +1710,30 @@ class TrinoPrinter(PostgresPrinter):
         ):
             return merged_type
         return resolved
+
+    def _is_boolean_column(self, select_type: ast.SelectQueryType | ast.SelectSetQueryType, name: str) -> bool:
+        # Column types record the resolver's view of an expression, which reads a view column as its saved integer
+        # type. The printer types the projected expression itself, so a boolean behind a view keeps its type here.
+        while isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
+            select_type = select_type.types[0]
+        if not isinstance(select_type, ast.SelectQueryType) or not self.stack:
+            return False
+        root = self.stack[0]
+        cached = self.__dict__.get("_select_query_index")
+        if cached is None or cached[0] is not root:
+            index = _SelectQueryIndex()
+            index.visit(root)
+            cached = (root, index.by_type)
+            self.__dict__["_select_query_index"] = cached
+        query = cached[1].get(id(select_type))
+        if query is None or query.type is not select_type:
+            return False
+        for projection in query.select:
+            if isinstance(projection, ast.Alias) and projection.alias == name:
+                return isinstance(self._resolve_type(projection.expr), ast.BooleanType)
+            if isinstance(projection, ast.Field) and projection.chain and projection.chain[-1] == name:
+                return isinstance(self._resolve_type(projection), ast.BooleanType)
+        return False
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
         # Curated source schemas type some JSON text columns as arrays, but the synced column is text.

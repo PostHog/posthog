@@ -573,6 +573,13 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             'FILTER (WHERE (CAST("f"."is_active" AS INTEGER) != 0))',
         ),
         ("SELECT sumIf(id, flagged.score = 1) FROM flagged", 'FILTER (WHERE ("flagged"."score" = 1))'),
+        # A view over another view still holds the boolean expression from the innermost body.
+        ("SELECT is_active = 1 FROM rollup", '(CAST("rollup"."is_active" AS INTEGER) = 1)'),
+        ("SELECT any_active = 1 FROM rollup", '(CAST("rollup"."any_active" AS INTEGER) = 1)'),
+        ("SELECT max(is_active) = 1 FROM flagged", '(CAST(max("flagged"."is_active") AS INTEGER) = 1)'),
+        ("SELECT x = 1 FROM (SELECT argMax(is_active, id) AS x FROM flagged)", '(CAST("x" AS INTEGER) = 1)'),
+        ("WITH c AS (SELECT min(is_active) AS x FROM flagged) SELECT x = 1 FROM c", '(CAST("c"."x" AS INTEGER) = 1)'),
+        ("SELECT max(score) = 1 FROM flagged", '(max("flagged"."score") = 1)'),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
@@ -590,6 +597,21 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
                     "id": IntegerDatabaseField(name="id"),
                     "is_active": IntegerDatabaseField(name="is_active"),
                     "score": IntegerDatabaseField(name="score"),
+                },
+            ),
+        )
+    )
+    context.database.tables.add_child(
+        TableNode(
+            name="rollup",
+            table=SavedQuery(
+                id="rollup",
+                name="rollup",
+                query="SELECT id, is_active, max(is_active) AS any_active FROM flagged GROUP BY id, is_active",
+                fields={
+                    "id": IntegerDatabaseField(name="id"),
+                    "is_active": IntegerDatabaseField(name="is_active"),
+                    "any_active": IntegerDatabaseField(name="any_active"),
                 },
             ),
         )
