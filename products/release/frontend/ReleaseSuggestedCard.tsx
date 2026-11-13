@@ -113,7 +113,7 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
         ...(related?.surveys ?? []).map((survey) => `survey:${survey.id}`),
         ...(related?.insights ?? []).map((insight) => `insight:${insight.id}`),
     ])
-    const visible = (key: string): boolean => !dismissed[key] && !linked.has(key)
+    const visible = (key: string): boolean => !dismissed[`${row.id}:${key}`] && !linked.has(key)
 
     const relatedItems: (Suggestion & { detected: boolean })[] =
         relatedSuggestions?.releaseId === row.id
@@ -164,8 +164,12 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
                     </div>
                 ) : (
                     <>
-                        <Group title="Uses this release's flags" items={found} onDismiss={dismissSuggestion} />
-                        <Group title="Similar name" items={maybe} onDismiss={dismissSuggestion} />
+                        <Group
+                            title="Uses this release's flags"
+                            items={found}
+                            onDismiss={(key) => dismissSuggestion(row.id, key)}
+                        />
+                        <Group title="Similar name" items={maybe} onDismiss={(key) => dismissSuggestion(row.id, key)} />
                         {failed && (
                             <div
                                 className="flex items-center justify-between gap-2 px-2"

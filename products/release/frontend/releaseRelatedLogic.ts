@@ -107,7 +107,7 @@ interface ReleaseRelatedLogicActions {
     searchRelated: (query: string) => string
     searchRelatedSuccess: (relatedSearch: RelatedSearch) => { relatedSearch: RelatedSearch }
     searchRelatedFailure: (error: string) => { error: string }
-    dismissSuggestion: (key: string) => { key: string }
+    dismissSuggestion: (releaseId: string, key: string) => { releaseId: string; key: string }
     createReleaseSurvey: (row: ReleaseRow) => { row: ReleaseRow }
     createReleaseSurveyDone: () => { done: true }
     rememberLinked: (
@@ -198,7 +198,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
     actions({
         linkRelated: (releaseId: string, kind: RelatedKind, id: string) => ({ releaseId, kind, id }),
         unlinkRelated: (releaseId: string, kind: RelatedKind, id: string) => ({ releaseId, kind, id }),
-        dismissSuggestion: (key: string) => ({ key }),
+        dismissSuggestion: (releaseId: string, key: string) => ({ releaseId, key }),
         createReleaseSurvey: (row: ReleaseRow) => ({ row }),
         createReleaseSurveyDone: () => ({ done: true as const }),
         rememberLinked: (surveys: RelatedSurvey[], insights: RelatedInsight[]) => ({ surveys, insights }),
@@ -371,7 +371,10 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
         dismissed: [
             {} as Record<string, true>,
             {
-                dismissSuggestion: (state, { key }) => ({ ...state, [key]: true as const }),
+                dismissSuggestion: (state, { releaseId, key }) => ({
+                    ...state,
+                    [`${releaseId}:${key}`]: true as const,
+                }),
             },
         ],
         linkedLookupFailed: [
