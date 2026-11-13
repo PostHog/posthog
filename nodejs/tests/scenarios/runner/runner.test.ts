@@ -938,43 +938,61 @@ describe('runner through seed, drive and judge', () => {
         }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
     }, 30_000)
 
-    it('fails resident_backlog_intact when a resident job seeded before the run is gone after it', async () => {
-        const seeded = await seedBacklog(
+    it.each<[string, Parameters<typeof environmentOf>[0], boolean, object]>([
+        [
+            'passes when the roles finish every job of the run beside the resident backlog',
+            'all',
+            false,
+            { passed: true, observed: 0 },
+        ],
+        [
+            'fails when a resident job seeded before the run is gone after it',
+            'none',
+            true,
             {
-                teams: 2,
-                jobs: { hogflow: 4 },
-                stateBytes: { p50: 100, p90: 200, p99: 300 },
-                compressibility: 0.5,
-                parkFor: '10080m',
-                tolerance: 0,
-            },
-            cyclotronUrl,
-            defaultStateDir(env)
-        )
-        expect(seeded.manifest).toBeDefined()
-        await withPostgres(
-            (client) =>
-                client.query(
-                    'DELETE FROM cyclotron_jobs WHERE id = (SELECT id FROM cyclotron_jobs WHERE team_id = $1 LIMIT 1)',
-                    [RESIDENT_TEAMS_FROM + 1]
-                ),
-            cyclotronUrl
-        )
-
-        const result = await createRunner(environmentOf('none'), env).run(
-            shortSmoke([], 'event_email', { invariants: [{ name: 'resident_backlog_intact', params: {} }] }),
-            NEVER_ABORTED
-        )
-        results.push(result)
-
-        expect(result.invariants).toEqual([
-            expect.objectContaining({
-                name: 'resident_backlog_intact',
                 passed: false,
                 violation: `team ${RESIDENT_TEAMS_FROM + 1} available: expected 2 rows, found 1`,
-            }),
-        ])
-    }, 30_000)
+            },
+        ],
+    ])(
+        'resident_backlog_intact %s',
+        async (_story, delivering, loseOne, expected) => {
+            const seeded = await seedBacklog(
+                {
+                    teams: 2,
+                    jobs: { hogflow: 4 },
+                    stateBytes: { p50: 100, p90: 200, p99: 300 },
+                    compressibility: 0.5,
+                    parkFor: '10080m',
+                    tolerance: 0,
+                },
+                cyclotronUrl,
+                defaultStateDir(env)
+            )
+            expect(seeded.manifest).toBeDefined()
+            if (loseOne) {
+                await withPostgres(
+                    (client) =>
+                        client.query(
+                            'DELETE FROM cyclotron_jobs WHERE id = (SELECT id FROM cyclotron_jobs WHERE team_id = $1 LIMIT 1)',
+                            [RESIDENT_TEAMS_FROM + 1]
+                        ),
+                    cyclotronUrl
+                )
+            }
+
+            const result = await createRunner(environmentOf(delivering), env).run(
+                shortSmoke([], 'event_email', { invariants: [{ name: 'resident_backlog_intact', params: {} }] }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            expect(result.invariants).toEqual([
+                expect.objectContaining({ name: 'resident_backlog_intact', ...expected }),
+            ])
+        },
+        30_000
+    )
 
     const KILL_EMAIL_WORKER: ValveEntry = {
         valve: 'role.kill',

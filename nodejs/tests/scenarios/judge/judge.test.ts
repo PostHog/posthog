@@ -352,8 +352,8 @@ describe('judge', () => {
         [
             'every seeded row is still there',
             {
-                seeded: [{ teamId: 15_000_000, status: 'available', rows: 4 }],
-                found: [{ teamId: 15_000_000, status: 'available', rows: 4 }],
+                seeded: [{ teamId: 2_100_000_000, status: 'available', rows: 4 }],
+                found: [{ teamId: 2_100_000_000, status: 'available', rows: 4 }],
             },
             { passed: true, observed: 0 },
         ],
@@ -361,26 +361,26 @@ describe('judge', () => {
             'a row was lost',
             {
                 seeded: [
-                    { teamId: 15_000_000, status: 'available', rows: 4 },
-                    { teamId: 15_000_001, status: 'available', rows: 4 },
+                    { teamId: 2_100_000_000, status: 'available', rows: 4 },
+                    { teamId: 2_100_000_001, status: 'available', rows: 4 },
                 ],
                 found: [
-                    { teamId: 15_000_000, status: 'available', rows: 4 },
-                    { teamId: 15_000_001, status: 'available', rows: 3 },
+                    { teamId: 2_100_000_000, status: 'available', rows: 4 },
+                    { teamId: 2_100_000_001, status: 'available', rows: 3 },
                 ],
             },
-            { passed: false, observed: 1, violation: 'team 15000001 available: expected 4 rows, found 3' },
+            { passed: false, observed: 1, violation: 'team 2100000001 available: expected 4 rows, found 3' },
         ],
         [
             'a parked row woke and completed',
             {
-                seeded: [{ teamId: 15_000_000, status: 'available', rows: 4 }],
+                seeded: [{ teamId: 2_100_000_000, status: 'available', rows: 4 }],
                 found: [
-                    { teamId: 15_000_000, status: 'available', rows: 3 },
-                    { teamId: 15_000_000, status: 'completed', rows: 1 },
+                    { teamId: 2_100_000_000, status: 'available', rows: 3 },
+                    { teamId: 2_100_000_000, status: 'completed', rows: 1 },
                 ],
             },
-            { passed: false, observed: 2, violation: 'team 15000000 available: expected 4 rows, found 3' },
+            { passed: false, observed: 2, violation: 'team 2100000000 available: expected 4 rows, found 3' },
         ],
         [
             'no backlog was seeded',

@@ -8,6 +8,7 @@ import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
+import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
 
 import { ConsumerGroup, ROLE_PORTS, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
@@ -216,7 +217,7 @@ export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[]
     return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
-export const RESIDENT_TEAMS_FROM = 15_000_000
+export const RESIDENT_TEAMS_FROM = TEST_IDS_BELOW
 
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
     await withPostgres(
