@@ -14,7 +14,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -71,7 +71,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
-from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.presentation.views.platform_alert import (
     RULE_ANNOTATIONS_HELP,
@@ -135,6 +135,8 @@ from products.logs.backend.facade.platform_ownership import (
     native_alert_views,
     on_created,
     on_updated,
+    owned_copy_alert_ids,
+    owned_copy_views,
     update_native,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
@@ -284,45 +286,116 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     return runtime_by_public_id(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
 
 
+class PlatformHistoryUnavailable(APIException):
+    status_code = 503
+    default_detail = "Couldn't load alert history. Try again in a minute."
+    default_code = "platform_history_unavailable"
+
+
+def _read_platform_history[T](read: Callable[[], T]) -> T:
+    # The logs rows stopped moving at the cutover, so an error is a better answer than their stale history.
+    try:
+        return read()
+    except Exception as error:
+        capture_exception(error)
+        raise PlatformHistoryUnavailable() from error
+
+
 def _platform_history_of(
     alerts: list[LogsAlertConfiguration], window: tuple[datetime, datetime]
-) -> dict[UUID, PlatformAlertHistory] | None:
-    """None when ClickHouse fails. The logs row then stands in, because a stale timeline is a
-    better answer than a failed list."""
+) -> dict[UUID, PlatformAlertHistory]:
+    """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
     owned = [alert for alert in alerts if alert.platform_owned]
     if not owned:
         return {}
-    try:
-        return history_by_public_id(
+    return _read_platform_history(
+        lambda: history_by_public_id(
             team_id=owned[0].team_id,
             public_ids=[alert.id for alert in owned],
             since=window[0],
             until=window[1],
         )
-    except Exception as error:
-        capture_exception(error)
-        return None
+    )
 
 
 def _platform_control_of(
     alerts: list[LogsAlertConfiguration], window: tuple[datetime, datetime]
-) -> dict[UUID, PlatformControlTimeline] | None:
-    """None when ClickHouse fails. The logs rows then stand in, as in `_platform_history_of`."""
+) -> dict[UUID, PlatformControlTimeline]:
+    """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
     owned = [alert for alert in alerts if alert.platform_owned]
     if not owned:
         return {}
-    try:
-        return platform_control_timelines(
+    return _read_platform_history(
+        lambda: platform_control_timelines(
             team_id=owned[0].team_id, alert_ids=[alert.id for alert in owned], since=window[0], until=window[1]
         )
-    except Exception as error:
-        capture_exception(error)
-        return None
+    )
+
+
+# Set by the viewset for a response to a write that has committed. A history read that fails there must not
+# turn the committed write into an error, because a client that retries a create would create a second alert.
+_HISTORY_OPTIONAL_CONTEXT_KEY: Final = "platform_history_optional"
+_WRITE_ACTIONS: Final = frozenset({"create", "update", "partial_update", "reset"})
+# Set by the list serializer, whose alerts reach the child serializer already shown from their copies.
+_COPIES_SHOWN_CONTEXT_KEY: Final = "platform_copies_shown"
+_ROW_ANNOTATIONS: Final = ("_state_timeline_events", "_latest_error_message", "_pre_window_toggle_kind")
+
+
+def _platform_alert(
+    view: PlatformAlertConfigurationView, *, team_id: int, row: LogsAlertConfiguration | None = None
+) -> LogsAlertConfiguration:
+    """An alert the platform keeps, in the shape the serializer reads from a listed logs row.
+
+    Every setting, the snooze, the creator and the first enable come from `view`. `row` is the alert's
+    logs row when it has one, and adds what the platform's copy does not hold: the id the alert is
+    known by, when the alert was created, and its logs history."""
+    alert = LogsAlertConfiguration.from_platform_view(view, team_id=team_id, now=timezone.now())
+    if row is None:
+        # No logs check ever ran, so there is no logs event.
+        for annotation in _ROW_ANNOTATIONS:
+            setattr(alert, annotation, [] if annotation == "_state_timeline_events" else None)
+        return alert
+    alert.id = row.id
+    # The copy was made at the team's cutover, later than the alert.
+    alert.created_at = row.created_at
+    alert.owner_changed_at = row.owner_changed_at
+    # The newest check when the platform made none in the timeline window.
+    alert.last_checked_at = row.last_checked_at
+    alert._state.adding = False
+    for annotation in _ROW_ANNOTATIONS:
+        if hasattr(row, annotation):
+            setattr(alert, annotation, getattr(row, annotation))
+    return alert
+
+
+def _with_creators(alerts: list[LogsAlertConfiguration]) -> list[LogsAlertConfiguration]:
+    """Loads the creators of alerts built from the platform's views, which have no queryset to prefetch
+    them with."""
+    creators = User.objects.in_bulk({alert.created_by_id for alert in alerts if alert.created_by_id})
+    for alert in alerts:
+        alert.created_by = creators.get(alert.created_by_id) if alert.created_by_id else None
+    return alerts
+
+
+def _shown_from_copies(alerts: list[LogsAlertConfiguration]) -> list[LogsAlertConfiguration]:
+    """`alerts` with each logs row the platform owns shown from its copy, in one platform read for all."""
+    rows = [alert for alert in alerts if alert.platform_owned and not alert.has_no_logs_row]
+    if not rows:
+        return alerts
+    copies = owned_copy_views(rows[0].team_id, [row.id for row in rows])
+    shown = {
+        row.id: _platform_alert(copy, team_id=row.team_id, row=row)
+        for row in rows
+        if (copy := copies.get(row.id)) is not None
+    }
+    _with_creators(list(shown.values()))
+    return [shown.get(alert.id, alert) for alert in alerts]
 
 
 class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> list[dict[str, Any]]:
-        alerts = list(data.all() if isinstance(data, Manager) else data)
+        alerts = _shown_from_copies(list(data.all() if isinstance(data, Manager) else data))
+        self.context[_COPIES_SHOWN_CONTEXT_KEY] = True
         # One platform read of each kind for the page, which the child serializer finds in the
         # shared context.
         self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
@@ -613,11 +686,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if snooze_events:
             snoozed = snooze_events[0].kind == LogsAlertEvent.Kind.UNSNOOZE
         else:
-            snoozed = (
-                obj.state == LogsAlertConfiguration.State.SNOOZED
-                and snooze_until is not None
-                and snooze_until > window_start
-            )
+            # No snooze change in the window, so a snooze that ends after its start began before it.
+            snoozed = snooze_until is not None and snooze_until > window_start
 
         def shown() -> str:
             if snoozed:
@@ -762,6 +832,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
 
     def to_representation(self, instance: LogsAlertConfiguration) -> dict[str, Any]:
+        if not self.context.get(_COPIES_SHOWN_CONTEXT_KEY):
+            (instance,) = _shown_from_copies([instance])
         data = super().to_representation(instance)
         if not instance.platform_owned:
             return data
@@ -782,17 +854,22 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
 
-        histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY, _NOT_ANNOTATED)
         window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
-        if histories is _NOT_ANNOTATED:
-            histories = _platform_history_of([instance], window)
-        if histories is None:
+        try:
+            histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY)
+            if histories is None:
+                histories = _platform_history_of([instance], window)
+            controls = self.context.get(_PLATFORM_CONTROL_CONTEXT_KEY)
+            if controls is None:
+                controls = _platform_control_of([instance], window)
+        except PlatformHistoryUnavailable:
+            if not self.context.get(_HISTORY_OPTIONAL_CONTEXT_KEY):
+                raise
+            # An empty timeline rather than the logs rows' stale one. The next read shows the error.
+            data["state_timeline"] = []
             return data
-        history = cast(dict[UUID, PlatformAlertHistory], histories).get(instance.id)
-        controls = self.context.get(_PLATFORM_CONTROL_CONTEXT_KEY, _NOT_ANNOTATED)
-        if controls is _NOT_ANNOTATED:
-            controls = _platform_control_of([instance], window)
-        control = cast(dict[UUID, PlatformControlTimeline], controls).get(instance.id) if controls is not None else None
+        history = histories.get(instance.id)
+        control = controls.get(instance.id)
         data["state_timeline"] = self._platform_state_timeline(instance, history, control, runtime.state, window)
         # With no platform check in the window, the logs row is the newest check anyone made.
         if history is not None:
@@ -1049,7 +1126,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
         if updated is None:
             raise NotFound()
-        return _listed_alert(updated, team_id=instance.team_id)
+        return _platform_alert(updated, team_id=instance.team_id)
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -1131,17 +1208,7 @@ def _create_native_alert(
                 )
                 or created
             )
-    return _listed_alert(created, team_id=team_id)
-
-
-def _listed_alert(view: PlatformAlertConfigurationView, *, team_id: int) -> LogsAlertConfiguration:
-    """An alert with no logs row, in the shape the serializer reads from a listed logs row."""
-    alert = LogsAlertConfiguration.from_platform_view(view, team_id=team_id, now=timezone.now())
-    # What the viewset annotates on a logs row. No logs check ever ran, so there is no logs event.
-    alert._state_timeline_events = []  # type: ignore[attr-defined]
-    alert._latest_error_message = None  # type: ignore[attr-defined]
-    alert._pre_window_toggle_kind = None  # type: ignore[attr-defined]
-    return alert
+    return _platform_alert(created, team_id=team_id)
 
 
 def _write_platform_edit[T](write: Callable[[], T]) -> T:
@@ -1541,8 +1608,8 @@ def _with_platform_history(
     `rows_needed` is the end of the requested page, because a merged page needs that many rows
     from each source.
 
-    Returns `events` unchanged for an alert the logs stack owns, and when ClickHouse fails, because
-    the logs rows are a better answer than a failed list.
+    Returns `events` unchanged for an alert the logs stack owns. Raises `PlatformHistoryUnavailable`
+    when ClickHouse fails.
     """
     if not alert.platform_owned:
         return events
@@ -1554,25 +1621,25 @@ def _with_platform_history(
     logs_events = events
     if reads_checks:
         logs_events = logs_events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
-    try:
-        checks = (
-            platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
-            if reads_checks and cutover_at is not None
-            else None
+    checks = (
+        _read_platform_history(
+            lambda: platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
         )
-        changes = (
-            platform_control_rows(
+        if reads_checks and cutover_at is not None
+        else None
+    )
+    changes = (
+        _read_platform_history(
+            lambda: platform_control_rows(
                 team_id=alert.team_id,
                 alert_id=alert.id,
                 kinds=PLATFORM_CONTROL_KINDS if kind is None else [kind],
                 limit=rows_needed,
             )
-            if reads_changes
-            else None
         )
-    except Exception as error:
-        capture_exception(error)
-        return events
+        if reads_changes
+        else None
+    )
     if (reads_checks and checks is None) or (reads_changes and changes is None):
         return events
     if changes is not None and changes.oldest_at is not None:
@@ -1635,9 +1702,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return LogsAlertConfigurationSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        if self.action == "list" and (created_by := self._list_created_by):
-            queryset = queryset.filter(created_by__uuid=created_by)
-
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
         latest_error = (
@@ -1688,6 +1752,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["state_timeline_window"] = (
             getattr(self, "_state_timeline_window", None) or _state_timeline_window_bounds()
         )
+        context[_HISTORY_OPTIONAL_CONTEXT_KEY] = self.action in _WRITE_ACTIONS
         return context
 
     @cached_property
@@ -1700,11 +1765,22 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # An alert with no logs row has no row in the queryset, so the page is merged here. Both kinds
         # page on their sort keys alone, and only the page's alerts are loaded.
         rows = self.filter_queryset(self.get_queryset())
+        created_by = self._list_created_by
+        logs_owned = ~Q(owner=PlatformAlertOwner.PLATFORM)
+        if created_by is not None:
+            logs_owned &= Q(created_by__uuid=created_by)
+        # The copy holds the creator; the row gives the sort key, because the copy was made at the cutover.
+        platform_owned = Q(
+            owner=PlatformAlertOwner.PLATFORM, id__in=owned_copy_alert_ids(self.team_id, created_by_uuid=created_by)
+        )
         keys: list[tuple[datetime, UUID, bool]] = [
-            *((created_at, alert_id, False) for created_at, alert_id in rows.values_list("created_at", "id")),
+            *(
+                (created_at, alert_id, False)
+                for created_at, alert_id in rows.filter(logs_owned | platform_owned).values_list("created_at", "id")
+            ),
             *(
                 (created_at, alert_id, True)
-                for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=self._list_created_by)
+                for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=created_by)
             ),
         ]
         keys.sort(key=lambda key: (key[0], key[1]), reverse=True)
@@ -1714,13 +1790,10 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
         }
         native_ids = [alert_id for _, alert_id, native in listed if native]
-        native_views = native_alert_views(self.team_id, native_ids)
-        # An alert built from a view has no queryset to prefetch its creator with.
-        creators = User.objects.in_bulk({view.created_by_id for view in native_views if view.created_by_id})
-        for view in native_views:
-            alert = _listed_alert(view, team_id=self.team_id)
-            alert.created_by = creators.get(view.created_by_id) if view.created_by_id else None
-            loaded[view.id] = alert
+        for alert in _with_creators(
+            [_platform_alert(view, team_id=self.team_id) for view in native_alert_views(self.team_id, native_ids)]
+        ):
+            loaded[alert.id] = alert
         # An alert deleted since its key was read drops out of the page rather than failing it.
         alerts = [loaded[alert_id] for _, alert_id, _ in listed if alert_id in loaded]
         data = self.get_serializer(alerts, many=True).data
@@ -1747,7 +1820,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if row is not None:
             return row
         view = native_alert_view(team_id=self.team_id, alert_id=alert_id, lock=lock)
-        return None if view is None else _listed_alert(view, team_id=self.team_id)
+        return None if view is None else _platform_alert(view, team_id=self.team_id)
 
     def update(self, request: Request, *args: object, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)

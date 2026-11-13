@@ -5,7 +5,7 @@ import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
 import type { ScanDrought } from './scanDrought'
 import type { ReplayScanner } from './types'
 
-// Mirrors the backend sweep schedule: a tick every 5 minutes over recordings that ended 35+ minutes ago.
+// Mirrors the backend sweep schedule: at most one tick every 5 minutes, over recordings that ended 35+ minutes ago.
 export const SWEEP_INTERVAL_MINUTES = 5
 const SWEEP_SETTLE_MINUTES = 35
 // Slack past the expected watermark lag before a late sweep counts as delayed, so one slow tick doesn't flag it.
@@ -22,6 +22,7 @@ export type ScannerStatus =
     | { kind: 'quota_exhausted' }
     | { kind: 'filter_error'; message: string }
     | { kind: 'starting' }
+    | { kind: 'paused' }
     | { kind: 'delayed'; lastCheckedAt: Dayjs }
     | { kind: 'no_matches'; drought: ScanDrought }
     | { kind: 'throttled'; intervalMinutes: number; lastCheckedAt: Dayjs }
@@ -36,6 +37,7 @@ export type ScannerStatusFields = Pick<
     | 'credit_limit'
     | 'limit_from_free_credits'
     | 'sweep_throttle_factor'
+    | 'sweep_interval_minutes'
     | 'created_at'
     | 'last_swept_at'
     | 'filter_error'
@@ -80,8 +82,11 @@ export function scannerStatus(
     if (scanner.filter_error) {
         return { kind: 'filter_error', message: scanner.filter_error }
     }
-    const factor = Math.max(1, scanner.sweep_throttle_factor)
-    const intervalMinutes = SWEEP_INTERVAL_MINUTES * factor
+    // The backend leaves an enabled scanner unscheduled while it cannot scan, such as while its experiment is not running.
+    if (scanner.sweep_interval_minutes === null) {
+        return { kind: 'paused' }
+    }
+    const intervalMinutes = scanner.sweep_interval_minutes
     const createdAt = dayjs(scanner.created_at)
     const lastSweptAt = dayjs(scanner.last_swept_at)
     // The watermark is seeded before created_at and only advances when a sweep tick finishes.
@@ -98,7 +103,7 @@ export function scannerStatus(
     if (options.drought) {
         return { kind: 'no_matches', drought: options.drought }
     }
-    if (factor > 1) {
+    if (scanner.sweep_throttle_factor > 1) {
         return { kind: 'throttled', intervalMinutes, lastCheckedAt }
     }
     return { kind: 'running', intervalMinutes, lastCheckedAt }

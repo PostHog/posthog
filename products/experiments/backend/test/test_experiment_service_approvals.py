@@ -13,7 +13,9 @@ from posthog.constants import AvailableFeature
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.testing import create_experiment
 from products.experiments.backend.models.experiment import Experiment
+from products.surveys.backend.models import Survey
 
 _NEW_VARIANTS = [
     {"key": "control", "rollout_percentage": 10},
@@ -369,3 +371,158 @@ class TestCreatingALiveExperimentUnderALaunchPolicy(APIBaseTest):
 
         with self._scoped_by_owner(False), self.assertRaises(ApprovalRequired):
             self._create("pre-rollout-flag", start_date=datetime(2026, 1, 1, tzinfo=UTC))
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestExperimentFlagOwnershipTransitions(APIBaseTest):
+    """Deleting the last experiment on a flag releases the flag, and restoring it adopts the flag
+    again. Both move the flag between approval families, so both answer to the cover checks."""
+
+    _METRIC = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "uuid": "m1",
+        "source": {"kind": "EventsNode", "event": "$pageview"},
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+    def _policy(self, action_key: str) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    def _service(self) -> ExperimentService:
+        return ExperimentService(team=self.team, user=self.user)
+
+    def _create(self, key: str, name: str = "Transition") -> Experiment:
+        return self._service().create_experiment(
+            name=name,
+            feature_flag_key=key,
+            metrics=[self._METRIC],
+            primary_metrics_ordered_uuids=["m1"],
+            allow_unknown_events=True,
+        )
+
+    def _scoped_by_owner(self, enabled: bool):
+        return patch(
+            "products.approvals.backend.coverage.scope_by_owner_enabled",
+            return_value=enabled,
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_family_has_no_policy", False, "none", True),
+            ("flag_family_keeps_the_cover", True, "none", False),
+            ("a_live_sibling_still_holds_the_flag", False, "live", False),
+            # `deleted` is nullable and the ownership manager counts a null as an owner, so this
+            # sibling keeps the flag and the deletion releases nothing.
+            ("a_null_deleted_sibling_still_holds_the_flag", False, "null_deleted", False),
+        ]
+    )
+    def test_delete_against_the_release_cover_check(
+        self, _mock_enabled, _name: str, flag_policy: bool, sibling: str, refused: bool
+    ) -> None:
+        experiment = self._create("released-flag")
+        self._policy("experiment.update")
+        if flag_policy:
+            self._policy("feature_flag.update")
+        if sibling != "none":
+            create_experiment(
+                team_id=self.team.id,
+                feature_flag_id=experiment.feature_flag.id,
+                name="sibling",
+                deleted=None if sibling == "null_deleted" else False,
+            )
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError) as caught:
+                    self._service().update_experiment(experiment, {"deleted": True})
+                assert "need approval" in str(caught.exception)
+            else:
+                self._service().update_experiment(experiment, {"deleted": True})
+                experiment.refresh_from_db()
+                assert experiment.deleted is True
+
+    def test_restore_is_refused_when_it_takes_the_flag_out_of_review(self, _mock_enabled) -> None:
+        experiment = self._create("restored-flag")
+        self._policy("feature_flag.update")
+
+        with self._scoped_by_owner(True):
+            self._service().update_experiment(experiment, {"deleted": True})
+            experiment.refresh_from_db()
+
+            with self.assertRaises(ValidationError) as caught:
+                self._service().update_experiment(experiment, {"deleted": False})
+
+        assert "need approval" in str(caught.exception)
+
+    @parameterized.expand(
+        [
+            ("launch", {"start_date": datetime(2026, 1, 1, tzinfo=UTC)}, None),
+            ("flag_config", {}, {"filters": {"groups": [{"rollout_percentage": 50}]}}),
+        ]
+    )
+    def test_a_restore_that_also_writes_the_flag_is_refused(
+        self, _mock_enabled, _name: str, extra: dict, feature_flag_config: dict | None
+    ) -> None:
+        experiment = self._create("restore-and-write")
+        self._service().update_experiment(experiment, {"deleted": True})
+        experiment.refresh_from_db()
+        before = experiment.feature_flag.filters
+
+        with self.assertRaises(ValidationError) as caught:
+            self._service().update_experiment(
+                experiment, {"deleted": False, **extra}, feature_flag_config=feature_flag_config
+            )
+
+        assert "Restore the experiment first" in str(caught.exception)
+        experiment.refresh_from_db()
+        assert experiment.deleted is True
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is False
+        assert experiment.feature_flag.filters == before
+
+    @parameterized.expand([("delete", True), ("restore", False)])
+    def test_the_file_system_path_runs_the_same_guards(self, _mock_enabled, _name: str, deleting: bool) -> None:
+        from posthog.api.file_system.deletion import delete_file_system_object, undo_delete
+        from posthog.models.file_system.file_system import FileSystem
+
+        experiment = self._create("file-system-flag")
+        self._policy("experiment.update")
+
+        with self._scoped_by_owner(True):
+            if deleting:
+                entry = FileSystem.objects.get(team=self.team, type="experiment", ref=str(experiment.id))
+                with self.assertRaises(ValidationError) as caught:
+                    delete_file_system_object(entry, user=self.user, team=self.team, organization=self.organization)
+                assert "need approval" in str(caught.exception)
+                experiment.refresh_from_db()
+                assert experiment.deleted is not True
+            else:
+                Experiment.objects.filter(pk=experiment.pk).update(deleted=True)
+                Survey.objects.create(
+                    team=self.team, name="adopter", type="popover", targeting_flag=experiment.feature_flag
+                )
+                with self.assertRaises(ValidationError) as caught:
+                    undo_delete(
+                        type_string="experiment",
+                        ref=str(experiment.id),
+                        user=self.user,
+                        team=self.team,
+                        organization=self.organization,
+                    )
+                assert "now belongs to a survey" in str(caught.exception)
+                experiment.refresh_from_db()
+                assert experiment.deleted is True

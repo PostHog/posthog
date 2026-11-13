@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -13,6 +14,7 @@ export function QuillWindowSelect({ filled = false }: { filled?: boolean }): JSX
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { windowIds, trackedWindow, currentWindowIndex, loading } = useValues(playerMetaLogic(logicProps))
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
+    const floatingContainer = useFloatingContainer()
 
     if (loading || windowIds.length <= 1) {
         return null
@@ -41,7 +43,7 @@ export function QuillWindowSelect({ filled = false }: { filled?: boolean }): JSX
             >
                 <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent container={floatingContainer}>
                 <SelectItem value={FOLLOW_USER}>Follow the user</SelectItem>
                 {windowIds.map((windowId) => (
                     <SelectItem key={windowId} value={String(windowId)}>
