@@ -245,6 +245,7 @@ class SendGridImportProvider(ImportProvider):
                 "event. Needs marketing.read."
             ),
             count_labels=CONTACT_COUNT_LABELS,
+            requires=("global_unsubscribes", "group_unsubscribes"),
         ),
         new_people_step("SendGrid"),
         ImportStepSpec(
