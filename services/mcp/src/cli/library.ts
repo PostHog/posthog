@@ -13,23 +13,29 @@ import {
     serverDetailOf,
     ToolInputValidationError,
 } from '@/lib/errors'
+import { TOOL_MAP } from '@/tools'
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
-import { getToolDefinition } from '@/tools/toolDefinitions'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { getToolDefinition, type ToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
+import { catalogTool } from './catalog/executor'
+import { loadCatalog } from './catalog/load'
 import { buildCliContext, flushAnalytics } from './context'
 import type {
+    ApiCatalogStatus,
     ApiConnection,
     ApiKeyAccess,
     ApiSearchResult,
     ApiToolError,
     ApiToolLibrary,
+    ApiToolLibraryOptions,
     ApiToolResult,
     ApiToolSummary,
     ApiToolValidation,
 } from './library-types'
 import { trackCliToolCall } from './tool-call-properties'
-import { getCliTools } from './tools'
+import { type CatalogTools, getCliTools } from './tools'
 
 const COMMAND_REFERENCE = 'CLI-style command string: search, schema or call.'
 
@@ -44,8 +50,8 @@ async function runExec(exec: Tool<ZodObjectAny>, context: Context | undefined, c
     return typeof output === 'string' ? JSON.parse(output) : output
 }
 
-function summarize(tool: Tool<ZodObjectAny>): ApiToolSummary {
-    const definition = getToolDefinition(tool.name)
+function summarize(tool: Tool<ZodObjectAny>, definitionOf: (name: string) => ToolDefinition): ApiToolSummary {
+    const definition = definitionOf(tool.name)
     return {
         name: tool.name,
         title: tool.title,
@@ -163,9 +169,48 @@ function buildContext(connection: ApiConnection): Promise<Context> {
     )
 }
 
-export function createApiToolLibrary(): ApiToolLibrary {
-    // The catalog lists every tool. A call only offers the AI consent tools when the organization allows them.
-    const tools = getCliTools({ aiConsentGiven: true })
+function catalogFrom(catalog: unknown): { status: ApiCatalogStatus; tools: CatalogTools | undefined } {
+    const bundled: ApiCatalogStatus = { source: 'bundled', build: null, tools: 0, dropped: [], rejected: null }
+    if (catalog === undefined) {
+        return { status: bundled, tools: undefined }
+    }
+
+    const loaded = loadCatalog(catalog, new Set(Object.keys(TOOL_MAP)))
+    if (!loaded.ok) {
+        return { status: { ...bundled, rejected: loaded.reason }, tools: undefined }
+    }
+
+    const builtIn = (name: string): boolean => name in GENERATED_TOOL_MAP || name in TOOL_MAP
+    const status: ApiCatalogStatus = {
+        source: 'downloaded',
+        build: loaded.build,
+        tools: loaded.entries.length,
+        dropped: loaded.dropped.map((tool) => ({ ...tool, builtIn: builtIn(tool.name) })),
+        rejected: null,
+    }
+    const definitions: Record<string, ToolDefinition> = Object.fromEntries(
+        loaded.entries.map((entry) => [entry.name, entry.definition])
+    )
+    const onUnbuildable = (name: string, reason: string): void => {
+        delete definitions[name]
+        status.tools -= 1
+        status.dropped.push({ name, reason, builtIn: builtIn(name) })
+    }
+    return {
+        status,
+        tools: {
+            definitions,
+            build: Object.fromEntries(loaded.entries.map((entry) => [entry.name, () => catalogTool(entry)])),
+            onUnbuildable,
+        },
+    }
+}
+
+export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiToolLibrary {
+    const { status, tools: catalog } = catalogFrom(options.catalog)
+    const definitionOf = (name: string): ToolDefinition => catalog?.definitions[name] ?? getToolDefinition(name)
+    const tools = getCliTools({ aiConsentGiven: true, ...(catalog ? { catalog } : {}) })
+    const toolsWithoutAiConsent = tools.filter((tool) => definitionOf(tool.name).requires_ai_consent !== true)
     const byName = new Map(tools.map((tool) => [tool.name, tool]))
     const exec = staticExec(tools)
     const find = (name: string): Tool<ZodObjectAny> => {
@@ -188,7 +233,9 @@ export function createApiToolLibrary(): ApiToolLibrary {
     }
 
     return {
-        tools: () => tools.map(summarize),
+        tools: () => tools.map((tool) => summarize(tool, definitionOf)),
+
+        catalog: () => status,
 
         async search(query: string): Promise<ApiSearchResult> {
             const result = await runExec(exec, undefined, `search ${query}`)
@@ -239,14 +286,14 @@ export function createApiToolLibrary(): ApiToolLibrary {
                 find(name)
                 const context = await contextFor(connection)
                 const aiConsentGiven = await context.stateManager.getAiConsentGiven()
-                if (getToolDefinition(name).requires_ai_consent && !aiConsentGiven) {
+                if (definitionOf(name).requires_ai_consent && !aiConsentGiven) {
                     failure({
                         code: 'ai_consent_required',
                         message: `${name} sends data to an AI provider, and the organization has not allowed that.`,
                     })
                 }
                 const callExec = createExecTool(
-                    getCliTools({ aiConsentGiven }),
+                    aiConsentGiven ? tools : toolsWithoutAiConsent,
                     context,
                     'PostHog tools',
                     COMMAND_REFERENCE,
