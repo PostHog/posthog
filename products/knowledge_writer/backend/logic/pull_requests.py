@@ -22,6 +22,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
 from ..settings import WriterSettings, writer_settings
+from .docs_pages import docs_page_key, linked_page_paths
 from .launch import replace_entry_with
 from .records import (
     HEAD_BRANCH_STATE_KEY,
@@ -272,7 +273,7 @@ def publish_claimed_pull_request(
     draft = DraftAttempt(
         request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id, comparison=comparison
     )
-    refusal = "head_branch_not_issued" if head_branch is None else publication_refusal(comparison, writer)
+    refusal = "head_branch_not_issued" if head_branch is None else publication_refusal(comparison, writer, github)
     if head_branch is None or refusal is not None:
         capture_draft(draft, outcome="refused", refusal=refusal)
         refuse_publication(task_id, team_id, task_run_id, refusal or "head_branch_not_issued")
@@ -411,20 +412,21 @@ def comparison_with_default_branch(github: GitHubIntegration, docs_repository: s
     return comparison if isinstance(comparison, dict) else {}
 
 
-def changed_paths(changed_files: list) -> list[str] | None:
-    if not all(isinstance(changed_file, dict) for changed_file in changed_files):
-        return None
-    if not all(isinstance(changed_file.get("filename"), str) for changed_file in changed_files):
-        return None
+PAGE_CHANGING_STATUSES = frozenset({"added", "removed", "renamed"})
+MIN_DOCS_INDEX_PAGE_LINKS = 10
+
+
+def changed_paths(changed_file: dict) -> list[str]:
     return [
-        path
-        for changed_file in changed_files
-        for path in (changed_file.get("filename"), changed_file.get("previous_filename"))
-        if isinstance(path, str)
+        path for path in (changed_file.get("filename"), changed_file.get("previous_filename")) if isinstance(path, str)
     ]
 
 
-def publication_refusal(comparison: dict, writer: WriterSettings) -> str | None:
+def is_readable_changed_file(changed_file: object) -> bool:
+    return isinstance(changed_file, dict) and isinstance(changed_file.get("filename"), str)
+
+
+def publication_refusal(comparison: dict, writer: WriterSettings, github: GitHubIntegration) -> str | None:
     changed_files = comparison.get("files")
     commits_ahead = comparison.get("ahead_by")
     if not isinstance(changed_files, list) or not isinstance(commits_ahead, int):
@@ -433,16 +435,105 @@ def publication_refusal(comparison: dict, writer: WriterSettings) -> str | None:
         return "no_changes"
     if len(changed_files) >= COMPARE_FILE_LIMIT:
         return "too_many_changed_files"
-    paths = changed_paths(changed_files)
-    if paths is None:
+    if not all(is_readable_changed_file(changed_file) for changed_file in changed_files):
         return "comparison_unreadable"
-    if any(not is_docs_path(path, writer.docs_paths) for path in paths):
+    companion_files = [
+        changed_file
+        for changed_file in changed_files
+        if not all(is_docs_path(path, writer.docs_paths) for path in changed_paths(changed_file))
+    ]
+    if not companion_files:
+        return None
+    page_keys = changed_page_keys(changed_files, writer.docs_paths)
+    if not all(is_companion_edit(changed_file, page_keys) for changed_file in companion_files):
+        return "changed_paths_outside_docs"
+    base_sha = (comparison.get("merge_base_commit") or {}).get("sha")
+    if not isinstance(base_sha, str):
+        return "comparison_unreadable"
+    existing_page_keys = docs_page_keys_at(github, writer, base_sha)
+    if not all(
+        is_docs_index(
+            read_file_at(github, writer.docs_repository, changed_file["filename"], base_sha), existing_page_keys
+        )
+        for changed_file in companion_files
+    ):
         return "changed_paths_outside_docs"
     return None
 
 
 def is_docs_path(path: str, docs_paths: tuple[str, ...]) -> bool:
     return any(path == docs_path or path.startswith(f"{docs_path}/") for docs_path in docs_paths)
+
+
+def changed_page_keys(changed_files: list[dict], docs_paths: tuple[str, ...]) -> frozenset[str]:
+    return frozenset(
+        page_key
+        for changed_file in changed_files
+        if changed_file.get("status") in PAGE_CHANGING_STATUSES
+        for path in changed_paths(changed_file)
+        for docs_path in docs_paths
+        if (page_key := docs_page_key(path, docs_path)) is not None
+    )
+
+
+def is_companion_edit(changed_file: dict, page_keys: frozenset[str]) -> bool:
+    patch = changed_file.get("patch")
+    if changed_file.get("status") != "modified" or not isinstance(patch, str) or not page_keys:
+        return False
+    hunks = changed_lines_by_hunk(patch)
+    return bool(hunks) and all(not page_keys.isdisjoint(linked_page_paths("\n".join(hunk))) for hunk in hunks)
+
+
+def changed_lines_by_hunk(patch: str) -> list[list[str]]:
+    hunks: list[list[str]] = []
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            hunks.append([])
+            continue
+        if hunks and line[:1] in ("+", "-"):
+            hunks[-1].append(line[1:])
+    return [hunk for hunk in hunks if hunk]
+
+
+def is_docs_index(file_text: str | None, existing_page_keys: frozenset[str]) -> bool:
+    if file_text is None:
+        return False
+    return len(existing_page_keys & linked_page_paths(file_text)) >= MIN_DOCS_INDEX_PAGE_LINKS
+
+
+def docs_page_keys_at(github: GitHubIntegration, writer: WriterSettings, commit_sha: str) -> frozenset[str]:
+    response = github.api_request(
+        "GET",
+        f"/repos/{writer.docs_repository}/git/trees/{commit_sha}",
+        endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
+        params={"recursive": 1},
+    )
+    if response.status_code != 200:
+        raise WriterPullRequestFailed(f"knowledge writer could not read the docs tree: {response.status_code}")
+    tree = response.json()
+    entries = tree.get("tree") if isinstance(tree, dict) else None
+    return frozenset(
+        page_key
+        for entry in entries or []
+        if isinstance(entry, dict) and entry.get("type") == "blob" and isinstance(entry.get("path"), str)
+        for docs_path in writer.docs_paths
+        if (page_key := docs_page_key(entry["path"], docs_path)) is not None
+    )
+
+
+def read_file_at(github: GitHubIntegration, docs_repository: str, path: str, commit_sha: str) -> str | None:
+    response = github.api_request(
+        "GET",
+        f"/repos/{docs_repository}/contents/{quote(path)}",
+        endpoint="/repos/{owner}/{repo}/contents/{path}",
+        params={"ref": commit_sha},
+        headers={"Accept": "application/vnd.github.raw"},
+    )
+    if response.status_code == 404:
+        return None
+    if response.status_code != 200:
+        raise WriterPullRequestFailed(f"knowledge writer could not read a changed file: {response.status_code}")
+    return response.text
 
 
 def warn_on_joined_pull_request(

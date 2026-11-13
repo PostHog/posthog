@@ -14,6 +14,7 @@ import requests
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 
+from ..backend.logic.docs_pages import DOCS_SOURCE_EXTENSIONS, page_segments
 from ..backend.logic.pull_requests import MAX_PULL_REQUEST_PAGES, PULL_REQUESTS_PER_PAGE, writer_pull_request
 from ..backend.settings import DocsSource
 from .sources import (
@@ -28,10 +29,7 @@ from .sources import (
     read_github_or_none,
 )
 
-DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
-INDEX_FILE_STEMS = frozenset({"index", "readme"})
 PARTIAL_SEGMENT_PREFIX = "_"
-ROUTE_GROUP_SEGMENT_PATTERN = re.compile(r"^\(.*\)$")
 VERSION_SEGMENT_PATTERN = re.compile(r"^v?(\d+)(\.\d+)*$")
 SITEMAP_LOCATION_PATTERN = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
 MAX_CHILD_SITEMAPS = 50
@@ -299,17 +297,6 @@ def docs_source_path_by_suffix(tree_paths: list[str]) -> dict[str, str]:
         for start in range(len(segments)):
             source_path_by_suffix.setdefault("/".join(segments[start:]), path)
     return source_path_by_suffix
-
-
-def page_segments(source_path: str) -> list[str]:
-    segments = [
-        segment
-        for segment in source_path.rsplit(".", 1)[0].split("/")
-        if not ROUTE_GROUP_SEGMENT_PATTERN.match(segment)
-    ]
-    if segments and segments[-1].lower() in INDEX_FILE_STEMS:
-        return segments[:-1]
-    return segments
 
 
 def merge_time_tree_pages(
