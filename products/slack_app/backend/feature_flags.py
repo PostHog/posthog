@@ -55,6 +55,7 @@ SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
 SLACK_APP_RUNTIME_HANDOFF_FLAG = "slack-app-runtime-handoff"
 SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
+SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -210,6 +211,15 @@ def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> b
         SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
         integration,
         failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_slack_mcp_enabled(integration: IntegrationRecord) -> bool:
+    """The Slack account link also connects the person's Slack MCP."""
+    return _workspace_flag_enabled(
+        SLACK_APP_SLACK_MCP_FLAG,
+        integration,
+        failure_log_key="slack_app_slack_mcp_feature_flag_check_failed",
     )
 
 
