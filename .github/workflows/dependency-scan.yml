@@ -11,9 +11,17 @@ on:
             - .github/scripts/dependency_scan.py.lock
             - .github/scripts/post-dependency-scan-section.mjs
             - .github/workflows/dependency-scan.yml
+    push:
+        branches:
+            - master
+        paths:
+            - '**/pnpm-lock.yaml'
+            - '**/uv.lock'
+            - '**/Cargo.lock'
+            - '**/go.mod'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
@@ -26,6 +34,7 @@ jobs:
         permissions: {}
         outputs:
             findings: ${{ steps.scan.outputs.findings }}
+            sarif: ${{ steps.scan.outputs.sarif }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -42,14 +51,41 @@ jobs:
               with:
                   enable-cache: false
 
+            - name: Fetch the commit before the push
+              if: github.event_name == 'push'
+              env:
+                  BEFORE: ${{ github.event.before }}
+              run: git fetch --no-tags --depth=1 --filter=blob:none origin "$BEFORE"
+
             - name: Scan added and changed packages
               id: scan
+              env:
+                  BASE_REF: ${{ github.event_name == 'push' && github.event.before || 'HEAD^1' }}
               run: uv run --frozen --script .github/scripts/dependency_scan.py
+
+    code-scanning:
+        name: Upload the scan to code scanning
+        needs: scan
+        if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/'))
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            security-events: write
+        steps:
+            - name: Write the scan results to a file
+              env:
+                  SARIF: ${{ needs.scan.outputs.sarif }}
+              run: printf '%s' "$SARIF" > guarddog.sarif
+
+            - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+              with:
+                  sarif_file: guarddog.sarif
+                  category: guarddog
 
     report:
         name: Post the scan to the CI report
         needs: scan
-        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:

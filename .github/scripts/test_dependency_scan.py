@@ -1,4 +1,5 @@
 import sys
+import json
 import importlib.util
 from pathlib import Path
 
@@ -148,6 +149,39 @@ def test_added_packages_are_the_registry_releases_new_to_the_head_lockfile(filen
     added = scanner.added_packages(filename, base, head)
 
     assert {(package.ecosystem, package.name, package.version) for package in added} == expected
+
+
+@pytest.mark.parametrize(
+    "lockfile,package,line",
+    [
+        (PNPM_HEAD, ("npm", "@scope/added", "2.0.0-beta.1"), 16),
+        (PNPM_HEAD, ("npm", "left-pad", "1.3.1"), 22),
+        (UV_HEAD, ("pypi", "bumped", "2.1.0"), 9),
+        (CARGO_HEAD, ("crates", "added", "0.4.2"), 13),
+        (GO_HEAD, ("go", "example.com/bumped", "v1.3.0"), 8),
+        (GO_HEAD, ("go", "example.com/single", "v0.0.0-20260101000000-abcdefabcdef"), 13),
+    ],
+)
+def test_a_finding_points_at_the_lockfile_line_that_adds_the_package(lockfile, package, line):
+    assert scanner.line_of(lockfile, scanner.Package(*package)) == line
+
+
+def test_code_scanning_gets_one_result_per_rule_of_a_high_risk_package():
+    flagged = scanner.Package("npm", "left-pad", "1.3.1")
+    findings = [
+        scanner.Finding(flagged, "high_risk", 8.0, ("npm-install-script", "shady-links")),
+        scanner.Finding(scanner.Package("pypi", "bumped", "2.1.0"), "suspicious", 4.0, ("shady-links",)),
+        scanner.Finding(scanner.Package("crates", "added", "0.4.2"), "not_scanned", 0.0, ()),
+    ]
+
+    run = json.loads(scanner.sarif_output(findings, {flagged: scanner.Location("pnpm-lock.yaml", 22)}))["runs"][0]
+
+    assert [
+        (result["ruleId"], result["level"], result["locations"][0]["physicalLocation"]) for result in run["results"]
+    ] == [
+        (rule, "warning", {"artifactLocation": {"uri": "pnpm-lock.yaml"}, "region": {"startLine": 22}})
+        for rule in ("npm/npm-install-script", "npm/shady-links")
+    ]
 
 
 @pytest.mark.parametrize(

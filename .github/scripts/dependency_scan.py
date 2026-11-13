@@ -9,6 +9,7 @@ import re
 import sys
 import json
 import signal
+import hashlib
 import tomllib
 import subprocess
 from collections.abc import Callable, Iterable
@@ -22,6 +23,7 @@ MAX_PACKAGES = 300
 BLOCKING_LABEL = "high_risk"
 CLEAN_LABEL = "no_risks_detected"
 NOT_SCANNED = "not_scanned"
+SCANNER_PATH = ".github/scripts/dependency_scan.py"
 
 NPM_NAME = re.compile(r"(@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*")
 PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -73,6 +75,12 @@ class Finding:
     label: str
     score: float
     rules: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Location:
+    path: str
+    line: int
 
 
 def pnpm_packages(lockfile: str) -> set[Package]:
@@ -227,12 +235,85 @@ def findings_output(findings: list[Finding], skipped: list[Package]) -> str:
     )
 
 
+def line_of(lockfile: str, package: Package) -> int:
+    lines = lockfile.splitlines()
+    for number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if package.ecosystem == "npm":
+            found = stripped.strip("':") == package.spec
+        elif package.ecosystem == "go":
+            found = stripped.removeprefix("require ").split("//")[0].split() == [package.name, package.version]
+        else:
+            following = lines[number].strip() if number < len(lines) else ""
+            found = stripped == f'name = "{package.name}"' and following == f'version = "{package.version}"'
+        if found:
+            return number
+    return 1
+
+
+def sarif_output(findings: list[Finding], locations: dict[Package, Location]) -> str:
+    results: list[dict[str, object]] = []
+    rule_ids: set[str] = set()
+    for finding in findings:
+        if finding.label != BLOCKING_LABEL:
+            continue
+        package = finding.package
+        location = locations.get(package, Location(SCANNER_PATH, 1))
+        for rule in finding.rules or (BLOCKING_LABEL,):
+            identity = f"{package.ecosystem}/{package.name}/{rule}"
+            rule_id = f"{package.ecosystem}/{rule}"
+            rule_ids.add(rule_id)
+            results.append(
+                {
+                    "ruleId": rule_id,
+                    "level": "warning",
+                    "message": {
+                        "text": f"{package.spec} ({package.ecosystem}) is {finding.label} with score {finding.score:.1f}: {rule}"
+                    },
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": location.path},
+                                "region": {"startLine": location.line},
+                            }
+                        }
+                    ],
+                    "partialFingerprints": {
+                        "primaryLocationLineHash": f"{hashlib.sha256(identity.encode()).hexdigest()[:16]}:1"
+                    },
+                }
+            )
+    return json.dumps(
+        {
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "GuardDog",
+                            "informationUri": "https://github.com/DataDog/guarddog",
+                            "rules": [
+                                {"id": rule_id, "shortDescription": {"text": f"GuardDog rule {rule_id}"}}
+                                for rule_id in sorted(rule_ids)
+                            ],
+                        }
+                    },
+                    "results": results,
+                }
+            ],
+        }
+    )
+
+
 def main() -> int:
     base, head = os.environ.get("BASE_REF", "HEAD^1"), os.environ.get("HEAD_REF", "HEAD")
-    added: set[Package] = set()
+    locations: dict[Package, Location] = {}
     for path in changed_lockfiles(base, head):
-        added |= added_packages(path.rpartition("/")[2], blob(base, path), blob(head, path))
-    candidates = sorted(added) or [Package(*package) for package in SCANNER_SELF_CHECK]
+        head_lockfile = blob(head, path)
+        for package in added_packages(path.rpartition("/")[2], blob(base, path), head_lockfile):
+            locations.setdefault(package, Location(path, line_of(head_lockfile, package)))
+    candidates = sorted(locations) or [Package(*package) for package in SCANNER_SELF_CHECK]
     scannable = [package for package in candidates if package.scannable]
     to_scan = scannable[:MAX_PACKAGES]
     skipped = [package for package in candidates if package not in to_scan]
@@ -251,6 +332,7 @@ def main() -> int:
     if output_path := os.environ.get("GITHUB_OUTPUT"):
         with open(output_path, "a") as handle:
             handle.write(f"findings={findings_output(findings, skipped)}\n")
+            handle.write(f"sarif={sarif_output(findings, locations)}\n")
     scanner_is_broken = bool(findings) and all(finding.label == NOT_SCANNED for finding in findings)
     return 1 if scanner_is_broken else 0
 
