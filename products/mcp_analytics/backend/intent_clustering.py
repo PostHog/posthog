@@ -254,6 +254,7 @@ WHERE event = {event}
     AND $session_id != ''
     AND coalesce(toString(properties.$mcp_intent), '') != ''
 GROUP BY session_id
+HAVING {not_recurring}
 ORDER BY cityHash64(session_id)
 LIMIT {max_sessions}
 """
@@ -345,9 +346,25 @@ LIMIT {max_rows}
 """
 
 
-# First intent per session over the whole window (unsampled), rolled up by exact
-# text. Call and error counts cover every call of the session, while the
-# first-intent pick only considers intent-bearing calls.
+# ASCII whitespace that Python's str.strip() removes.
+_INTENT_WHITESPACE = " \t\n\r\x0b\x0c"
+
+# A session's first intent, normalized the way ``_normalize_intent`` normalizes
+# ``fetch_session_calls`` rows: clipped, trimmed, and skipping the summariser
+# placeholder. Recurrence is counted and excluded on this key, so spellings the
+# corpus would merge are also counted together against the threshold.
+_FIRST_INTENT_SQL = """
+argMinIf(
+    trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws}),
+    timestamp,
+    trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws})
+        NOT IN ('', {no_intent_fallback})
+)
+"""
+
+# First intent per session over the whole window (unsampled), rolled up by
+# normalized text. Call and error counts cover every call of the session, while
+# the first-intent pick only considers intent-bearing calls.
 _RECURRING_INTENTS_SQL = """
 SELECT
     first_intent,
@@ -357,11 +374,7 @@ SELECT
 FROM (
     SELECT
         $session_id AS session_id,
-        argMinIf(
-            left(toString(properties.$mcp_intent), {max_intent_len}),
-            timestamp,
-            coalesce(toString(properties.$mcp_intent), '') != ''
-        ) AS first_intent,
+        {first_intent} AS first_intent,
         count() AS calls,
         countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
     FROM events
@@ -389,18 +402,46 @@ def _session_ids_tuple(session_ids: list[str]) -> ast.Tuple:
     return ast.Tuple(exprs=[ast.Constant(value=sid) for sid in session_ids])
 
 
+def _first_intent_expr() -> ast.Expr:
+    return parse_expr(
+        _FIRST_INTENT_SQL,
+        placeholders={
+            "max_intent_len": ast.Constant(value=MAX_INTENT_TEXT_LENGTH),
+            "intent_ws": ast.Constant(value=_INTENT_WHITESPACE),
+            "no_intent_fallback": ast.Constant(value=NO_INTENT_RECORDED_FALLBACK),
+        },
+    )
+
+
+def _not_recurring_expr(recurring_texts: Collection[str]) -> ast.Expr:
+    """Per-session HAVING predicate that drops sessions opened by a recurring text.
+
+    Applied where sessions are sampled, so recurring traffic never takes corpus
+    budget that human sessions would otherwise fill.
+    """
+    if not recurring_texts:
+        return ast.Constant(value=True)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=_first_intent_expr(),
+        right=ast.Tuple(exprs=[ast.Constant(value=text) for text in sorted(recurring_texts)]),
+    )
+
+
 def sample_corpus_sessions(
     team: Team,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     max_sessions: int = MAX_CORPUS_SESSIONS,
+    recurring_texts: Collection[str] = (),
 ) -> list[str]:
-    """Deterministically sample sessions that recorded at least one intent."""
+    """Deterministically sample sessions that recorded at least one intent and don't open with a recurring text."""
     query = parse_select(
         _CORPUS_SESSION_SAMPLE_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_sessions": ast.Constant(value=max_sessions),
+            "not_recurring": _not_recurring_expr(recurring_texts),
         },
     )
     return [str(row[0]) for row in _run_corpus_query(team, query) if row[0]]
@@ -470,7 +511,7 @@ def fetch_recurring_intents(
             "lookback_days": ast.Constant(value=lookback_days),
             "min_sessions": ast.Constant(value=min_sessions),
             "max_recurring": ast.Constant(value=limit),
-            "max_intent_len": ast.Constant(value=MAX_INTENT_TEXT_LENGTH),
+            "first_intent": _first_intent_expr(),
         },
     )
     # Normalize like build_call_corpus so exclusion compares like with like, and
@@ -601,7 +642,7 @@ FROM (
         AND $session_id != ''
         AND notEmpty({tool_expr_where})
     GROUP BY session_id
-    HAVING intent_calls > 0
+    HAVING intent_calls > 0 AND {not_recurring}
 )
 ORDER BY cityHash64(session_id)
 LIMIT {max_sessions_per_tool} BY tool
@@ -613,8 +654,9 @@ def fetch_tools_by_session(
     team: Team,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     max_sessions_per_tool: int = MIN_SESSIONS_PER_TOOL,
+    recurring_texts: Collection[str] = (),
 ) -> dict[str, set[str]]:
-    """Return ``{tool: {intent-bearing session_ids}}``, capped per tool.
+    """Return ``{tool: {intent-bearing session_ids}}``, capped per tool, without recurring sessions.
 
     Each tool gets its own deterministic cityHash pool, so a tool's presence in
     the corpus is independent of the team's total session count. The pool only
@@ -632,6 +674,7 @@ def fetch_tools_by_session(
             "max_sessions_per_tool": ast.Constant(value=max_sessions_per_tool),
             "max_distinct_tools": ast.Constant(value=MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+            "not_recurring": _not_recurring_expr(recurring_texts),
         },
     )
     rows = _run_corpus_query(team, query)
@@ -1485,7 +1528,7 @@ def build_snapshot(
     # Sub-threshold clusters become one long-tail aggregate instead of rows. They
     # stay in ``clusters`` so the tool pivot totals still count their calls.
     kept = [c for c in clusters if c["intent_count"] >= min_cluster_intents]
-    long_tail = _long_tail([c for c in clusters if c["intent_count"] < min_cluster_intents])
+    long_tail = _long_tail([c for c in clusters if c["intent_count"] < min_cluster_intents], flows)
 
     # Persist only the highest-volume clusters; ``n_clusters`` keeps the full
     # count so the UI can say how many the run actually found.
@@ -1567,9 +1610,15 @@ def build_snapshot(
     }
 
 
-def _long_tail(tail: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _long_tail(tail: list[dict[str, Any]], flows: dict[int, dict[str, Any]]) -> dict[str, Any] | None:
     if not tail:
         return None
+    tail_flows = [flows.get(c["id"], {}) for c in tail]
+    # A session that touches several tail clusters counts once, as in the per-cluster counts.
+    if all("session_ids" in flow for flow in tail_flows):
+        session_count = len(set().union(*(flow["session_ids"] for flow in tail_flows)))
+    else:
+        session_count = sum(c["session_count"] for c in tail)
     calls = sum(c["call_count"] for c in tail)
     errors = sum(c["error_count"] for c in tail)
     samples = [
@@ -1579,7 +1628,7 @@ def _long_tail(tail: list[dict[str, Any]]) -> dict[str, Any] | None:
     ]
     return {
         "intent_count": sum(c["intent_count"] for c in tail),
-        "session_count": sum(c["session_count"] for c in tail),
+        "session_count": session_count,
         "call_count": calls,
         "error_count": errors,
         "error_rate_pct": _pct(errors, calls),

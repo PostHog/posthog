@@ -109,6 +109,15 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
             snapshot = await _mark_computing(team, user)
 
             try:
+                # Recurring texts (scout and cron runs) get their own ranked list and
+                # stay out of the semantic corpus, where their volume would otherwise
+                # fill the top clusters. Sampling skips their sessions, so they don't
+                # take corpus budget from human sessions either.
+                recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
+                    team, lookback_days=inputs.lookback_days
+                )
+                recurring_texts = {r.intent_text for r in recurring}
+
                 # Stratified sampling: bucket intent-bearing sessions per tool
                 # so every tool keeps a floor, instead of a uniform sample that
                 # erases low/mid-volume tools (logs/tracing/metrics). The
@@ -120,6 +129,7 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                         team,
                         lookback_days=inputs.lookback_days,
                         max_sessions_per_tool=intent_clustering.MIN_SESSIONS_PER_TOOL,
+                        recurring_texts=recurring_texts,
                     )
                 except Exception:
                     logger.warning(
@@ -129,7 +139,10 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                     tools_by_session = {}
 
                 uniform_sample = await database_sync_to_async(intent_clustering.sample_corpus_sessions)(
-                    team, lookback_days=inputs.lookback_days, max_sessions=intent_clustering.MAX_CORPUS_SESSIONS
+                    team,
+                    lookback_days=inputs.lookback_days,
+                    max_sessions=intent_clustering.MAX_CORPUS_SESSIONS,
+                    recurring_texts=recurring_texts,
                 )
                 session_ids = intent_clustering.select_corpus_sessions(
                     tools_by_session,
@@ -141,13 +154,8 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 call_rows = await database_sync_to_async(intent_clustering.fetch_session_calls)(
                     team, session_ids, lookback_days=inputs.lookback_days
                 )
-                # Recurring texts (scout and cron runs) get their own ranked list and
-                # stay out of the semantic corpus, where their volume would otherwise
-                # fill the top clusters.
-                recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
-                    team, lookback_days=inputs.lookback_days
-                )
-                call_rows = intent_clustering.exclude_recurring_sessions(call_rows, {r.intent_text for r in recurring})
+                # Backstop for whitespace the SQL trim doesn't cover.
+                call_rows = intent_clustering.exclude_recurring_sessions(call_rows, recurring_texts)
                 # Cap dominant tools so they can't occupy the whole intent corpus.
                 cap_result = intent_clustering.cap_per_tool_call_volume(
                     call_rows, max_calls_per_tool=intent_clustering.MAX_CALLS_PER_TOOL

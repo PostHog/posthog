@@ -208,12 +208,21 @@ class TestBuildSnapshot:
         labels = np.array([0, 0, 1, 2], dtype=np.int64)
         embeddings = np.array([_unit([1.0, 0.0]), _unit([1.0, 0.1]), _unit([0.0, 1.0]), _unit([0.5, 0.5])])
 
-        snapshot = build_snapshot(records, labels, embeddings, calls_by_session={})
+        # One session behind both one-off intents counts once in the aggregate.
+        calls_by_session = {
+            "s1": [
+                CallRecord(session_id="s1", tool="execute_sql", intent_text="one-off sql question", is_error=False),
+                CallRecord(session_id="s1", tool="survey_get", intent_text="one-off survey question", is_error=False),
+            ]
+        }
+
+        snapshot = build_snapshot(records, labels, embeddings, calls_by_session=calls_by_session)
 
         assert [c["intent_count"] for c in snapshot["clusters"]] == [2]
         assert snapshot["computed_with"]["n_clusters"] == 1
         assert snapshot["computed_with"]["n_long_tail_intents"] == 2
         assert snapshot["long_tail"]["call_count"] == 5
+        assert snapshot["long_tail"]["session_count"] == 1
         assert snapshot["long_tail"]["sample_intents"] == ["one-off sql question", "one-off survey question"]
 
     def test_aggregates_tool_counts_across_member_intents(self) -> None:
@@ -1166,8 +1175,9 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
 
     def test_recurring_intents_count_sessions_by_their_first_intent(self) -> None:
         base = datetime.now(tz=UTC) - timedelta(hours=3)
-        for i in range(3):
-            self._seed_tool_call(f"scout-{i}", "execute_sql", intent="nightly scout", timestamp=base)
+        # Spellings the corpus normalizes together count together against the threshold.
+        for i, intent in enumerate(["nightly scout", "nightly scout", " nightly scout\n"]):
+            self._seed_tool_call(f"scout-{i}", "execute_sql", intent=intent, timestamp=base)
             self._seed_tool_call(f"scout-{i}", "query_trends", timestamp=base + timedelta(minutes=1), is_error=i == 0)
         # Repeats inside one session, or as a later intent, don't make a text recurring.
         self._seed_tool_call("human-1", "execute_sql", intent="why did signups drop", timestamp=base)
@@ -1179,6 +1189,19 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         assert fetch_recurring_intents(self.team) == [
             RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1)
         ]
+
+    def test_sampling_skips_sessions_that_open_with_a_recurring_text(self) -> None:
+        base = datetime.now(tz=UTC) - timedelta(hours=3)
+        self._seed_tool_call("scout-1", "execute_sql", intent=NO_INTENT_RECORDED_FALLBACK, timestamp=base)
+        self._seed_tool_call("scout-1", "execute_sql", intent=" nightly scout", timestamp=base + timedelta(minutes=1))
+        self._seed_tool_call("human-1", "execute_sql", intent="why did signups drop", timestamp=base)
+        self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
+        flush_persons_and_events()
+
+        assert sample_corpus_sessions(self.team, recurring_texts={"nightly scout"}) == ["human-1"]
+        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts={"nightly scout"}) == {
+            "execute_sql": {"human-1"}
+        }
 
     def test_session_calls_are_ordered_and_use_the_effective_tool_name(self) -> None:
         base = datetime.now(tz=UTC) - timedelta(hours=2)
