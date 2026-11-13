@@ -14,6 +14,7 @@ import type {
     ContentAutopilotSiteProfileApi,
 } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
+import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 import {
     type ContentAutopilotProposalTab,
     type ContentAutopilotWorkspaceTab,
@@ -35,6 +36,7 @@ import {
     EXAMPLE_ENGINE_SETTINGS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROMPT_CHECKS,
+    EXAMPLE_PROMPT_CITATIONS,
     EXAMPLE_PROMPT_VERSIONS,
     EXAMPLE_PROMPT_STATS,
     EXAMPLE_PROPOSAL,
@@ -79,6 +81,15 @@ const workspaceHandlers = ({
                 { count: EXAMPLE_PROMPTS.length, next: null, previous: null, results: EXAMPLE_PROMPTS },
             ],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
+            '/api/projects/:team_id/aeo_prompts/citations/': () => [
+                200,
+                {
+                    count: EXAMPLE_PROMPT_CITATIONS.length,
+                    next: null,
+                    previous: null,
+                    results: EXAMPLE_PROMPT_CITATIONS,
+                },
+            ],
             // The segment control reads the segment back from the response, so the mocks echo the requested one.
             '/api/projects/:team_id/aeo_prompts/overview/': ({ request }) => [
                 200,
@@ -306,3 +317,54 @@ const PromptPageStory = (): JSX.Element => {
 export const PromptPage: StoryFn<typeof ContentAutopilot> = () => <PromptPageStory />
 PromptPage.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
 PromptPage.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const CitationsStory = ({
+    tab,
+    lookup,
+}: {
+    tab: ContentAutopilotWorkspaceTab
+    lookup: CitationsLookup
+}): JSX.Element => {
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { openCitations } = useActions(contentAutopilotCitationsModalLogic)
+    useEffect(() => {
+        setWorkspaceTab(tab)
+        openCitations(lookup, 'storybook')
+    }, [setWorkspaceTab, openCitations, tab, lookup])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+const CITED_SITE: CitationsLookup = {
+    kind: 'domain',
+    value: 'analytics-review.example.com',
+    days: 30,
+    branded: 'non_branded',
+}
+export const CitationsOfACitedSite: StoryFn<typeof ContentAutopilot> = () => (
+    <CitationsStory tab="overview" lookup={CITED_SITE} />
+)
+CitationsOfACitedSite.decorators = OverviewTab.decorators
+CitationsOfACitedSite.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const OWN_PAGE: CitationsLookup = {
+    kind: 'url',
+    value: 'https://example.com/docs/product-analytics',
+    days: 30,
+    branded: 'non_branded',
+}
+export const CitationsOfYourPage: StoryFn<typeof ContentAutopilot> = () => (
+    <CitationsStory tab="rankings" lookup={OWN_PAGE} />
+)
+CitationsOfYourPage.decorators = OverviewTab.decorators
+CitationsOfYourPage.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const SEARCH: CitationsLookup = { kind: 'search', value: 'open source product analytics', days: 30, branded: 'all' }
+export const CitationsOfASearch: StoryFn<typeof ContentAutopilot> = () => (
+    <CitationsStory tab="overview" lookup={SEARCH} />
+)
+CitationsOfASearch.decorators = OverviewTab.decorators
+CitationsOfASearch.parameters = { testOptions: { snapshotBrowsers: [] } }
