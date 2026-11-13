@@ -292,7 +292,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
   - A closure in a result converts to the Node closure object. Its upvalue ids count from 1 per conversion, and a native function reference carries Rust's `ip` and `chunk`, so those two can differ from Node's.
   - A panic in one function run fails that invocation (`logs_ingestion_transformations_unexpected_errors_total`) and keeps the record, as Node's catch does for a transformer bug.
 - **`encrypted_inputs` that do not decrypt.** Node keeps the token string, and spreading it adds one `undefined` input per character. The port treats the function as having no encrypted inputs.
-- **The transformer's internal-logs producer.** The logs server builds `HogFunctionMonitoringService` without one, and so does the port.
+- **Function logs to the logs product.** With `hog_function_transformations` in `CDP_INTERNAL_LOGS_SOURCES`, Node also posts function logs to capture-logs through `InternalLogsProducer` (`createTransformationsMonitoringService`), and counts them as `loop_guard` when the batch carries the internal-logs header. The port ignores `CDP_INTERNAL_LOGS_SOURCES` and writes function logs to `log_entries` only.
 - **The `logs.transformations.*` span attributes** are not ported.
 - **A Kafka header with a null value.** `parseKafkaHeaders` would throw on it in Node; this port reads it as an empty string.
 - **The OpenTelemetry usage counters** (`recordLogsReceived` and the others in `ingestion-otel-metrics.ts`). The Prometheus counters are ported.

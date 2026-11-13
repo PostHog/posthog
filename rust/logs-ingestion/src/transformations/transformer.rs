@@ -24,8 +24,8 @@ fn guarded<T>(run: impl FnOnce() -> T) -> Option<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).ok()
 }
 
-const ATTR_TRANSFORMATIONS_FAILED: &str = "$transformations_failed";
-const ATTR_TRANSFORMATIONS_SKIPPED: &str = "$transformations_skipped";
+const ATTR_TRANSFORMATIONS_FAILED: &str = "posthog.transformations_failed";
+const ATTR_TRANSFORMATIONS_SKIPPED: &str = "posthog.transformations_skipped";
 
 #[derive(Debug, Clone)]
 pub struct LogsTransformerConfig {

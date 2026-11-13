@@ -124,7 +124,7 @@ async fn a_runaway_program_is_stopped_by_the_wall_clock_and_fails_open() {
         .await
         .unwrap();
     assert_eq!(
-        attribute(&records[0], "$transformations_failed").as_deref(),
+        attribute(&records[0], "posthog.transformations_failed").as_deref(),
         Some("\"Test fn (00000000-0000-0000-0000-000000000001)\"")
     );
     service.flush().await.unwrap();
@@ -156,7 +156,7 @@ async fn the_batch_budget_is_shared_across_messages() {
         .transform_records(TEAM_ID, &mut first, Some(budget.clone()))
         .await
         .unwrap();
-    assert_eq!(attribute(&first[0], "$transformations_skipped"), None);
+    assert_eq!(attribute(&first[0], "posthog.transformations_skipped"), None);
     assert!(budget.used_ms() > 0.0);
 
     let mut second = vec![record("api")];
@@ -165,7 +165,7 @@ async fn the_batch_budget_is_shared_across_messages() {
         .await
         .unwrap();
     assert_eq!(
-        attribute(&second[0], "$transformations_skipped").as_deref(),
+        attribute(&second[0], "posthog.transformations_skipped").as_deref(),
         Some("\"budget\"")
     );
 }
@@ -250,7 +250,7 @@ async fn a_very_large_secret_array_does_not_fail_the_function() {
         .transform_records(TEAM_ID, &mut records, None)
         .await
         .unwrap();
-    assert_eq!(attribute(&records[0], "$transformations_failed"), None);
+    assert_eq!(attribute(&records[0], "posthog.transformations_failed"), None);
 }
 
 struct FailingSource;
@@ -301,7 +301,7 @@ async fn run_one(function: Arc<HogFunction>, mut records: Vec<StagedRecord>) -> 
 }
 
 fn failed(staged: &StagedRecord) -> bool {
-    attribute(staged, "$transformations_failed").is_some()
+    attribute(staged, "posthog.transformations_failed").is_some()
 }
 
 #[tokio::test]
@@ -348,7 +348,7 @@ async fn rereading_a_large_record_stays_inside_the_memory_limit() {
     assert!(
         !failed(&records[0]),
         "{:?}",
-        attribute(&records[0], "$transformations_failed")
+        attribute(&records[0], "posthog.transformations_failed")
     );
     assert_eq!(attribute(&records[0], "n").as_deref(), Some("60000"));
 }
