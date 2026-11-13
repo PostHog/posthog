@@ -62,6 +62,8 @@ class ImportContext:
     integration_id: int | None
     # The key a provider with `retains_credentials = False` reads for this run only.
     api_key: str | None = field(default=None, repr=False)
+    # Every step the run imports, for a step whose work depends on another step being selected.
+    steps: tuple[str, ...] = ()
 
 
 ImportItemStatus = Literal["created", "skipped", "failed", "listed"]

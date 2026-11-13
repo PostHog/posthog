@@ -117,6 +117,11 @@ def _set_events(people: list[StagedPerson], storage_key: str) -> list[dict[str, 
     ]
 
 
+def schedule_people_import_fill(*, team_id: int, cohort_id: int, storage_key: str) -> None:
+    """Fill the cohort once ingestion has the people, for an import whose events another import sends."""
+    _schedule_fill(team_id, cohort_id, storage_key, attempt=0)
+
+
 def _schedule_fill(team_id: int, cohort_id: int, storage_key: str, *, attempt: int) -> None:
     fill_people_import_cohort.apply_async(
         kwargs={"team_id": team_id, "cohort_id": cohort_id, "storage_key": storage_key, "attempt": attempt},

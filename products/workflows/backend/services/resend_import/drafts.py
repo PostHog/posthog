@@ -9,13 +9,16 @@ import structlog
 
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.flag_gated_templates import hidden_gated_template_ids
-from products.cohorts.backend.facade.api import CohortRef, create_empty_static_cohort, find_cohort_ref_by_description
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail, ProviderAutomationResult
 from products.workflows.backend.facade.enums import WorkflowImportSource
 from products.workflows.backend.services.customerio_import.service import previous_import
+from products.workflows.backend.services.provider_cohorts import (
+    MAX_SOURCE_NAME_LENGTH,
+    import_cohort,
+    resend_segment_description,
+)
 from products.workflows.backend.services.resend_import.translator import (
     SegmentCohort,
     TranslationContext,
@@ -147,30 +150,11 @@ def _segment_cohort(
 ) -> SegmentCohort:
     if name is None:
         return SegmentCohort(problem="This segment no longer exists in Resend.")
-    # Nothing else ties a cohort to a segment, and the description stays the same when either one is renamed.
-    description = f"Imported from Resend segment {segment_id}."
-    existing = find_cohort_ref_by_description(team_id=team_id, description=description)
-    if existing is not None:
-        return _reused_cohort(existing, access, name)
-    if not access.check_access_level_for_resource("cohort", "editor"):
-        return SegmentCohort(problem="Creating a cohort for this segment needs edit access to cohorts.")
-    cohort_name = f"{name[:380]} (from Resend)"
-    created = create_empty_static_cohort(
-        team_id=team_id, name=cohort_name, description=description, created_by_id=user.id
+    return import_cohort(
+        team_id,
+        user,
+        access,
+        description=resend_segment_description(segment_id),
+        name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Resend)",
+        source=f'the Resend segment "{name}"',
     )
-    return SegmentCohort(name=cohort_name, cohort_id=created.id)
-
-
-def _reused_cohort(existing: CohortRef, access: UserAccessControl, name: str) -> SegmentCohort:
-    if existing.deleted:
-        return SegmentCohort(
-            problem=f'The cohort made for the Resend segment "{name}" was deleted, so it stays deleted.'
-        )
-    if not existing.is_static:
-        return SegmentCohort(problem=f'The cohort made for the Resend segment "{name}" isn\'t static anymore.')
-    ref = ObjectAccessRef(
-        resource="cohort", id=str(existing.id), team_id=existing.team_id, created_by_id=existing.created_by_id
-    )
-    if not access.check_access_level_for_ref(ref, "editor"):
-        return SegmentCohort(problem=f'Adding people to the cohort for the Resend segment "{name}" needs edit access.')
-    return SegmentCohort(name=f"{name} (from Resend)", cohort_id=existing.id)

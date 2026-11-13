@@ -131,6 +131,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         created_by_id=run.created_by_id,
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
+        steps=tuple(run.steps),
     )
     try:
         for page in provider.run_step(step, context, claim.checkpoint):

@@ -98,6 +98,38 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         self.dispatch.assert_called_once()
         assert self.stall_check.call_args.kwargs["countdown"] == 3600
 
+    def test_an_import_into_an_existing_cohort_can_skip_new_people_and_events(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-1"], properties={"email": "ada@example.com"})
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(team=self.team, name="Pro customers", is_static=True)
+        rows = [{"email": "Ada@example.com", "plan": "Pro"}, {"email": "new@example.com", "plan": "Free"}]
+
+        with patch("products.workflows.backend.tasks.people_import.schedule_people_import_fill") as fill:
+            summary = start_people_import(
+                team=self.team,
+                user=self.user,
+                name="Ignored",
+                rows=rows,
+                cohort_id=cohort.id,
+                create_missing=False,
+                send_events=False,
+            )
+
+        assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [
+            ("user-1", {"email": "Ada@example.com", "plan": "Pro"})
+        ]
+        assert (summary.cohort_id, summary.row_count, summary.new_people, summary.skipped_new_people) == (
+            cohort.id,
+            1,
+            0,
+            1,
+        )
+        self.dispatch.assert_not_called()
+        assert fill.call_args.kwargs["cohort_id"] == cohort.id
+        assert Cohort.objects.filter(team=self.team).count() == 1
+        cohort.refresh_from_db()
+        assert cohort.is_calculating
+
     @parameterized.expand(
         [
             ("id_names_the_person", {"email": "a@example.com", "ID": "user-7"}, ("user-7", {"email": "a@example.com"})),

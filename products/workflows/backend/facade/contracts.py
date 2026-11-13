@@ -312,6 +312,24 @@ class PeopleImportSummary:
     dropped_invalid_email: int
     dropped_duplicate_email: int
     dropped_too_large: int
+    # Rows no person matched, left out because the import doesn't create new people.
+    skipped_new_people: int = 0
+
+
+@frozen
+class ProviderContactsResult:
+    """What importing one provider list of contacts did. Notes say what to fix when it failed."""
+
+    status: Literal["created", "skipped", "failed"]
+    cohort_id: int | None = None
+    cohort_name: str = ""
+    # Contacts sent to become or update a person. Ingestion adds them to the cohort a few minutes later.
+    people: int = 0
+    new_people: int = 0
+    skipped_new_people: int = 0
+    # Contacts without a valid email address, or repeating an earlier one.
+    dropped: int = 0
+    notes: tuple[str, ...] = ()
 
 
 @frozen
