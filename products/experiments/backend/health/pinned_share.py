@@ -11,7 +11,7 @@ from enum import StrEnum
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
-from products.experiments.backend.health.context import ConditionSetTraffic, ReachableCondition
+from products.experiments.backend.health.context import ConditionSetTraffic, FlagState, ReachableCondition
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import Split
 
@@ -169,6 +169,13 @@ def pinned_share_severity(grade: PinnedShareGrade | None) -> ExperimentHealthFin
 
 def pinned_variant_keys(conditions: Sequence[ReachableCondition]) -> list[str]:
     return list(dict.fromkeys(condition.pinned_variant for condition in conditions if condition.pinned_variant))
+
+
+def assigns_nobody_by_split(flag: FlagState) -> bool:
+    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
+    return bool(flag.reachable_conditions) and all(
+        condition.pinned_variant is not None for condition in flag.reachable_conditions
+    )
 
 
 def percent(share: float) -> str:

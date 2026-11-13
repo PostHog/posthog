@@ -21,6 +21,7 @@ describe('experiment health gate', () => {
         timeseries: [],
         total_exposures: {},
         sample_ratio_mismatch: null,
+        bias_risk: { multiple_variant_percentage: 3.2 },
         date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
         cache_key: 'cache_2_abc',
         query_scan: { duration_ms: 377, rows_read: 17137270 },
@@ -239,6 +240,7 @@ describe('experiment health gate', () => {
             timeseries: [],
             total_exposures: {},
             sample_ratio_mismatch: null,
+            bias_risk: { multiple_variant_percentage: 3.2 },
             date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
         })
     })

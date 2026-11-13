@@ -38,6 +38,7 @@ from products.experiments.backend.health.context import (
     PauseHistory,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD
+from products.experiments.backend.health.pinned_share import assigns_nobody_by_split, pinned_variant_keys
 from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, CheckSkip, CheckValues, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
@@ -444,11 +445,8 @@ def _has_zero_rollout(flag: FlagState) -> bool:
 def _serves_multiple_variants(flag: FlagState) -> bool:
     """Whether the flag can give users more than one variant. A variant override replaces the split for the users its
     release condition matches, so the split counts only when a condition that includes users has no override."""
-    conditions = flag.reachable_conditions
-    served: set[str | None] = {
-        condition.pinned_variant for condition in conditions if condition.pinned_variant is not None
-    }
-    if not conditions or any(condition.pinned_variant is None for condition in conditions):
+    served: set[str | None] = set(pinned_variant_keys(flag.reachable_conditions))
+    if not assigns_nobody_by_split(flag):
         # A variant without a rollout percentage counts as active, as on the flag itself.
         served |= {variant.key for variant in flag.variants if variant.rollout_percentage != 0}
     return len(served) > 1

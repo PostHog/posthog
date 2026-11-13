@@ -22,11 +22,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.bias_risk import multiple_variant_count
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start
-from products.experiments.backend.health.checks.forced_variant import (
-    SOME_CONDITIONS_PINNED,
-    assigns_nobody_by_split,
-    set_names,
-)
+from products.experiments.backend.health.checks.forced_variant import SOME_CONDITIONS_PINNED, set_names
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.context import (
     ExposureSegment,
@@ -38,7 +34,7 @@ from products.experiments.backend.health.context import (
     ReachableCondition,
     split_changed_after_the_end,
 )
-from products.experiments.backend.health.pinned_share import pinned_variant_keys
+from products.experiments.backend.health.pinned_share import assigns_nobody_by_split, pinned_variant_keys
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     RUNS_AFTER_LAUNCH,

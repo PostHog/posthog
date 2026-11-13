@@ -353,10 +353,16 @@ class TestEvaluate(TestCase):
                 "The split now serves one variant, so the split of the run isn't tested",
             ),
             (
-                "a_flag_with_one_variant",
-                replace(UNEVEN_FLAG, variants=(FlagVariant(key="test", rollout_percentage=100),)),
+                "one_variant_in_the_split_and_one_exposed",
+                replace(
+                    UNEVEN_FLAG,
+                    variants=(
+                        FlagVariant(key="control", rollout_percentage=0),
+                        FlagVariant(key="test", rollout_percentage=100),
+                    ),
+                ),
                 "Needs two or more variants in the split",
-                {"test": 500},
+                {"control": 0, "test": 500},
             ),
         ]
     )

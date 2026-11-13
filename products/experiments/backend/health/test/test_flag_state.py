@@ -59,7 +59,6 @@ ZERO_ROLLOUT_SHIPPED_VARIANT = {
     },
 }
 EMAIL_FILTER = {"key": "email", "value": "x", "type": "person"}
-# The only release condition that includes users sets the override "test", so the split serves nobody.
 FORCED_TEST_ONLY = {
     **MULTIVARIANT,
     "groups": [
@@ -241,6 +240,11 @@ class TestFlagState(TestCase):
             ("ended_zero_rollout", _context(ENDED, active=True, filters=ZERO_ROLLOUT), None),
             ("ended_flag_disabled", _context(ENDED, active=False, filters=MULTIVARIANT), None),
             ("ended_single_variant_shipped", _context(ENDED, active=True, filters=SHIPPED_VARIANT), None),
+            (
+                "ended_flag_forces_one_variant_on_its_only_open_set",
+                _context(ENDED, active=True, filters=FORCED_TEST_ONLY, flag_called_after_end=True),
+                None,
+            ),
             (
                 "archived_ended_flag_distributing_variants",
                 _context(ENDED, active=True, filters=MULTIVARIANT, archived=True, flag_called_after_end=True),

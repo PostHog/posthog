@@ -11,8 +11,8 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.forced_variant import assigns_nobody_by_split
 from products.experiments.backend.health.context import ExposureTotals, HealthContext
+from products.experiments.backend.health.pinned_share import assigns_nobody_by_split
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     NO_FLAG,
@@ -25,9 +25,9 @@ from products.experiments.backend.health.skips import (
     fewer_than_two_in_split,
     not_applicable,
 )
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.feature_flags.backend.facade.edits import FlagVariant
 
-MULTIPLE_VARIANT_KEY = "$multiple"
 EVEN_SPLIT = "Runs when the variant shares differ by more than 1 point"
 
 # `$multiple` share above this triggers the warning. Below this, the asymmetric-
