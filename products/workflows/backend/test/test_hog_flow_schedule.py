@@ -767,7 +767,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
     @parameterized.expand(
         [
             ("cdp_api_without_the_batch_route", 404, True),
-            ("batch_over_the_insert_size", 400, True),
+            ("batch_over_the_route_cap", 400, True),
             ("token_from_another_signing_key", 401, True),
             ("cdp_api_without_its_signing_key", 503, True),
             ("queue_insert_may_have_committed", 500, False),
