@@ -255,11 +255,8 @@ export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<nu
     )
 }
 
-/**
- * The index of the band that a group trades places with when it moves one step, or -1 when it cannot move that way.
- * A band with no tiles has no rows to trade. Tabs show tiles outside any group in a first tab of their own,
- * so there a group trades places only with another group.
- */
+// A band with no tiles has no rows to trade. Tabs show tiles outside any group in a first tab of their own,
+// so there a group trades places only with another group.
 function getTileGroupSwapIndex(
     sections: DashboardSection[],
     groupKey: string,
@@ -280,10 +277,7 @@ function getTileGroupSwapIndex(
     return -1
 }
 
-/**
- * The directions each group can move in, among the dashboard's bands or tabs.
- * Empty when there is nothing to reorder, so the menu does not offer two actions that can never run.
- */
+/** Empty when fewer than two bands or tabs can trade places, so no group shows move buttons that can never act. */
 export function getTileGroupMoveDirections(
     sections: DashboardSection[],
     groupDisplay: TileGroupDisplay
@@ -312,9 +306,8 @@ export function getTileGroupMoveDirections(
 }
 
 /**
- * The dashboard layout after a group trades places with the band or tab next to it, or null when it cannot move
- * that way. `sections` are the bands or tabs as the dashboard shows them, and every tile keeps its place inside
- * its own, so only their order changes.
+ * `sections` are the bands or tabs as the dashboard shows them. Every tile keeps its place inside its own band or tab,
+ * so only their order changes.
  */
 export function getLayoutAfterTileGroupMove({
     layout,

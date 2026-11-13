@@ -36,7 +36,6 @@ interface DashboardTileGroupMoveButtonsProps {
     className?: string
 }
 
-/** Reorder buttons for a group header or tab bar. The caller decides when they show, usually on hover. */
 export function DashboardTileGroupMoveButtons({
     groupDisplay,
     moveActions,
