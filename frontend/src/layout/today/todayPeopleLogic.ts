@@ -242,8 +242,8 @@ export interface todayPeopleLogicMeta {
                 search: string
             },
             rows: TodayPeopleRow[],
-            peopleRecents: any,
-            currentRecent: TodayPeopleRecent | null
+            peopleRecents: TodayPeopleRecent[],
+            currentRecent: TodayRecent | null
         ) => string | null
         matchingRows: (rows: TodayPeopleRow[], searchQuery: string) => TodayPeopleRow[]
         topRows: (matchingRows: TodayPeopleRow[]) => TodayPeopleRow[]
@@ -251,7 +251,7 @@ export interface todayPeopleLogicMeta {
         pinnedRows: (shortcutData: FileSystemEntry[]) => TodayPeoplePin[]
         matchingPinnedRows: (pinnedRows: TodayPeoplePin[], searchQuery: string) => TodayPeoplePin[]
         matchingRecentRows: (
-            peopleRecentRows: any,
+            peopleRecentRows: TodayPeopleRecent[],
             pinnedRows: TodayPeoplePin[],
             searchQuery: string
         ) => TodayPeopleRecent[]

@@ -83,7 +83,7 @@ export interface todayMonitorLogicMeta {
             searchQuery: string
         ) => HrefPin<TodayMonitorRecentType>[]
         matchingRecentRows: (
-            monitorRecentRows: any,
+            monitorRecentRows: TodayMonitorRecent[],
             pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
             searchQuery: string
         ) => TodayMonitorRecent[]
@@ -93,9 +93,9 @@ export interface todayMonitorLogicMeta {
                 pathname: string
                 search: string
             },
-            currentRecent: TodayMonitorRecent | null,
+            currentRecent: TodayRecent | null,
             pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
-            monitorRecentRows: any
+            monitorRecentRows: TodayMonitorRecent[]
         ) => string | null
         isSearching: (searchQuery: string) => boolean
         isSectionOpen: (
