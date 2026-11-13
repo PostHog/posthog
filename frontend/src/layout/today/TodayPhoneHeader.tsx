@@ -9,6 +9,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { TodayProjectMenu } from './TodayProjectMenu'
 import { IconShowSidebar } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
@@ -48,6 +49,11 @@ export function TodayPhoneHeader(): JSX.Element {
                     <IconShowSidebar />
                 </Button>
             ) : null}
+            {!paneHasSidebar && (
+                <div className="flex min-w-0">
+                    <TodayProjectMenu />
+                </div>
+            )}
             <h2 className="m-0 min-w-0 flex-1 truncate text-base font-bold text-foreground">{title}</h2>
             {!onAiPage && (
                 <Button
