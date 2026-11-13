@@ -21,10 +21,10 @@ export function JsonTree({ src, highlightQuery = null }: JsonTreeProps): JSX.Ele
         [src, highlightQuery]
     )
 
-    // Strings keep their line breaks and wrap between words, where the viewer's inline style splits words.
+    // Strings wrap between words and keep line breaks. The hidden copy icon keeps its width, so values leave room for it.
     return (
         <ShowMore highlightQuery={highlightQuery} nested>
-            <div className="min-w-0 [&_.string-value]:whitespace-pre-wrap [&_.string-value]:![word-break:normal]">
+            <div className="min-w-0 [&_.string-value]:whitespace-pre-wrap [&_.string-value]:![word-break:normal] [&_.variable-value]:max-w-[calc(100%-2rem)]">
                 <JSONViewer
                     key={showsQuery ? 'open' : 'collapsed'}
                     src={src}
