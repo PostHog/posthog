@@ -12841,14 +12841,14 @@ Note: docs.ubidots.com is a ReadMe site that renders endpoints client-side, so I
 
 ## Unleash — gaps
 
-Today (11): `addons`, `context_fields`, `environments`, `feature_types`, `features`, `projects`, `segments`, `strategies`, `tag_types`, `tags`, `users`
+Today (14): `addons`, `context_fields`, `environments`, `events`, `feature_metrics`, `feature_strategies`, `feature_types`, `features`, `projects`, `segments`, `strategies`, `tag_types`, `tags`, `users`
 
 Diffed against: <https://app.unleash-hosted.com/demo/docs/openapi.json>
 
-- [ ] `events (GET /api/admin/events, /api/admin/events/{featureName}, POST /api/admin/search/events)` — the full change/audit history — who toggled which flag when; the core analytical table of a flag system (high)
-- [ ] `client metrics (GET /api/admin/client-metrics/features/{name} and /raw)` — per-flag evaluation counts (yes/no) by environment — Unleash's headline usage metric, entirely absent today (high)
-- [ ] `feature strategies per environment (GET /api/admin/projects/{projectId}/features/{featureName}/environments/{environment}/strategies)` — resolves which strategy and rollout is live in which environment; the synced features and strategies tables cannot be joined without it (high)
-- [ ] `project features (GET /api/admin/projects/{projectId}/features)` — authoritative project-to-feature membership, including archived and stale state the flat features list omits (high)
+- [x] `events (GET /api/admin/events, /api/admin/events/{featureName}, POST /api/admin/search/events)` — the full change/audit history — who toggled which flag when; the core analytical table of a flag system (high). Added as `events` from `GET /api/admin/search/events` (incremental on `createdAt`). The other two calls are deprecated, and the search call is a `GET`.
+- [x] `client metrics (GET /api/admin/client-metrics/features/{name} and /raw)` — per-flag evaluation counts (yes/no) by environment — Unleash's headline usage metric, entirely absent today (high). Added as `feature_metrics` from `/raw` (fan-out over `features`, incremental on `timestamp` through `hoursBack`). The summary call skipped: it sums the same hourly rows.
+- [x] `feature strategies per environment (GET /api/admin/projects/{projectId}/features/{featureName}/environments/{environment}/strategies)` — resolves which strategy and rollout is live in which environment; the synced features and strategies tables cannot be joined without it (high). Added as `feature_strategies` from `GET /api/admin/projects/{projectId}/features/{featureName}` (fan-out over `features`), which returns every environment's strategies in one request.
+- ~~`project features (GET /api/admin/projects/{projectId}/features)` — authoritative project-to-feature membership, including archived and stale state the flat features list omits (high)~~ — skipped: its rows are a subset of the `features` table, which already has `project` and `stale`, and the call does not return archived flags
 - [ ] `applications and instances (GET /api/admin/metrics/applications, /{appName}/overview, /instances/{appName}/environment/{environment})` — registered SDK apps and connected instances — which services actually consume which flags (medium)
 - [ ] `feature lifecycle (GET /api/admin/projects/{projectId}/features/{featureName}/lifecycle, /api/admin/lifecycle/count, /api/admin/insights/lifecycle)` — stage transition history powering flag-debt and cleanup reporting (medium)
 - [ ] `feature tags (GET /api/admin/features/{featureName}/tags)` — feature-to-tag join table; tags and tag_types are synced but nothing links them to flags (medium)
