@@ -152,8 +152,16 @@ class TestDirectBigQueryQuery(APIBaseTest):
             ("api_deadline", google_api_exceptions.DeadlineExceeded("Deadline exceeded"), DirectQueryTimeoutError),
             (
                 "job_timeout_cancels_the_job",
-                google_api_exceptions.GoogleAPICallError(
-                    "Job execution was cancelled: Job timed out after 600s", errors=[{"reason": "stopped"}]
+                # The response of a real project to job_timeout_ms: a 499 with this one error.
+                google_api_exceptions.Cancelled(
+                    "Job execution was cancelled: Job timed out after 600 sec",
+                    errors=[
+                        {
+                            "message": "Job execution was cancelled: Job timed out after 600 sec",
+                            "domain": "global",
+                            "reason": "stopped",
+                        }
+                    ],
                 ),
                 DirectQueryTimeoutError,
             ),
