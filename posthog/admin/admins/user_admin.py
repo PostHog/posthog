@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.contrib.admin.views.main import ChangeList
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
-from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX, identify_hasher
+from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
@@ -41,7 +41,7 @@ class UserChangeList(ChangeList):
 
 class UserChangeForm(DjangoUserChangeForm):
     # Django's password field renders the first characters of the salt and hash. UserAdmin shows
-    # password_display instead, which names only the algorithm.
+    # password_display instead, which shows no part of the hash.
     password = None  # type: ignore[assignment]
 
     class Meta(DjangoUserChangeForm.Meta):
@@ -183,16 +183,10 @@ class UserAdmin(DjangoUserAdmin):
 
     @admin.display(description="Password")
     def password_display(self, user: User):
+        reset_link = MovedToConsole.action("user", user, "sign-in", "Resetting the password")
         if not user.password or user.password.startswith(UNUSABLE_PASSWORD_PREFIX):
-            status = mark_safe("<strong>No password set.</strong>")
-        else:
-            try:
-                status = format_html("<strong>Algorithm</strong>: {}", identify_hasher(user.password).algorithm)
-            except ValueError:
-                status = mark_safe("<strong>Unknown password format.</strong>")
-        return format_html(
-            "<p>{}</p><p>{}</p>", status, MovedToConsole.action("user", user, "sign-in", "Resetting the password")
-        )
+            return format_html("<p><strong>No password set.</strong></p><p>{}</p>", reset_link)
+        return reset_link
 
     @admin.display(description="Web sessions")
     def revoke_sessions_link(self, user: User):
