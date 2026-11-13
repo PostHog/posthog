@@ -167,7 +167,7 @@ Billit,,,,,,billit
 Billomat,billomat_id api_key registered_app,,,,,billomat
 BingAds,,bing_ads_integration_id,account_id,,,bing-ads
 BingWebmasterTools,api_key site_urls,,,,,bing-webmaster-tools
-Bird,,,,,,bird
+Bird,api_key,,,,,bird
 Bitbucket,workspace auth_method,,,,,bitbucket
 Bitly,,,,,,bitly
 Bitrise,api_token,,,,,bitrise
