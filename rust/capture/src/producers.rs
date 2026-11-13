@@ -57,9 +57,7 @@ impl FromStr for ProducerName {
     }
 }
 
-/// A credential read from the environment. `Debug` prints `***`, and the type
-/// has no `Display` or `Serialize`, so a log line or a serialized struct that
-/// holds one cannot contain the value. Read the value only through `expose`.
+/// Env credential: `Debug` prints `***`, no `Display` or `Serialize`; read it only via `expose`.
 #[derive(Clone)]
 pub struct Secret(String);
 
@@ -84,9 +82,7 @@ impl fmt::Debug for Secret {
     }
 }
 
-/// Every settable property that librdkafka flags `_RK_SENSITIVE` in
-/// rdkafka_conf.c. Keep in sync with `SENSITIVE_KAFKA_KEYS` in
-/// nodejs/src/common/kafka/sensitive-keys.ts.
+/// librdkafka's `_RK_SENSITIVE` keys; keep in sync with nodejs/src/common/kafka/sensitive-keys.ts.
 const SENSITIVE_KEYS: [&str; 13] = [
     "sasl.username",
     "sasl.password",
@@ -103,8 +99,7 @@ const SENSITIVE_KEYS: [&str; 13] = [
     "ssl.certificate.pem",
 ];
 
-// The patterns catch sensitive properties that a future librdkafka adds before
-// the list above learns them.
+// Catches sensitive keys a newer librdkafka adds before the list above does.
 fn is_sensitive_key(key: &str) -> bool {
     SENSITIVE_KEYS.contains(&key)
         || ["password", "passphrase", "secret"]

@@ -11,11 +11,8 @@ import { isProdEnv, isTestEnv } from './env-utils'
 // rasterizer) reach this logger transitively.
 const logLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || (isTestEnv() ? 'warn' : 'info')
 
-// A fallback for a Kafka config logged without redactKafkaConfig. _log spreads the extra object
-// into the log line, so a config passed directly sits at the top level and a config passed as
-// { config } sits one level down. pino cannot match deeper levels, and it cannot rewrite a value
-// on a frozen object or behind a getter, so callers must still redact explicitly. The bracket
-// syntax is required because pino reads `sasl.password` as key `password` inside key `sasl`.
+// Fallback only: it redacts top-level and { config } keys, so callers must still use redactKafkaConfig.
+// Bracket paths stop pino from splitting "sasl.password" into nested keys.
 export const KAFKA_LOG_REDACTION = {
     paths: [...SENSITIVE_KAFKA_KEYS].flatMap((key) => [`["${key}"]`, `*["${key}"]`]),
     censor: '***',
