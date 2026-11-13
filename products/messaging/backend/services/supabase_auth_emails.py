@@ -41,7 +41,11 @@ from products.messaging.backend.services.supabase_auth_email_templates import (
     STARTER_TEMPLATES,
     starter_template_content,
 )
-from products.messaging.backend.services.transactional_email import make_transactional, send_transactional_email
+from products.messaging.backend.services.transactional_email import (
+    categories_enabled_for,
+    make_transactional,
+    send_transactional_email,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -113,6 +117,10 @@ def _sendable_template_ids(team_id: int, template_ids: set[UUID]) -> set[UUID]:
             sensitive=True,
         ).values_list("id", flat=True)
     )
+
+
+def _has_category(team_id: int, template_id: UUID) -> bool:
+    return MessageTemplate.objects.filter(team_id=team_id, id=template_id, message_category__isnull=False).exists()
 
 
 def template_workflow_ids(team_id: int, template_ids: set[UUID]) -> set[UUID]:
@@ -362,6 +370,7 @@ def handle_send_email_hook(team: Team, body: bytes, headers: Mapping[str, str]) 
         return result(status=400, message=SEND_FAILED_MESSAGE, error_code="template_not_sendable")
 
     sends = _sends(user, data)
+    categories_enabled = _has_category(team.id, UUID(template_id)) and categories_enabled_for(team)
     for index, send in enumerate(sends):
         remaining = deadline - time.monotonic()
         if remaining < MIN_SEND_SECONDS:
@@ -375,6 +384,7 @@ def handle_send_email_hook(team: Team, body: bytes, headers: Mapping[str, str]) 
                 message_data=_message_data(config, user, data, send),
                 # A retry of the same request never sends an email twice, even when only one of two sends failed.
                 idempotency_key=f"supabase-{data.request_id}-{index}"[:255],
+                categories_enabled=categories_enabled,
                 timeout=remaining,
             )
         # Supabase shows `message` to the person signing in, so it never carries the setup advice the errors hold.

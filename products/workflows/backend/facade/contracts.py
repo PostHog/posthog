@@ -718,6 +718,9 @@ EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
 TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
 
 
+TransactionalEmailCategoryType = Literal["marketing", "transactional"]
+
+
 @frozen
 class TransactionalEmailContent:
     """What a transactional email's workflow sends, taken from the message template it was made from."""
@@ -733,10 +736,18 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
+    message_category_type: TransactionalEmailCategoryType = "transactional"
     # Empty values use the sender's own address, name and default reply-to.
     from_email: str = ""
     from_name: str = ""
     reply_to: str = ""
+
+
+@frozen
+class TransactionalEmailMessage:
+    html: str
+    text: str
+    has_copies: bool
 
 
 @frozen

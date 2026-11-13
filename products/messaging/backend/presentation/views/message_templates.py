@@ -84,6 +84,7 @@ from products.messaging.backend.facade.templates import (
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
+    CODE_SEND_CATEGORIES_FLAG,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     AttachmentNotUploaded,
@@ -100,6 +101,7 @@ from products.messaging.backend.facade.transactional_email import (
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
+    check_unsubscribe_link_kept,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -504,7 +506,6 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
-CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
 TRANSACTIONAL_CATEGORY = "transactional"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
@@ -1093,9 +1094,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
-        categories_enabled = isinstance(data.get("category"), SendCategoryDefinition) and _flag_enabled(
-            self.team, CODE_SEND_CATEGORIES_FLAG
-        )
+        categories_enabled = (
+            isinstance(data.get("category"), SendCategoryDefinition) or template.message_category_id is not None
+        ) and _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
         return self._queue_send(
             request,
             lambda idempotency_key: send_transactional_email(
@@ -1106,6 +1107,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
                 category=_enabled_category(data.get("category"), categories_enabled),
+                categories_enabled=categories_enabled,
             ),
             usage_properties={"template_id": str(template.id)},
         )
@@ -1123,14 +1125,14 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         outcome: dict[str, Any] = {"outcome": "error"}
         try:
             queued = send(idempotency_key)
-            outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            outcome.update(outcome="replayed" if queued.replayed else "queued", category_type=queued.category_type)
             if attachments:
                 outcome["attachment_bytes"] = queued.attachment_bytes
         except FieldNotAccepted as e:
-            outcome.update({"outcome": "rejected", "error_code": e.code})
+            outcome.update(_failed_send("rejected", e), error_code=e.code)
             raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
-            outcome.update({"outcome": "rejected", "error_code": e.code})
+            outcome.update(_failed_send("rejected", e), error_code=e.code)
             if attachments:
                 outcome["attachment_bytes"] = e.attachment_bytes
             if isinstance(e, AttachmentNotUploaded | MessageTooLarge):
@@ -1138,8 +1140,8 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if isinstance(e, AttachmentsRefused):
                 raise ExplainedRefusal(str(e), code=e.code, attr=e.attr, why=e.why, fix=e.fix) from None
             raise TransactionalEmailRejected(e)
-        except DeliveryUnavailable:
-            outcome["outcome"] = "unavailable"
+        except DeliveryUnavailable as e:
+            outcome.update(_failed_send("unavailable", e))
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
@@ -1499,6 +1501,11 @@ class MessageTemplatesViewSet(
                 self._with_creators([template])[0], data={"content": content}, partial=True
             )
             serializer.is_valid(raise_exception=True)
+            if hog_flow_id:
+                try:
+                    check_unsubscribe_link_kept(template.id, self.team_id, serializer.validated_data["content"])
+                except TransactionalEmailError as e:
+                    raise TransactionalEmailRejected(e) from None
             return serializer.validated_data["content"]
 
         with transaction.atomic():
@@ -1524,7 +1531,10 @@ class MessageTemplatesViewSet(
         description=(
             "Send one transactional email from this template to one recipient. The template must be made "
             "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
-            "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
+            "A template with no category or a transactional one sends transactional email, which skips opt-outs. A "
+            "template in a marketing category sends marketing email in that category: it skips recipients who opted "
+            "out, and its body must hold `{{ unsubscribe_url }}`. API sends don't count toward frequency caps. "
+            "Send an `Idempotency-Key` header to retry "
             "safely without sending the email twice. Needs the `transactional_email:write` scope. A key with "
             "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
         ),
@@ -1550,7 +1560,10 @@ class MessageTemplatesViewSet(
         description=(
             "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
-            "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
+            "Sends of a template with no category or a transactional one ignore marketing opt-outs. A template in a "
+            "marketing category is refused unless the project can send marketing email over the API. Its body must "
+            "then hold `{{ unsubscribe_url }}`, and its sends skip recipients who opted out. Calling it again on a "
+            "transactional template changes "
             "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
             "`hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, "
             "the response leaves out `content` and `draft_content`."
@@ -1631,8 +1644,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             "Send one transactional email to one recipient. Name a template made transactional in `template_id`, "
             "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
-            "history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define "
-            "its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it "
+            "history group under the key. Transactional emails skip opt-outs, and API sends don't count toward "
+            "frequency caps. A template sends in its own category, also when a `template_key` names it. A code send "
+            "can define its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it "
             "goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` "
             "in its body, and can't have `cc` or `bcc`. Send an "
             "`Idempotency-Key` header to retry safely without sending the email twice. Needs the "
@@ -1702,6 +1716,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
             category=_enabled_category(data.get("category"), categories_enabled),
         )
+
+
+def _failed_send(outcome: str, error: TransactionalEmailError | DeliveryUnavailable) -> dict[str, Any]:
+    return {"outcome": outcome, **({"category_type": error.category_type} if error.category_type else {})}
 
 
 def _enabled_category(category: Any, categories_enabled: bool) -> Any:

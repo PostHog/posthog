@@ -228,7 +228,7 @@ class FakeCdpApi:
             takes_attachments=self.takes_attachments,
             takes_categories=self.takes_categories,
         )
-        keys = {**_TEMPLATE_REQUEST_KEYS, **({"send": _Key(send)} if is_code_send else {})}
+        keys = {**_TEMPLATE_REQUEST_KEYS, **({"send": _Key(send)} if is_code_send else self._template_category_key())}
         issues = _object(keys, strict=False)(request, [])
         if issues and all(_is_recipient_format_issue(issue) for issue in issues):
             return _response(422, {"error": "recipient_unreachable"})
@@ -255,8 +255,11 @@ class FakeCdpApi:
             for send in self.queued_sends
         ]
 
+    def _template_category_key(self) -> dict[str, _Key]:
+        return {"message_category": _Key(_SEND_CATEGORY, optional=True)} if self.takes_categories else {}
+
     def categories(self) -> list[dict[str, str] | None]:
-        return [(request.get("send") or {}).get("message_category") for request in self.queued]
+        return [_category_of(request) for request in self.queued]
 
     def deliver(self) -> list[tuple[str, str]]:
         delivered = [request for request in self.queued if "send" in request]
@@ -268,8 +271,12 @@ class FakeCdpApi:
         ]
 
 
+def _category_of(request: dict[str, Any]) -> dict[str, str] | None:
+    return (request.get("send") or {}).get("message_category") or request.get("message_category")
+
+
 def _opt_out_refusal(url: str, request: dict[str, Any]) -> tuple[int, str] | None:
-    category = (request.get("send") or {}).get("message_category") or {}
+    category = _category_of(request) or {}
     if category.get("type") != "marketing":
         return None
     route = CDP_SEND_ROUTE.search(url)

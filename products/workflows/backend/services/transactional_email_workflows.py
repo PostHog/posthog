@@ -3,7 +3,7 @@ and an exit. The message template it was made from owns the content, so each con
 of the workflow through the same write path as the workflows UI, with its revision history."""
 
 from collections.abc import Collection
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from django.db import models, transaction
@@ -20,6 +20,7 @@ from products.workflows.backend.facade.contracts import (
     CodeEmailWorkflow,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailMessage,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
@@ -47,7 +48,9 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
         step_config={
             **_template_provenance(content),
             "message_category_id": str(content.message_category_id) if content.message_category_id else None,
+            "message_category_type": content.message_category_type,
             "sensitive": content.sensitive,
+            **({"skip_frequency_cap": True} if content.message_category_type == "marketing" else {}),
         },
         email={
             "from": {
@@ -67,7 +70,12 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
 def code_email_actions(key: str) -> list[dict]:
     return _actions(
         name=key,
-        step_config={"template_key": key, "message_category_id": None, "sensitive": True},
+        step_config={
+            "template_key": key,
+            "message_category_id": None,
+            "message_category_type": "transactional",
+            "sensitive": True,
+        },
         email={
             "from": {"integrationId": None},
             "replyTo": "",
@@ -98,8 +106,6 @@ def _actions(*, name: str, step_config: dict, email: dict) -> list[dict]:
             "config": {
                 "template_id": "template-email",
                 **step_config,
-                # Puts the send on the email queue's fast lane and skips marketing opt-outs.
-                "message_category_type": "transactional",
                 "inputs": {
                     "email": {
                         "templating": "liquid",
@@ -254,6 +260,25 @@ def update_transactional_email_workflow(
             validated_status=flow.status,
             keeps_live_sensitivity=False,
         )
+
+
+def get_transactional_email_message(*, team_id: int, hog_flow_id: UUID) -> TransactionalEmailMessage:
+    actions = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values_list("actions", flat=True).first()
+    if actions is None:
+        raise WorkflowNotFound()
+    step: dict[str, Any] = next((action for action in actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), {})
+    email = step.get("config", {}).get("inputs", {}).get("email", {}).get("value")
+    if not isinstance(email, dict):
+        return TransactionalEmailMessage(html="", text="", has_copies=False)
+    return TransactionalEmailMessage(
+        html=email.get("html") or "",
+        text=email.get("text") or "",
+        has_copies=_has_addresses(email.get("cc")) or _has_addresses(email.get("bcc")),
+    )
+
+
+def _has_addresses(value: Any) -> bool:
+    return bool(value.strip()) if isinstance(value, str) else bool(value)
 
 
 @with_team_scope()

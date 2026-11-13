@@ -41,6 +41,7 @@ class TransactionalEmailError(Exception):
     attr: str | None = None
     # The total size of the files the CDP service verified before it refused, or None when it didn't verify them all.
     attachment_bytes: int | None = None
+    category_type: "MessageCategoryKind | None" = None
 
 
 class TemplateNotSendable(TransactionalEmailError):
@@ -281,12 +282,15 @@ class CodeEmail:
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
+    category_type: MessageCategoryKind | None = None
+
 
 @frozen
 class QueuedEmail:
     message_id: str
     # True when an earlier request with the same idempotency key already queued this email.
     replayed: bool = False
+    category_type: MessageCategoryKind = "transactional"
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
 
