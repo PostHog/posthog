@@ -23,6 +23,7 @@ posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse
+ee/hogai/tools/execute_sql/test
 products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
