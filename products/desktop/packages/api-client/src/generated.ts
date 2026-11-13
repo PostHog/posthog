@@ -241,6 +241,20 @@ export namespace Schemas {
         useWebAnalyticsPreAggregatedTables: boolean | null;
         webAnalyticsFirstPageviewFilters: boolean | null;
     }>;
+    export type AgentNotice = {
+        /**
+         * Stable id of what the notice is about, so the same notice is not repeated in a session.
+         */
+        key: string;
+        /**
+         * Stable id of the producer. A guidance rule matches notices by source.
+         */
+        source: string;
+        /**
+         * Plain-language text for the agent, with the next step.
+         */
+        text: string;
+    };
     export type ClickhouseQueryProgress = {
         active_cpu_time: number;
         bytes_read: number;
@@ -409,6 +423,7 @@ export namespace Schemas {
         type?: string | undefined;
     };
     export type ActorsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -460,6 +475,7 @@ export namespace Schemas {
         version?: (number | null) | undefined;
     };
     export type AccountsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -722,6 +738,7 @@ export namespace Schemas {
         tags?: (Array<string> | null) | undefined;
     };
     export type AccountsTableQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?:
             | (Array<
                   | AccountsTableAccountFieldColumn
@@ -2070,6 +2087,7 @@ export namespace Schemas {
     };
     export type TrendsQueryResponse = {
         action_names?: (Record<string, string> | null) | undefined;
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -2697,6 +2715,7 @@ export namespace Schemas {
         useUdf: boolean | null;
     }>;
     export type FunnelsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -2879,6 +2898,7 @@ export namespace Schemas {
         values: Array<RetentionValue>;
     };
     export type RetentionQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3077,6 +3097,7 @@ export namespace Schemas {
         value: number;
     };
     export type PathsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3252,6 +3273,7 @@ export namespace Schemas {
         steps: Array<PathsV2Step>;
     };
     export type PathsV2QueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3318,6 +3340,7 @@ export namespace Schemas {
     }>;
     export type StickinessQueryResponse = {
         action_names?: (Record<string, string> | null) | undefined;
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3430,6 +3453,7 @@ export namespace Schemas {
     }>;
     export type LifecycleQueryResponse = {
         action_names?: (Record<string, string> | null) | undefined;
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3655,6 +3679,7 @@ export namespace Schemas {
         numerator: number;
     };
     export type WebStatsTableQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -3754,6 +3779,7 @@ export namespace Schemas {
         value?: (number | null) | undefined;
     };
     export type WebOverviewQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         dateFrom?: (string | null) | undefined;
         dateTo?: (string | null) | undefined;
         error?: (string | null) | undefined;
@@ -4503,6 +4529,7 @@ export namespace Schemas {
         warnings: Array<HogQLNotice>;
     };
     export type HogQLQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         clickhouse?: (string | null) | undefined;
         column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
@@ -6971,6 +6998,7 @@ export namespace Schemas {
         type: DataTableNodeViewPropsContextType;
     };
     export type Response = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7005,6 +7033,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response1 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7039,6 +7068,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response2 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7073,6 +7103,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response3 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         clickhouse?: (string | null) | undefined;
         column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
@@ -7106,6 +7137,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response4 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         dateFrom?: (string | null) | undefined;
         dateTo?: (string | null) | undefined;
         error?: (string | null) | undefined;
@@ -7140,6 +7172,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response5 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7177,6 +7210,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response6 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7208,6 +7242,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response7 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7238,6 +7273,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response8 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7284,6 +7320,7 @@ export namespace Schemas {
         poor: Array<WebVitalsPathBreakdownResultItem>;
     };
     export type Response9 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -7315,6 +7352,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response10 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7345,6 +7383,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response11 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7387,6 +7426,7 @@ export namespace Schemas {
         value?: (number | string | null) | undefined;
     };
     export type Response12 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
@@ -7421,6 +7461,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response13 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
@@ -7567,6 +7608,7 @@ export namespace Schemas {
         status: ErrorTrackingIssueStatus;
     };
     export type Response14 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7620,6 +7662,7 @@ export namespace Schemas {
         status: ErrorTrackingIssueStatus;
     };
     export type Response15 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7697,6 +7740,7 @@ export namespace Schemas {
         webSearchCost?: (number | null) | undefined;
     };
     export type Response16 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7726,6 +7770,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response18 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7756,6 +7801,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response19 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7791,6 +7837,7 @@ export namespace Schemas {
             | undefined;
     };
     export type Response20 = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?:
             | (Array<
                   | AccountsTableAccountFieldColumn
@@ -7941,6 +7988,7 @@ export namespace Schemas {
         url_matching: UrlMatching | null;
     }>;
     export type EventsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8123,6 +8171,7 @@ export namespace Schemas {
         version: number | null;
     }>;
     export type GroupsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8173,6 +8222,7 @@ export namespace Schemas {
         version?: (number | null) | undefined;
     };
     export type WebExternalClicksTableQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8240,6 +8290,7 @@ export namespace Schemas {
     };
     export type WebBotsBreakdown = "Crawler" | "Path";
     export type WebBotsTableQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8305,6 +8356,7 @@ export namespace Schemas {
         webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebGoalsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8422,6 +8474,7 @@ export namespace Schemas {
     export type WebVitalsMetric = "INP" | "LCP" | "CLS" | "FCP";
     export type WebVitalsPercentile = "p75" | "p90" | "p99";
     export type WebVitalsPathBreakdownQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -8502,6 +8555,7 @@ export namespace Schemas {
         | "ReferringDomain"
         | "InitialURL";
     export type SessionAttributionExplorerQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8543,6 +8597,7 @@ export namespace Schemas {
         version?: (number | null) | undefined;
     };
     export type SessionsQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8700,6 +8755,7 @@ export namespace Schemas {
     }>;
     export type MarketingAnalyticsOrderByEnum = "ASC" | "DESC";
     export type MarketingAnalyticsTableQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
@@ -8778,6 +8834,7 @@ export namespace Schemas {
         webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type MarketingAnalyticsAggregatedQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
@@ -8868,6 +8925,7 @@ export namespace Schemas {
         version: number;
     };
     export type ErrorTrackingQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8934,6 +8992,7 @@ export namespace Schemas {
         withLastEvent?: (boolean | null) | undefined;
     };
     export type ErrorTrackingIssueCorrelationQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -8973,6 +9032,7 @@ export namespace Schemas {
         version?: (number | null) | undefined;
     };
     export type TracesQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -9047,6 +9107,7 @@ export namespace Schemas {
         version: number | null;
     }>;
     export type TraceQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -9114,6 +9175,7 @@ export namespace Schemas {
         version?: (number | null) | undefined;
     };
     export type SessionQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -9168,6 +9230,7 @@ export namespace Schemas {
         | "error_rate";
     export type EndpointsUsageOrderByDirection = "ASC" | "DESC";
     export type EndpointsUsageTableQueryResponse = {
+        agent_notices?: (Array<AgentNotice> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
