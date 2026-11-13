@@ -76,6 +76,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
+    CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
@@ -398,6 +399,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
+        CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         SES_SANDBOX_CONFIGURATION_SET: '',
