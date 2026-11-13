@@ -1,5 +1,7 @@
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.conversations.backend.ai.human_outcome import classify_human_outcome
 
 
@@ -36,6 +38,25 @@ class TestClassifyHumanOutcome(SimpleTestCase):
         sent_head = draft[:4000]
         assert len(draft) > 2 * len(sent_head)
         assert classify_human_outcome(draft, sent_head) == "edited"
+
+    @parameterized.expand(
+        [
+            (
+                "chinese",
+                "如果会话记录没有显示请在项目设置中确认域名已加入允许列表",
+                "如果会话记录没有显示请先在项目设置中确认域名已加入允许列表",
+            ),
+            (
+                "japanese",
+                "セッションの記録が表示されない場合は、プロジェクト設定でドメインが許可リストに登録されているか確認してください。",
+                "セッションの記録が表示されない場合は、プロジェクト設定でドメインが許可リストに登録されているかご確認ください。",
+            ),
+        ]
+    )
+    def test_one_character_edit_without_word_spaces_is_used(self, _name, draft, reply):
+        # A whole sentence in these scripts is one run of word characters, so matching runs of
+        # them would leave a lightly edited reply with nothing in common with the draft.
+        assert classify_human_outcome(draft, reply) == "used"
 
     def test_unrelated_reply_is_ignored(self):
         assert (

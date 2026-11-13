@@ -29,10 +29,14 @@ USED_RATIO = 0.85
 EDITED_RATIO = 0.4
 
 
-# Matching is quadratic, so only this many words of each text are matched.
-MAX_COMPARED_WORDS = 800
+# Matching is quadratic, so only this many tokens of each text are matched.
+MAX_COMPARED_TOKENS = 800
 
-_WORD_PATTERN = re.compile(r"\w+")
+# Chinese, Japanese, Thai and Korean write without spaces between words, so a run of word
+# characters is a whole sentence. One token per character there keeps a small edit from
+# replacing the only token the sentence has.
+_UNSPACED_SCRIPTS = "぀-ヿ㐀-䶿一-鿿豈-﫿가-힯฀-๿"
+_TOKEN_PATTERN = re.compile(rf"[{_UNSPACED_SCRIPTS}]|[^\W{_UNSPACED_SCRIPTS}]+")
 
 
 def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
@@ -42,22 +46,24 @@ def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
         return "ignored"
     if draft == reply:
         return "used"
-    draft_words = _WORD_PATTERN.findall(draft.lower())
-    reply_words = _WORD_PATTERN.findall(reply.lower())
-    if not draft_words or not reply_words:
+    draft_tokens = _TOKEN_PATTERN.findall(draft.lower())
+    reply_tokens = _TOKEN_PATTERN.findall(reply.lower())
+    if not draft_tokens or not reply_tokens:
         return "ignored"
-    total_words = len(draft_words) + len(reply_words)
+    total_tokens = len(draft_tokens) + len(reply_tokens)
     # Length alone caps how similar two texts can be. Settling that case without matching keeps
     # the ticket row lock short on the common path, where the human wrote their own reply.
-    if 2 * min(len(draft_words), len(reply_words)) / total_words < EDITED_RATIO:
+    if 2 * min(len(draft_tokens), len(reply_tokens)) / total_tokens < EDITED_RATIO:
         return "ignored"
-    # Words, not characters: matching characters cost about 700 ms for a 4000-character reply.
+    # Tokens, not characters: matching characters cost about 700 ms for a 4000-character reply.
     # autojunk is off because it drops common words, which scored a re-greeted draft near zero.
-    matcher = SequenceMatcher(None, draft_words[:MAX_COMPARED_WORDS], reply_words[:MAX_COMPARED_WORDS], autojunk=False)
+    matcher = SequenceMatcher(
+        None, draft_tokens[:MAX_COMPARED_TOKENS], reply_tokens[:MAX_COMPARED_TOKENS], autojunk=False
+    )
     matched = sum(block.size for block in matcher.get_matching_blocks())
-    # Dividing by the full word counts leaves everything past the cap unmatched, so a long draft
+    # Dividing by the full token counts leaves everything past the cap unmatched, so a long draft
     # the human kept only a part of cannot score as fully used.
-    ratio = 2 * matched / total_words
+    ratio = 2 * matched / total_tokens
     if ratio >= USED_RATIO:
         return "used"
     if ratio >= EDITED_RATIO:
