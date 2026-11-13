@@ -2208,6 +2208,31 @@ describe('CDP API', () => {
                 }
             }
         )
+
+        it.each([
+            [
+                503,
+                'a workflow lookup before the insert',
+                () => jest.spyOn(api['hogFlowManager'], 'getHogFlows').mockRejectedValueOnce(new Error('db down')),
+            ],
+            [
+                500,
+                'the queue insert',
+                () => jest.spyOn(api['hogflowQueue'], 'queueInvocations').mockRejectedValueOnce(new Error('db down')),
+            ],
+        ])('answers a batch with %i and queues nothing when %s fails', async (status, _desc, breakStep) => {
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            breakStep()
+
+            const res = await supertest(app)
+                .post('/api/hog_flows/scheduled_invocations')
+                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                .send({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })
+
+            expect(res.status).toEqual(status)
+            expect(hogflowQueue.queued).toEqual([])
+        })
     })
 
     describe('hogflow in-flight count', () => {

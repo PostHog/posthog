@@ -51,20 +51,15 @@ export type ScheduledRunsDeps = {
     workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
 }
 
+export class ScheduledRunsNotQueuedError extends Error {}
+
 export class ScheduledRuns {
     constructor(private readonly deps: ScheduledRunsDeps) {}
 
     async queue(requests: ScheduledRunRequest[]): Promise<ScheduledRunOutcome[]> {
-        const teamIds = [...new Set(requests.map((request) => request.teamId).filter(Number.isInteger))]
-        const [teams, hogFlows] = await Promise.all([
-            this.deps.teams.getTeams(teamIds),
-            this.deps.hogFlows.getHogFlows([...new Set(requests.map((request) => request.hogFlowId))]),
-        ])
-        const admissions = await Promise.all(
-            requests.map((request) =>
-                this.admit(request, teams[String(request.teamId)] ?? null, hogFlows[request.hogFlowId] ?? null)
-            )
-        )
+        const admissions = await this.admitAll(requests).catch((error) => {
+            throw new ScheduledRunsNotQueuedError(String(error), { cause: error })
+        })
         try {
             await this.enqueue(
                 admissions.flatMap((admission) => (admission.status === 'admitted' ? [admission.invocation] : []))
@@ -74,6 +69,19 @@ export class ScheduledRuns {
         }
         return admissions.map((admission) =>
             admission.status === 'admitted' ? { status: 'queued', invocationId: admission.invocation.id } : admission
+        )
+    }
+
+    private async admitAll(requests: ScheduledRunRequest[]): Promise<Admission[]> {
+        const teamIds = [...new Set(requests.map((request) => request.teamId).filter(Number.isInteger))]
+        const [teams, hogFlows] = await Promise.all([
+            this.deps.teams.getTeams(teamIds),
+            this.deps.hogFlows.getHogFlows([...new Set(requests.map((request) => request.hogFlowId))]),
+        ])
+        return Promise.all(
+            requests.map((request) =>
+                this.admit(request, teams[String(request.teamId)] ?? null, hogFlows[request.hogFlowId] ?? null)
+            )
         )
     }
 
