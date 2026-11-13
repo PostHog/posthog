@@ -136,8 +136,6 @@ export const ManyPermissions: Story = {
     },
 }
 
-// Insight and the identity scopes were granted before, so they leave the list. Dashboard was granted at
-// read, so its row stays with read locked and write left to pick.
 export const StepUp: Story = {
     decorators: [withOAuthApplication({ required_scopes: [] })],
     render: () => <App />,

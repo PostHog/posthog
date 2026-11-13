@@ -54,7 +54,6 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// feature_flag:read is required, so its row shows a lock.
 export const FewPermissions: Story = {
     decorators: [withGrant({})],
     render: () => <App />,
@@ -84,8 +83,7 @@ export const ManyPermissions: Story = {
     ],
 }
 
-// The person granted hog its identity scopes, insight:read and dashboard:read before. Insight and the identity
-// rows leave the list. The server marks the added scopes required, so dashboard and feature flag show locked.
+// The server marks the scopes a step-up adds as required, so every row left in the list is locked.
 export const StepUp: Story = {
     render: () => <App />,
     decorators: [
