@@ -294,6 +294,12 @@ def search_held_configurations(
     return platform_reads.search_held_configurations(team_ids=team_ids, source_kind=source_kind.value, query=query)
 
 
+def held_configuration_ids(*, team_id: int, source_kind: SourceKind) -> list[UUID]:
+    """The ids of a team's alerts of a kind whose settings the platform holds: every alert with no source row,
+    and every copy the platform owns."""
+    return platform_reads.held_configuration_ids(team_id=team_id, source_kind=source_kind.value)
+
+
 def enabled_native_configurations(
     *,
     team_ids: Collection[int],
