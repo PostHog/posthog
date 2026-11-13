@@ -4,7 +4,6 @@ import { useLayoutEffect, useRef } from 'react'
 
 import { Text } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TodayExplore } from './TodayExplore'
@@ -56,8 +55,7 @@ export function TodayHomePage(): JSX.Element {
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
     const { currentOrganization } = useValues(organizationLogic)
-    const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
-    const homeComposer = postHogAiTasks && !!currentOrganization?.is_ai_data_processing_approved
+    const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)

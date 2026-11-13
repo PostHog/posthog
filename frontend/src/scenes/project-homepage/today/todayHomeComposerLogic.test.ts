@@ -21,6 +21,18 @@ describe('todayHomeComposerLogic', () => {
         expect(router.values.searchParams).toMatchObject({ task: 'task-1' })
     })
 
+    it('opens a PostHog AI chat that asks the home prompt when the person has no task runtime', () => {
+        const logic = todayHomeComposerLogic()
+        logic.mount()
+        logic.actions.setClassicPrompt('  Why did sign-ups drop?  ')
+
+        logic.actions.classicChatStarted(logic.values.classicPrompt)
+
+        expect(router.values.location.pathname).toMatch(/\/ai$/)
+        expect(router.values.searchParams).toMatchObject({ ask: 'Why did sign-ups drop?' })
+        expect(logic.values.classicPrompt).toEqual('')
+    })
+
     it('keeps the prompt and opens classic PostHog AI when the server refuses a new task', () => {
         todayHomeComposerLogic().mount()
 
