@@ -572,6 +572,13 @@ describe('hog api tool catalog', () => {
             {},
             'https://ph.example.com/posthog/api/cli/catalog.json',
         ],
+        [
+            'a PostHog on this computer over http',
+            [],
+            { HOG_HOST: 'http://localhost:8000' },
+            {},
+            'http://localhost:8000/api/cli/catalog.json',
+        ],
         ['a key in the environment', [], TEST_CREDENTIALS, {}, 'https://ph.example.com/api/cli/catalog.json'],
         [
             'a key in --dotenv-file',
@@ -659,15 +666,22 @@ describe('hog api tool catalog', () => {
     })
 
     test.each([
-        ['HOG_SKIP_SSL_VERIFICATION', { HOG_SKIP_SSL_VERIFICATION: '1' }, 'TLS verification is off'],
+        ['HOG_SKIP_SSL_VERIFICATION', { HOG_SKIP_SSL_VERIFICATION: '1' }, US, 'TLS verification is off'],
         [
             'NODE_TLS_REJECT_UNAUTHORIZED set to 0',
             { NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+            US,
             'NODE_TLS_REJECT_UNAUTHORIZED turns TLS verification off',
         ],
-    ])('with %s, neither downloads a catalog nor uses the saved one', async (_name, env, reason) => {
+        [
+            'a host on plain http',
+            { HOG_HOST: 'http://ph.example.com' },
+            'http://ph.example.com',
+            "http://ph.example.com doesn't use https",
+        ],
+    ])('with %s, neither downloads a catalog nor uses the saved one', async (_name, env, host, reason) => {
         const library = catalogLibrary()
-        const files = cached(['flag-list'], 25 * HOUR)
+        const files = cached(['flag-list'], 25 * HOUR, {}, host)
         const result = await runHog(['api', 'groups', '--debug'], {
             env: { CLAUDECODE: '1', ...env },
             apiTools: library.build,
@@ -675,7 +689,7 @@ describe('hog api tool catalog', () => {
             respond: () => ({ status: 200, body: catalog(['flag-new']) }),
         })
 
-        expect(catalogRequests(result)).toBe(0)
+        expect(result.requests.filter((r) => r.url.endsWith('/api/cli/catalog.json'))).toEqual([])
         expect(library.received()).toBeUndefined()
         expect(result.files[CACHE]).toBe(files[CACHE])
         expect(result.stderr).toContain(`[debug] api catalog: the tools built into hog, because ${reason}`)

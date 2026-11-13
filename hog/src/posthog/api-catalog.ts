@@ -48,9 +48,24 @@ export function catalogUrl(host: Host): string {
     return hostUrl(catalogHost(host), CATALOG_PATH).toString()
 }
 
+// Anyone on the network can change a catalog sent over plain http, so only a local PostHog may use it.
+function plainHttpReason(host: Host): string | undefined {
+    const url = new URL(host)
+    const loopback =
+        url.hostname === 'localhost' || url.hostname === '[::1]' || /^127(\.\d{1,3}){3}$/.test(url.hostname)
+    return url.protocol === 'https:' || loopback ? undefined : `${url.origin} doesn't use https`
+}
+
 export type CatalogOrigin = 'network' | 'cache' | 'bundled'
 
-export type BundledReason = 'pinned' | 'insecure_tls' | 'needs_newer_hog' | 'no_folder' | 'unreachable' | 'not_served'
+export type BundledReason =
+    | 'pinned'
+    | 'insecure_tls'
+    | 'plain_http'
+    | 'needs_newer_hog'
+    | 'no_folder'
+    | 'unreachable'
+    | 'not_served'
 
 export interface ResolvedCatalog {
     origin: CatalogOrigin
@@ -75,8 +90,7 @@ function parseVersion(version: string): { core: number[]; pre: string[] } | unde
     return { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre }
 }
 
-// SemVer precedence: numeric identifiers compare as numbers and sort before alphanumeric ones, which
-// compare in ASCII order.
+// SemVer precedence, with alphanumeric identifiers in ASCII order rather than locale order.
 function compareIdentifiers(x: string, y: string): number {
     const xNumeric = /^\d+$/.test(x)
     const yNumeric = /^\d+$/.test(y)
@@ -199,6 +213,10 @@ export async function resolveCatalog(runtime: Runtime, options: CatalogOptions):
     }
     if (options.insecureTls !== undefined) {
         return bundled('insecure_tls', options.insecureTls)
+    }
+    const plainHttp = plainHttpReason(catalogHost(options.host))
+    if (plainHttp !== undefined) {
+        return bundled('plain_http', plainHttp)
     }
 
     let path: string

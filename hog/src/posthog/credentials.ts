@@ -282,8 +282,6 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
     )
 }
 
-// The CI provider of this job and the project its token is exchanged for. `resolveCredentials` tries
-// the exchange, before any stored login, when both are set.
 function workloadJob(
     runtime: Runtime,
     options: CredentialOptions
@@ -292,7 +290,6 @@ function workloadJob(
     return { provider, projectId: provider && (envProjectId(runtime) ?? options.configProjectId) }
 }
 
-// The host `resolveCredentials` exchanges the CI job's token with, or undefined when it tries no exchange.
 export function workloadExchangeHost(runtime: Runtime, options: CredentialOptions): Host | undefined {
     const { provider, projectId } = workloadJob(runtime, options)
     return provider && projectId ? workloadHost(options) : undefined

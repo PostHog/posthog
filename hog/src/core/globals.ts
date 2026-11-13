@@ -178,10 +178,8 @@ export function resolveGlobals(
     return resolved as GlobalOptions
 }
 
-// Why requests in this run may skip certificate checks, or undefined when they can't. Node and Bun skip
-// the checks for every request when NODE_TLS_REJECT_UNAUTHORIZED is "0", and "false" counts too, because
-// treating a run as insecure only costs it what it downloads. Anything fetched while the checks are off
-// may come from whoever answered, so hog must not keep it for later runs.
+// Node and Bun skip certificate checks for every request when NODE_TLS_REJECT_UNAUTHORIZED is "0". "false"
+// counts too, because a false alarm only costs the run what it downloads.
 export function tlsVerificationOff(env: Env, globals: GlobalOptions): string | undefined {
     if (globals.skipSslVerification) {
         return 'TLS verification is off'
