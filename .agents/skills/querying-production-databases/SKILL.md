@@ -155,3 +155,19 @@ Use [`querying-production-databases-via-metabase`](../querying-production-databa
 | `sendRawQuery` refused                                            | The source is a synced source                                  | Write HogQL, or fall back to Metabase                                                           |
 | `integrations-list` returns no `posthog` connection               | The connection was made in another project, or by someone else | Create it while US team 2 is the current project                                                |
 | Memory or timeout error                                           | Scan too wide                                                  | Narrow the time range, add `team_id`, aggregate earlier                                         |
+
+## Keeping the library copy in sync
+
+A copy of this skill lives in the PostHog skills library in US team 2, under the same name.
+Staff load it through the PostHog MCP without a checkout of this repository.
+This file and its `references/` are the source of truth.
+
+When you change this skill:
+
+1. Change it here and land the change through a PR.
+2. Update the library copy to match, through the PostHog MCP on US team 2 or in the web app.
+   `skill-update` takes `edits` for `SKILL.md` and `file_edits` for a file under `references/`.
+   A new reference file needs `skill-file-create`.
+3. Keep the two differences the library copy needs. It names other repo skills by their path in this repository, not by a relative link. Its sync section points back here.
+
+When the library copy holds an edit that this file lacks, bring the edit here first, then sync it back.
