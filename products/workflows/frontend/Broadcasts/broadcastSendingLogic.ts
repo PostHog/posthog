@@ -1,19 +1,17 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { projectLogic } from 'scenes/projectLogic'
 
-import { hogFlowsInFlightRetrieve, hogFlowsPartialUpdate } from '../generated/api'
-import type { HogFlowApi, HogFlowEmailSendingRateLimitApi, HogFlowInFlightApi } from '../generated/api.schemas'
+import { hogFlowsInFlightRetrieve } from '../generated/api'
+import type { HogFlowApi, HogFlowInFlightApi } from '../generated/api.schemas'
 import {
     EmailSendingPause,
     emailSendingPause,
     openResumeEmailSendingDialog,
     requestResumeEmailSending,
 } from '../Workflows/emailSending'
-import { BroadcastWizardLogicProps, broadcastWizardLogic, remainingSendDuration } from './broadcastWizardLogic'
+import { BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const SENDING_REFRESH_INTERVAL_MS = 30_000
 
@@ -24,31 +22,16 @@ export interface broadcastSendingLogicValues {
     inFlight: HogFlowInFlightApi | null
     inFlightLoading: boolean
     inFlightFailed: boolean
-    sendingRateModalOpen: boolean
-    sendingRateDraft: HogFlowEmailSendingRateLimitApi | null
-    savingSendingRate: boolean
     resumingEmailSending: boolean
-    sendingRate: HogFlowEmailSendingRateLimitApi | null
     stillToSend: number | null
-    stillToSendDuration: string
     emailSendingPause: EmailSendingPause
 }
 
 export interface broadcastSendingLogicActions {
     loadBroadcast: () => any // broadcastWizardLogic
-    setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => {
-        emailRateLimit: HogFlowEmailSendingRateLimitApi | null
-    } // broadcastWizardLogic
     loadInFlight: () => any
     loadInFlightSuccess: (inFlight: HogFlowInFlightApi | null, payload?: any) => any
     loadInFlightFailure: (error: string, errorObject?: any) => any
-    openSendingRateModal: () => any
-    closeSendingRateModal: () => any
-    setSendingRateDraft: (limit: HogFlowEmailSendingRateLimitApi | null) => {
-        limit: HogFlowEmailSendingRateLimitApi | null
-    }
-    saveSendingRate: () => any
-    setSavingSendingRate: (saving: boolean) => { saving: boolean }
     resumeEmailSending: () => any
     confirmResumeEmailSending: () => any
     setResumingEmailSending: (resuming: boolean) => { resuming: boolean }
@@ -60,22 +43,17 @@ export type broadcastSendingLogicType = MakeLogicType<
     BroadcastWizardLogicProps
 >
 
-/** The live send controls on a broadcast's summary: pacing, what is still queued, and an email pause. */
+/** The live send state on a broadcast's summary: what is still queued, and an email pause. */
 export const broadcastSendingLogic = kea<broadcastSendingLogicType>([
     path((id) => ['products', 'workflows', 'frontend', 'Broadcasts', 'broadcastSendingLogic', id]),
     props({} as BroadcastWizardLogicProps),
     key((props) => props.id),
     connect((props: BroadcastWizardLogicProps) => ({
         values: [projectLogic, ['currentProjectId'], broadcastWizardLogic(props), ['broadcast']],
-        actions: [broadcastWizardLogic(props), ['loadBroadcast', 'setEmailRateLimit']],
+        actions: [broadcastWizardLogic(props), ['loadBroadcast']],
     })),
 
     actions({
-        openSendingRateModal: true,
-        closeSendingRateModal: true,
-        setSendingRateDraft: (limit: HogFlowEmailSendingRateLimitApi | null) => ({ limit }),
-        saveSendingRate: true,
-        setSavingSendingRate: (saving: boolean) => ({ saving }),
         resumeEmailSending: true,
         confirmResumeEmailSending: true,
         setResumingEmailSending: (resuming: boolean) => ({ resuming }),
@@ -97,29 +75,13 @@ export const broadcastSendingLogic = kea<broadcastSendingLogicType>([
 
     reducers({
         inFlightFailed: [false, { loadInFlight: () => false, loadInFlightFailure: () => true }],
-        sendingRateModalOpen: [false, { openSendingRateModal: () => true, closeSendingRateModal: () => false }],
-        sendingRateDraft: [
-            null as HogFlowEmailSendingRateLimitApi | null,
-            { setSendingRateDraft: (_, { limit }) => limit },
-        ],
-        savingSendingRate: [false, { setSavingSendingRate: (_, { saving }) => saving }],
         resumingEmailSending: [false, { setResumingEmailSending: (_, { resuming }) => resuming }],
     }),
 
     selectors({
-        sendingRate: [
-            (s) => [s.broadcast],
-            (broadcast: HogFlowApi | null): HogFlowEmailSendingRateLimitApi | null =>
-                broadcast?.email_sending_rate_limit ?? null,
-        ],
         stillToSend: [
             (s) => [s.inFlight],
             (inFlight: HogFlowInFlightApi | null): number | null => inFlight?.count ?? null,
-        ],
-        stillToSendDuration: [
-            (s) => [s.stillToSend, s.sendingRate],
-            (stillToSend: number | null, sendingRate: HogFlowEmailSendingRateLimitApi | null): string =>
-                remainingSendDuration(stillToSend, sendingRate),
         ],
         emailSendingPause: [
             (s) => [s.broadcast],
@@ -128,33 +90,6 @@ export const broadcastSendingLogic = kea<broadcastSendingLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        openSendingRateModal: () => {
-            actions.setSendingRateDraft(values.sendingRate)
-        },
-        saveSendingRate: async () => {
-            if (values.savingSendingRate || !values.currentProjectId) {
-                return
-            }
-            actions.setSavingSendingRate(true)
-            try {
-                // A plain API write applies to the live broadcast, so a send in progress picks up the new pace.
-                await hogFlowsPartialUpdate(String(values.currentProjectId), props.id, {
-                    email_sending_rate_limit: values.sendingRateDraft,
-                })
-                lemonToast.success('Sending rate updated')
-                // The wizard hydrates once, so reloading the row alone would leave "Send again" and later
-                // draft saves on the old rate.
-                actions.setEmailRateLimit(values.sendingRateDraft)
-                actions.closeSendingRateModal()
-                actions.loadBroadcast()
-            } catch (error: any) {
-                lemonToast.error(
-                    `Couldn't update the sending rate: ${error?.detail || error?.message || 'unknown error'}`
-                )
-            } finally {
-                actions.setSavingSendingRate(false)
-            }
-        },
         resumeEmailSending: () => {
             if (values.resumingEmailSending) {
                 return

@@ -18,6 +18,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import type { HogFlowBatchJobApi, HogFlowConversionApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { sendingRateSummary } from '../Workflows/emailSending'
 import { EmailSendingPausedBanner } from '../Workflows/EmailSendingPausedBanner'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
@@ -32,8 +33,6 @@ import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { canStillBeSending } from './broadcastRunAudience'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSendingLogic } from './broadcastSendingLogic'
-import { BroadcastSendingRate } from './BroadcastSendingRate'
-import { BroadcastSendingRateModal } from './BroadcastSendingRateModal'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
@@ -573,7 +572,9 @@ export function BroadcastSummary(): JSX.Element {
                                         {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
                                         {channel === 'email' ? (
                                             <SummaryRow label="Sending rate">
-                                                <BroadcastSendingRate />
+                                                {broadcast?.email_sending_rate_limit
+                                                    ? sendingRateSummary(broadcast.email_sending_rate_limit)
+                                                    : 'No limit'}
                                             </SummaryRow>
                                         ) : null}
                                         <SummaryRow label="Still to send">
@@ -648,7 +649,6 @@ export function BroadcastSummary(): JSX.Element {
                     ]}
                 />
             </div>
-            <BroadcastSendingRateModal />
         </SceneContent>
     )
 }
