@@ -9,7 +9,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.data_catalog.evals.seeders import _require_incident_warehouse_paths
+from products.data_catalog.evals.seeders import require_warehouse_tables
 
 
 class TestGovernedMetricEvalSeeders:
@@ -26,4 +26,4 @@ class TestGovernedMetricEvalSeeders:
             pytest.raises(RuntimeError, match=missing_table),
         ):
             queryable.return_value.filter.return_value = tables
-            _require_incident_warehouse_paths(cast(Team, SimpleNamespace()), cast(User, SimpleNamespace()))
+            require_warehouse_tables(cast(Team, SimpleNamespace()), cast(User, SimpleNamespace()))

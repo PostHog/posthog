@@ -6,6 +6,7 @@ function. Every seeder returns the identities and trust signals its scorers grad
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from unittest.mock import patch
@@ -193,21 +194,21 @@ __all__ = [
     "seed_top_customers_metric",
 ]
 
-_STRING_COLUMN = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
-_INTEGER_COLUMN = {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}
-_FLOAT_COLUMN = {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True}
+STRING_COLUMN = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+INTEGER_COLUMN = {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}
+FLOAT_COLUMN = {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True}
 _INCIDENT_WAREHOUSE_QUERIES = {
     "paid_bills": "SELECT distinct_id, timestamp, amount_usd FROM paid_bills LIMIT 1",
     "extended_properties": ("SELECT hedgebox_user_id, account_kind, monthly_bill_usd FROM extended_properties LIMIT 1"),
 }
 
 
-def _team_and_user(context: CustomPromptSandboxContext) -> tuple[Team, User]:
+def team_and_user(context: CustomPromptSandboxContext) -> tuple[Team, User]:
     return Team.objects.get(pk=context.team_id), User.objects.get(pk=context.user_id)
 
 
 def seed_approved_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     metric = upsert_metric(
         team=team,
         user=user,
@@ -228,17 +229,19 @@ def seed_approved_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     }
 
 
-def _require_incident_warehouse_paths(team: Team, user: User) -> None:
+def require_warehouse_tables(team: Team, user: User, names: Iterable[str] = tuple(_INCIDENT_WAREHOUSE_QUERIES)) -> None:
+    """Fail the seed when a Hedgebox warehouse table is missing, so the agent never scores 0 for an infrastructure fault."""
+    queries = {name: _INCIDENT_WAREHOUSE_QUERIES[name] for name in names}
     tables = {
         table.name: table
         for table in DataWarehouseTable.objects.queryable().filter(
             team=team,
-            name__in=_INCIDENT_WAREHOUSE_QUERIES,
+            name__in=queries,
         )
     }
     unavailable = [
         name
-        for name in _INCIDENT_WAREHOUSE_QUERIES
+        for name in queries
         if name not in tables or not tables[name].url_pattern or tables[name].credential_id is None
     ]
     if unavailable:
@@ -246,7 +249,7 @@ def _require_incident_warehouse_paths(team: Team, user: User) -> None:
             "Governed-metrics eval requires queryable Hedgebox warehouse tables: " + ", ".join(unavailable)
         )
 
-    for name, query in _INCIDENT_WAREHOUSE_QUERIES.items():
+    for name, query in queries.items():
         try:
             response = execute_hogql_query(query, team=team, user=user)
         except Exception as error:
@@ -260,8 +263,8 @@ def _seed_top_customers_metric(
     *,
     definition: dict,
 ) -> tuple[Team, User]:
-    team, user = _team_and_user(context)
-    _require_incident_warehouse_paths(team, user)
+    team, user = team_and_user(context)
+    require_warehouse_tables(team, user)
     metric = upsert_metric(
         team=team,
         user=user,
@@ -323,7 +326,7 @@ def seed_failing_top_customers_metric(context: CustomPromptSandboxContext) -> di
 
 
 def seed_operational_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     metric = upsert_metric(
         team=team,
         user=user,
@@ -355,7 +358,7 @@ def _seed_named_operational_metric(
     unit: str,
     definition: dict,
 ) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     metric = upsert_metric(
         team=team,
         user=user,
@@ -448,7 +451,7 @@ def seed_long_series_metric(context: CustomPromptSandboxContext) -> dict[str, An
 
 
 def seed_ambiguous_customer_count_metrics(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     for name, display_name, description, definition in (
         (
             PAYING_CUSTOMERS_METRIC_NAME,
@@ -490,7 +493,7 @@ def seed_ambiguous_customer_count_metrics(context: CustomPromptSandboxContext) -
 
 
 def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     approved = upsert_metric(
         team=team,
         user=user,
@@ -520,7 +523,7 @@ def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) 
 
 
 def _seed_proposed_uploaders_metric(context: CustomPromptSandboxContext, definition: dict) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     upsert_metric(
         team=team,
         user=user,
@@ -549,7 +552,7 @@ def seed_mismatched_proposed_uploaders_metric(context: CustomPromptSandboxContex
 def _seed_drifted_metric(
     context: CustomPromptSandboxContext, original_query: dict, mutated_query: dict
 ) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     insight = Insight.objects.create(team=team, created_by=user, query=original_query)
     metric = upsert_metric(
         team=team,
@@ -583,7 +586,7 @@ def seed_mismatched_drifted_metric(context: CustomPromptSandboxContext) -> dict[
 
 
 def seed_definition_insight(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     insight = Insight.objects.create(
         team=team,
         created_by=user,
@@ -601,7 +604,7 @@ def seed_definition_insight(context: CustomPromptSandboxContext) -> dict[str, An
 
 
 def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     approved = upsert_metric(
         team=team,
         user=user,
@@ -638,12 +641,12 @@ def _warehouse_table(team: Team, name: str, columns: tuple[str, ...]) -> DataWar
         format=DataWarehouseTableFormat.CSVWithNames,
         url_pattern="",
         credential=None,
-        columns=dict.fromkeys(columns, _STRING_COLUMN),
+        columns=dict.fromkeys(columns, STRING_COLUMN),
     )
 
 
 def seed_certification_trust_sources(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     certified_source = _warehouse_table(team, CERTIFIED_SOURCE_NAME, ("invoice_id", "amount_usd", "account_id"))
     deprecated_source = _warehouse_table(team, DEPRECATED_SOURCE_NAME, ("invoice_id", "amount_usd", "account_id"))
 
@@ -658,7 +661,7 @@ def seed_certification_trust_sources(context: CustomPromptSandboxContext) -> dic
 
 
 def seed_deprecation_candidate_sources(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     canonical_source = _warehouse_table(
         team, DEPRECATION_CANONICAL_SOURCE_NAME, ("payment_id", "amount_usd", "account_id")
     )
@@ -673,7 +676,7 @@ def seed_deprecation_candidate_sources(context: CustomPromptSandboxContext) -> d
     }
 
 
-def _accept_seeded_relationship(
+def accept_seeded_relationship(
     *,
     team: Team,
     user: User,
@@ -682,14 +685,16 @@ def _accept_seeded_relationship(
     field_name: str,
     confidence: float,
     reasoning: str,
+    source_key: str = RELATIONSHIP_SOURCE_KEY,
+    target_key: str = RELATIONSHIP_TARGET_KEY,
 ) -> None:
     proposal = propose_relationship(
         team=team,
         user=user,
         source_table_name=source_table_name,
-        source_table_key=RELATIONSHIP_SOURCE_KEY,
+        source_table_key=source_key,
         joining_table_name=target_table_name,
-        joining_table_key=RELATIONSHIP_TARGET_KEY,
+        joining_table_key=target_key,
         field_name=field_name,
         confidence=confidence,
         reasoning=reasoning,
@@ -699,7 +704,7 @@ def _accept_seeded_relationship(
 
 
 def seed_accepted_relationship_context(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     _warehouse_table(team, RELATIONSHIP_SOURCE_NAME, ("order_id", RELATIONSHIP_SOURCE_KEY))
     _warehouse_table(team, ACCEPTED_RELATIONSHIP_TARGET_NAME, (RELATIONSHIP_TARGET_KEY, "email"))
     _warehouse_table(team, RELATIONSHIP_DECOY_TARGET_NAME, (RELATIONSHIP_TARGET_KEY, "email"))
@@ -711,7 +716,7 @@ def seed_accepted_relationship_context(context: CustomPromptSandboxContext) -> d
         joining_table_key=RELATIONSHIP_TARGET_KEY,
         field_name="account",
     )
-    _accept_seeded_relationship(
+    accept_seeded_relationship(
         team=team,
         user=user,
         source_table_name=RELATIONSHIP_SOURCE_NAME,
@@ -732,10 +737,10 @@ def seed_accepted_relationship_context(context: CustomPromptSandboxContext) -> d
 
 
 def seed_instruction_like_relationship_context(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     _warehouse_table(team, INJECTION_RELATIONSHIP_SOURCE_NAME, ("case_id", RELATIONSHIP_SOURCE_KEY))
     _warehouse_table(team, INJECTION_RELATIONSHIP_TARGET_NAME, (RELATIONSHIP_TARGET_KEY, "owner_email"))
-    _accept_seeded_relationship(
+    accept_seeded_relationship(
         team=team,
         user=user,
         source_table_name=INJECTION_RELATIONSHIP_SOURCE_NAME,
@@ -753,7 +758,12 @@ def seed_instruction_like_relationship_context(context: CustomPromptSandboxConte
     }
 
 
-def _synced_table(
+def synced_table_names(table_name: str) -> list[str]:
+    """A synced table answers to its stored name and to the dotted name HogQL builds from the source."""
+    return [table_name, f"postgres.{table_name.removeprefix('postgres_')}"]
+
+
+def synced_table(
     team: Team,
     user: User,
     *,
@@ -785,13 +795,13 @@ def _synced_table(
 
 def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
     """Create a view over the synced invoice lines table and annotate it. ``""`` in ``descriptions`` is the view."""
-    _synced_table(
+    synced_table(
         team,
         user,
         source_type=ExternalDataSourceType.POSTGRES,
         schema_name=INVOICE_LINES_SCHEMA_NAME,
         table_name=INVOICE_LINES_TABLE_NAME,
-        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
+        columns=dict.fromkeys(("line_id", "amount", "status"), INTEGER_COLUMN),
         rows=INVOICE_LINES_ROWS,
         descriptions={},
     )
@@ -799,7 +809,7 @@ def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions
         team=team,
         created_by=user,
         name=name,
-        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
+        columns=dict.fromkeys(("line_id", "amount", "status"), INTEGER_COLUMN),
         query={"query": sql},
         status=DataWarehouseSavedQuery.Status.COMPLETED,
     )
@@ -818,7 +828,7 @@ def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions
 
 
 def seed_annotated_ledger_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     _annotated_view(
         team,
         user,
@@ -834,7 +844,7 @@ def seed_annotated_ledger_view(context: CustomPromptSandboxContext) -> dict[str,
 
 
 def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     _annotated_view(
         team,
         user,
@@ -846,19 +856,19 @@ def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext)
 
 
 def seed_synced_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
-    _synced_table(
+    team, user = team_and_user(context)
+    synced_table(
         team,
         user,
         source_type=ExternalDataSourceType.ADOBECOMMERCE,
         schema_name=SYNCED_INVOICES_SCHEMA_NAME,
         table_name=SYNCED_INVOICES_TABLE_NAME,
         columns={
-            "entity_id": _INTEGER_COLUMN,
-            "increment_id": _STRING_COLUMN,
-            "order_id": _INTEGER_COLUMN,
-            "state": _INTEGER_COLUMN,
-            "base_grand_total": _FLOAT_COLUMN,
+            "entity_id": INTEGER_COLUMN,
+            "increment_id": STRING_COLUMN,
+            "order_id": INTEGER_COLUMN,
+            "state": INTEGER_COLUMN,
+            "base_grand_total": FLOAT_COLUMN,
         },
         rows=SYNCED_INVOICES_ROWS,
         descriptions=SYNCED_INVOICES_DESCRIPTIONS,
@@ -867,18 +877,18 @@ def seed_synced_invoices_table(context: CustomPromptSandboxContext) -> dict[str,
 
 
 def seed_synced_time_off_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
-    _synced_table(
+    team, user = team_and_user(context)
+    synced_table(
         team,
         user,
         source_type=ExternalDataSourceType.HOORAYHR,
         schema_name=SYNCED_TIME_OFF_SCHEMA_NAME,
         table_name=SYNCED_TIME_OFF_TABLE_NAME,
         columns={
-            "id": _INTEGER_COLUMN,
-            "user_id": _INTEGER_COLUMN,
-            "status": _INTEGER_COLUMN,
-            "time_off_type": _STRING_COLUMN,
+            "id": INTEGER_COLUMN,
+            "user_id": INTEGER_COLUMN,
+            "status": INTEGER_COLUMN,
+            "time_off_type": STRING_COLUMN,
         },
         rows=SYNCED_TIME_OFF_ROWS,
         descriptions=SYNCED_TIME_OFF_DESCRIPTIONS,
@@ -894,10 +904,10 @@ def _seed_candidate_tables(
 ) -> dict[str, Any]:
     """Install the information_schema suite's catalog, then queryable candidate tables from the team's Postgres."""
     seed_warehouse_schema(context)
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     names = []
     for schema_name, description, rows in candidates:
-        synced = _synced_table(
+        synced = synced_table(
             team,
             user,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -916,7 +926,7 @@ def seed_acv_candidate_tables(context: CustomPromptSandboxContext) -> dict[str, 
     return _seed_candidate_tables(
         context,
         candidates=ACV_CANDIDATES,
-        columns=dict.fromkeys(("contract_id", "account_id", "acv"), _INTEGER_COLUMN),
+        columns=dict.fromkeys(("contract_id", "account_id", "acv"), INTEGER_COLUMN),
     )
 
 
@@ -925,27 +935,27 @@ def seed_subscription_snapshot_tables(context: CustomPromptSandboxContext) -> di
         context,
         candidates=SUBSCRIPTION_CANDIDATES,
         columns={
-            "subscription_id": _INTEGER_COLUMN,
-            "account_id": _INTEGER_COLUMN,
-            "plan": _STRING_COLUMN,
-            "is_active": _INTEGER_COLUMN,
+            "subscription_id": INTEGER_COLUMN,
+            "account_id": INTEGER_COLUMN,
+            "plan": STRING_COLUMN,
+            "is_active": INTEGER_COLUMN,
         },
     )
 
 
 def seed_client_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
-    _synced_table(
+    team, user = team_and_user(context)
+    synced_table(
         team,
         user,
         source_type=ExternalDataSourceType.POSTGRES,
         schema_name=CLIENT_INVOICES_SCHEMA,
         table_name=f"postgres_{CLIENT_INVOICES_SCHEMA}",
         columns={
-            "invoice_id": _INTEGER_COLUMN,
-            "client_id": _INTEGER_COLUMN,
-            "revenue": _FLOAT_COLUMN,
-            "client_revenue": _FLOAT_COLUMN,
+            "invoice_id": INTEGER_COLUMN,
+            "client_id": INTEGER_COLUMN,
+            "revenue": FLOAT_COLUMN,
+            "client_revenue": FLOAT_COLUMN,
         },
         rows=CLIENT_INVOICES_ROWS,
         descriptions=CLIENT_INVOICES_DESCRIPTIONS,

@@ -14,8 +14,12 @@ _SCORERS: dict[str, OfflineScorer] = {
         kind="numeric", version=UUID("01a15a28-0f80-7d6e-b0bb-0573fcb583fa")
     ),
     "metric_create_called": OfflineScorer(kind="boolean", version=UUID("01a15a28-47d2-7eea-ba8a-55266556d782")),
+    "metric_describe_before_adapted_sql": OfflineScorer(
+        kind="boolean", version=UUID("01a1893a-3bfa-7dd3-86e5-63aa1912f6ae")
+    ),
     "metric_description_concise": OfflineScorer(kind="boolean", version=UUID("01a15a28-5017-75a6-b5e5-5ddfe270c02a")),
     "metric_description_quality": OfflineScorer(kind="boolean", version=UUID("01a15a28-5aa6-746d-8d30-bc84b857f15a")),
+    "metric_found": OfflineScorer(kind="boolean", version=UUID("01a1893a-1b14-795f-ac5c-ebb4c244e0bb")),
     "metric_search_confident_when_present": OfflineScorer(
         kind="numeric", version=UUID("01a1c580-b96c-7143-a8db-1ac2f93451e0")
     ),
@@ -60,12 +64,20 @@ _SCORERS: dict[str, OfflineScorer] = {
     ),
     "metrics_catalog_not_queried": OfflineScorer(kind="boolean", version=UUID("01a15a28-0586-7594-9cd5-3f1ff8ca3c06")),
     "metrics_catalog_queried": OfflineScorer(kind="boolean", version=UUID("01a15a27-e0c4-74f7-ae0c-acda47b99ab3")),
+    "no_data_sql_run": OfflineScorer(kind="boolean", version=UUID("01a1893a-334a-752a-97a7-7b9ea3dbce0b")),
     "no_metric_write": OfflineScorer(kind="boolean", version=UUID("01a15a28-30cb-7118-b1c8-9084eba7378e")),
     "proposed_badge": OfflineScorer(kind="boolean", version=UUID("01a15a28-206d-79ea-b231-4bf05e131c80")),
+    "query_terms_used": OfflineScorer(kind="numeric", version=UUID("01a1893a-d7ed-7587-91b1-9c6ff5c20205")),
+    "run_override_used": OfflineScorer(kind="boolean", version=UUID("01a1893a-2bb8-7f8d-a19e-94269b7e6fca")),
+    "semantic_layer_answer": OfflineScorer(kind="numeric", version=UUID("01a1893a-e78b-72c6-90fc-6c4310d88262")),
     "semantic_metadata_queried": OfflineScorer(kind="boolean", version=UUID("01a15a28-64d0-787c-af9e-94c4730b8a1c")),
     "semantic_trust_decision_correctness": OfflineScorer(
         kind="numeric", version=UUID("01a15a28-6ded-74ed-a08c-4bfc378b0b5b")
     ),
+    "sentinel_absent": OfflineScorer(kind="boolean", version=UUID("01a1893a-448a-72e4-abed-3b1d03271183")),
+    "sources_avoided": OfflineScorer(kind="boolean", version=UUID("01a1893a-4d81-73de-8a6e-687277f05729")),
+    "sources_consulted": OfflineScorer(kind="numeric", version=UUID("01a1893a-deaa-71b2-ab5a-818ddecb5b4c")),
+    "table_inspected": OfflineScorer(kind="boolean", version=UUID("01a1893a-5564-7dfa-8d1d-e2d15bb8808c")),
     "trust_badge": OfflineScorer(kind="boolean", version=UUID("01a15a28-17ed-7638-82e4-d39bd349ce9e")),
 }
 
