@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingsQuery,
@@ -121,6 +122,25 @@ class TestReplaySessionsTableVersion(APIBaseTest):
                 None,
             ),
             (
+                "flag_off",
+                {"date_from": "-7d"},
+                "US",
+                None,
+                None,
+                {},
+                None,
+                False,
+            ),
+            (
+                "hogql_filter_on_a_field_only_v2_has",
+                {"date_from": "-7d", "properties": [HogQLPropertyFilter(key="session.$vitals_lcp > 2500")]},
+                "US",
+                None,
+                None,
+                {},
+                None,
+            ),
+            (
                 "filter_on_a_field_only_v2_has",
                 {
                     "date_from": "-7d",
@@ -135,7 +155,7 @@ class TestReplaySessionsTableVersion(APIBaseTest):
         ]
     )
     def test_recent_ranges_read_sessions_v3(
-        self, _name, query_kwargs, region, team_version, requested_version, list_kwargs, expected_version
+        self, _name, query_kwargs, region, team_version, requested_version, list_kwargs, expected_version, flag_on=True
     ) -> None:
         if team_version:
             self.team.modifiers = {"sessionTableVersion": team_version}
@@ -151,6 +171,10 @@ class TestReplaySessionsTableVersion(APIBaseTest):
 
         with (
             patch("posthog.session_recordings.queries.session_recording_list_from_query.is_cloud", return_value=True),
+            patch(
+                "posthog.session_recordings.queries.session_recording_list_from_query.feature_enabled_or_false",
+                return_value=flag_on,
+            ),
             override_settings(CLOUD_DEPLOYMENT=region),
         ):
             modifiers = query._execution_modifiers

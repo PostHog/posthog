@@ -38,6 +38,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.session_replay_events import uuidv7_session_lower_bound
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
@@ -75,6 +76,9 @@ UNSCORED_SURFACING_SCORE = 0.36
 # Match the Float32 storage precision so a score equal to the cutoff stays excluded after promotion.
 RECOMMENDED_SURFACING_SCORE_THRESHOLD = struct.unpack("!f", struct.pack("!f", 0.36))[0]
 
+
+# Rolls the switch to sessions v3 out per team, and turns it off without a deploy.
+REPLAY_SESSIONS_V3_FLAG = "replay-sessions-v3-recent"
 
 # A "last 30 days" range starts at midnight in the team's timezone, up to a day before now minus 30 days.
 REPLAY_SESSIONS_V3_MAX_RANGE = timedelta(days=31)
@@ -291,7 +295,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if stored not in (None, SessionTableVersion.AUTO.value) or self._references_sessions_v2_only_field():
             return requested
         coverage_start = _sessions_v3_coverage_start()
-        if coverage_start is None:
+        if coverage_start is None or not self._sessions_v3_flag_enabled():
             return requested
         earliest = max(coverage_start, datetime.now(UTC) - REPLAY_SESSIONS_V3_MAX_RANGE)
         if self._bypass_date_window():
@@ -304,6 +308,20 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 return requested
         return (requested or HogQLQueryModifiers()).model_copy(update={"sessionTableVersion": SessionTableVersion.V3})
 
+    def _sessions_v3_flag_enabled(self) -> bool:
+        team = self._team
+        return feature_enabled_or_false(
+            REPLAY_SESSIONS_V3_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
     def _pinned_sessions_start_after(self, earliest: datetime) -> bool:
         # A UUIDv7 session id embeds its start time. An id without a usable one may be older, so it keeps v2.
         for session_id in self._query.session_ids or []:
@@ -313,10 +331,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         return True
 
     def _references_sessions_v2_only_field(self) -> bool:
-        # A filter on a field that only the v2 sessions table has would fail to resolve on v3. Matching the name
-        # anywhere in the filters can also catch an event property of the same name, which only keeps v2.
-        filters = json.dumps([self._query.model_dump(mode="json"), self._test_account_filters], default=str)
-        return any(f'"{name}"' in filters for name in _SESSIONS_V2_ONLY_FIELDS)
+        # A filter on a field that only the v2 sessions table has would fail to resolve on v3. A bare name match
+        # also covers HogQL expressions such as `session.$vitals_lcp > 2500`. Matching an event property of the
+        # same name only keeps v2.
+        filters = json.dumps(
+            [self._query.model_dump(mode="json", exclude={"session_ids"}), self._test_account_filters], default=str
+        )
+        return any(name in filters for name in _SESSIONS_V2_ONLY_FIELDS)
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -362,6 +383,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 listing_tags["experiment_exposures_in_session"] = True
             if self._query.event_match_scope == EventMatchScope.RECORDING:
                 listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
+            listing_tags["replay_sessions_table_version"] = (
+                (self._execution_modifiers.sessionTableVersion if self._execution_modifiers else None)
+                or SessionTableVersion.AUTO
+            ).value
             plan = self._event_match_plan
             if plan is not None and plan.filter_count:
                 listing_tags["replay_event_query_strategy"] = plan.strategy
