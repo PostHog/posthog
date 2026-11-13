@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -155,6 +156,8 @@ export const sidebarPinsLogic = kea<sidebarPinsLogicType>([
             }
             const key = pinTargetKey(target)
             const shortcutId = values.pinnedShortcutIds.get(key)
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('sidebar item pinned', { pinned: !shortcutId, object_type: target.type.split('/')[0] })
             if (shortcutId) {
                 actions.deleteShortcut(shortcutId, UNPINNED_TOAST)
                 return
