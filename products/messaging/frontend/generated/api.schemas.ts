@@ -178,7 +178,7 @@ export interface EmailAttachmentApi {
      */
     filename: string
     /**
-     * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+     * MIME type of the file, such as `application/pdf`, with any parameters, such as `text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.
      * @maxLength 78
      */
     content_type?: string
@@ -733,6 +733,48 @@ export interface MessageSuppressionApi {
     readonly updated_at: string
 }
 
+/**
+ * * `bounce` - Bounce
+ * * `complaint` - Complaint
+ * * `manual` - Manual
+ */
+export type BulkSuppressionReasonEnumApi =
+    (typeof BulkSuppressionReasonEnumApi)[keyof typeof BulkSuppressionReasonEnumApi]
+
+export const BulkSuppressionReasonEnumApi = {
+    Bounce: 'bounce',
+    Complaint: 'complaint',
+    Manual: 'manual',
+} as const
+
+export interface BulkSuppressionEntryApi {
+    /**
+     * The email address to suppress. Matched case-insensitively.
+     * @maxLength 512
+     */
+    identifier: string
+    /** Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.
+     *
+     * * `bounce` - Bounce
+     * * `complaint` - Complaint
+     * * `manual` - Manual */
+    reason?: BulkSuppressionReasonEnumApi
+}
+
+export interface BulkAddSuppressionsRequestApi {
+    /** Addresses to suppress, at most 1000 per request. */
+    suppressions: BulkSuppressionEntryApi[]
+}
+
+export interface BulkAddSuppressionsResultApi {
+    /** Number of distinct addresses received, after lowercasing. */
+    total: number
+    /** Number of addresses added to the suppression list. */
+    created: number
+    /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+    already_present: number
+}
+
 export interface BulkRemoveSuppressionsRequestApi {
     /**
      * The email addresses to remove, at most 100 per request.
@@ -929,6 +971,8 @@ export interface UserBasicApi {
 }
 
 export interface MessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id: string
     /**
      * Human-readable template name shown in the library.
@@ -983,6 +1027,8 @@ export interface PaginatedMessageTemplateListApi {
 }
 
 export interface PatchedMessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -1091,6 +1137,14 @@ export interface MakeTransactionalApi {
      * @nullable
      */
     from_integration_id?: number | null
+}
+
+export interface MessageTemplatePlacementApi {
+    /**
+     * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+     * @nullable
+     */
+    path: string | null
 }
 
 /**

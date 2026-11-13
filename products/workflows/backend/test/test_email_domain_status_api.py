@@ -91,23 +91,13 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert self.is_verified(late_sender)
         assert len(self.verified_events()) == 1
 
-    @parameterized.expand(
-        [(False, False, 404), (True, False, 200), (False, True, 200), (True, True, 200), (None, None, 404)]
-    )
-    def test_status_reads_ses_without_writing_to_it(
-        self, wizard_enabled: bool | None, agent_enabled: bool | None, expected_status: int
-    ) -> None:
+    def test_status_reads_ses_without_writing_to_it(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         self.publish(self.records_to_publish(sender), *ALL_KINDS)
         writes_after_create = list(self.world.ses.writes)
-        self.feature_flags.side_effect = lambda key, *args, **kwargs: {
-            "workflows-email-domain-wizard": wizard_enabled,
-            "workflows-email-domain-agent-setup": agent_enabled,
-        }.get(key, False)
         response = self.get_status(sender)
-        assert response.status_code == expected_status, response.json()
-        if expected_status == 200:
-            assert response.json()["status"] == "verified"
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "verified"
 
         assert self.world.ses.writes == writes_after_create
 

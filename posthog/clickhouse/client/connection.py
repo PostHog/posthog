@@ -168,6 +168,9 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_TRACES = "alerts_platform_traces"
     # Exists on the logs cluster only. Snuffle connects as it for the platform's PromQL queries.
     ALERTS_PLATFORM_METRICS = "alerts_platform_metrics"
+    # Exists on the logs and metrics clusters only. PostHog's Snuffle proxy sends PromQL and LogQL
+    # requests as this user when the caller names none, so they keep their own concurrency budget.
+    SNUFFLE = "snuffle"
     # The platform's own bookkeeping, shared by every source: its check history and the default
     # user of its evaluation worker. A source's checks keep their own user, so a new source never
     # takes from another source's budget.
@@ -467,13 +470,14 @@ LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
         ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ClickHouseUser.ALERTS_PLATFORM_METRICS,
         ClickHouseUser.ALERTS_PLATFORM_TRACES,
+        ClickHouseUser.SNUFFLE,
     }
 )
 # Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics
 # host falls back to the logs host, so a user listed here must also work there.
 # ALERTS_PLATFORM_INSIGHT is here because an insight alert on metrics must keep its own concurrency budget.
 METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
-    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS, ClickHouseUser.SNUFFLE}
 )
 
 _PINNED_CLUSTER_USERS: Mapping[Workload, frozenset[ClickHouseUser]] = {
@@ -519,6 +523,53 @@ def _pinned_cluster_kwargs(workload: Workload) -> dict[str, Any] | None:
     return None
 
 
+def _events_cluster_workload(workload: Workload, team_id: int | None) -> Workload | None:
+    if team_id is None:
+        return None
+    if workload == Workload.DEFAULT:
+        workload = _default_workload
+    configured_hosts = {
+        Workload.ONLINE: settings.CLICKHOUSE_EVENTS_ONLINE_HOST,
+        Workload.OFFLINE: settings.CLICKHOUSE_EVENTS_OFFLINE_HOST,
+    }
+    # The schema switch can read Postgres, so a deployment without events hosts never resolves it.
+    if not configured_hosts.get(workload):
+        return None
+    # Deferred: importing it loads the posthog.models package, which imports this module.
+    from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
+
+    return workload if use_new_events_schema(team_id) else None
+
+
+def events_cluster_host(workload: Workload, team_id: int | None) -> str | None:
+    """The events cluster host for a project's query, or None to keep the workload's own host.
+
+    The same switch picks the events table, so a project that reads events_json connects to the cluster that
+    stores it. A query with no team_id keeps its own host.
+    """
+    match _events_cluster_workload(workload, team_id):
+        case Workload.ONLINE:
+            return settings.CLICKHOUSE_EVENTS_ONLINE_HOST
+        case Workload.OFFLINE:
+            return settings.CLICKHOUSE_EVENTS_OFFLINE_HOST
+    return None
+
+
+def events_cluster_http_url(workload: Workload, team_id: int | None) -> str | None:
+    """The HTTP URL of events_cluster_host, for callers that build their own HTTP client."""
+    match _events_cluster_workload(workload, team_id):
+        case Workload.ONLINE:
+            return settings.CLICKHOUSE_EVENTS_ONLINE_HTTP_URL
+        case Workload.OFFLINE:
+            return settings.CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL
+    return None
+
+
+def query_cluster_name(workload: Workload, team_id: int | None) -> str:
+    """The cluster a project's query runs on, for lookups across its nodes such as system.processes or KILL."""
+    return settings.CLICKHOUSE_EVENTS_CLUSTER if events_cluster_host(workload, team_id) else settings.CLICKHOUSE_CLUSTER
+
+
 def get_kwargs_for_client(
     workload: Workload = Workload.DEFAULT,
     team_id=None,
@@ -548,6 +599,9 @@ def get_kwargs_for_client(
             "user": settings.READONLY_CLICKHOUSE_USER,
             "password": settings.READONLY_CLICKHOUSE_PASSWORD,
         }
+
+    if events_host := events_cluster_host(workload, team_id):
+        return {**base_kwargs, "host": events_host}
 
     if (
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE

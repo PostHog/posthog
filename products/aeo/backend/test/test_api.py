@@ -1732,3 +1732,65 @@ class TestAEOKeywordAPI(APIBaseTest):
             statuses = [self.client.get(f"{self.url}{endpoint}/").status_code for _ in range(3)]
 
         assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    @parameterized.expand(
+        [
+            ("answer", True, 1, status.HTTP_202_ACCEPTED, "completed", ["session replay"]),
+            ("timeout", True, 1, status.HTTP_202_ACCEPTED, "failed", []),
+            ("answer", False, 1, status.HTTP_403_FORBIDDEN, None, []),
+            ("answer", True, 200, status.HTTP_400_BAD_REQUEST, None, []),
+        ]
+    )
+    def test_suggest_runs_as_a_job_and_never_saves_keywords(
+        self,
+        outcome: str,
+        ai_approved: bool,
+        tracked: int,
+        start_status: int,
+        final_status: str | None,
+        expected: list[str],
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        create_keywords(self.team.id, ["pricing", *(f"keyword {i}" for i in range(tracked - 1))])
+        self._record("Best session replay tool?", searches=["session replay tools", "Session  replay pricing"])
+        answered = MagicMock(status_code=200)
+        answered.json.return_value = {
+            "stop_reason": "end_turn",
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        [
+                            {"keyword": "session replay", "reason": "Buyers search for it."},
+                            {"keyword": "Pricing", "reason": "Already tracked."},
+                        ]
+                    ),
+                }
+            ],
+        }
+        post = MagicMock(side_effect={"answer": [answered], "timeout": requests.Timeout()}[outcome])
+        gateway = MagicMock(url="http://gateway", api_key="test-key")
+
+        with (
+            patch("products.aeo.backend.keyword_suggestions.resolve_ai_gateway_config", return_value=gateway),
+            patch("products.aeo.backend.llm.requests.Session.post", post),
+        ):
+            started = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json")
+
+        assert started.status_code == start_status, started.json()
+        assert AEOKeyword.objects.for_team(self.team.id).count() == tracked
+        if final_status is None:
+            assert post.call_count == 0
+            return
+        instructions = post.call_args.kwargs["json"]["messages"][0]["content"]
+        assert "- session replay pricing (1)" in instructions
+        assert "- Best session replay tool?" in instructions
+        job = self.client.get(f"{self.url}suggest/{started.json()['id']}/").json()
+        assert job["status"] == final_status
+        # Two of the check's searches contain the keyword, and the check counts once, as in the keyword report.
+        assert [(s["keyword"], s["searched_checks"]) for s in job["suggestions"]] == [(k, 1) for k in expected]
+
+    def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
+        response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
