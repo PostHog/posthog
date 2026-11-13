@@ -311,23 +311,23 @@ describe('KafkaConsumerV2', () => {
         }
     )
 
-    it('with a byte bound, dispatches the collected messages when a follow-up pull fails', async () => {
+    it('with a byte bound, stops the loop without dispatching when a follow-up pull fails', async () => {
         consumer = new KafkaConsumerV2({ groupId: 'test-group', topic: 'test-topic', fetchBatchMaxBytes: 1000 })
         const eachBatch = jest.fn((_messages: Message[]) => Promise.resolve({}))
         await startConsuming(eachBatch)
 
-        mockRdKafka.consume.mockImplementationOnce(((_count: number, cb: any) =>
-            cb(Object.assign(new Error('broker gone'), { isRetriable: false }), [])) as any)
+        const pullError = Object.assign(new Error('broker gone'), { isRetriable: false })
+        mockRdKafka.consume.mockImplementationOnce(((_count: number, cb: any) => cb(pullError, [])) as any)
+        const loopOutcome = (consumer as any).loopDone.then(
+            () => 'resolved',
+            (error: unknown) => error
+        )
         consumeCallback!(null, [createMessage({ offset: 1 })])
         await delay(5)
 
-        expect(eachBatch.mock.calls.map(([messages]) => messages.map((m) => m.offset))).toEqual([[1]])
+        expect(eachBatch).not.toHaveBeenCalled()
+        expect(await loopOutcome).toBe(pullError)
         expect(mockRdKafka.setDefaultConsumeTimeout).toHaveBeenLastCalledWith(500)
-
-        backlog = [createMessage({ offset: 2 })]
-        releaseConsume()
-        await delay(5)
-        expect(eachBatch.mock.calls.map(([messages]) => messages.map((m) => m.offset))).toEqual([[1], [2]])
     })
 
     it.each(['direct', 'image fetch joiner'])(

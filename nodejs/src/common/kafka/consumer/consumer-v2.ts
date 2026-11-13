@@ -448,19 +448,7 @@ export class KafkaConsumerV2 {
                 batch.length < this.fetchBatchSize &&
                 bytes < this.fetchBatchMaxBytes
             ) {
-                let next: Message[]
-                try {
-                    next = await this.consume(1)
-                } catch (error) {
-                    // Native consume(n) also returns the messages it has collected and drops an error
-                    // that arrives after the first message.
-                    logger.warn('📝', 'kafka_consumer_v2_partial_batch_after_consume_error', {
-                        error: String(error),
-                        groupId: this.config.groupId,
-                        collected: batch.length,
-                    })
-                    break
-                }
+                const next = await this.consume(1)
                 if (next.length === 0) {
                     break
                 }
