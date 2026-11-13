@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Literal, TypedDict
 from urllib.parse import urlparse
 
@@ -6,7 +7,7 @@ from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.user_integration import UserIntegration, slack_link_scopes
+from posthog.models.user_integration import slack_link_for, slack_link_grants
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from .oauth_credentials import oauth_credentials_source_is_allowed
@@ -256,13 +257,16 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         exists and grants all the scopes that the template asks for."""
         if own_token := (self.sensitive_configuration or {}).get("access_token"):
             return own_token
+        return self._linked_access_token
+
+    @cached_property
+    def _linked_access_token(self) -> str | None:
+        # Read once per instance: a proxied call checks the token and then builds the upstream headers.
         link_id = self.linked_slack_user_integration_id
         if link_id is None or self.template is None:
             return None
-        link = UserIntegration.objects.filter(
-            id=link_id, user_id=self.user_id, kind=UserIntegration.IntegrationKind.SLACK
-        ).first()
-        if link is None or not set(self.template.oauth_scope_allowlist or ()) <= slack_link_scopes(link):
+        link = slack_link_for(link_id, user_id=self.user_id)
+        if link is None or not slack_link_grants(link, self.template.oauth_scope_allowlist or ()):
             return None
         return (link.sensitive_config or {}).get("user_access_token") or None
 

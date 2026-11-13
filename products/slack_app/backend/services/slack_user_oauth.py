@@ -41,7 +41,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import UserIntegration, slack_link_scopes
 
 logger = structlog.get_logger(__name__)
 
@@ -72,7 +72,7 @@ def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserTo
     token = (link.sensitive_config or {}).get("user_access_token") if link else None
     if link is None or not token:
         return None
-    return LinkedUserToken(access_token=token, scopes=granted_user_scopes(str((link.config or {}).get("scope") or "")))
+    return LinkedUserToken(access_token=token, scopes=slack_link_scopes(link))
 
 
 def linked_search_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:

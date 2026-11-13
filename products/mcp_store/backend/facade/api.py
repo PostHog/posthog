@@ -18,7 +18,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.models.user import User
-from posthog.models.user_integration import SLACK_MCP_OPTED_OUT_CONFIG_KEY, UserIntegration, slack_link_scopes
+from posthog.models.user_integration import SLACK_MCP_OPTED_OUT_CONFIG_KEY, slack_link_for, slack_link_grants
 
 from products.mcp_store.backend.agents import (
     BuiltInAgentKey,
@@ -445,7 +445,7 @@ def _connects_from_a_link(template: MCPServerTemplate) -> bool:
 SLACK_MCP_URL = "https://mcp.slack.com/mcp"
 
 
-def _connectable_slack_template(team_id: int, user_id: int) -> MCPServerTemplate | None:
+def _connectable_slack_template(team_id: int, user_id: int | None) -> MCPServerTemplate | None:
     """The Slack MCP template that a token from PostHog's own Slack app can connect: on PostHog's app, available to
     the team, turned on for it, and not revoked for this member. The dev template runs on another app, so it never
     qualifies."""
@@ -456,6 +456,8 @@ def _connectable_slack_template(team_id: int, user_id: int) -> MCPServerTemplate
     )
     if template is None or server_disabled_reason(team_id, template.url) is not None:
         return None
+    if user_id is None:
+        return template
     revoked = MCPMemberServerRevocation.objects.for_team(team_id).filter(
         gateway_server__url=template.url, user_id=user_id
     )
@@ -465,7 +467,7 @@ def _connectable_slack_template(team_id: int, user_id: int) -> MCPServerTemplate
 def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
     """The user scopes a Slack account link must ask for, so its token can also connect the member's Slack MCP.
     Empty when the team cannot use the Slack MCP."""
-    template = _connectable_slack_template(team_id, user_id or 0)
+    template = _connectable_slack_template(team_id, user_id)
     return tuple(template.oauth_scope_allowlist or ()) if template is not None else ()
 
 
@@ -481,12 +483,10 @@ def connect_slack_mcp_from_slack_link(team_id: int, user: User, *, slack_link_id
     template = _connectable_slack_template(team_id, user.id)
     if template is None:
         return False
-    link = UserIntegration.objects.filter(
-        id=slack_link_id, user=user, kind=UserIntegration.IntegrationKind.SLACK
-    ).first()
+    link = slack_link_for(slack_link_id, user_id=user.id)
     if link is None or (link.config or {}).get(SLACK_MCP_OPTED_OUT_CONFIG_KEY):
         return False
-    if not set(template.oauth_scope_allowlist or ()) <= slack_link_scopes(link):
+    if not slack_link_grants(link, template.oauth_scope_allowlist or ()):
         return False
     with transaction.atomic():
         installation, _ = MCPServerInstallation.objects.get_or_create(
@@ -881,7 +881,7 @@ def member_installation_for_host(team_id: int, user_id: int, server_host: str) -
     candidates = (
         MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True, url__icontains=host)
         .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
-        .select_related("gateway_server")
+        .select_related("gateway_server", "template")
         .order_by("created_at")
     )
     matching = [installation for installation in candidates if _installation_host(installation.url) == host]

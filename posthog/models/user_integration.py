@@ -1,4 +1,5 @@
 import time
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -1083,14 +1084,24 @@ SLACK_MCP_OPTED_OUT_CONFIG_KEY = "slack_mcp_opted_out"
 
 
 def slack_link_scopes(integration: UserIntegration) -> frozenset[str]:
+    """The user scopes Slack granted the link. Stored space-delimited, as OIDC returns them."""
     return frozenset(str((integration.config or {}).get("scope") or "").replace(",", " ").split())
+
+
+def slack_link_for(integration_id: str, *, user_id: int) -> UserIntegration | None:
+    """The person's Slack link with this id. None when the id belongs to another person or another kind."""
+    return UserIntegration.objects.filter(
+        id=integration_id, user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK
+    ).first()
+
+
+def slack_link_grants(integration: UserIntegration, scopes: Iterable[str]) -> bool:
+    return set(scopes) <= slack_link_scopes(integration)
 
 
 def mark_slack_mcp_opted_out(integration_id: str, *, user_id: int) -> None:
     """The person removed the Slack MCP that came with their Slack link, so a relink must not connect it again."""
-    link = UserIntegration.objects.filter(
-        id=integration_id, user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK
-    ).first()
+    link = slack_link_for(integration_id, user_id=user_id)
     if link is None:
         return
     link.config = {**(link.config or {}), SLACK_MCP_OPTED_OUT_CONFIG_KEY: True}
@@ -1107,7 +1118,8 @@ def revoke_slack_user_token(integration: UserIntegration) -> None:
         source="user_slack_unlink",
         workspace_id=(integration.config or {}).get("slack_team_id"),
         app_id="posthog",
-        timeout=5,
+        # Slack's App Home unlink runs this before it answers Slack, which allows three seconds.
+        timeout=2,
     )
     try:
         client.auth_revoke()
