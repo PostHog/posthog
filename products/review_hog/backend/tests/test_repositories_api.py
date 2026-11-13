@@ -66,7 +66,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(level=level)
 
     def _url(self, path: str, team: Team | None = None) -> str:
-        return f"/api/projects/{(team or self.team).id}/review_hog/{path}"
+        return f"/api/projects/{(team or self.team).id}/code_review/{path}"
 
     def _claim(self, team: Team, scope: str) -> ReviewInstallationClaim:
         return ReviewInstallationClaim.objects.for_team(team.id).create(

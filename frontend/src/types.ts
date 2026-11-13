@@ -343,7 +343,7 @@ export enum AccessControlResourceType {
     Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
-    Stamphog = 'stamphog',
+    CodeReviewApproval = 'code_review_approval',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',

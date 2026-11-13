@@ -60,3 +60,6 @@ data_modeling.0047_remove_datawarehousemodelpath_state
 posthog.1414_remove_filesystem_rows_for_deleted_insights
 replay_vision.0151_backfill_replayscanner_sweep_cadence
 signals.0230_monitoring_research_delivery_indexes
+# Adds the code_review scope names next to the review_hog and stamphog ones in stored keys and
+# tokens, in batches that each commit. A re-run skips rows that already hold the new names.
+posthog.1436_rename_code_review_scopes

@@ -37,7 +37,7 @@ import type {
     ReviewRecentReviewApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
-    ReviewHogReviewsListScope,
+    CodeReviewReviewsListScope,
     ReviewTriggerRequestRunModeEnumApi,
     ReviewTurnDesignEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
@@ -56,19 +56,19 @@ import { prettifySkillName } from './skillNames'
 
 // The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
 const REVIEWS_SCOPE_OPTIONS: {
-    value: ReviewHogReviewsListScope
+    value: CodeReviewReviewsListScope
     label: string
     tooltip: string
     'data-attr': string
 }[] = [
     {
-        value: ReviewHogReviewsListScope.Mine,
+        value: CodeReviewReviewsListScope.Mine,
         label: 'Mine',
         tooltip: 'Reviews of pull requests you authored, plus reviews you started',
         'data-attr': 'code-review-reviews-scope-mine',
     },
     {
-        value: ReviewHogReviewsListScope.Everyone,
+        value: CodeReviewReviewsListScope.Everyone,
         label: 'Everyone',
         tooltip: 'Reviews of every pull request in this project',
         'data-attr': 'code-review-reviews-scope-everyone',
@@ -95,7 +95,7 @@ function ReviewsScopeFilter(): JSX.Element {
 function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
     const scopeOption = REVIEWS_SCOPE_OPTIONS.find((option) => option.value === reviewsScope)
-    const owner = reviewsScope === ReviewHogReviewsListScope.Everyone ? "The project's" : 'Your'
+    const owner = reviewsScope === CodeReviewReviewsListScope.Everyone ? "The project's" : 'Your'
     return (
         <Tooltip title={scopeOption?.tooltip}>
             <span className="text-xxs text-tertiary">

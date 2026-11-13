@@ -14,8 +14,6 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade import contracts
 from ..facade.enums import (
-    ChannelResolutionSource,
-    DigestRunStatus,
     LlmSkipReason,
     OwnerKind,
     OwnersFileStatus,
@@ -62,13 +60,14 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
 
     The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
     and default-branch policy file contents, none of which the API returns. The reviewer's reasoning,
-    the text stamphog posts on GitHub, is parsed out of the stdout and returned as ``reasoning``.
+    the text auto-approval posts on GitHub, is parsed out of the stdout and returned as ``reasoning``.
     """
 
-    stamphog_version = serializers.CharField(
+    engine_version = serializers.CharField(
+        source="stamphog_version",
         read_only=True,
         required=False,
-        help_text="Version of the stamphog engine that produced this review, if it reported one.",
+        help_text="Version of the auto-approval engine that produced this review, if it reported one.",
     )
     reviewer_exit_code = serializers.IntegerField(
         read_only=True,
@@ -77,12 +76,12 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
     )
 
 
-@extend_schema_serializer(component_name="StamphogRepoConfig")
-class StamphogRepoConfigSerializer(DataclassSerializer):
+@extend_schema_serializer(component_name="CodeReviewApprovalRepository")
+class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
     user_access_level = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
-            "The caller's access level on the stamphog resource, resolved for the team that owns this "
+            "The caller's access level on the code review auto-approval resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
             "review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review."
         ),
@@ -122,9 +121,9 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         choices=RoutingMode.choices,
         read_only=True,
         help_text=(
-            "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
+            "When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
             "default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' "
-            "only when stamphog does not approve, where an approval requests only the owners of sensitive and "
+            "only when auto-approval does not approve, where an approval requests only the owners of sensitive and "
             "new paths."
         ),
     )
@@ -163,7 +162,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
                 "help_text": "SCM provider this config talks to. Defaults to 'github'.",
             },
             "repository": {"help_text": "Repository full name, e.g. 'PostHog/posthog'."},
-            "enabled": {"help_text": "Whether stamphog actively reviews pull requests for this repo."},
+            "enabled": {"help_text": "Whether auto-approval actively reviews pull requests for this repo."},
             # Read-only on purpose: an installation id may only ever be set by the verified
             # sync_installation flow, which proves the caller owns the installation before binding it.
             # A client-supplied value on the plain create/update path is ignored, so a manually created
@@ -179,7 +178,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
                 "required": False,
                 "help_text": (
                     "Whether merged PRs on this repo are captured for the daily Slack digest. Requires "
-                    "'enabled', since the digest reports what stamphog approved."
+                    "'enabled', since the digest reports what auto-approval approved."
                 ),
             },
             "trigger_label": {
@@ -192,7 +191,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
                 "read_only": True,
                 "help_text": (
                     "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a "
-                    "silent stamphog review of that head, whatever review_mode says. A silent review posts only an "
+                    "silent auto-approval review of that head, whatever review_mode says. A silent review posts only an "
                     "approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode "
                     "'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting "
                     "review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent "
@@ -202,12 +201,12 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         }
 
 
-class StamphogInstallInfoSerializer(serializers.Serializer):
+class CodeReviewApprovalInstallInfoSerializer(serializers.Serializer):
     """Static info the frontend needs to render the 'Connect a repository' button."""
 
     app_slug = serializers.CharField(
         read_only=True,
-        help_text="URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured.",
+        help_text="URL-friendly slug of the Stamphog GitHub app, or blank if unconfigured.",
     )
     install_url = serializers.CharField(
         read_only=True,
@@ -228,7 +227,7 @@ class StamphogInstallInfoSerializer(serializers.Serializer):
     )
 
 
-class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
+class CodeReviewApprovalSyncInstallationRequestSerializer(serializers.Serializer):
     """Request body for binding a GitHub App installation to the current team.
 
     Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
@@ -264,7 +263,7 @@ class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
     )
 
 
-class StamphogDiscoveredInstallationSerializer(serializers.Serializer):
+class CodeReviewApprovalDiscoveredInstallationSerializer(serializers.Serializer):
     """One installation of the App the authorizing user can reach, offered for an explicit pick."""
 
     id = serializers.CharField(read_only=True, help_text="GitHub installation id, as a string.")
@@ -273,10 +272,10 @@ class StamphogDiscoveredInstallationSerializer(serializers.Serializer):
     )
 
 
-class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
+class CodeReviewApprovalSyncInstallationResponseSerializer(serializers.Serializer):
     """Result of syncing an installation: the team's rows bound to it, and what the team can add now."""
 
-    synced = StamphogRepoConfigSerializer(
+    synced = CodeReviewApprovalRepositorySerializer(
         many=True,
         read_only=True,
         help_text=(
@@ -304,7 +303,7 @@ class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
             "the GitHub install page (install_url). Always false on the explicit installation_id path."
         ),
     )
-    installations = StamphogDiscoveredInstallationSerializer(
+    installations = CodeReviewApprovalDiscoveredInstallationSerializer(
         many=True,
         read_only=True,
         help_text=(
@@ -316,7 +315,7 @@ class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
     )
 
 
-class StamphogAvailableRepositoriesQuerySerializer(serializers.Serializer):
+class CodeReviewApprovalAvailableRepositoriesQuerySerializer(serializers.Serializer):
     """Query parameters for listing the repositories a team can add."""
 
     search = serializers.CharField(
@@ -334,8 +333,8 @@ class StamphogAvailableRepositoriesQuerySerializer(serializers.Serializer):
     )
 
 
-class StamphogAvailableRepositoriesSerializer(serializers.Serializer):
-    """Repositories from the team's connected GitHub installations that are not added to stamphog yet."""
+class CodeReviewApprovalAvailableRepositoriesSerializer(serializers.Serializer):
+    """Repositories from the team's connected GitHub installations that are not added to auto-approval yet."""
 
     repositories = serializers.ListField(
         child=serializers.CharField(),
@@ -360,7 +359,7 @@ class StamphogAvailableRepositoriesSerializer(serializers.Serializer):
     )
 
 
-class StamphogAddRepositorySerializer(serializers.Serializer):
+class CodeReviewApprovalAddRepositorySerializer(serializers.Serializer):
     """Request body for turning reviews on for a repository from a connected installation."""
 
     repository = serializers.CharField(
@@ -372,13 +371,13 @@ class StamphogAddRepositorySerializer(serializers.Serializer):
     )
 
 
-@extend_schema_serializer(component_name="StamphogPullRequestRouting")
+@extend_schema_serializer(component_name="CodeReviewApprovalPullRequestRouting")
 class PullRequestRoutingSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
         choices=RoutingStatus.choices,
         read_only=True,
         help_text=(
-            "The phase of the latest routing record: 'waiting' (fallback mode, the head waits for stamphog's "
+            "The phase of the latest routing record: 'waiting' (fallback mode, the head waits for auto-approval's "
             "verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), "
             "'requested' (the review requests went out, the routing comment is not finished) or 'done'."
         ),
@@ -393,7 +392,7 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "'full', or 'pinned' when a stamphog approval asks only the owners of sensitive and new paths. "
+            "'full', or 'pinned' when an auto-approval asks only the owners of sensitive and new paths. "
             "Null while the record waits."
         ),
     )
@@ -427,7 +426,7 @@ class PullRequestRoutingSerializer(DataclassSerializer):
             },
             "waiting_since": {
                 "allow_null": True,
-                "help_text": "When the head started to wait for stamphog's verdict. Null unless waiting.",
+                "help_text": "When the head started to wait for auto-approval's verdict. Null unless waiting.",
             },
             "claimed_at": {"allow_null": True, "help_text": "When a task claimed the pull request for this record."},
             "routed_at": {
@@ -446,7 +445,7 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="StamphogPullRequest")
+@extend_schema_serializer(component_name="CodeReviewApprovalPullRequest")
 class PullRequestSerializer(DataclassSerializer):
     repository = serializers.CharField(
         read_only=True,
@@ -533,7 +532,7 @@ class PullRequestSerializer(DataclassSerializer):
 
 
 class _ReviewReasoningSerializer(serializers.Serializer):
-    """The reviewer's reasoning for one run, the same text stamphog posts as its GitHub review."""
+    """The reviewer's reasoning for one run, the same text auto-approval posts as its GitHub review."""
 
     reasoning = serializers.CharField(
         read_only=True, allow_null=True, help_text="The reviewer's explanation of its verdict."
@@ -547,7 +546,7 @@ class _ReviewReasoningSerializer(serializers.Serializer):
     review_body = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="The review text stamphog posts on GitHub: the reasoning, the judgment points, and the gate outcome.",
+        help_text="The review text auto-approval posts on GitHub: the reasoning, the judgment points, and the gate outcome.",
     )
     change_summary = serializers.CharField(
         read_only=True, allow_null=True, help_text="A plain-language summary of what the change does."
@@ -638,15 +637,15 @@ class ReviewRunSerializer(DataclassSerializer):
     )
     output = serializers.SerializerMethodField(
         help_text=(
-            "Allowlisted subset of the reviewer output blob (stamphog version, reviewer exit code). The raw "
+            "Allowlisted subset of the reviewer output blob (engine version, reviewer exit code). The raw "
             "reviewer stdout, PR payload, changed-file patches, and policy file contents are excluded. "
-            "The reviewer's reasoning, the text stamphog posts on GitHub, is in `reasoning` instead."
+            "The reviewer's reasoning, the text auto-approval posts on GitHub, is in `reasoning` instead."
         ),
     )
 
     reasoning = serializers.SerializerMethodField(
         help_text=(
-            "The reviewer's reasoning, the same text stamphog posts as its GitHub review. Returned only when "
+            "The reviewer's reasoning, the same text auto-approval posts as its GitHub review. Returned only when "
             "retrieving a single run, and null in list results. Its fields are null until the reviewer has run."
         ),
     )
@@ -661,7 +660,8 @@ class ReviewRunSerializer(DataclassSerializer):
     def get_output(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
         # Explicit allowlist: never echo reviewer_raw / pr / files / policy_files out of the API.
         raw = obj.output or {}
-        return {key: raw[key] for key in contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS if key in raw}
+        allowlisted = {key: raw[key] for key in contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS if key in raw}
+        return _ReviewOutputSummarySerializer(allowlisted).data
 
     @extend_schema_field(_GateResultSummarySerializer)
     def get_gate_result(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
@@ -714,10 +714,10 @@ class ReviewRunSerializer(DataclassSerializer):
 
 
 class ReviewRequestSerializer(serializers.Serializer):
-    """Request body for asking stamphog to review one pull request."""
+    """Request body for asking auto-approval to review one pull request."""
 
     repository = serializers.CharField(
-        help_text="Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled in Stamphog."
+        help_text="Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled for auto-approval."
     )
     pr_number = serializers.IntegerField(min_value=1, help_text="Pull request number on GitHub.")
 
@@ -741,121 +741,7 @@ class ReviewRequestResponseSerializer(serializers.Serializer):
     )
 
 
-# Every field carries a default because DigestRun.summary is a JSON blob whose shape grew over time.
-# A run stored before a key existed, or one that never summarized anything ({}), still renders.
-class _DigestSummaryPRSerializer(serializers.Serializer):
-    """One merged pull request as the digest listed it."""
-
-    pr_number = serializers.IntegerField(read_only=True, default=0, help_text="Pull request number on GitHub.")
-    title = serializers.CharField(read_only=True, default="", help_text="Pull request title.")
-    url = serializers.CharField(read_only=True, default="", help_text="Full URL to the pull request on GitHub.")
-    author_login = serializers.CharField(
-        read_only=True, default="", help_text="GitHub login of the pull request author."
-    )
-    summary = serializers.CharField(
-        read_only=True, default="", help_text="The one-line summary of the change that the digest posted."
-    )
-    repository = serializers.CharField(
-        read_only=True, default="", help_text="Repository full name, e.g. 'PostHog/posthog'. Blank on older runs."
-    )
-
-
-class _DigestSummarySerializer(serializers.Serializer):
-    """What the digest posted to Slack: the headline and the pull requests it listed."""
-
-    headline = serializers.CharField(
-        read_only=True,
-        default="",
-        help_text="Prose about the merges with real consequence. Blank when the digest led with its first line.",
-    )
-    prs = _DigestSummaryPRSerializer(
-        many=True,
-        read_only=True,
-        default=list,
-        help_text="The merged pull requests the digest listed, in the order it listed them.",
-    )
-
-
-@extend_schema_serializer(component_name="DigestRun")
-class DigestRunSerializer(DataclassSerializer):
-    status = serializers.ChoiceField(
-        choices=[(s.value, s.name) for s in DigestRunStatus],
-        read_only=True,
-        help_text="Current state of the digest run (pending, completed, failed).",
-    )
-    resolution_source = serializers.ChoiceField(
-        choices=[(s.value, s.name) for s in ChannelResolutionSource],
-        read_only=True,
-        help_text=(
-            "Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the "
-            "audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo "
-            "declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a "
-            "root owners.yaml named it), or 'manual' (no longer produced)."
-        ),
-    )
-    posted_at = serializers.DateTimeField(
-        read_only=True,
-        allow_null=True,
-        help_text="When the digest was posted to Slack, if it was.",
-    )
-    summary = serializers.SerializerMethodField(
-        help_text=(
-            "What the digest posted: its headline and the merged pull requests it listed. "
-            "Both are empty on a run with nothing to post, and on runs stored before this format."
-        ),
-    )
-
-    @extend_schema_field(_DigestSummarySerializer)
-    def get_summary(self, obj: contracts.DigestRunDTO) -> dict[str, object]:
-        # The digest writes each line from the PR title and the reviewer's change_summary, and both
-        # already reach any project member through the pull request and review run APIs. Summaries
-        # stored before the prompt dropped body_excerpt were written from PR bodies, which a member
-        # without GitHub repo access must not read. The same change added the `judged` key, so a
-        # summary without it is withheld. Keep body_excerpt out of the digest prompt, or this leaks it.
-        stored = obj.summary if "judged" in obj.summary else {}
-        return _DigestSummarySerializer(stored).data
-
-    class Meta:
-        dataclass = contracts.DigestRunDTO
-        fields = [
-            "id",
-            "audience_key",
-            "slack_channel_id",
-            "slack_channel_name",
-            "resolution_source",
-            "status",
-            "pr_count",
-            "summary",
-            "slack_message_ts",
-            "error",
-            "created_at",
-            "posted_at",
-        ]
-        # Only the fields NOT declared above (see ReviewRunSerializer).
-        read_only_fields = [
-            "id",
-            "audience_key",
-            "slack_channel_id",
-            "slack_channel_name",
-            "pr_count",
-            "slack_message_ts",
-            "error",
-            "created_at",
-        ]
-        extra_kwargs = {
-            "audience_key": {
-                "help_text": "Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'."
-            },
-            "slack_channel_id": {"help_text": "Slack channel this digest was posted to, e.g. 'C012AB3CD'."},
-            "slack_channel_name": {"help_text": "Human-readable name of that channel, for display."},
-            "pr_count": {"help_text": "Number of merged PRs included in the posted digest."},
-            "slack_message_ts": {"help_text": "Slack message timestamp of the posted digest, if posted."},
-            "error": {"help_text": "Error message if the run failed, blank otherwise."},
-            "created_at": {"help_text": "When the digest run was created."},
-        }
-
-
-class StamphogRepoConfigWriteSerializer(serializers.Serializer):
+class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
     """Input shape for creating/updating a repo config.
 
     Separate from the read serializer because the contract is an output shape: it carries a
@@ -876,7 +762,7 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         help_text="Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it."
     )
     enabled = serializers.BooleanField(
-        required=False, help_text="Whether stamphog actively reviews pull requests for this repo."
+        required=False, help_text="Whether auto-approval actively reviews pull requests for this repo."
     )
     digest_enabled = serializers.BooleanField(
         required=False, help_text="Whether merged PRs on this repo are captured for the daily Slack digest."
@@ -897,9 +783,9 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         choices=RoutingMode.choices,
         required=False,
         help_text=(
-            "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
+            "When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
             "default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' "
-            "only when stamphog does not approve, where an approval requests only the owners of sensitive and "
+            "only when auto-approval does not approve, where an approval requests only the owners of sensitive and "
             "new paths."
         ),
     )
@@ -917,7 +803,7 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a "
-            "silent stamphog review of that head, whatever review_mode says. A silent review posts only an "
+            "silent auto-approval review of that head, whatever review_mode says. A silent review posts only an "
             "approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode "
             "'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting "
             "review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent "
@@ -991,7 +877,7 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
             return attrs
         if attrs.get("digest_enabled"):
             raise serializers.ValidationError(
-                {"digest_enabled": "Digests report what stamphog approved, so they need 'enabled' set to true."}
+                {"digest_enabled": "Digests report what auto-approval approved, so they need 'enabled' set to true."}
             )
         # Turning reviews off takes the digest with it rather than failing the write — the same
         # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
@@ -999,7 +885,7 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         return attrs
 
 
-class StamphogOwnersFileSerializer(serializers.Serializer):
+class CodeReviewApprovalOwnersFileSerializer(serializers.Serializer):
     """Whether a repository can use reviewer requests, which read ownership from its owners.yaml."""
 
     owners_file = serializers.ChoiceField(
@@ -1011,7 +897,7 @@ class StamphogOwnersFileSerializer(serializers.Serializer):
     )
 
 
-class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
+class CodeReviewApprovalRoutingRunsQuerySerializer(serializers.Serializer):
     """Query parameters for listing reviewer routing runs."""
 
     repository = serializers.CharField(
@@ -1051,7 +937,7 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
     )
 
 
-@extend_schema_serializer(component_name="StamphogRoutingPin")
+@extend_schema_serializer(component_name="CodeReviewApprovalRoutingPin")
 class RoutingPinSerializer(DataclassSerializer):
     reason = serializers.ChoiceField(
         choices=PinReason.choices, read_only=True, help_text="Why the path pins its owner."
@@ -1064,7 +950,7 @@ class RoutingPinSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="StamphogRoutingFile")
+@extend_schema_serializer(component_name="CodeReviewApprovalRoutingFile")
 class RoutingFileSerializer(DataclassSerializer):
     class Meta:
         dataclass = contracts.RoutingFileDTO
@@ -1084,14 +970,14 @@ class RoutingFileSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="StamphogRoutingRunOwner")
+@extend_schema_serializer(component_name="CodeReviewApprovalRoutingRunOwner")
 class RoutingRunOwnerSerializer(DataclassSerializer):
     outcome = serializers.ChoiceField(
         choices=RoutingOwnerOutcome.choices,
         read_only=True,
         help_text=(
             "What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), "
-            "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing "
+            "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing "
             "would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' "
             "it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned "
             "owner)."
@@ -1135,7 +1021,7 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="StamphogRoutingRunOwnerDetail")
+@extend_schema_serializer(component_name="CodeReviewApprovalRoutingRunOwnerDetail")
 class RoutingRunOwnerDetailSerializer(RoutingRunOwnerSerializer):
     files = RoutingFileSerializer(
         many=True,
@@ -1148,7 +1034,7 @@ class RoutingRunOwnerDetailSerializer(RoutingRunOwnerSerializer):
         extra_kwargs = RoutingRunOwnerSerializer.Meta.extra_kwargs
 
 
-@extend_schema_serializer(component_name="StamphogRoutingRun")
+@extend_schema_serializer(component_name="CodeReviewApprovalRoutingRun")
 class RoutingRunSerializer(DataclassSerializer):
     mode = serializers.ChoiceField(
         choices=RoutingMode.choices,
@@ -1161,7 +1047,7 @@ class RoutingRunSerializer(DataclassSerializer):
     scope = serializers.ChoiceField(
         choices=RoutingScope.choices,
         read_only=True,
-        help_text="'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.",
+        help_text="'full', or 'pinned' when an auto-approval asked only the owners of sensitive and new paths.",
     )
     llm_skipped = serializers.ChoiceField(
         choices=LlmSkipReason.choices,
@@ -1215,7 +1101,7 @@ class RoutingRunSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="StamphogRoutingRunDetail")
+@extend_schema_serializer(component_name="CodeReviewApprovalRoutingRunDetail")
 class RoutingRunDetailSerializer(RoutingRunSerializer):
     owners = RoutingRunOwnerDetailSerializer(
         many=True,

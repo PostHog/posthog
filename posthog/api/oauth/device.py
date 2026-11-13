@@ -61,7 +61,12 @@ from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes, scopes_not_covered
+from posthog.scopes import (
+    clamp_scopes_to_ceiling,
+    resolve_requested_scopes,
+    scopes_not_covered,
+    translate_renamed_scopes,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -110,8 +115,15 @@ def resolve_device_scopes(raw_scope: str | None, application: OAuthApplication) 
     The result always includes the application's required scopes. The approval page never lets the
     person remove them.
     """
-    requested = resolve_requested_scopes((raw_scope or "").split(), application.ceiling_scopes)
+    requested = resolve_requested_scopes(
+        translate_renamed_scopes((raw_scope or "").split()), application.ceiling_scopes
+    )
     return sorted({*requested, *(scope for scope in application.required_scopes if ":" in scope)})
+
+
+def _grant_scopes(grant: OAuthDeviceGrant) -> list[str]:
+    """The scopes stored on a device grant, with renamed scopes translated."""
+    return translate_renamed_scopes((grant.scope or "").split())
 
 
 def _device_grant(request: OAuthlibRequest) -> OAuthDeviceGrant:
@@ -151,7 +163,7 @@ def apply_device_grant(request: OAuthlibRequest) -> None:
     grant = _device_grant(request)
     if request.client.client_id != grant.client_id:
         raise rfc6749_errors.InvalidGrantError(request=request)
-    request.scopes = clamp_scopes_to_ceiling(set((grant.scope or "").split()), request.client.ceiling_scopes)
+    request.scopes = clamp_scopes_to_ceiling(set(_grant_scopes(grant)), request.client.ceiling_scopes)
 
 
 def token_server_kwargs() -> dict[str, Any]:
@@ -324,7 +336,7 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
 
         scopes = resolve_device_scopes(request.POST.get("scope"), application)
         # Checked after the ceiling clamp, so a client can't lock a scope the approval page won't show.
-        required = sorted(set(request.POST.get("required_scopes", "").split()))
+        required = sorted(translate_renamed_scopes(request.POST.get("required_scopes", "").split()))
         if not_requested := [scope for scope in required if scope not in scopes]:
             return _error_response(
                 rfc6749_errors.InvalidScopeError(
@@ -440,8 +452,8 @@ class DeviceDecisionSerializer(serializers.Serializer):
 def _required_scopes(grant: OAuthDeviceGrant, application: OAuthApplication) -> list[str]:
     """Return the requested scopes that approval always keeps: the client's required scopes, the scopes
     the client marked as required for this grant, and the identity scopes, which grant no access to data."""
-    required = {*application.required_scopes, *(grant.required_scope or "").split()}
-    return [scope for scope in (grant.scope or "").split() if scope in required or ":" not in scope]
+    required = {*application.required_scopes, *translate_renamed_scopes((grant.required_scope or "").split())}
+    return [scope for scope in _grant_scopes(grant) if scope in required or ":" not in scope]
 
 
 def _invalid_code() -> Response:
@@ -488,7 +500,7 @@ def _granted_scopes(user: User, application: OAuthApplication) -> list[dict[str,
         else:
             places = [(None, None)]
         for place in places:
-            granted.setdefault(place, set()).update((scope or "").split())
+            granted.setdefault(place, set()).update(translate_renamed_scopes((scope or "").split()))
     return [
         {"project_id": project_id, "organization_id": organization_id, "scopes": sorted(scopes)}
         for (project_id, organization_id), scopes in sorted(
@@ -591,7 +603,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                     "client_name": application.name,
                     "logo_uri": application.logo_uri or None,
                     "is_verified": application.is_verified,
-                    "scopes": (grant.scope or "").split(),
+                    "scopes": _grant_scopes(grant),
                     "required_scopes": _required_scopes(grant, application),
                     "granted_scopes": _granted_scopes(cast(User, request.user), application),
                     "expires_at": grant.expires,
@@ -655,8 +667,10 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             application = OAuthApplication.objects.filter(client_id=grant.client_id).first()
             if application is None or not application.is_verified:
                 return _unverified_client()
-            requested = (grant.scope or "").split()
+            requested = _grant_scopes(grant)
             kept = serializer.validated_data.get("scopes")
+            if kept is not None:
+                kept = translate_renamed_scopes(kept)
             if kept is not None:
                 # A requested `x:write` also covers `x:read`, so the person can lower write access to read.
                 if scopes_not_covered(requested, kept):

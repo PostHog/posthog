@@ -40,18 +40,18 @@ export function InboxSection(): JSX.Element {
                     <>
                         <LemonSwitch
                             aria-label="Let Stamphog review my Inbox PRs"
-                            checked={settings?.stamphog_review_inbox_prs ?? false}
-                            onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
+                            checked={settings?.approval_review_inbox_prs ?? false}
+                            onChange={(checked) => updateSettings({ approval_review_inbox_prs: checked })}
                             disabledReason={
                                 // A switch that is already on stays usable while disconnected, so
                                 // turning it off never requires connecting Stamphog first.
-                                settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
+                                settings && !settings.approval_connected && !settings.approval_review_inbox_prs
                                     ? 'Connect a repository to Stamphog first.'
                                     : disabledReason
                             }
                             data-attr="review-hog-stamphog-review-inbox-prs"
                         />
-                        <YouMark shown={settings?.stamphog_review_inbox_prs ?? false} />
+                        <YouMark shown={settings?.approval_review_inbox_prs ?? false} />
                     </>
                 }
             />

@@ -38,6 +38,8 @@ APIScopeObject = Literal[
     "business_knowledge",
     "canvas",
     "clickhouse_test_cluster_perf",
+    "code_review",
+    "code_review_approval",
     "cohort",
     "comment",
     "conversation",
@@ -118,7 +120,6 @@ APIScopeObject = Literal[
     "query",  # Covers query and events endpoints
     "query_performance",
     "replay_scanner",
-    "review_hog",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -131,7 +132,6 @@ APIScopeObject = Literal[
     "signal_scratchpad_internal",
     "signal_usage",
     "slack_run",
-    "stamphog",
     "streamlit_app",
     "subscription",
     "support_ticket",
@@ -447,6 +447,28 @@ OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
 
 
+# PostHog desktop and agent builds already shipped request these scope objects by their old names,
+# CIMD and DCR metadata may still declare them, and stored keys, ceilings and tokens hold both
+# names until a follow-up migration drops the old ones. Every place a scope string enters OAuth or
+# a key write path runs it through `translate_renamed_scopes`, so nothing downstream sees an old
+# name. Remove the mapping once builds that request the old names have aged out and the old names
+# are gone from storage.
+RENAMED_OAUTH_SCOPE_OBJECTS: dict[str, str] = {
+    "review_hog": "code_review",
+    "stamphog": "code_review_approval",
+}
+
+
+def translate_renamed_scopes(scopes: Iterable[str]) -> list[str]:
+    """`scopes` with every scope of a renamed object written under its new name, order kept, deduplicated."""
+    translated = []
+    for scope in scopes:
+        scope_object, separator, action = scope.partition(":")
+        new_object = RENAMED_OAUTH_SCOPE_OBJECTS.get(scope_object)
+        translated.append(f"{new_object}{separator}{action}" if new_object and separator else scope)
+    return list(dict.fromkeys(translated))
+
+
 def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
     """Keep only self-serve-grantable scopes from a declared list, deduped, order preserved.
 
@@ -457,14 +479,9 @@ def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
     on a user-consented token. Non-string entries are dropped too, so raw partner JSON is safe
     to pass straight in.
     """
-    seen: set[str] = set()
-    result: list[str] = []
-    for token in scopes:
-        if not isinstance(token, str) or token not in UNPRIVILEGED_SCOPES or token in seen:
-            continue
-        seen.add(token)
-        result.append(token)
-    return result
+    # Translated first, so metadata that still declares a renamed scope keeps it.
+    declared = translate_renamed_scopes(token for token in scopes if isinstance(token, str))
+    return [token for token in declared if token in UNPRIVILEGED_SCOPES]
 
 
 def filter_self_registered_ceiling(scopes: Iterable[object]) -> list[str]:
@@ -755,7 +772,7 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     drop scopes that were valid when issued but fall outside a since-tightened
     ceiling, rather than refreshing the broader set forever.
 
-    - Empty `app_scopes` (no cap) is a no-op: returns `original` as a list.
+    - Empty `app_scopes` (no cap) returns `original` as a list, with renamed scopes translated.
     - A `*` token is left untouched (narrowing it would strip all resource
       access; `*` retirement is handled separately).
     - Otherwise returns the sorted intersection with the ceiling plus any
@@ -769,7 +786,7 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     rejected again. It narrows to the empty list instead, leaving one stable
     token whose resource calls 403 by scope.
     """
-    original_list = list(original)
+    original_list = translate_renamed_scopes(original)
     ceiling = resolve_ceiling(app_scopes)
     if ceiling is None:
         return original_list

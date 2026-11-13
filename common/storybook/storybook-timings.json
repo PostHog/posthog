@@ -3167,10 +3167,6 @@
         "chromium": 17.576,
         "webkit": 4.521
     },
-    "products/stamphog/frontend/scenes/StamphogDigestsScene/StamphogDigestsScene.stories.tsx": {
-        "chromium": 14.725,
-        "webkit": 5.489
-    },
     "products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene.stories.tsx": {
         "chromium": 9.981,
         "webkit": 3.73

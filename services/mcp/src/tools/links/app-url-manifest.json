@@ -1694,11 +1694,6 @@
         "params": [],
         "scope": "project"
     },
-    "stamphogDigests": {
-        "template": "/stamphog/digests",
-        "params": [],
-        "scope": "project"
-    },
     "stamphogRuns": {
         "template": "/stamphog/runs",
         "params": [],

@@ -45,6 +45,7 @@ from posthog.scopes import (
     APIScopeObjectOrNotSupported,
     scopes_covered_by_legacy_fallback,
     scopes_not_covered,
+    translate_renamed_scopes,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
@@ -749,11 +750,7 @@ def get_authenticator_user_credential(authenticator: object) -> PersonalAPIKey |
     return None
 
 
-def get_authenticator_scopes(authenticator) -> list[str] | None:
-    """The API scopes carried by a scoped-token authenticator, or None for session and
-    other non-token auth. Single source of truth for the token->scopes mapping, shared by
-    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
-    did, one path could grant access while the other skipped its check."""
+def _stored_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
@@ -765,6 +762,16 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
+
+
+def get_authenticator_scopes(authenticator) -> list[str] | None:
+    """The API scopes carried by a scoped-token authenticator, or None for session and
+    other non-token auth. Single source of truth for the token->scopes mapping, shared by
+    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
+    did, one path could grant access while the other skipped its check. Renamed scopes come
+    back under their new names, so a key or token stored before a rename keeps its access."""
+    scopes = _stored_authenticator_scopes(authenticator)
+    return translate_renamed_scopes(scopes) if scopes is not None else None
 
 
 def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:

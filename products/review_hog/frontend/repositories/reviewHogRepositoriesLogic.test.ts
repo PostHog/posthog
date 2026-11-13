@@ -46,7 +46,7 @@ describe('reviewHogRepositoriesLogic', () => {
         overviewViews = []
         useMocks({
             get: {
-                '/api/projects/:team_id/review_hog/project_settings/': () => [
+                '/api/projects/:team_id/code_review/project_settings/': () => [
                     200,
                     {
                         flash_for: 'everyone',
@@ -65,7 +65,7 @@ describe('reviewHogRepositoriesLogic', () => {
                         can_edit: true,
                     },
                 ],
-                '/api/projects/:team_id/review_hog/repository_overview/': ({ request }) => {
+                '/api/projects/:team_id/code_review/repository_overview/': ({ request }) => {
                     overviewCalls += 1
                     overviewViews.push(new URL(request.url).searchParams.get('view') ?? '')
                     return [
@@ -84,27 +84,27 @@ describe('reviewHogRepositoriesLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team_id/review_hog/settings/': () => [200, { default_review_mode: 'follow' }],
+                '/api/projects/:team_id/code_review/settings/': () => [200, { default_review_mode: 'follow' }],
             },
             post: {
-                '/api/projects/:team_id/review_hog/repository_choices/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/repository_choices/': async ({ request }) => {
                     requests.push(`POST choice ${JSON.stringify(await request.json())}`)
                     return [200, { choice: null, my_result: { flash: false, reason: 'own_repository_choice' } }]
                 },
-                '/api/projects/:team_id/review_hog/repositories/': async ({ request }) => {
+                '/api/projects/:team_id/code_review/repositories/': async ({ request }) => {
                     requests.push(`POST repository ${JSON.stringify(await request.json())}`)
                     return [200, { repository: { id: 'repo-web' }, taken_from_project: null }]
                 },
-                '/api/projects/:team_id/review_hog/repositories/:id/people/': async ({ request, params }) => {
+                '/api/projects/:team_id/code_review/repositories/:id/people/': async ({ request, params }) => {
                     requests.push(`POST person ${params.id} ${JSON.stringify(await request.json())}`)
                     return [201, {}]
                 },
             },
             patch: {
-                '/api/projects/:team_id/review_hog/settings/': async ({ request }) => [200, await request.json()],
+                '/api/projects/:team_id/code_review/settings/': async ({ request }) => [200, await request.json()],
             },
             delete: {
-                '/api/projects/:team_id/review_hog/repository_choices/:id/': ({ params }) => {
+                '/api/projects/:team_id/code_review/repository_choices/:id/': ({ params }) => {
                     requests.push(`DELETE choice ${params.id}`)
                     return [204]
                 },

@@ -156,6 +156,22 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         group: 'Product analytics',
         actions: ['read', 'write'],
     },
+    code_review: {
+        name: 'PostHog Review',
+        plural: 'PostHog Review reviews',
+        description:
+            'PostHog Review code reviews of your pull requests, plus repository settings and per-user review choices.',
+        group: 'AI & context management tools',
+        actions: ['read', 'write'],
+    },
+    code_review_approval: {
+        name: 'Code review auto-approval',
+        plural: 'code review auto-approvals',
+        description:
+            'PostHog Review auto-approval of pull requests, including repository settings, review runs, and reviewer routing.',
+        group: 'Developer experience',
+        actions: ['read', 'write'],
+    },
     cohort: {
         name: 'Cohort',
         plural: 'cohorts',
@@ -709,14 +725,6 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/replay-vision',
     },
-    review_hog: {
-        name: 'PostHog Review',
-        plural: 'PostHog Review reviews',
-        description:
-            'PostHog Review code reviews of your pull requests, plus repository settings and per-user review choices.',
-        group: 'AI & context management tools',
-        actions: ['read', 'write'],
-    },
     session_recording: {
         name: 'Session recording',
         plural: 'session recordings',
@@ -758,14 +766,6 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         group: 'AI & context management tools',
         actions: ['read'],
         docsUrl: 'https://posthog.com/docs/self-driving/pricing',
-    },
-    stamphog: {
-        name: 'Stamphog',
-        plural: 'stamphog',
-        description:
-            'Stamphog pull request approvals, including repository settings, review runs, reviewer routing, and digests.',
-        group: 'Developer experience',
-        actions: ['read', 'write'],
     },
     streamlit_app: {
         name: 'Streamlit app',

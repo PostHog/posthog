@@ -1,6 +1,6 @@
 """Where a pull request's ReviewHog runs stand, and how one trigger request ended.
 
-Agents poll this after `review-hog-reviews-trigger`. The database answers first: in-flight turns,
+Agents poll this after `code-review-reviews-trigger`. The database answers first: in-flight turns,
 resolution runs, completed turns (`turn_marker` rows) and the run outcome notes of failed or
 skipped runs. Temporal is asked only to tell `queued` from `idle` when the database shows nothing
 running, and a failed probe reads as `unknown`, never `idle`.

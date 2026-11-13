@@ -29,7 +29,7 @@ from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.id_jag_identity import IDENTITY_FIELD_MAX_LENGTH, IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes import get_oauth_scopes_supported, translate_renamed_scopes
 from posthog.security.url_validation import is_url_allowed
 
 logger = structlog.get_logger(__name__)
@@ -604,8 +604,8 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [s for s in value if s]
-    return [s for s in value.split() if s]
+        return translate_renamed_scopes(s for s in value if s)
+    return translate_renamed_scopes(value.split())
 
 
 def issue_access_token(

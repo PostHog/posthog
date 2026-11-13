@@ -89,6 +89,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
+from posthog.api.oauth.oauthlib_core import translate_scope_param
 from posthog.api.oauth.step_up import resolve_step_up_grant
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
@@ -123,6 +124,7 @@ from posthog.scopes import (
     resolve_ceiling,
     resolve_requested_scopes,
     scopes_outside_ceiling,
+    translate_renamed_scopes,
 )
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
@@ -449,6 +451,9 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
         if "user" not in context:
             raise ValueError("OAuthAuthorizationSerializer requires 'user' in context")
         super().__init__(*args, **kwargs)
+
+    def validate_scope(self, scope: str) -> str:
+        return translate_scope_param(scope)
 
     def validate(self, attrs: dict) -> dict:
         # A denial needs no scope, so the field accepts a blank one. A grant still does.
@@ -1702,7 +1707,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        requested_scope_tokens = (request.query_params.get("scope") or "").split()
+        requested_scope_tokens = translate_renamed_scopes((request.query_params.get("scope") or "").split())
         scope_was_truncated = is_truncated_scope_request(requested_scope_tokens)
 
         # `validate_scopes` clamps a request whose every resource token is unknown down to
@@ -1734,10 +1739,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
         # (only when the ceiling is seeded); track that volume so `*` can be retired once it drains.
-        if (
-            "*" in (request.query_params.get("scope") or "").split()
-            and resolve_ceiling(application.ceiling_scopes) is not None
-        ):
+        if "*" in requested_scope_tokens and resolve_ceiling(application.ceiling_scopes) is not None:
             posthoganalytics.capture(
                 distinct_id=str(request.user.distinct_id),
                 event="oauth_wildcard_scopes_narrowed",
@@ -2167,7 +2169,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # raise), so the requested scope is always in the query string here.
             requested_scope = self.request.query_params.get("scope") or ""
             rejected_scopes = scopes_outside_ceiling(
-                requested_scope.split(),
+                translate_renamed_scopes(requested_scope.split()),
                 application.ceiling_scopes,
                 allow_wildcard_under_empty_ceiling=True,
             )

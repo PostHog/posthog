@@ -7,7 +7,7 @@ import {
     ReviewRunStatusEnumApi,
     ReviewTriggerEnumApi,
     ReviewRunVerdictEnumApi,
-    StamphogReviewRunsListTrigger,
+    CodeReviewApprovalsRunsListTrigger,
 } from '../../generated/api.schemas'
 
 /** How a run's outcome reads at a glance: the tag color plus the word on the tag. */
@@ -57,9 +57,9 @@ export function triggerLabel(trigger: ReviewTriggerEnumApi): string {
  * The query-param enum and the response enum carry the same values, so one list keeps the filter
  * and the column from calling the same run different things.
  */
-export const TRIGGER_OPTIONS: { value: StamphogReviewRunsListTrigger; label: string }[] = Object.entries(
+export const TRIGGER_OPTIONS: { value: CodeReviewApprovalsRunsListTrigger; label: string }[] = Object.entries(
     TRIGGER_LABEL
-).map(([value, label]) => ({ value: value as StamphogReviewRunsListTrigger, label }))
+).map(([value, label]) => ({ value: value as CodeReviewApprovalsRunsListTrigger, label }))
 
 // Statuses that mean the run is over. Mirrors TERMINAL_STATUSES in the backend's facade/enums.py.
 const TERMINAL_STATUSES: ReadonlySet<ReviewRunStatusEnumApi> = new Set([

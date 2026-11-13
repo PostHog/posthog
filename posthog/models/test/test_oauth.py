@@ -82,6 +82,14 @@ class TestOAuthModels(TestCase):
                 ["insight:read", "dashboard:write", "experiment:read"],
                 ["insight:read", "dashboard:write"],
             ),
+            # A ceiling stored before the code review rename reads under the new names.
+            (
+                "renamed_scopes_translated",
+                ["stamphog:read", "code_review_approval:read"],
+                ["review_hog:write"],
+                ["code_review_approval:read", "code_review:write"],
+                ["code_review_approval:read"],
+            ),
         ]
     )
     def test_ceiling_and_required_scope_properties(self, _name, scopes, optional, expected_ceiling, expected_required):

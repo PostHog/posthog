@@ -34,7 +34,7 @@ class TestPRStatusAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
-        self.url = f"/api/projects/{self.team.id}/review_hog/reviews/pr_status/"
+        self.url = f"/api/projects/{self.team.id}/code_review/reviews/pr_status/"
         # Staleness checks read the clock, so pin it a few minutes after the request.
         self.enterContext(time_machine.travel(REQUESTED_AT + timedelta(minutes=5), tick=False))
 

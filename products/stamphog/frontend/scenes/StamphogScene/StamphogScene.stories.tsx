@@ -8,9 +8,15 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { StamphogAvailableRepositoriesApi, StamphogRepoConfigApi } from '../../generated/api.schemas'
+import type {
+    CodeReviewApprovalAvailableRepositoriesApi,
+    CodeReviewApprovalRepositoryApi,
+} from '../../generated/api.schemas'
 
-const repoConfig = (index: number, overrides: Partial<StamphogRepoConfigApi>): StamphogRepoConfigApi =>
+const repoConfig = (
+    index: number,
+    overrides: Partial<CodeReviewApprovalRepositoryApi>
+): CodeReviewApprovalRepositoryApi =>
     ({
         id: `00000000-0000-0000-0000-${String(index).padStart(12, '0')}`,
         repository: 'PostHog/posthog',
@@ -25,9 +31,9 @@ const repoConfig = (index: number, overrides: Partial<StamphogRepoConfigApi>): S
         created_at: '2026-07-01T00:00:00Z',
         updated_at: '2026-07-01T00:00:00Z',
         ...overrides,
-    }) as StamphogRepoConfigApi
+    }) as CodeReviewApprovalRepositoryApi
 
-const page = (results: StamphogRepoConfigApi[]): Record<string, unknown> => ({
+const page = (results: CodeReviewApprovalRepositoryApi[]): Record<string, unknown> => ({
     count: results.length,
     next: null,
     previous: null,
@@ -52,9 +58,9 @@ const repoConfigs = page([
     repoConfig(4, { repository: 'PostHog/hogland', enabled: false, created_at: '2026-08-12T00:00:00Z' }),
 ])
 
-const OWNERS_FILE_URL = '/api/projects/:team_id/stamphog/repo_configs/:id/owners_file/'
+const OWNERS_FILE_URL = '/api/projects/:team_id/code_review/approvals/repositories/:id/owners_file/'
 
-const availableRepositories: StamphogAvailableRepositoriesApi = {
+const availableRepositories: CodeReviewApprovalAvailableRepositoriesApi = {
     repositories: ['PostHog/charts', 'PostHog/plugin-server', 'PostHog/posthog-python', 'PostHog/wizard'],
     total_count: 4,
     has_installation: true,
@@ -76,7 +82,7 @@ const meta: Meta = {
         const previous = context.resource_access_control
         context.resource_access_control = {
             ...previous,
-            [AccessControlResourceType.Stamphog]: AccessControlLevel.Editor,
+            [AccessControlResourceType.CodeReviewApproval]: AccessControlLevel.Editor,
         }
         return () => {
             context.resource_access_control = previous
@@ -85,9 +91,10 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/repo_configs/': repoConfigs,
-                '/api/projects/:team_id/stamphog/repo_configs/available_repositories/': availableRepositories,
-                '/api/projects/:team_id/stamphog/repo_configs/install_info/': {
+                '/api/projects/:team_id/code_review/approvals/repositories/': repoConfigs,
+                '/api/projects/:team_id/code_review/approvals/repositories/available_repositories/':
+                    availableRepositories,
+                '/api/projects/:team_id/code_review/approvals/repositories/install_info/': {
                     app_slug: 'stamphog',
                     install_url: 'https://github.com/apps/stamphog/installations/new',
                     authorize_url: 'https://github.com/login/oauth/authorize',
@@ -140,7 +147,7 @@ export const FirstRepository: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/repo_configs/': page([]),
+                '/api/projects/:team_id/code_review/approvals/repositories/': page([]),
             },
         }),
     ],
@@ -150,8 +157,8 @@ export const NotConnected: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/repo_configs/': page([]),
-                '/api/projects/:team_id/stamphog/repo_configs/available_repositories/': {
+                '/api/projects/:team_id/code_review/approvals/repositories/': page([]),
+                '/api/projects/:team_id/code_review/approvals/repositories/available_repositories/': {
                     repositories: [],
                     total_count: 0,
                     has_installation: false,
@@ -169,7 +176,7 @@ export const ConnectedAfterSync: StoryObj = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/projects/:team_id/stamphog/repo_configs/sync_installation/': {
+                '/api/projects/:team_id/code_review/approvals/repositories/sync_installation/': {
                     synced: [],
                     skipped: ['PostHog/charts'],
                     available_count: 4,
@@ -195,7 +202,7 @@ export const ReviewerRequestsOn: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/repo_configs/': page([
+                '/api/projects/:team_id/code_review/approvals/repositories/': page([
                     repoConfig(1, { repository: 'PostHog/posthog', digest_enabled: true, routing_mode: 'fallback' }),
                 ]),
                 [OWNERS_FILE_URL]: { owners_file: 'found' },
@@ -213,7 +220,7 @@ export const ReviewerRequestsWithoutOwnersFile: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/repo_configs/': page([
+                '/api/projects/:team_id/code_review/approvals/repositories/': page([
                     repoConfig(1, { repository: 'PostHog/posthog', routing_mode: 'always' }),
                 ]),
             },
