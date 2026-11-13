@@ -1,10 +1,8 @@
 import os
 import sys
 import time
-import socket
 import logging
 import warnings
-import ipaddress
 import subprocess
 from collections.abc import Callable
 from functools import partial
@@ -236,12 +234,9 @@ def _create_clickhouse_database(keepdb: bool) -> None:
         client.execute(f"CREATE DATABASE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`")
 
 
-def _resolves_to_this_machine(host: str) -> bool:
-    # The dev setup maps the `clickhouse` host name to loopback in /etc/hosts.
-    try:
-        return ipaddress.ip_address(socket.gethostbyname(host)).is_loopback
-    except (OSError, ValueError):
-        return False
+# Host names that reach the ClickHouse container of the local dev stack. The dev setup maps
+# `clickhouse` to loopback in /etc/hosts.
+LOCAL_CLICKHOUSE_HOSTS = frozenset({"clickhouse", "localhost", "127.0.0.1", "::1"})
 
 
 def _start_local_clickhouse() -> bool:
@@ -250,7 +245,7 @@ def _start_local_clickhouse() -> bool:
     `hogli watch` stops an unused ClickHouse, so a local test run starts it again on demand. The same
     call arms the watcher, which stops ClickHouse again once nothing uses it.
     """
-    if is_ci() or not _resolves_to_this_machine(settings.CLICKHOUSE_HOST):
+    if is_ci() or settings.CLICKHOUSE_HOST not in LOCAL_CLICKHOUSE_HOSTS:
         return False
     try:
         result = subprocess.run(
