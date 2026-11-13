@@ -46,23 +46,25 @@ export interface RawJobRow {
     lock_id: string
 }
 
+const CHURN_PARK_MS = (2 * 3_600_000) / CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR
+
 // Read off the row the dequeue already returns, so tracking churn costs no extra query.
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
-    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and either at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age or at the counter cap, meaning they are cycling without completing.`,
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, or at the counter cap and rescheduled less than ${CHURN_PARK_MS / 1000}s ahead, meaning they are cycling without completing.`,
     labelNames: ['queue'] as const,
 })
 
 function isChurning(row: RawJobRow): boolean {
-    if (row.transition_count < CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
+    if (row.transition_count < CYCLOTRON_TRANSITION_CHURN_THRESHOLD || row.transition_count >= CYCLOTRON_COUNTER_MAX) {
         return false
-    }
-    const counterStoppedGrowing = row.transition_count >= CYCLOTRON_COUNTER_MAX
-    if (counterStoppedGrowing) {
-        return true
     }
     const ageHours = (Date.now() - new Date(row.created).getTime()) / 3_600_000
     return row.transition_count >= CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR * ageHours
+}
+
+function isChurningAtCap(row: RawJobRow, scheduled: Date): boolean {
+    return row.transition_count >= CYCLOTRON_COUNTER_MAX && scheduled.getTime() - Date.now() < CHURN_PARK_MS
 }
 
 // The loop swallows the error and retries, so without this counter a queue whose every
@@ -509,6 +511,9 @@ export class CyclotronV2Worker {
             reschedule: releaseWrite('reschedule', async (input?: CyclotronV2RescheduleOptions) => {
                 const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
                 const scheduled = options?.scheduledAt ?? new Date()
+                if (isChurningAtCap(row, scheduled)) {
+                    highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
+                }
 
                 const setClauses = [
                     `status = 'available'`,

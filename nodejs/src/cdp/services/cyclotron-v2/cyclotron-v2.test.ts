@@ -2719,7 +2719,6 @@ describe('Cyclotron V2', () => {
             ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 0, 1],
             ['at the churn threshold on a day-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 24, 1],
             ['at the churn threshold on a weeks-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 400, 0],
-            ['at the counter clamp on a weeks-old job', CYCLOTRON_COUNTER_MAX, 400, 1],
         ])('counts a dequeue %s', async (_label, seeded, ageHours, expected) => {
             const before = await churnCountForQueue(QUEUE)
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
@@ -2729,6 +2728,23 @@ describe('Cyclotron V2', () => {
             )
 
             await dequeueOneBatch(createWorker())
+
+            expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
+        })
+
+        it.each([
+            ['a second ahead', 1_000, 1],
+            ['five minutes ahead', 300_000, 0],
+        ])('counts a weeks-old job at the counter clamp rescheduled %s', async (_label, parkMs, expected) => {
+            const before = await churnCountForQueue(QUEUE)
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query(
+                `UPDATE cyclotron_jobs SET transition_count = $1, created = NOW() - interval '400 hours' WHERE id = $2`,
+                [CYCLOTRON_COUNTER_MAX, id]
+            )
+
+            const [job] = await dequeueOneBatch(createWorker())
+            await job.reschedule({ scheduledAt: new Date(Date.now() + parkMs) })
 
             expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
         })

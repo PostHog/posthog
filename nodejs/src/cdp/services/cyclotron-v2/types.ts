@@ -11,8 +11,6 @@ export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'fail
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
 export const CYCLOTRON_COUNTER_MAX = 32767
 
-// A job past both is in a retry loop it will not leave on its own. The count alone also matches a long-lived
-// wait that every matching event re-arms, which a loop outpaces by orders of magnitude per hour of the job's life.
 export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
 export const CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR = 600
 
