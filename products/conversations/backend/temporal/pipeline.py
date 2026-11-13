@@ -453,7 +453,6 @@ class SupportReplyWorkflow:
                         allow_clarify=allow_clarify,
                         grounding_aware=grounding_aware,
                         has_clarifying_questions=any(q and q.strip() for q in draft_output.clarifying_questions),
-                        has_seed_chunks=bool(retrieve_output.chunk_ids),
                     )
                     if action == "clarify" and tiered_clarify:
                         questions = [q for q in draft_output.clarifying_questions if q and q.strip()]

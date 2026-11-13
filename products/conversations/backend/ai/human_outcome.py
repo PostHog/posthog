@@ -28,8 +28,9 @@ USED_RATIO = 0.85
 EDITED_RATIO = 0.4
 
 
-# SequenceMatcher is quadratic without autojunk, and this runs under the ticket row lock.
-MAX_COMPARED_CHARS = 4000
+# SequenceMatcher is quadratic without autojunk. This runs under the ticket row lock while a
+# reply is being saved, so the compared text stays short enough to keep that write fast.
+MAX_COMPARED_CHARS = 2000
 
 
 def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:

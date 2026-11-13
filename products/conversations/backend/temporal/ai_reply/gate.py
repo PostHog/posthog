@@ -32,7 +32,6 @@ def decide_reply_action(
     allow_clarify: bool = True,
     grounding_aware: bool = False,
     has_clarifying_questions: bool = True,
-    has_seed_chunks: bool = True,
 ) -> ReplyAction:
     # Either judge alone can be overconfident, so a public reply needs both plus coverage.
     if (
@@ -54,12 +53,12 @@ def decide_reply_action(
         return "clarify" if allow_clarify else "findings"
     if blocker == "contradiction" or verdict == "out_of_scope":
         return "findings"
-    # Retry only on a validator knowledge gap. The draft verdict is not a retry signal.
+    # Retry only on a validator knowledge gap.
     if blocker == "knowledge":
-        # A retry reruns the whole sandbox draft. A draft agent that searched with its own tools
-        # and gave up finds nothing new, and an empty first retrieval means there is no knowledge
-        # for a second search to widen.
-        worth_retrying = not grounding_aware or (verdict == "answerable" and has_seed_chunks)
+        # A retry reruns the whole sandbox draft. It pays off when the validator found a gap in
+        # an answerable draft. A draft agent that searched with its own tools and gave up has
+        # nothing new to find on a second run.
+        worth_retrying = not grounding_aware or verdict == "answerable"
         if worth_retrying and attempt < max_attempts - 1:
             return "retry"
         return "findings"

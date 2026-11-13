@@ -101,7 +101,6 @@ class TestDecideReplyAction(SimpleTestCase):
                 {"blocker": "knowledge", "verdict": "blocked_on_knowledge", "validator_confidence": 0.2},
                 "findings",
             ),
-            ("empty_retrieval_is_not_retried", {"blocker": "knowledge", "has_seed_chunks": False}, "findings"),
             ("answerable_knowledge_gap_still_retries", {"blocker": "knowledge"}, "retry"),
             (
                 "answerable_draft_without_question_is_suggested",
