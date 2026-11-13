@@ -54,6 +54,7 @@ const DESTINATION_TYPE_LABELS: Record<AlertDestinationListItemApi['type'], strin
     teams: 'Microsoft Teams',
     webhook: 'Webhook',
     pagerduty: 'PagerDuty',
+    incident_io: 'incident.io',
     email: 'Email',
     in_app: 'In-app',
 }
