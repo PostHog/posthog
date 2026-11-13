@@ -99,11 +99,11 @@ describe('broadcast previews', () => {
         initKeaTests()
         mountedWizard = broadcastWizardLogic({ id: 'new' })
         mountedWizard.mount()
-        mountedWizard.actions.setEmail(email)
         if (channel === 'push') {
             mountedWizard.actions.setChannel('push')
             mountedWizard.actions.setPush({ channels: [7], title: 'New release', body: 'Open the app' })
         }
+        mountedWizard.actions.setEmail(email)
     }
 
     function renderReview(channel: 'email' | 'push', email?: BroadcastEmailValue): void {
@@ -120,17 +120,17 @@ describe('broadcast previews', () => {
         )
     }
 
-    const el = (dataAttr: string): HTMLElement | null => document.querySelector(`[data-attr="${dataAttr}"]`)
-    const fire = (dataAttr: string, event: (target: HTMLElement) => void): void => {
-        const target = el(dataAttr)
-        if (!target) {
-            throw new Error(`Nothing on the page has data-attr="${dataAttr}"`)
-        }
-        act(() => event(target))
+    const el = (dataAttr: string): HTMLElement | null => screen.queryByTestId(dataAttr)
+    const click = (dataAttr: string): void => {
+        act(() => {
+            fireEvent.click(screen.getByTestId(dataAttr))
+        })
     }
-    const click = (dataAttr: string): void => fire(dataAttr, (target) => fireEvent.click(target))
-    const type = (dataAttr: string, value: string): void =>
-        fire(dataAttr, (target) => fireEvent.change(target, { target: { value } }))
+    const type = (dataAttr: string, value: string): void => {
+        act(() => {
+            fireEvent.change(screen.getByTestId(dataAttr), { target: { value } })
+        })
+    }
     const reviewCard = (selector: string): Element | null =>
         document.querySelector(`[data-attr="broadcast-review-test-email"] ${selector}`)
     const toRow = (): HTMLElement | null => screen.getByText('To').parentElement
