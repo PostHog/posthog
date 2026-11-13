@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, cast
 
 from django.db import models
 
-from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -26,6 +27,7 @@ from products.signals.backend.facade.onboarding import (
     InboxOnboarding,
     InboxOnboardingPermissionError,
     InboxOnboardingValidationError,
+    QuickActivationBlocker,
     can_create_onboarding_scout,
     onboarding_first_report_statuses,
     onboarding_priorities,
@@ -138,6 +140,11 @@ class InboxOnboardingJobsSerializer(serializers.Serializer):
     recommendations = serializers.ChoiceField(
         choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of personalized scout recommendations."
     )
+    error_tracking_backfill = serializers.ChoiceField(
+        choices=InboxOnboardingJobStatus.choices,
+        required=False,
+        help_text="Dispatch status of the backfill of existing errors, when quick activation from an agent added Error tracking.",
+    )
 
 
 @extend_schema_serializer(many=False)
@@ -168,6 +175,10 @@ class FirstReportStateSerializer(serializers.Serializer):
 
 @extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    github_connected = serializers.BooleanField(
+        required=False,
+        help_text="Whether this project has a GitHub connection. It does not check which repositories the connection can read.",
+    )
     github_optional_available = serializers.BooleanField(
         required=False, help_text="Whether this project can activate Self-driving without connecting GitHub."
     )
@@ -189,6 +200,105 @@ class InboxOnboardingStateSerializer(serializers.Serializer):
     jobs = InboxOnboardingJobsSerializer(required=False, help_text="Background work started by quick activation.")
     draft = InboxOnboardingDraftSerializer(allow_null=True, help_text="Saved setup choices, without activating them.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")
+
+
+class QuickActivationState(models.TextChoices):
+    NOT_STARTED = "not_started", "Not started"
+    IN_PROGRESS = "in_progress", "In progress"
+    COMPLETED = "completed", "Completed"
+
+
+class QuickActivationPricingKind(models.TextChoices):
+    FREE_TRIAL = "free_trial", "Free trial"
+    TRIAL_CLAIMED = "trial_claimed", "Trial already claimed by this project"
+    PAID_PLAN = "paid_plan", "Paid plan"
+    EXISTING_PLAN = "existing_plan", "Existing plan"
+
+
+class QuickActivationBlockerSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Stable reason that quick activation is unavailable.")
+    message = serializers.CharField(help_text="What prevents quick activation, in words to show the person.")
+
+
+class QuickActivationGitHubSerializer(serializers.Serializer):
+    connected = serializers.BooleanField(help_text="Whether the project has a GitHub connection.")
+    repositories = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Repositories, as owner/name, that agents can read through the GitHub connection.",
+    )
+    more_repositories = serializers.BooleanField(
+        help_text="True when the connection can read more repositories than listed, or the list could not be read."
+    )
+
+
+class QuickActivationPricingSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=QuickActivationPricingKind.choices, help_text="Which pricing terms activation starts."
+    )
+    summary = serializers.CharField(help_text="The cost terms in plain words, to show the person before activation.")
+    report_limit = serializers.IntegerField(allow_null=True, help_text="Reports included in the free trial, if any.")
+    allowance_microusd = serializers.IntegerField(
+        allow_null=True, help_text="Usage included in the free trial, in millionths of a US dollar, if any."
+    )
+
+
+class QuickActivationSourceSerializer(serializers.Serializer):
+    source_product = serializers.ChoiceField(
+        choices=onboarding_source_products(), help_text="Source product that activation turns on."
+    )
+    source_type = serializers.ChoiceField(
+        choices=onboarding_source_types(), help_text="Signal type that activation turns on."
+    )
+    enabled_now = serializers.BooleanField(
+        allow_null=True, help_text="Whether the source is on now. Null means the project has no setting for it yet."
+    )
+
+
+class QuickActivationScoutSerializer(serializers.Serializer):
+    skill_name = serializers.CharField(help_text="Scout that activation turns on.")
+    title = serializers.CharField(help_text="Scout name to show the person.")
+    run_interval_minutes = serializers.IntegerField(help_text="How often the scout runs, in minutes.")
+    run_cron_schedule = serializers.CharField(
+        allow_null=True, help_text="Cron schedule in the project timezone. It replaces the interval when set."
+    )
+    enabled_now = serializers.BooleanField(help_text="Whether the scout is on now.")
+
+
+@extend_schema_serializer(many=False)
+class QuickActivationPlanSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=QuickActivationState.choices, help_text="Whether Self-driving setup has started in this project."
+    )
+    can_activate = serializers.BooleanField(
+        help_text="Whether quick activation can run now. When false, `blockers` says why."
+    )
+    fingerprint = serializers.CharField(
+        help_text="Identifies this plan. Activation takes it and refuses when the plan changed since."
+    )
+    blockers = QuickActivationBlockerSerializer(many=True, help_text="Reasons quick activation can't run now.")
+    github = QuickActivationGitHubSerializer(help_text="The GitHub access agents get.")
+    pricing = QuickActivationPricingSerializer(help_text="The cost terms that activation starts.")
+    github_optional = serializers.BooleanField(
+        help_text="Whether this project activates the GitHub-optional pilot, which keeps automatic pull requests off."
+    )
+    automatic_implementation = serializers.BooleanField(
+        help_text="Whether activation turns on automatic pull requests for reports at `implementation_priority` or higher."
+    )
+    implementation_priority = serializers.ChoiceField(
+        choices=onboarding_priorities(), help_text="Lowest report priority that automatic pull requests apply to."
+    )
+    sources = QuickActivationSourceSerializer(many=True, help_text="Signal sources that activation turns on.")
+    scanner_ids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="Enabled Replay Vision scanners whose findings activation turns on."
+    )
+    scouts = QuickActivationScoutSerializer(many=True, help_text="Scouts that activation turns on.")
+
+
+class QuickActivationRequestSerializer(serializers.Serializer):
+    plan_fingerprint = serializers.CharField(
+        max_length=64,
+        help_text="`fingerprint` from the quick activation plan the person approved.",
+    )
 
 
 class InboxOnboardingPermission(BasePermission):
@@ -241,6 +351,61 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, self.request.user),
             lambda write: self._check_suggestion_access(self.request, write=write),
         )
+
+    @extend_schema(
+        responses=QuickActivationPlanSerializer,
+        summary="Get the quick activation plan",
+        description=(
+            "What quick activation would turn on in this project: signal sources, Replay Vision scanners, scouts, "
+            "automatic pull requests, the GitHub access agents get and the cost terms, plus anything that blocks it. "
+            "Changes nothing."
+        ),
+    )
+    @action(detail=False, methods=["GET"], url_path="quick_activation")
+    def quick_activation(self, request: Request, *args: object, **kwargs: object) -> Response:
+        plan = self._service().quick_activation_plan(get_authenticator_scopes(request.successful_authenticator))
+        if is_sandbox_oauth_request(request):
+            plan = replace(
+                plan,
+                blockers=(
+                    *plan.blockers,
+                    QuickActivationBlocker(code="missing_permission", message=InboxOnboardingPermission.message),
+                ),
+            )
+        return Response(QuickActivationPlanSerializer(plan).data)
+
+    @extend_schema(
+        request=QuickActivationRequestSerializer,
+        responses={
+            200: InboxOnboardingStateSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "Not activated. The plan changed since it was shown, setup already started, GitHub isn't "
+                    "connected, or the plan has a blocker. `code` says which."
+                )
+            ),
+        },
+        summary="Activate quick setup",
+        description=(
+            "Turn on Self-driving with the quick activation plan the person approved, identified by its "
+            "fingerprint. Refuses without changing anything when the plan changed since it was shown."
+        ),
+    )
+    @quick_activation.mapping.post
+    def activate_quick_activation(self, request: Request, *args: object, **kwargs: object) -> Response:
+        serializer = QuickActivationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            return Response(
+                self._service().activate_quick_setup(
+                    get_authenticator_scopes(request.successful_authenticator),
+                    serializer.validated_data["plan_fingerprint"],
+                )
+            )
+        except (InboxOnboardingPermissionError, PermissionError) as error:
+            raise PermissionDenied(str(error)) from error
+        except (InboxOnboardingValidationError, ValueError) as error:
+            raise serializers.ValidationError(str(error)) from error
 
     @extend_schema(request=InboxOnboardingExposureSerializer, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])

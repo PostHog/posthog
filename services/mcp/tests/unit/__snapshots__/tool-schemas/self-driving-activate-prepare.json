@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "plan_fingerprint": {
+            "description": "The `fingerprint` from the self-driving-activation-preview result that the customer approved.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["plan_fingerprint"],
+    "type": "object"
+}

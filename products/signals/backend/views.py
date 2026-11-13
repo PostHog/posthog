@@ -52,7 +52,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
-from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.integration import github_rate_limited_response
@@ -350,6 +350,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_backfill import trigger_error_tracking_backfill
 from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
@@ -361,10 +362,6 @@ from products.signals.backend.task_attribution import (
 )
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded, implementation_in_flight_report_ids
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
-from products.signals.backend.temporal.backfill_error_tracking import (
-    BackfillErrorTrackingInput,
-    BackfillErrorTrackingWorkflow,
-)
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
@@ -725,20 +722,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _trigger_error_tracking_backfill(self) -> None:
         """Fire-and-forget backfill of recent error tracking issues as signals."""
-        try:
-            client = sync_connect()
-            async_to_sync(client.start_workflow)(  # type: ignore
-                "backfill-error-tracking",  # type: ignore
-                BackfillErrorTrackingInput(team_id=self.team_id),  # type: ignore
-                id=BackfillErrorTrackingWorkflow.workflow_id_for(self.team_id),
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-            logger.info(f"Started error tracking backfill workflow for team {self.team_id}")
-        except Exception:
-            logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
+        trigger_error_tracking_backfill(self.team_id)
 
     def update(self, request: Request, *args: object, **kwargs: object) -> Response:
         partial = kwargs.pop("partial", False)

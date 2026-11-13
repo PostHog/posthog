@@ -984,6 +984,13 @@ export interface InboxOnboardingJobsApi {
      * * `skipped` - Unavailable
      * * `failed` - Failed */
     recommendations: InboxOnboardingJobStatusEnumApi
+    /** Dispatch status of the backfill of existing errors, when quick activation from an agent added Error tracking.
+     *
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed */
+    error_tracking_backfill?: InboxOnboardingJobStatusEnumApi
 }
 
 /**
@@ -1641,6 +1648,8 @@ export interface InboxOnboardingDraftApi {
 }
 
 export interface InboxOnboardingStateApi {
+    /** Whether this project has a GitHub connection. It does not check which repositories the connection can read. */
+    github_connected?: boolean
     /** Whether this project can activate Self-driving without connecting GitHub. */
     github_optional_available?: boolean
     /** Canonical scout skill names that quick setup enables for this project, with the general scout first. */
@@ -1671,6 +1680,303 @@ export interface InboxOnboardingExposureApi {
      * * `app` - App
      * * `agent` - Agent */
     onboarding_origin?: InboxOnboardingOriginEnumApi
+}
+
+/**
+ * * `not_started` - Not started
+ * * `in_progress` - In progress
+ * * `completed` - Completed
+ */
+export type QuickActivationStateEnumApi = (typeof QuickActivationStateEnumApi)[keyof typeof QuickActivationStateEnumApi]
+
+export const QuickActivationStateEnumApi = {
+    NotStarted: 'not_started',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+} as const
+
+export interface QuickActivationBlockerApi {
+    /** Stable reason that quick activation is unavailable. */
+    code: string
+    /** What prevents quick activation, in words to show the person. */
+    message: string
+}
+
+export interface QuickActivationGitHubApi {
+    /** Whether the project has a GitHub connection. */
+    connected: boolean
+    /** Repositories, as owner/name, that agents can read through the GitHub connection. */
+    repositories: string[]
+    /** True when the connection can read more repositories than listed, or the list could not be read. */
+    more_repositories: boolean
+}
+
+/**
+ * * `free_trial` - Free trial
+ * * `trial_claimed` - Trial already claimed by this project
+ * * `paid_plan` - Paid plan
+ * * `existing_plan` - Existing plan
+ */
+export type QuickActivationPricingKindEnumApi =
+    (typeof QuickActivationPricingKindEnumApi)[keyof typeof QuickActivationPricingKindEnumApi]
+
+export const QuickActivationPricingKindEnumApi = {
+    FreeTrial: 'free_trial',
+    TrialClaimed: 'trial_claimed',
+    PaidPlan: 'paid_plan',
+    ExistingPlan: 'existing_plan',
+} as const
+
+export interface QuickActivationPricingApi {
+    /** Which pricing terms activation starts.
+     *
+     * * `free_trial` - Free trial
+     * * `trial_claimed` - Trial already claimed by this project
+     * * `paid_plan` - Paid plan
+     * * `existing_plan` - Existing plan */
+    kind: QuickActivationPricingKindEnumApi
+    /** The cost terms in plain words, to show the person before activation. */
+    summary: string
+    /**
+     * Reports included in the free trial, if any.
+     * @nullable
+     */
+    report_limit: number | null
+    /**
+     * Usage included in the free trial, in millionths of a US dollar, if any.
+     * @nullable
+     */
+    allowance_microusd: number | null
+}
+
+export interface QuickActivationSourceApi {
+    /** Source product that activation turns on.
+     *
+     * * `session_replay` - Session replay
+     * * `llm_analytics` - LLM analytics
+     * * `github` - GitHub
+     * * `linear` - Linear
+     * * `jira` - Jira
+     * * `zendesk` - Zendesk
+     * * `conversations` - Conversations
+     * * `error_tracking` - Error tracking
+     * * `pganalyze` - pganalyze
+     * * `signals_scout` - Signals scout
+     * * `signals_check` - Report check
+     * * `user_authored` - Team member
+     * * `logs` - Logs
+     * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
+     * * `replay_vision` - Replay Vision
+     * * `analytics` - Product analytics
+     * * `freshdesk` - Freshdesk
+     * * `freshservice` - Freshservice
+     * * `front` - Front
+     * * `gorgias` - Gorgias
+     * * `kustomer` - Kustomer
+     * * `dixa` - Dixa
+     * * `plain` - Plain
+     * * `gitlab` - GitLab
+     * * `gitea` - Gitea
+     * * `shortcut` - Shortcut
+     * * `sentry` - Sentry
+     * * `rollbar` - Rollbar
+     * * `bugsnag` - Bugsnag
+     * * `honeybadger` - Honeybadger
+     * * `raygun` - Raygun
+     * * `datadog` - Datadog
+     * * `snyk` - Snyk
+     * * `sonarqube` - SonarQube
+     * * `semgrep` - Semgrep
+     * * `rapid7_insightvm` - Rapid7 InsightVM
+     * * `featurebase` - Featurebase
+     * * `frill` - Frill
+     * * `aha` - Aha
+     * * `uservoice` - UserVoice
+     * * `productboard` - Productboard
+     * * `canny` - Canny
+     * * `asknicely` - AskNicely
+     * * `retently` - Retently
+     * * `appfigures` - Appfigures
+     * * `appfollow` - AppFollow
+     * * `judgeme_reviews` - Judge.me
+     * * `intercom` - Intercom
+     * * `hubspot` - HubSpot
+     * * `engineering_analytics` - Engineering analytics
+     * * `google_search_console` - Google Search Console
+     * * `pagerduty` - PagerDuty
+     * * `opsgenie` - Opsgenie
+     * * `incident_io` - incident.io
+     * * `firehydrant` - FireHydrant
+     * * `squadcast` - Squadcast
+     * * `servicenow` - ServiceNow
+     * * `solarwinds_service_desk` - SolarWinds Service Desk
+     * * `grafana_irm` - Grafana IRM
+     * * `xmatters` - xMatters
+     * * `betterstack` - Better Stack
+     * * `newrelic` - New Relic
+     * * `trigger_dev` - Trigger.dev
+     * * `checkly` - Checkly
+     * * `roark` - Roark
+     * * `monte_carlo` - Monte Carlo
+     * * `bigeye` - Bigeye
+     * * `aws_security_hub` - AWS Security Hub
+     * * `aws_guardduty` - AWS GuardDuty
+     * * `aws_inspector` - AWS Inspector
+     * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+     * * `clickup` - ClickUp
+     * * `wrike` - Wrike
+     * * `trello` - Trello
+     * * `bugherd` - BugHerd
+     * * `dynamics365` - Dynamics 365
+     * * `zoho_crm` - Zoho CRM
+     * * `planhat` - Planhat
+     * * `trustpilot` - Trustpilot
+     * * `okendo` - Okendo
+     * * `sleekplan` - Sleekplan
+     * * `bettermode` - Bettermode
+     * * `discourse` - Discourse
+     * * `mintlify` - Mintlify
+     * * `langsmith` - LangSmith
+     * * `sprig` - Sprig
+     * * `gainsight_px` - Gainsight PX
+     * * `dynatrace` - Dynatrace
+     * * `statuspage` - Statuspage
+     * * `cronitor` - Cronitor
+     * * `instatus` - Instatus
+     * * `asana` - Asana
+     * * `monday` - monday.com
+     * * `plane` - Plane
+     * * `azure_devops` - Azure DevOps
+     * * `helpscout` - Help Scout
+     * * `decagon` - Decagon
+     * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
+     * * `usersnap` - Usersnap
+     * * `typeform` - Typeform
+     * * `qualtrics` - Qualtrics
+     * * `surveymonkey` - SurveyMonkey
+     * * `formbricks` - Formbricks
+     * * `survicate` - Survicate
+     * * `surveysparrow` - SurveySparrow
+     * * `lacework` - Lacework
+     * * `orca_security` - Orca Security
+     * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+     * * `google_play_console` - Google Play Console
+     * * `azure_application_insights` - Azure Application Insights
+     * * `appsignal` - AppSignal
+     * * `cursor` - Cursor
+     * * `github_dependabot` - GitHub Dependabot
+     * * `github_code_scanning` - GitHub code scanning
+     * * `github_secret_scanning` - GitHub secret scanning
+     * * `beamer` - Beamer
+     * * `beamer_nps` - Beamer NPS
+     * * `chameleon` - Chameleon
+     * * `etsy` - Etsy
+     * * `featurebase_surveys` - Featurebase surveys
+     * * `g2` - G2
+     * * `gumroad` - Gumroad
+     * * `trustpilot_product_reviews` - Trustpilot product reviews
+     * * `uservoice_nps` - UserVoice NPS
+     * * `vitally_nps` - Vitally NPS
+     * * `woocommerce` - WooCommerce
+     * * `yotpo` - Yotpo
+     * * `airbrake` - Airbrake
+     * * `amazon_cloudwatch` - Amazon CloudWatch
+     * * `logicmonitor` - LogicMonitor
+     * * `mux` - Mux */
+    source_product: SignalSourceProductEnumApi
+    /** Signal type that activation turns on.
+     *
+     * * `session_analysis_cluster` - Session analysis cluster
+     * * `evaluation_report` - Evaluation report
+     * * `issue` - Issue
+     * * `ticket` - Ticket
+     * * `issue_created` - Issue created
+     * * `issue_reopened` - Issue reopened
+     * * `issue_spiking` - Issue spiking
+     * * `cross_source_issue` - Cross source issue
+     * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+     * * `scanner_finding` - Scanner finding
+     * * `anomaly_investigation` - Anomaly investigation
+     * * `feedback` - Feedback
+     * * `review` - Review
+     * * `ci_flaky_check` - CI flaky check
+     * * `ci_broken_default_branch` - CI broken default branch
+     * * `ci_duration_regression` - CI duration regression
+     * * `search_opportunity` - Search opportunity
+     * * `incident` - Incident */
+    source_type: SignalSourceConfigSourceTypeEnumApi
+    /**
+     * Whether the source is on now. Null means the project has no setting for it yet.
+     * @nullable
+     */
+    enabled_now: boolean | null
+}
+
+export interface QuickActivationScoutApi {
+    /** Scout that activation turns on. */
+    skill_name: string
+    /** Scout name to show the person. */
+    title: string
+    /** How often the scout runs, in minutes. */
+    run_interval_minutes: number
+    /**
+     * Cron schedule in the project timezone. It replaces the interval when set.
+     * @nullable
+     */
+    run_cron_schedule: string | null
+    /** Whether the scout is on now. */
+    enabled_now: boolean
+}
+
+export interface QuickActivationPlanApi {
+    /** Whether Self-driving setup has started in this project.
+     *
+     * * `not_started` - Not started
+     * * `in_progress` - In progress
+     * * `completed` - Completed */
+    state: QuickActivationStateEnumApi
+    /** Whether quick activation can run now. When false, `blockers` says why. */
+    can_activate: boolean
+    /** Identifies this plan. Activation takes it and refuses when the plan changed since. */
+    fingerprint: string
+    /** Reasons quick activation can't run now. */
+    blockers: QuickActivationBlockerApi[]
+    /** The GitHub access agents get. */
+    github: QuickActivationGitHubApi
+    /** The cost terms that activation starts. */
+    pricing: QuickActivationPricingApi
+    /** Whether this project activates the GitHub-optional pilot, which keeps automatic pull requests off. */
+    github_optional: boolean
+    /** Whether activation turns on automatic pull requests for reports at `implementation_priority` or higher. */
+    automatic_implementation: boolean
+    /** Lowest report priority that automatic pull requests apply to.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    implementation_priority: AutonomyPriorityEnumApi
+    /** Signal sources that activation turns on. */
+    sources: QuickActivationSourceApi[]
+    /** Enabled Replay Vision scanners whose findings activation turns on. */
+    scanner_ids: string[]
+    /** Scouts that activation turns on. */
+    scouts: QuickActivationScoutApi[]
+}
+
+export interface QuickActivationRequestApi {
+    /**
+     * `fingerprint` from the quick activation plan the person approved.
+     * @maxLength 64
+     */
+    plan_fingerprint: string
 }
 
 export interface PauseStateResponseApi {

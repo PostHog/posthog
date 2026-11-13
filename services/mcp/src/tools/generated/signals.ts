@@ -5,6 +5,12 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/signals/api'
 import { SignalReportFeedbackNoteSchema, SignalReportFeedbackSentimentSchema } from '@/schema/tool-inputs'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import hooks_inboxMySettingsGet from '@/tools/signals/inboxMySettingsHooks'
 import hooks_inboxMySettingsUpdate from '@/tools/signals/inboxMySettingsHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
@@ -3166,6 +3172,98 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
+const SelfDrivingActivationPreviewSchema = () => z.object({})
+
+const selfDrivingActivationPreview = (): ToolBase<
+    ReturnType<typeof SelfDrivingActivationPreviewSchema>,
+    Schemas.QuickActivationPlan
+> => ({
+    name: 'self-driving-activation-preview',
+    schema: SelfDrivingActivationPreviewSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingActivationPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.QuickActivationPlan>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/quick_activation/`,
+        })
+        return result
+    },
+})
+
+const SelfDrivingActivateSchema = () => {
+    const SignalsOnboardingQuickActivationCreateBody = orvalSchemas.SignalsOnboardingQuickActivationCreateBody()
+    return SignalsOnboardingQuickActivationCreateBody.extend({
+        plan_fingerprint: SignalsOnboardingQuickActivationCreateBody.shape['plan_fingerprint'].describe(
+            'The `fingerprint` from the self-driving-activation-preview result that the customer approved.'
+        ),
+    })
+}
+
+const SelfDrivingActivateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const selfDrivingActivatePrepare = (): ToolBase<
+    ReturnType<typeof SelfDrivingActivateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'self-driving-activate-prepare',
+    schema: SelfDrivingActivateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingActivateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'self-driving-activate',
+            inputSchema: SelfDrivingActivateSchema(),
+            actionLabel: 'activate Self-driving',
+            messageTemplate:
+                "About to activate Self-driving in this project. Agents will investigate in the background and can read code in the repositories your GitHub connection can access. If the plan turns on automatic pull requests, agents can also open pull requests for you to review. Usage counts against a free trial when one applies, and is then billed under your organization's Self-driving plan, up to its usage limit. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const selfDrivingActivateExecute = (): ToolBase<
+    typeof SelfDrivingActivateSchemaExecute,
+    Schemas.InboxOnboardingState
+> => ({
+    name: 'self-driving-activate-execute',
+    schema: SelfDrivingActivateSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof SelfDrivingActivateSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof SelfDrivingActivateSchema>>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'self-driving-activate',
+            inputSchema: SelfDrivingActivateSchema(),
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.plan_fingerprint !== undefined) {
+            body['plan_fingerprint'] = params.plan_fingerprint
+        }
+        const result = await context.api.request<Schemas.InboxOnboardingState>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/quick_activation/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SelfDrivingStatusGetSchema = () => z.object({})
 
 const selfDrivingStatusGet = (): ToolBase<
@@ -4026,6 +4124,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
+    'self-driving-activation-preview': selfDrivingActivationPreview,
+    'self-driving-activate-prepare': selfDrivingActivatePrepare,
+    'self-driving-activate-execute': selfDrivingActivateExecute,
     'self-driving-status-get': selfDrivingStatusGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
