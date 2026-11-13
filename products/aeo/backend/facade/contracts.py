@@ -748,3 +748,113 @@ class VisibilityDashboard:
 
     id: int
     name: str
+
+
+SETUP_PROMPT_COUNT = 20
+SETUP_KEYWORD_COUNT = 20
+# A project that already has this many active prompts or keywords keeps its own list, and setup skips the step.
+SETUP_ENOUGH_PROMPTS = 10
+SETUP_ENOUGH_KEYWORDS = 10
+SETUP_WEBSITE_DAYS = 7
+MAX_SETUP_WEBSITES = 5
+
+
+class WebsiteSource(LabeledStrEnum):
+    """Where PostHog found a website the project may be about."""
+
+    OWN_BRAND = "own_brand"
+    APP_URLS = "app_urls"
+    RECORDING_DOMAINS = "recording_domains"
+    PAGEVIEWS = "pageviews"
+
+
+@frozen
+class WebsiteCandidate:
+    domain: str
+    source: WebsiteSource
+    # Pageviews on the domain over the last SETUP_WEBSITE_DAYS days, only for the pageviews source.
+    pageviews: int | None = None
+
+
+@frozen
+class SetupContext:
+    """What PostHog already knows about the project, so setup can start from it."""
+
+    websites: tuple[WebsiteCandidate, ...]
+    own_domains: tuple[str, ...]
+    active_prompts: int
+    # Unarchived prompts that are turned off, which no run checks.
+    paused_prompts: int
+    keywords: int
+    has_checks: bool
+    ai_data_processing_approved: bool
+    first_run_available: bool
+    # The engines as the project runs them now, defaults included, for choosing which ones to track.
+    engines: tuple[EngineSetting, ...]
+    # How many prompts setup asks for, so a client can show how many checks one run makes.
+    prompt_target: int
+    # The window, in days, of the pageview hosts among the websites.
+    website_days: int
+
+
+class SetupStep(LabeledStrEnum):
+    BRAND = "brand"
+    PROMPTS = "prompts"
+    KEYWORDS = "keywords"
+    FIRST_RUN = "first_run"
+
+
+class SetupStepStatus(LabeledStrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+@frozen
+class SetupStepState:
+    step: SetupStep
+    status: SetupStepStatus
+    # How many prompts or keywords the step added.
+    added: int = 0
+    detail: str = ""
+
+
+@frozen
+class SetupRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    # Each check is a paid call to every enabled engine, so the first run is queued only when asked for.
+    run_first_check: bool = False
+    # The engines to track. Every other engine is turned off. None keeps the current settings.
+    engines: tuple[str, ...] | None = None
+    # Queue the first run and nothing else: no brand, prompts or keywords, and no engine change.
+    only_first_run: bool = False
+    # With only_first_run, turn on every paused prompt first, such as the ones a configure-only setup saved.
+    activate_paused_prompts: bool = False
+
+
+@frozen
+class SetupJob:
+    id: str
+    status: SuggestionJobStatus
+    steps: tuple[SetupStepState, ...] = ()
+    error: str = ""
+
+
+class SetupJobNotFoundError(Exception):
+    pass
+
+
+class SetupAlreadyRunningError(Exception):
+    """The team already has a setup job pending. `job_id` is that job, so a client can follow it instead."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(job_id)
+        self.job_id = job_id
+
+
+class SetupRequestError(Exception):
+    """The setup request cannot start. The message is safe to show the user."""

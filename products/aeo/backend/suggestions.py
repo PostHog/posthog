@@ -258,17 +258,14 @@ def fail_job(team_id: int, job_id: str, error: str) -> None:
     _save_job(team_id, PromptSuggestionJob(id=job_id, status=SuggestionJobStatus.FAILED, error=error))
 
 
-def run_job(team_id: int, job_id: str, request: PromptSuggestionRequest) -> None:
+def suggest_prompts(team_id: int, request: PromptSuggestionRequest) -> list[PromptSuggestion]:
+    """Ask the model for prompts and drop the ones the project already tracks. Raises PromptSuggestionError."""
     prompts = list(
         AEOPrompt.objects.for_team(team_id)
         .order_by("-created_at")
         .values_list("prompt", flat=True)[:MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS]
     )
-    try:
-        candidates = generate_suggestions(team_id, request, context_prompts=prompts, existing_keys=set())
-    except PromptSuggestionError as error:
-        fail_job(team_id, job_id, str(error))
-        return
+    candidates = generate_suggestions(team_id, request, context_prompts=prompts, existing_keys=set())
     # Every version of every prompt counts, archived ones included, so a suggestion never revives retired wording.
     # Only the candidates are looked up, so the work does not grow with the team's prompt history.
     tracked = set(
@@ -277,9 +274,15 @@ def run_job(team_id: int, job_id: str, request: PromptSuggestionRequest) -> None
         .filter(key__in=[prompt_key(candidate.prompt) for candidate in candidates])
         .values_list("key", flat=True)
     )
-    suggestions = [c for c in candidates if prompt_key(c.prompt) not in tracked][
-        : min(max(request.count, 1), MAX_SUGGESTIONS)
-    ]
+    return [c for c in candidates if prompt_key(c.prompt) not in tracked][: min(max(request.count, 1), MAX_SUGGESTIONS)]
+
+
+def run_job(team_id: int, job_id: str, request: PromptSuggestionRequest) -> None:
+    try:
+        suggestions = suggest_prompts(team_id, request)
+    except PromptSuggestionError as error:
+        fail_job(team_id, job_id, str(error))
+        return
     _save_job(
         team_id,
         PromptSuggestionJob(id=job_id, status=SuggestionJobStatus.COMPLETED, suggestions=tuple(suggestions)),

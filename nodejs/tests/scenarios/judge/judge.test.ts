@@ -3,7 +3,8 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
 
-import { ProviderEdge, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
+import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
+import { atLeastOnce } from './invariants'
 import { JournalEntry, Judge, createJudge } from './judge'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
@@ -28,6 +29,7 @@ describe('judge', () => {
                     return Promise.resolve(unfinishedJobs)
                 },
             },
+            fetchRetries: 3,
             pollMs: 10,
             now: () => clockMs,
         })
@@ -214,6 +216,132 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {})
 
         expect(result).toMatchObject({ name: 'at_least_once', ...expected })
+    })
+
+    it.each<[string, number[], boolean]>([
+        ['a redirect, which fetch does not follow or retry, on the only attempt', [302], true],
+        ['a status fetch does not retry, on the only attempt', [400], true],
+        ['a request timeout, which fetch retries, on the only attempt', [408], false],
+        ['a server error, which fetch retries, on the only attempt', [503], false],
+        ['a server error on fewer attempts than fetch makes', [503, 503], false],
+        ['a server error on every attempt fetch makes', [503, 503, 503], true],
+        ['too many requests on every attempt fetch makes', [429, 503, 429], true],
+    ])('at_least_once for a webhook a fault answered with %s', (_story, statuses, passed) => {
+        const attempts = statuses.map(
+            (status, i): TruthRecord => ({
+                seq: i + 1,
+                at: new Date().toISOString(),
+                kind: 'webhook',
+                status,
+                fault: 'dest.status',
+                unitId: UNIT,
+                actionId: 'webhook',
+                detail: {},
+            })
+        )
+
+        const result = atLeastOnce.check(
+            {
+                journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }],
+                truth: attempts,
+                fetchRetries: 3,
+            },
+            undefined
+        )
+
+        expect(result.passed).toBe(passed)
+    })
+
+    it.each<[string, () => Promise<unknown>, number | undefined, object]>([
+        ['delivered once', () => deliver(UNIT), undefined, { passed: true, observed: 0, unitIds: [] }],
+        [
+            'accepted only on a retry',
+            async () => {
+                answerNextSendWith(503, 'ServiceUnavailable')
+                await deliver(UNIT)
+                await deliver(UNIT)
+            },
+            undefined,
+            { passed: true, observed: 0 },
+        ],
+        [
+            'accepted twice',
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT)
+            },
+            undefined,
+            { passed: false, observed: 1, violation: `${UNIT} email: accepted 2 times`, unitIds: [UNIT] },
+        ],
+        [
+            'accepted twice under a gate of one',
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT)
+            },
+            1,
+            { passed: true, observed: 1, gate: 1 },
+        ],
+    ])('duplicate_sends for a unit %s', async (_story, act, gate, expected) => {
+        judge.record(offered())
+        await act()
+
+        const [result] = await judge.check(
+            [{ name: 'duplicate_sends', params: {} }],
+            gate === undefined ? {} : { duplicate_sends: gate }
+        )
+
+        expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
+    })
+
+    it.each<[string, JournalEntry['kind'], JournalEntry['answer'], number | undefined, object]>([
+        ['accepted', 'transactional', { accepted: true }, undefined, { passed: true, observed: 0, unitIds: [] }],
+        [
+            'refused with a status',
+            'transactional',
+            { accepted: false, status: 422, outcome: 'recipient_suppressed' },
+            undefined,
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the intake answered 422 recipient_suppressed`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
+            'never reached',
+            'transactional',
+            { accepted: false, transportError: 'connect ECONNREFUSED' },
+            undefined,
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the intake could not be reached: connect ECONNREFUSED`,
+            },
+        ],
+        [
+            'refused under a gate of one',
+            'transactional',
+            { accepted: false, status: 503 },
+            1,
+            { passed: true, observed: 1 },
+        ],
+        [
+            'of events the runner could not produce, which no intake answered',
+            'event',
+            { accepted: false, transportError: 'Local: Message timed out' },
+            undefined,
+            { passed: true, observed: 0, unitIds: [] },
+        ],
+    ])('refused_at_intake for a unit %s', async (_story, kind, answer, gate, expected) => {
+        judge.record({ ...offered(answer), kind })
+
+        const [result] = await judge.check(
+            [{ name: 'refused_at_intake', params: {} }],
+            gate === undefined ? {} : { refused_at_intake: gate }
+        )
+
+        expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
     })
 
     it.each<[string, () => Judge]>([

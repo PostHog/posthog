@@ -6,7 +6,6 @@ import {
     LemonButton,
     LemonCard,
     LemonSegmentedButton,
-    LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTag,
@@ -82,6 +81,8 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
     )
 }
 
+const LOADING_ROWS = 6
+
 export const ContentAutopilotPrompts = (): JSX.Element => {
     const { prompts, promptsLoading, promptsError, promptsPage, promptEngines, showArchived, needsImprovement } =
         useValues(contentAutopilotPromptsLogic)
@@ -152,11 +153,10 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonBanner>
             ) : null}
 
-            {prompts === null ? (
-                promptsError ? null : (
-                    <LemonSkeleton className="h-40 w-full" />
-                )
-            ) : count === 0 && !showArchived && promptTopics?.length === 0 ? (
+            {prompts === null && promptsError ? null : prompts !== null &&
+              count === 0 &&
+              !showArchived &&
+              promptTopics?.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
@@ -170,9 +170,11 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonCard>
             ) : (
                 <LemonTable
-                    dataSource={prompts.results}
+                    dataSource={prompts?.results ?? []}
                     rowKey="id"
-                    loading={promptsLoading}
+                    // Before the first page arrives, placeholder rows hold the table's shape.
+                    loading={promptsLoading || prompts === null}
+                    loadingSkeletonRows={LOADING_ROWS}
                     emptyState={
                         needsImprovement
                             ? `No prompts need improvement. A prompt shows here when an AI assistant answered it in the last ${filters.days} days without citing your site.`

@@ -4,12 +4,15 @@ import { closeSync, openSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
-import { terminate } from './processes'
+import { processState, signal, terminate } from './processes'
 import { Role, RoleSpec } from './roles'
 
 const EXIT_REPORTED_WITHIN_MS = 2000
+const STATE_POLL_MS = 20
 
 const isRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null
+
+const EXITED_STATES = [null, 'Z', 'X']
 
 export type RoleExit = {
     role: Role
@@ -32,6 +35,8 @@ export type SupervisorOptions = {
 export type Supervisor = {
     start(specs: RoleSpec[]): Promise<void>
     stop(): Promise<void>
+    kill(role: Role, withinMs: number): Promise<boolean>
+    freeze(role: Role, withinMs: number): { observed(): Promise<boolean>; release(): Promise<void> }
     exits(): RoleExit[]
 }
 
@@ -39,7 +44,17 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     const children = new Map<Role, ChildProcess>()
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
+    const killedByValve = new WeakSet<ChildProcess>()
+    const freezes = new Map<number, number>()
     let stopping = false
+
+    const runningChild = (role: Role): ChildProcess & { pid: number } => {
+        const child = children.get(role)
+        if (child?.pid === undefined || !isRunning(child) || EXITED_STATES.includes(processState(child.pid))) {
+            throw new Error(`${role} is not running`)
+        }
+        return child as ChildProcess & { pid: number }
+    }
 
     const relaunchLater = (spec: RoleSpec): void => {
         const restart = setTimeout(() => {
@@ -86,7 +101,13 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 return
             }
             void terminate({ groups: child.pid ? [child.pid] : [], pids: [] }, 0)
-            recorded.push({ role: spec.role, at: new Date().toISOString(), code, signal, byValve: false })
+            recorded.push({
+                role: spec.role,
+                at: new Date().toISOString(),
+                code,
+                signal,
+                byValve: killedByValve.has(child) && signal === 'SIGKILL',
+            })
             relaunchLater(spec)
         })
         return child
@@ -115,6 +136,52 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 throw new Error(
                     `${survivors.map(([role, child]) => `${role} (pid ${child.pid})`).join(', ')} did not exit after SIGKILL; a process stuck in uninterruptible I/O can outlive it. Check them with \`ps -o pid,stat,cmd -p ${survivors.map(([, child]) => child.pid).join(',')}\` and wait for them to exit, then run the scenario again.`
                 )
+            }
+        },
+
+        async kill(role, withinMs) {
+            const child = runningChild(role)
+            killedByValve.add(child)
+            const exited = once(child, 'exit').then(([, signal]) => signal === 'SIGKILL')
+            process.kill(-child.pid, 'SIGKILL')
+            const gaveUp = new AbortController()
+            const outcome = await Promise.race([
+                exited,
+                sleep(withinMs, false, { signal: gaveUp.signal }).catch(() => false),
+            ])
+            gaveUp.abort()
+            return outcome
+        },
+
+        freeze(role, withinMs) {
+            const { pid } = runningChild(role)
+            process.kill(-pid, 'SIGSTOP')
+            freezes.set(pid, (freezes.get(pid) ?? 0) + 1)
+            let released = false
+            return {
+                observed: async () => {
+                    const deadline = Date.now() + withinMs
+                    while (processState(pid) !== 'T') {
+                        if (Date.now() > deadline) {
+                            return false
+                        }
+                        await sleep(STATE_POLL_MS)
+                    }
+                    return true
+                },
+                release: () => {
+                    if (!released) {
+                        released = true
+                        const left = freezes.get(pid)! - 1
+                        if (left > 0) {
+                            freezes.set(pid, left)
+                        } else {
+                            freezes.delete(pid)
+                            signal(-pid, 'SIGCONT')
+                        }
+                    }
+                    return Promise.resolve()
+                },
             }
         },
 

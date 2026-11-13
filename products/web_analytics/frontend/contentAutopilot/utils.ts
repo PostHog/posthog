@@ -27,6 +27,9 @@ export const ENGINE_LABELS: Record<string, string> = {
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
 
+export const unavailableEngineReason = (setting: { available: boolean }): string | undefined =>
+    setting.available ? undefined : "This engine isn't set up for this project yet."
+
 /** Engines that answer from training data alone. They never cite, so their columns show mentions. */
 const NO_SEARCH_ENGINES = new Set(['claude-no-search', 'openai-no-search'])
 

@@ -21,6 +21,8 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
+
 import { CATALOG_PAGE_SIZE } from '../catalogPagination'
 import { sortDirectionFor } from '../catalogSort'
 import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
@@ -31,7 +33,6 @@ import {
     relationshipTableRef,
     relationshipsLogic,
 } from '../relationshipsLogic'
-import { CatalogTablesPagination } from '../tables/CatalogTablesPagination'
 import { CatalogRelationshipActions } from './CatalogRelationshipActions'
 
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
@@ -302,7 +303,7 @@ export function CatalogRelationshipsTable(): JSX.Element {
                 )}
             </Table>
             {pageCount > 1 && (
-                <CatalogTablesPagination
+                <QuillTablePagination
                     currentPage={currentPage}
                     pageCount={pageCount}
                     pageSize={CATALOG_PAGE_SIZE}

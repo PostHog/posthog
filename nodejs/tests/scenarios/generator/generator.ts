@@ -11,7 +11,7 @@ import { durationMs } from '../duration'
 import type { Judge } from '../judge/judge'
 import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
-export type SeedState = { teamIds: number[] }
+export type SeedState = { teamIds: number[]; flowIds: Record<string, Record<number, string>> }
 
 export type DriveSummary = { targetUnits: number; offeredUnits: number }
 
@@ -40,8 +40,20 @@ async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promis
 
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+const pause = (ms: number, signal: AbortSignal): Promise<void> =>
+    new Promise((resolve) => {
+        const done = (): void => {
+            clearTimeout(timer)
+            signal.removeEventListener('abort', done)
+            resolve()
+        }
+        const timer = setTimeout(done, ms)
+        signal.addEventListener('abort', done, { once: true })
+    })
+
 export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState> {
     const teamIds: number[] = []
+    const flowIds: SeedState['flowIds'] = {}
     for (let i = 0; i < card.setup.teams; i++) {
         signal.throwIfAborted()
         const { team } = await createTestTeamFixture(postgres)
@@ -51,11 +63,12 @@ export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signa
         })
         for (const { name } of card.drive.traffic) {
             signal.throwIfAborted()
-            await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
+            const flow = await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
+            flowIds[name] = { ...flowIds[name], [team.id]: flow.id }
         }
         teamIds.push(team.id)
     }
-    return { teamIds }
+    return { teamIds, flowIds }
 }
 
 export async function drive(
@@ -90,9 +103,13 @@ export async function drive(
             break
         }
         const teamId = chance.pickone(seeded.teamIds)
+        const flowId = seeded.flowIds[kind.name]?.[teamId]
+        if (flowId === undefined) {
+            throw new Error(`Team ${teamId} has no seeded ${kind.name} flow`)
+        }
         const unitId = `${context.runId}-${n + 1}`
         const offeredAt = Date.now()
-        const offer = kind.offer({ unitId, teamId }, context).then((answer) => {
+        const offer = kind.offer({ unitId, teamId, flowId }, context).then((answer) => {
             if (stop.aborted) {
                 return
             }
@@ -104,7 +121,7 @@ export async function drive(
                 answer,
                 expect: { deliveries: kind.deliveries },
             })
-            if (answer.accepted && Date.now() <= end) {
+            if (kind.intake !== 'event' || (answer.accepted && Date.now() <= end)) {
                 offeredUnits += 1
             }
         })
@@ -112,6 +129,9 @@ export async function drive(
         offers.push(offer)
     }
     await untilAborted(Promise.all(offers), stop)
+    if (!stop.aborted && Date.now() < end) {
+        await pause(end - Date.now(), stop)
+    }
     if (failed.signal.aborted) {
         throw failed.signal.reason
     }

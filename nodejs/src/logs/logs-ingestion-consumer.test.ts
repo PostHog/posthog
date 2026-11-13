@@ -471,6 +471,17 @@ describe('LogsIngestionConsumer', () => {
             expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'team_not_found', team_id: 'unknown' })
         })
 
+        it('records a token with no team for capture-logs to turn away', async () => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+            const messages = await createKafkaMessages([createLogMessage()], { token: 'phc_belongs_to_no_team' })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages()).toHaveLength(0)
+            expect(record).toHaveBeenCalledTimes(1)
+            expect(record).toHaveBeenCalledWith('phc_belongs_to_no_team')
+        })
+
         it('should drop messages when team lookup fails and record unknown team_id', async () => {
             jest.spyOn(hub.teamManager, 'getTeamByToken').mockRejectedValueOnce(new Error('Database error'))
 
@@ -486,6 +497,16 @@ describe('LogsIngestionConsumer', () => {
                 reason: 'team_lookup_error',
                 team_id: 'unknown',
             })
+        })
+
+        it('does not record the token when the team lookup fails, so a database blip cannot blacklist it', async () => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+            jest.spyOn(hub.teamManager, 'getTeamByToken').mockRejectedValueOnce(new Error('Database error'))
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(record).not.toHaveBeenCalled()
         })
     })
 

@@ -40,6 +40,7 @@ from posthog.models.user import User
 from posthog.redis import get_client
 
 from products.aeo.backend import (
+    auto_setup,
     catalog,
     dashboard,
     engine_settings,
@@ -103,6 +104,10 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    SetupContext,
+    SetupJob,
+    SetupRequest,
+    SetupRequestError,
     VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
@@ -111,6 +116,7 @@ from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scop
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
+    set_up_aeo_task,
     suggest_aeo_keywords_task,
     suggest_aeo_prompts_task,
 )
@@ -1269,3 +1275,73 @@ def _to_prompt(
         latest_checks=latest_checks,
         branded=branded,
     )
+
+
+def get_setup_context(team_id: int) -> SetupContext:
+    """The websites the project may be about and what it already has, for the setup screen."""
+    return auto_setup.read_context(Team.objects.select_related("organization").get(id=team_id))
+
+
+def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
+    """Queue setup and return the pending job. Poll get_setup for the steps. Raises SetupRequestError when the
+    domain or the engines cannot be used, and SetupAlreadyRunningError while another setup job is pending."""
+    domain = ""
+    engine_changes: dict[str, bool] = {}
+    if not request.only_first_run:
+        raw = request.domain.strip()
+        domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}") or ""
+        if not domain or not _is_dns_name(domain):
+            raise SetupRequestError(f"'{request.domain}' is not a valid domain. Use a domain such as example.com.")
+        if request.engines is not None:
+            engine_changes = _setup_engine_changes(team_id, set(request.engines))
+    # The lock comes first, so a request that loses it to a 409 leaves the running job's engines alone.
+    job = auto_setup.create_job(team_id)
+    try:
+        _apply_setup_engines(team_id, engine_changes)
+        # A task still queued when it could no longer finish in time is dropped by the broker instead of run.
+        set_up_aeo_task.apply_async(
+            args=(
+                team_id,
+                job.id,
+                {
+                    "domain": domain,
+                    "brand": request.brand,
+                    "description": request.description,
+                    "run_first_check": request.run_first_check,
+                    "only_first_run": request.only_first_run,
+                    "activate_paused_prompts": request.activate_paused_prompts,
+                },
+            ),
+            expires=auto_setup.SETUP_START_WINDOW_SECONDS,
+        )
+    except Exception:
+        # Without a queued task nothing would ever finish the pending job.
+        auto_setup.fail_job(team_id, job.id, "Setup could not start. Try again in a minute.")
+        raise
+    return job
+
+
+def get_setup(team_id: int, job_id: str) -> SetupJob:
+    """Raises SetupJobNotFoundError when the job is unknown or expired."""
+    return auto_setup.load_job(team_id, job_id)
+
+
+def _setup_engine_changes(team_id: int, chosen: set[str]) -> dict[str, bool]:
+    """The engine settings the choice would change, read before the job is created so an unusable choice is a 400."""
+    current = engine_settings.list_engine_settings(team_id)
+    unknown = chosen - {setting.engine for setting in current}
+    if unknown:
+        raise SetupRequestError(f"Unknown engines: {', '.join(sorted(unknown))}.")
+    if not chosen:
+        raise SetupRequestError("Choose at least one engine.")
+    # An engine this deployment cannot run yet may still be chosen. It stays on, and the runner skips it until it
+    # becomes available.
+    return {
+        setting.engine: setting.engine in chosen for setting in current if setting.enabled != (setting.engine in chosen)
+    }
+
+
+def _apply_setup_engines(team_id: int, changes: dict[str, bool]) -> None:
+    # Written before the job is queued, so the first run, and every daily run after it, uses only these engines.
+    for engine, enabled in changes.items():
+        engine_settings.update_engine_setting(team_id, engine, EngineSettingUpdate(enabled=enabled))

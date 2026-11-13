@@ -2793,9 +2793,15 @@ class Resolver(CloningVisitor):
                         expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
                     return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
-                previous_types.pop()
-                previous_types.pop()
-                loop_type = previous_types[-1]
+                del previous_types[-2:]
+                if previous_types:
+                    loop_type = previous_types[-1]
+                elif isinstance(loop_type, ast.VirtualTableType):
+                    loop_type = loop_type.table_type
+                else:
+                    raise QueryError(f"Cannot use '..' after '{'.'.join(str(c) for c in resolved_chain)}'")
+                if not chain_to_parse:
+                    raise QueryError("Expected a field after '..'")
                 next_chain = chain_to_parse.pop(0)
 
             try:
@@ -3204,6 +3210,7 @@ class Resolver(CloningVisitor):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
             self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+            self.context.materialized_saved_query_ids.add(database_table.saved_query_id)
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)
