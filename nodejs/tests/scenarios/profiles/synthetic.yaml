@@ -1,0 +1,5 @@
+name: synthetic
+traffic:
+    event_email:
+        ratePerSecond: 2
+settings: {}

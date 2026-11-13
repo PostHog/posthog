@@ -205,6 +205,16 @@ class TestIsTransientObjectStoreError:
                 ),
                 True,
             ),
+            (
+                # pyarrow's S3FileSystem reports a GetObject body that broke off mid-read under the
+                # AWS SDK's client-side INTERNAL_FAILURE code. A fresh read of the same object succeeds.
+                "pyarrow_get_object_response_stream_broke",
+                OSError(
+                    "AWS Error INTERNAL_FAILURE during GetObject operation: "
+                    "Failed to flush response stream (eof: 0, bad: 1)"
+                ),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught

@@ -160,6 +160,7 @@ def read_dashboard_tiles(*, team_id: int, dashboard_id: int) -> tuple[DashboardT
                     name=tile.insight.name or tile.insight.derived_name or "",
                     description=tile.insight.description or "",
                     query=tile.insight.query,
+                    show_description=tile.show_description,
                 )
             )
         elif tile.text is not None:

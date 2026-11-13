@@ -1,3 +1,5 @@
+import { AI_LAB_SHADES, type AiLab, MAIN_LAB_SHADE } from 'lib/components/BrandMark/aiLabShades'
+import type { BrandMarkName } from 'lib/components/BrandMark/brandMarks'
 import { pluralize } from 'lib/utils/strings'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
@@ -19,9 +21,40 @@ export const ENGINE_LABELS: Record<string, string> = {
     'exa-answer': 'Exa',
     'gemini-google-search': 'Gemini',
     'perplexity-web-search': 'Perplexity',
+    'claude-no-search': 'Claude (no search)',
+    'openai-no-search': 'ChatGPT (no search)',
 }
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
+
+/** Engines that answer from training data alone. They never cite, so their columns show mentions. */
+const NO_SEARCH_ENGINES = new Set(['claude-no-search', 'openai-no-search'])
+
+export const isNoSearchEngine = (engine: string): boolean => NO_SEARCH_ENGINES.has(engine)
+
+// Matched on the id's prefix, so a new engine from the same assistant (a no-search variant, say) gets
+// its mark and color without an entry here.
+const ENGINE_BRANDS: { prefix: string; mark: BrandMarkName; lab?: AiLab }[] = [
+    { prefix: 'claude', mark: 'Claude', lab: 'Anthropic' },
+    { prefix: 'openai', mark: 'OpenAI', lab: 'OpenAI' },
+    { prefix: 'gemini', mark: 'Gemini', lab: 'Google' },
+    { prefix: 'perplexity', mark: 'Perplexity' },
+]
+
+const engineBrand = (engine: string): (typeof ENGINE_BRANDS)[number] | undefined =>
+    ENGINE_BRANDS.find(({ prefix }) => engine.startsWith(prefix))
+
+export const engineMark = (engine: string): BrandMarkName => engineBrand(engine)?.mark ?? 'Unbranded model'
+
+/** The engine's lab color, a shade darker for engines that answer without searching the web. Undefined for
+ *  engines without a lab, so charts fall back to the theme palette. */
+export const engineColor = (engine: string): string | undefined => {
+    const lab = engineBrand(engine)?.lab
+    if (!lab) {
+        return undefined
+    }
+    return AI_LAB_SHADES[lab][isNoSearchEngine(engine) ? MAIN_LAB_SHADE - 1 : MAIN_LAB_SHADE]
+}
 
 export interface PromptSearches {
     /** The search to show for the prompt: the one most engines ran, else the first one. */

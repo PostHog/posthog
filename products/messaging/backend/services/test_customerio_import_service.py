@@ -253,13 +253,20 @@ user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
 user2@example.com,cio_2,"{""topics"": {""topic_1"": false}}"
 user3@example.com,cio_3,"{""topics"": {""topic_1"": false}}"
 user3@example.com,cio_4,"{""topics"": {""topic_1"": false}}"
+user2@example.com,cio_2,"{""topics"": {""topic_1"": true}}"
+user4@example.com,cio_5,"{""topics"": {""topic_1"": true}}"
+user4@example.com,cio_5,"{""topics"": {""topic_1"": false}}"
+user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
+user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
 """
 
         result = self.service.process_preferences_csv(StringIO(csv_content))
 
         assert result["status"] == "completed"
-        assert result["preferences_updated"] == 3
-        assert result["total_unique_users"] == 3
+        assert result["users_with_optouts"] == 4
+        assert result["users_skipped"] == 1
+        assert result["preferences_updated"] == 4
+        assert result["total_unique_users"] == 5
         opted_out = PreferenceStatus.OPTED_OUT.value
         assert {
             pref.identifier: pref.preferences for pref in MessageRecipientPreference.objects.filter(team=self.team)
@@ -267,6 +274,7 @@ user3@example.com,cio_4,"{""topics"": {""topic_1"": false}}"
             "user1@example.com": {"other_cat": opted_out, str(cat1.id): opted_out},
             "user2@example.com": {str(cat1.id): opted_out},
             "user3@example.com": {str(cat1.id): opted_out},
+            "user4@example.com": {str(cat1.id): opted_out},
         }
 
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")

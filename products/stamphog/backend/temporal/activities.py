@@ -70,7 +70,15 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.decision_fingerprint import (
+    DECISION_FINGERPRINT_OUTPUT_KEY,
+    REUSED_FROM_RUN_OUTPUT_KEY,
+    WITHHELD_RUN_OUTPUT_KEY,
+    decision_fingerprint,
+    engine_package_digest,
+)
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     GateAttestation,
@@ -102,6 +110,7 @@ from products.stamphog.backend.logic.reviewer import (
     parse_engine_timings,
     parse_reviewer_output,
 )
+from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
@@ -472,8 +481,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         raise
 
 
-def _fetch_review_context(input: StamphogReviewInput) -> dict:
-    run = _load_run(input)
+def _read_review_context(run: ReviewRun) -> dict[str, Any]:
+    """Read the engine context for ``run`` from GitHub without storing it."""
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
     repo = repo_config.repository
@@ -510,7 +519,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
+        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -582,13 +591,27 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # A failed read raises out of its result() above and fails the activity, which retries. The
         # other reads are abandoned rather than awaited.
         executor.shutdown(wait=False, cancel_futures=True)
+    return context
+
+
+def _fetch_review_context(input: StamphogReviewInput) -> dict:
+    run = _load_run(input)
+    number = run.pull_request.pr_number
+    stored = run.output or {}
+    if (
+        stored.get("withheld_verdict_outcome")
+        and ((stored.get("pr") or {}).get("head") or {}).get("sha") == run.head_sha
+    ):
+        # reuse_withheld_verdict read the context for this head moments ago and found it changed.
+        return {"pr_number": number, "file_count": len(stored.get("files") or []), "head_sha": run.head_sha}
+    context = _read_review_context(run)
     _merge_run_output(run, context)
 
     activity.logger.info(
-        f"Fetched review context for run {run.id} (pr #{number}, {len(files)} files); "
+        f"Fetched review context for run {run.id} (pr #{number}, {len(context['files'])} files); "
         f"timings: {context['context_timings_ms']}"
     )
-    return {"pr_number": number, "file_count": len(files), "head_sha": run.head_sha}
+    return {"pr_number": number, "file_count": len(context["files"]), "head_sha": run.head_sha}
 
 
 @activity.defn
@@ -651,7 +674,7 @@ def signal_review_started(input: StamphogReviewInput) -> dict:
     on ``run.output`` so the terminal activities (``post_verdict``, ``mark_review_failed``) can remove it.
     """
     run = _load_run(input)
-    if run.status == ReviewRunStatus.SUPERSEDED:
+    if run.status == ReviewRunStatus.SUPERSEDED or not run.may_publish():
         return {"reaction_id": None}
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
@@ -966,6 +989,14 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
+        # A newer run of the check behind a deny lift may have failed since the context fetch, so
+        # the check runs are read again. A failed read lifts nothing, which refuses only the
+        # approvals that need a lift.
+        try:
+            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+        except Exception:
+            activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
+            context["check_runs"] = []
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(
@@ -1013,7 +1044,8 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
         return {"refused": False}
 
     summary = None
-    if outcome.needs_summary:
+    # A refusal that is never posted needs no LLM call for its wording.
+    if outcome.needs_summary and run.may_publish():
         with timer.step("summary"):
             summary = _fast_refusal_summary(run, outcome)
     if summary:
@@ -1637,6 +1669,10 @@ def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int
         "stamphog_repo": pull_request.repo_config.repository,
         "stamphog_pr_number": pull_request.pr_number,
         "stamphog_final_verdict": verdict,
+        "stamphog_review_trigger": trigger_for_run(output=output, review_mode=pull_request.repo_config.review_mode),
+        "stamphog_verdict_published": run.verdict_posted_at is not None,
+        "stamphog_verdict_reused": bool(output.get(REUSED_FROM_RUN_OUTPUT_KEY)),
+        "stamphog_withheld_verdict_outcome": output.get("withheld_verdict_outcome"),
         "stamphog_fast_path": bool(output.get("fast_path")),
         "stamphog_pregate_outcome": output.get("pregate_outcome"),
         "stamphog_familiarity_status": output.get("familiarity_status"),
@@ -1712,6 +1748,123 @@ def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
     return {"requested": True}
 
 
+def _decision_fingerprint(run: ReviewRun, context: dict[str, Any]) -> str:
+    repo_config = run.pull_request.repo_config
+    return decision_fingerprint(
+        context,
+        head_sha=run.head_sha,
+        ignored_labels={repo_config.trigger_label, *fork_labels(repo_config).values()},
+        engine_digest=engine_package_digest(),
+    )
+
+
+def _adopt_withheld_verdict(run: ReviewRun) -> str:
+    """Give ``run`` the verdict a silent run withheld for its head, when nothing it was decided on changed.
+
+    Eligibility was decided when the request created ``run`` (``_reusable_withheld_run``). Returns
+    ``reused``, or why ``run`` has to review the PR itself.
+    """
+    withheld_run_id = (run.output or {}).get(WITHHELD_RUN_OUTPUT_KEY)
+    if not isinstance(withheld_run_id, str):
+        return "missing"
+    withheld = (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=withheld_run_id, pull_request=run.pull_request)
+        .first()
+    )
+    if withheld is None:
+        return "missing"
+    withheld_output = withheld.output or {}
+    parsed = parse_reviewer_output(withheld_output.get("reviewer_raw", ""))
+    # A silent approval was posted when it was decided, and post_verdict attests and posts any
+    # approval it finds, so a stored approval must never reach it from here.
+    if ReviewVerdict.APPROVED in (withheld.verdict, parsed.verdict):
+        return "approval"
+    if withheld.head_sha != run.head_sha:
+        return "head_moved"
+    stored_fingerprint = withheld_output.get(DECISION_FINGERPRINT_OUTPUT_KEY)
+    if not stored_fingerprint:
+        return "no_fingerprint"
+    # Another run between the two decided this PR after the silent one, so the silent verdict is not the latest.
+    if (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request=run.pull_request, created_at__gt=withheld.created_at)
+        .exclude(id=run.id)
+        .exists()
+    ):
+        return "newer_run"
+
+    context = _read_review_context(run)
+    context["review_evidence"] = _read_review_evidence(run, [])
+    # Stored whatever the outcome, so a run that reviews after all skips reading the same context again.
+    _merge_run_output(run, context)
+    current_pr = context["pr"]
+    if (current_pr.get("state") or "") != "open":
+        return "not_open"
+    if ((current_pr.get("head") or {}).get("sha") or "") != run.head_sha:
+        return "head_moved"
+    reviewed_base = (withheld_output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    if (reviewed_base.get("ref"), reviewed_base.get("sha")) != (current_base.get("ref"), current_base.get("sha")):
+        return "base_moved"
+    if _decision_fingerprint(run, context) != stored_fingerprint:
+        return "inputs_changed"
+    _merge_run_output(
+        run, {"reviewer_raw": withheld_output.get("reviewer_raw", ""), REUSED_FROM_RUN_OUTPUT_KEY: str(withheld.id)}
+    )
+    return "reused"
+
+
+@activity.defn
+@asyncify
+def reuse_withheld_verdict(input: StamphogReviewInput) -> dict:
+    """Take over a withheld silent verdict for this visible run, before any sandbox starts.
+
+    The request that created the run found a silent run that withheld a refusal or an escalation of
+    this head (``withheld_run_id``). The engine context is read from GitHub again, without a sandbox
+    or an LLM call, and compared with the silent run's decision fingerprint. On a match the run gets
+    the silent run's reviewer output and the workflow goes straight to ``post_verdict``, which posts
+    it under its usual guards and marks the silent run published. Anything else, an error included,
+    returns ``reused: False`` and the run reviews the PR the normal way. The outcome is stored for
+    the timings event.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED or not (run.output or {}).get(WITHHELD_RUN_OUTPUT_KEY):
+        return {"reused": False}
+    try:
+        outcome = _adopt_withheld_verdict(run)
+    except Exception:
+        activity.logger.warning(f"Run {run.id}: could not reuse the withheld verdict; reviewing", exc_info=True)
+        outcome = "error"
+    reused = outcome == "reused"
+    # An earlier attempt may have adopted the verdict before it failed. Only a reuse that this
+    # attempt confirmed may mark the silent run published in post_verdict.
+    updates: dict[str, Any] = {"withheld_verdict_outcome": outcome}
+    if not reused:
+        updates[REUSED_FROM_RUN_OUTPUT_KEY] = None
+    _merge_run_output(run, updates)
+    return {"reused": reused}
+
+
+def _route_after_moved_head(run: ReviewRun) -> None:
+    """Hand a run that a push superseded to FALLBACK routing, which decides on the live head.
+
+    In label mode a push to an unlabeled PR queues no review of the new head, so a FALLBACK head that
+    waits for this run would otherwise wait for the safety net.
+    """
+    pull_request = run.pull_request
+    queue_routing_after_verdict(
+        pull_request.repo_config,
+        pr_number=pull_request.pr_number,
+        head_sha=run.head_sha,
+        status=ReviewRunStatus.FAILED,
+        verdict=ReviewVerdict.NONE,
+        silent=run.is_silent,
+    )
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -1765,9 +1918,14 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         # Conditional: a retry after the terminal save already committed (e.g. the trailing digest
         # stamp crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal
         # states are history. The stale-approval sweep retires that approval on the next delivery.
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now()
+        superseded = (
+            ReviewRun.objects.for_team(input.team_id)
+            .filter(id=run.id)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now())
         )
+        if superseded and kind == "head_moved":
+            _route_after_moved_head(run)
         if run.verdict != ReviewVerdict.APPROVED:
             _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for run {run.id}: {detail}")
@@ -1812,11 +1970,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # A retry after the approval posted skips this, because the gates attested before that post.
     if parsed.verdict == ReviewVerdict.APPROVED and not parsed.gate_blocked and run.posted_review_id is None:
         stored = output.get("gate_attestation")
-        if isinstance(stored, dict):
-            # A retry reuses the first answer. Another check could attest where the first did not,
-            # and post an approval over the escalation that the first attempt already delivered.
+        if isinstance(stored, dict) and stored.get("attested") is not True:
+            # A retry reuses a first answer that did not attest, because a second check that attests
+            # would post an approval over the escalation the first attempt delivered. A retry checks
+            # an answer that attested again, because a deny lift can stop holding between attempts.
             attestation = GateAttestation(
-                attested=stored.get("attested") is True,
+                attested=False,
                 reason=str(stored.get("reason") or ""),
                 gates=list(stored.get("gates") or []),
             )
@@ -1829,6 +1988,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                         "attested": attestation.attested,
                         "reason": attestation.reason,
                         "gates": attestation.gates,
+                        "lifted": attestation.lifted,
                     }
                 },
             )
@@ -1842,7 +2002,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal
+    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal and run.may_publish(parsed.verdict)
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -1889,9 +2049,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
+    # A verdict that may not be published is still saved below, with verdict_posted_at left empty.
+    published = run.may_publish(run.verdict)
+
     # One post for every non-approval, keyed off the verdict the run just stored, so the review text
     # and the recorded verdict cannot disagree. The approve branch above posted its own APPROVE.
-    if run.verdict != ReviewVerdict.APPROVED:
+    if run.verdict != ReviewVerdict.APPROVED and published:
         _post_non_approval_review(client, repo, run, pull_request, _verdict_body(parsed, run.verdict, relabel_label))
 
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
@@ -1908,7 +2071,10 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
     run.completed_at = timezone.now()
-    run.verdict_posted_at = run.completed_at
+    run.verdict_posted_at = run.completed_at if published else None
+    # A withheld verdict may be published later by a visible request for the same head. That is safe
+    # only while every input it was decided on is unchanged, so its inputs are fingerprinted here.
+    withheld_fingerprint = {} if published else {DECISION_FINGERPRINT_OUTPUT_KEY: _decision_fingerprint(run, output)}
     # Conditional terminal save: a delivery superseding this run between the guards above and here
     # must win — a plain save would write COMPLETED back over SUPERSEDED and resurrect a stale run.
     updated = (
@@ -1917,6 +2083,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         .exclude(status=ReviewRunStatus.SUPERSEDED)
         .update(
             **{field: getattr(run, field) for field in update_fields if field != "updated_at"},
+            **({"output": _output_merge(withheld_fingerprint)} if withheld_fingerprint else {}),
             updated_at=timezone.now(),
         )
     )
@@ -1927,6 +2094,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
+
+    reused_from = output.get(REUSED_FROM_RUN_OUTPUT_KEY)
+    if reused_from and run.verdict_posted_at is not None:
+        ReviewRun.objects.for_team(input.team_id).filter(id=reused_from, verdict_posted_at__isnull=True).update(
+            verdict_posted_at=run.verdict_posted_at, updated_at=timezone.now()
+        )
 
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
     # outcome must not wait on them. Running it before the save would hand a stale refusal to
@@ -1964,7 +2137,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
-    return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
+    # Nobody saw a WAIT that was not published, so the external review finishing has nothing to update.
+    waited = _waited_on_external_review(run) and run.verdict_posted_at is not None
+    return {"verdict": str(parsed.verdict), "waited_on_external_review": waited}
 
 
 def _notify_finished_review(
@@ -1990,6 +2165,10 @@ def _notify_finished_review(
             hook(finished)
         except Exception:
             activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
+    # A silent run routes on a withheld verdict too. FALLBACK routing exists for the heads stamphog does
+    # not approve, and with the clean-review switch on the head waits for this run. The routing comment
+    # never names the verdict, so the verdict itself stays off the PR.
+    #
     # Stamphog's own follow-up, called directly rather than registered, because registering it at
     # app-ready would pull the task module onto the django.setup() path. It only queues a task.
     queue_routing_after_verdict(
@@ -1998,6 +2177,7 @@ def _notify_finished_review(
         head_sha=run.head_sha,
         status=finished.status,
         verdict=finished.verdict,
+        silent=run.is_silent,
     )
 
 
@@ -2031,9 +2211,14 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # ask the author to push again for a review that is already queued.
     if (run.output or {}).get(_HEAD_MOVED_OUTPUT_KEY):
         now = timezone.now()
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now
+        superseded = (
+            ReviewRun.objects.for_team(input.team_id)
+            .filter(id=run.id)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now)
         )
+        if superseded:
+            _route_after_moved_head(run)
         _remove_own_eyes_reaction(client, run)
         _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
         return
@@ -2496,7 +2681,11 @@ def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: 
     A GitHub error propagates. If this function hides it, the activity completes, Temporal does not
     retry, and the PR keeps no notice. Raising is safe: the FAILED update is committed, and the retry
     finishes the post through the terminal guard.
+
+    A silent run posts nothing, on the first attempt and on every retry.
     """
+    if not run.may_publish():
+        return
     replaced_at_same_head = (
         ReviewRun.objects.for_team(team_id)
         .using(router.db_for_write(ReviewRun))

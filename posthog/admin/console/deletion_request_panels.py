@@ -115,6 +115,7 @@ class DeletionRequestOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = CLICKHOUSE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -192,6 +193,7 @@ class DeletionRequestStatsPanel(Panel):
     key = "stats"
     title = "ClickHouse stats"
     owner = CLICKHOUSE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -485,6 +487,8 @@ class DeletionRequestWorkflowPanel(Panel):
     key = "workflow"
     title = "Workflow"
     owner = CLICKHOUSE
+    operation_keys = frozenset({"submit", "approve", "revert-to-draft", "retry", "verify"})
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -684,6 +688,7 @@ class DeletionRequestCriteriaPanel(Panel):
     key = "criteria"
     title = "Criteria"
     owner = CLICKHOUSE
+    order = 40
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -758,3 +763,22 @@ class NewDeletionRequestTool(ConsoleTool):
                 description="Creates a draft and opens it. Nothing is deleted yet.",
             )
         ]
+
+
+for old, target in {
+    "submit": "workflow/submit/",
+    "approve": "workflow/approve/",
+    "retry": "workflow/retry/",
+    "revert-to-draft": "#panel-workflow",
+    "verify": "#panel-workflow",
+    "fetch-stats": "#panel-stats",
+    "preview-stats": "#panel-stats",
+}.items():
+    console.register_moved_action(
+        old_path=f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/", record="deletion-request", target=target
+    )
+console.register_moved_page(
+    old_path="admin/posthog/datadeletionrequest/add/",
+    title="Creating a deletion request",
+    url="/admin/console/tools/new-deletion-request/create/",
+)

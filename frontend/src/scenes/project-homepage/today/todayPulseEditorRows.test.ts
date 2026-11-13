@@ -62,10 +62,10 @@ describe('todayPulseEditorRows', () => {
             expected: [['s1']],
         },
         {
-            name: 'an experiment number, which cannot be pinned',
+            name: 'numbers from other products, which cannot be pinned',
             pulsePins: ['a'],
             pinnedThisTime: [],
-            others: ['s1', 'experiment:7', 's2'],
+            others: ['s1', 'experiment:7', 'evaluation:9', 's2'],
             expected: [['a'], ['s1', 's2', 'r1', 'x']],
         },
     ])(

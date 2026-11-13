@@ -5,11 +5,10 @@ quarter hour runs up to 14 minutes late."""
 import json
 from collections import Counter
 from datetime import UTC, datetime, time, timedelta
-from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -18,6 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.feature_flags import is_slack_app_daily_work_focus_enabled
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import context_block
 from products.slack_app.backend.services.slack_user_info import (
@@ -25,14 +25,14 @@ from products.slack_app.backend.services.slack_user_info import (
     normalize_slack_response,
     persist_slack_user_info,
 )
+from products.slack_app.backend.services.slack_user_oauth import linked_search_token
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_DAILY_FOCUS_TIME = time(9, 0)
-# The onboarding prefix routes the click to the region that owns the install.
 # pinned: Slack action id on DMs that people already have
-DAILY_FOCUS_OFF_ACTION_ID = "slack_onboarding:daily_focus_off"
+DAILY_FOCUS_OFF_ACTION_ID = "slack_daily_focus:off"
 DAILY_FOCUS_FOOTER_BLOCK_ID = "daily_focus_footer"
 SWEEP_BATCH_SIZE = 1000
 # A run this late, such as Friday's after a sweep outage that lasted into the weekend, is skipped.
@@ -50,6 +50,9 @@ class DailyFocusSettings:
     # None means the person never chose.
     enabled: bool | None
     at: time
+    # The run the sweep claimed last, and whether its DM went out or started to.
+    last_run_at: datetime | None = None
+    already_sent: bool = False
 
 
 @frozen
@@ -59,6 +62,8 @@ class DueDailyFocus:
     slack_user_id: str
     # The previous run time, as epoch seconds. The run reads the messages sent after it.
     since: int
+    # The claimed run time, as epoch seconds. The row's last_run_at names it until the next sweep claims a newer run.
+    run_at: int
     start_delay_seconds: int = 0
 
 
@@ -134,11 +139,21 @@ def _person_rows(slack_workspace_id: str, slack_user_id: str) -> QuerySet[SlackD
     return SlackDailyFocus.objects.unscoped().filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
 
 
+def can_run_daily_focus(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    """The flag is on and the person's Slack link can search. The Home tab controls and the runs need both."""
+    return is_slack_app_daily_work_focus_enabled(integration) and (
+        linked_search_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id) is not None
+    )
+
+
 def resolve_daily_focus(slack_workspace_id: str, slack_user_id: str) -> DailyFocusSettings:
     row = _person_rows(slack_workspace_id, slack_user_id).first()
     if row is None:
         return DailyFocusSettings(enabled=None, at=DEFAULT_DAILY_FOCUS_TIME)
-    return DailyFocusSettings(enabled=row.next_run_at is not None, at=row.at)
+    already_sent = row.sent_at is not None and (row.last_run_at is None or row.sent_at >= row.last_run_at)
+    return DailyFocusSettings(
+        enabled=row.next_run_at is not None, at=row.at, last_run_at=row.last_run_at, already_sent=already_sent
+    )
 
 
 def _locked_row(integration: WorkspaceIntegration, slack_user_id: str) -> SlackDailyFocus:
@@ -154,7 +169,8 @@ def _locked_row(integration: WorkspaceIntegration, slack_user_id: str) -> SlackD
     return row
 
 
-def turn_on_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *, source: str) -> None:
+def turn_on_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *, source: str) -> ZoneInfo:
+    """Returns the person's timezone, which the next run was scheduled in."""
     zone = person_zone(integration, slack_user_id)
     with transaction.atomic():
         row = _locked_row(integration, slack_user_id)
@@ -163,6 +179,7 @@ def turn_on_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *
         row.next_run_at = _next_run(timezone.now(), zone, row.at, last_run_at=row.last_run_at)
         row.save(update_fields=["team_id", "integration_id", "next_run_at", "updated_at"])
     capture_slack_event(integration, TURNED_ON_EVENT, slack_user_id=slack_user_id, source=source)
+    return zone
 
 
 def turn_off_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *, source: str) -> None:
@@ -197,6 +214,17 @@ def reschedule_daily_focus(integration: WorkspaceIntegration, slack_user_id: str
         if next_run_at != row.next_run_at:
             row.next_run_at = next_run_at
             row.save(update_fields=["next_run_at", "updated_at"])
+
+
+def mark_daily_focus_sending(integration: WorkspaceIntegration, slack_user_id: str, run_at: datetime) -> bool:
+    """Claims the DM of the run that the sweep claimed at ``run_at``, before it goes out. False when a retry already
+    did, or when a later sweep claimed a newer run, so the person never gets a day twice or a stale day."""
+    not_sent_this_run = Q(sent_at__isnull=True) | Q(sent_at__lt=F("last_run_at"))
+    return bool(
+        _person_rows(integration.integration_id, slack_user_id)
+        .filter(not_sent_this_run, last_run_at=run_at)
+        .update(sent_at=timezone.now())
+    )
 
 
 def stop_daily_focus_without_installation(slack_workspace_id: str, slack_user_id: str, integration_id: int) -> None:
@@ -246,6 +274,7 @@ def claim_due_daily_focus(
                     slack_team_id=row.slack_workspace_id,
                     slack_user_id=row.slack_user_id,
                     since=int(since.timestamp()),
+                    run_at=int(scheduled.timestamp()),
                     start_delay_seconds=queued[row.slack_workspace_id] * spacing_seconds,
                 )
             )
@@ -254,15 +283,12 @@ def claim_due_daily_focus(
     return due
 
 
-def _clock(at: time) -> str:
-    return at.strftime("%H:%M")
-
-
 def daily_focus_footer_block(integration: WorkspaceIntegration, at: time, zone: ZoneInfo, *, first: bool) -> dict:
+    clock = at.strftime("%H:%M")
     text = (
-        f"📅 I'll send you this every workday at {_clock(at)} ({zone.key})."
+        f"📅 I'll send you this every workday at {clock} ({zone.key})."
         if first
-        else f"📅 Every workday at {_clock(at)} ({zone.key})"
+        else f"📅 Every workday at {clock} ({zone.key})"
     )
     return {
         "type": "section",
@@ -284,17 +310,3 @@ def daily_focus_off_blocks(blocks: list[dict]) -> list[dict]:
         "block_id": DAILY_FOCUS_FOOTER_BLOCK_ID,
     }
     return [off if block.get("block_id") == DAILY_FOCUS_FOOTER_BLOCK_ID else block for block in blocks]
-
-
-def read_off_click(payload: dict[str, Any]) -> int | None:
-    """The integration id behind a Turn off click."""
-    for action in payload.get("actions") or []:
-        if action.get("action_id") != DAILY_FOCUS_OFF_ACTION_ID:
-            continue
-        try:
-            value = json.loads(action.get("value") or "")
-        except json.JSONDecodeError:
-            return None
-        integration_id = value.get("integration_id") if isinstance(value, dict) else None
-        return integration_id if isinstance(integration_id, int) else None
-    return None

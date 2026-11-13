@@ -5,12 +5,15 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { NAV_PANEL_CARD_TYPE } from 'lib/components/NavPanelAdvertisement/navPanelAdShared'
 import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
+import { NavPanelSlotCard, pickNavPanelSlotCard } from 'lib/components/NavPanelAdvertisement/navPanelSlotCard'
 import { PRODUCT_PUSH_PROMPTS } from 'lib/components/NavPanelAdvertisement/productPushPrompts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { isObject } from 'lib/utils/guards'
@@ -51,6 +54,7 @@ import {
     type TodayForYouRows,
     type TodayProductPush,
 } from './todayForYouRows'
+import { greetingFor } from './todayGreeting'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { JumpBackObject, jumpBackObjectsForHome } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
@@ -119,20 +123,6 @@ export function isTodayPath(pathname: string): boolean {
     return /^\/(home(\/reports\/[^/]+)?\/?)?$/.test(removeProjectIdIfPresent(pathname))
 }
 
-export function greetingForHour(hour: number, name: string | null | undefined): string {
-    const suffix = name ? `, ${name}.` : '.'
-    if (hour < 5) {
-        return `You’re up late${suffix}`
-    }
-    if (hour < 12) {
-        return `Morning${suffix}`
-    }
-    if (hour < 17) {
-        return `Afternoon${suffix}`
-    }
-    return `Evening${suffix}`
-}
-
 /**
  * The page shows the report as it was when it loaded, but the action-or-answer framing must follow its current
  * state: somebody can resolve the report or open a PR on it meanwhile. A failed refetch fails closed to answering.
@@ -164,6 +154,8 @@ export function signalReportSnapshot(report: SignalReport): TodayReportSnapshot 
     }
 }
 
+export type TodayPromoBanner = Exclude<NavPanelSlotCard, { type: typeof NAV_PANEL_CARD_TYPE.PRODUCT_PUSH }>
+
 interface TodayRankedReport {
     report: TodayReportSnapshot
     rank: number
@@ -173,6 +165,8 @@ interface TodayRankedReport {
 export interface todayLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeCampaign: ProductPushCampaignApi | null // navPanelProductPushLogic
+    activeCampaignResolved: boolean // navPanelProductPushLogic
+    isCloudOrDev: boolean | undefined // preflightLogic
     recents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
     currentProjectId: number | string // teamLogic
@@ -202,8 +196,8 @@ export interface todayLogicValues {
     frequentObjects: FileSystemEntry[]
     frequentObjectsLoading: boolean
     greeting: string
+    growthSlotCard: NavPanelSlotCard | null
     homeScrollTop: number | null
-    hour: number
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
     loadedMoreReports: SignalReport[]
@@ -212,6 +206,7 @@ export interface todayLogicValues {
     moreReportsInInbox: number
     moreReportsLoading: boolean
     now: number
+    promoBanner: TodayPromoBanner | null
     recentObjects: JumpBackObject[]
     reportId: string | null
     reportOpenContext: TodayReportOpenContext | null
@@ -380,8 +375,7 @@ export interface todayLogicMeta {
         reportId: (location: { hash: string; pathname: string; search: string }) => string | null
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
-        hour: (now: number) => number
-        greeting: (hour: number, user: UserType | null) => string
+        greeting: (now: number, user: UserType | null) => string
         recentObjects: (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]) => JumpBackObject[]
         shownReportIds: (reports: SignalReport[]) => string[]
         currentMoreReports: (
@@ -396,11 +390,19 @@ export interface todayLogicMeta {
             moreReportCount: number
         ) => boolean
         moreReportsInInbox: (currentMoreReports: TodayMoreReports | null) => number
-        forYouProductPush: (
+        growthSlotCard: (
+            featureFlags: FeatureFlagsSet,
+            isCloudOrDev: boolean | undefined,
             activeCampaign: ProductPushCampaignApi | null,
+            activeCampaignResolved: boolean,
+            user: UserType | null
+        ) => NavPanelSlotCard | null
+        forYouProductPush: (
+            growthSlotCard: NavPanelSlotCard | null,
             user: UserType | null,
             useSampleData: boolean
         ) => TodayProductPush | null
+        promoBanner: (growthSlotCard: NavPanelSlotCard | null, useSampleData: boolean) => TodayPromoBanner | null
         forYouRows: (
             reports: SignalReport[],
             loadedMoreReports: SignalReport[],
@@ -462,7 +464,9 @@ export const todayLogic = kea<todayLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             navPanelProductPushLogic,
-            ['activeCampaign'],
+            ['activeCampaign', 'activeCampaignResolved'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [
             router,
@@ -659,10 +663,9 @@ export const todayLogic = kea<todayLogicType>([
             (topReports: TodayReports | null): number =>
                 topReports ? Math.max(topReports.count - topReports.results.length, 0) : 0,
         ],
-        hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [
-            (s) => [s.hour, s.user],
-            (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
+            (s) => [s.now, s.user],
+            (now: number, user: UserType | null): string => greetingFor(new Date(now), user?.first_name),
         ],
         recentObjects: [
             (s) => [s.recents, s.frequentObjects],
@@ -702,24 +705,47 @@ export const todayLogic = kea<todayLogicType>([
                     ? Math.max(currentMoreReports.count - currentMoreReports.results.length, 0)
                     : 0,
         ],
-        forYouProductPush: [
-            (s) => [s.activeCampaign, s.user, s.useSampleData],
+        growthSlotCard: [
+            // featureFlags is a dependency so the broadcast payload is read again when flags reload.
+            (s) => [s.featureFlags, s.isCloudOrDev, s.activeCampaign, s.activeCampaignResolved, s.user],
             (
+                _featureFlags: FeatureFlagsSet,
+                isCloudOrDev: boolean | undefined,
                 activeCampaign: ProductPushCampaignApi | null,
+                activeCampaignResolved: boolean,
+                user: UserType | null
+            ): NavPanelSlotCard | null =>
+                pickNavPanelSlotCard({
+                    isCloudOrDev,
+                    broadcastPayload: getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST),
+                    activeCampaign,
+                    campaignResolved: activeCampaignResolved,
+                    user,
+                }),
+        ],
+        forYouProductPush: [
+            (s) => [s.growthSlotCard, s.user, s.useSampleData],
+            (
+                growthSlotCard: NavPanelSlotCard | null,
                 user: UserType | null,
                 useSampleData: boolean
-            ): TodayProductPush | null =>
-                // The same setting turns off product suggestions in the sidebar.
-                activeCampaign &&
-                user &&
-                user.allow_sidebar_suggestions !== false &&
-                !useSampleData &&
-                PRODUCT_PUSH_PROMPTS[activeCampaign.product_key]
-                    ? {
-                          campaign: activeCampaign,
-                          slot: productPushSlot(activeCampaign.id, user.uuid, dayjs().format('YYYY-MM-DD')),
-                      }
-                    : null,
+            ): TodayProductPush | null => {
+                if (growthSlotCard?.type !== NAV_PANEL_CARD_TYPE.PRODUCT_PUSH || !user || useSampleData) {
+                    return null
+                }
+                const { campaign } = growthSlotCard
+                return PRODUCT_PUSH_PROMPTS[campaign.product_key]
+                    ? { campaign, slot: productPushSlot(campaign.id, user.uuid, dayjs().format('YYYY-MM-DD')) }
+                    : null
+            },
+        ],
+        promoBanner: [
+            (s) => [s.growthSlotCard, s.useSampleData],
+            (growthSlotCard: NavPanelSlotCard | null, useSampleData: boolean): TodayPromoBanner | null =>
+                // The sample data banner already takes the top of the page.
+                !growthSlotCard || growthSlotCard.type === NAV_PANEL_CARD_TYPE.PRODUCT_PUSH || useSampleData
+                    ? null
+                    : growthSlotCard,
         ],
         forYouRows: [
             (s) => [

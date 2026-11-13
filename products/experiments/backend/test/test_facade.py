@@ -3,7 +3,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,7 +15,7 @@ from posthog.test.base import (
     _create_flag_evaluations,
     flush_persons_and_events,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -32,7 +31,12 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
+from products.experiments.backend.facade import (
+    api,
+    count_running_experiments_on_feature_flag_called,
+    create_experiment,
+    feature_flags as feature_flags_facade,
+)
 from products.experiments.backend.facade.change_signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
@@ -312,6 +316,12 @@ class TestHighlightFacts(BaseTest):
         self._experiment("Ended", start_date=now - timedelta(days=80), end_date=now - timedelta(days=1))
         self._experiment(
             "Not yours", start_date=now - timedelta(days=80), created_by=self._create_user("other@example.com")
+        )
+        self._experiment(
+            "On a flag rule",
+            start_date=now - timedelta(days=62),
+            feature_flag_rule_id=uuid.uuid4(),
+            feature_flag_rule_snapshot={"flag": {}, "rule": {}},
         )
 
         found = api.list_running_experiments(
@@ -713,6 +723,11 @@ class TestFlagLiveExperiments(BaseTest):
             "deleted_null": False,
             "no_experiment": False,
         }
+        assert feature_flags_facade.flag_ids_with_live_experiment(listed.values(), using="default") == frozenset(
+            flag_ids[key] for key in ("running", "stopped", "archived")
+        )
+        with self.assertNumQueries(0):
+            assert feature_flags_facade.flag_ids_with_live_experiment([], using="default") == frozenset()
 
 
 class TestDigestExperiments(BaseTest):
@@ -804,14 +819,6 @@ class TestPrecomputationSettings(BaseTest):
         )
 
 
-def _github_with_repositories(*full_names: str) -> MagicMock:
-    return MagicMock(
-        return_value=SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": full_name} for full_name in full_names]
-        )
-    )
-
-
 class TestTeamExperimentsSettings(BaseTest):
     def test_reads_every_setting(self) -> None:
         TeamExperimentsConfig.objects.create(
@@ -858,8 +865,8 @@ class TestTeamExperimentsSettings(BaseTest):
         )
 
         with patch(
-            "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration",
-            _github_with_repositories("PostHog/posthog"),
+            "products.tasks.backend.facade.repo_selection.team_repository_names",
+            return_value={"posthog/posthog": "PostHog/posthog"},
         ):
             updated = api.update_team_experiments_settings(
                 team_id=self.team.id,
@@ -934,8 +941,8 @@ class TestTeamExperimentsSettings(BaseTest):
 
         with (
             patch(
-                "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration",
-                _github_with_repositories("PostHog/posthog"),
+                "products.tasks.backend.facade.repo_selection.team_repository_names",
+                return_value={"posthog/posthog": "PostHog/posthog"},
             ),
             pytest.raises(ExperimentValidationError) as raised,
         ):

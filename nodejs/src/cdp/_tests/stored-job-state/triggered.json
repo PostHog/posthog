@@ -1,0 +1,23 @@
+{
+    "scenario": "triggered",
+    "about": "The shape the current code writes for this scenario.",
+    "stored": {
+        "state": {
+            "event": {
+                "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                "event": "$pageview",
+                "elements_chain": "",
+                "distinct_id": "stored-job-state-distinct-id",
+                "url": "http://localhost:8000/events/1",
+                "properties": {
+                    "$current_url": "https://example.com"
+                },
+                "timestamp": "2024-09-03T09:00:00Z"
+            },
+            "actionStepCount": 0,
+            "customerTaskIdempotencyVersion": 1,
+            "variables": {},
+            "flowVersion": 1
+        }
+    }
+}

@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
+import type { QueuedIdempotencyKey } from '../../types'
 
 // Covers a caller's timeout and retry. After this a pending key expires, so a crash after the queue
 // write and before the run is recorded can cost a duplicate, but never a send the caller thinks happened.
@@ -20,7 +21,8 @@ const VALKEY_TIMEOUT_MS = 1000
 const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
-const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) return 1 end return 0`
+const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'PX', math.max(tonumber(ARGV[3]) * 1000, redis.call('PTTL', KEYS[1]))) return 1 end return 0`
+const CLIENT_NAMES = { mark_queued: 'idempotency-mark-queued', replay_until: 'idempotency-replay-until' }
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
 const MARK_QUEUED_RETRY_MAX_DELAY_MS = 5000
@@ -39,7 +41,7 @@ const idempotencyValkeyDurationSeconds = new Histogram({
     buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
 })
 
-type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release'
+type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release' | 'replay_until'
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     let timeoutId: NodeJS.Timeout | undefined
@@ -114,14 +116,22 @@ const sortKeys = (value: unknown): unknown => {
 export type IdempotencyReservation =
     | { status: 'reserved' }
     // The key already queued a run for the same request.
-    | { status: 'replayed'; invocationId: string }
+    | { status: 'replayed'; invocationId: string; scheduledAt?: string; replayFields?: ReplayFields }
     // The first request with the key has not finished queueing yet.
     | { status: 'in_flight' }
     // The key was used for a different request.
     | { status: 'conflict' }
     | { status: 'unavailable' }
 
-type StoredKey = { fingerprint: string; invocationId: string; queued: boolean }
+export type ReplayFields = Record<string, number>
+
+type StoredKey = {
+    fingerprint: string
+    invocationId: string
+    queued: boolean
+    scheduledAt?: string
+    replayFields?: ReplayFields
+}
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
@@ -200,14 +210,37 @@ export class IdempotencyKeys {
         if (stored.fingerprint !== fingerprint) {
             return { status: 'conflict' }
         }
-        return stored.queued ? { status: 'replayed', invocationId: stored.invocationId } : { status: 'in_flight' }
+        if (!stored.queued) {
+            return { status: 'in_flight' }
+        }
+        return {
+            status: 'replayed',
+            invocationId: stored.invocationId,
+            scheduledAt: stored.scheduledAt,
+            ...(stored.replayFields && { replayFields: stored.replayFields }),
+        }
     }
 
-    async markQueued(teamId: number, key: string, fingerprint: string, invocationId: string): Promise<void> {
+    async markQueued(
+        teamId: number,
+        key: string,
+        fingerprint: string,
+        invocationId: string,
+        replayFields?: ReplayFields,
+        scheduledAt?: string,
+        latestDueAt?: Date
+    ): Promise<void> {
+        const dueAt = latestDueAt?.getTime() ?? (scheduledAt ? Date.parse(scheduledAt) : 0)
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
-            value: { fingerprint, invocationId, queued: true },
-            expiresAt: Date.now() + QUEUED_TTL_SECONDS * 1000,
+            value: {
+                fingerprint,
+                invocationId,
+                queued: true,
+                ...(replayFields && { replayFields }),
+                ...(scheduledAt && { scheduledAt }),
+            },
+            expiresAt: Math.max(Date.now(), dueAt) + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
             try {
@@ -270,19 +303,22 @@ export class IdempotencyKeys {
         return true
     }
 
-    private async writeQueued({ redisKey, value, expiresAt }: PendingCompletion): Promise<void> {
+    private async writeQueued(
+        { redisKey, value, expiresAt }: PendingCompletion,
+        operation: 'mark_queued' | 'replay_until' = 'mark_queued'
+    ): Promise<void> {
         const ttlSeconds = Math.ceil((expiresAt - Date.now()) / 1000)
         const written = await this.timed(
-            'mark_queued',
+            operation,
             () =>
-                this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
+                this.valkey?.useClient({ name: CLIENT_NAMES[operation] }, (client) =>
                     client.eval(MARK_QUEUED_SCRIPT, 1, redisKey, JSON.stringify(value), value.invocationId, ttlSeconds)
                 ) ?? Promise.resolve(null)
         )
         if (written === 0) {
             logger.warn('🔑', 'idempotency key held by another request, run not recorded', { scope: this.scope })
         }
-        this.count('mark_queued', written === 0 ? 'not_owned' : 'written')
+        this.count(operation, written === 0 ? 'not_owned' : 'written')
     }
 
     async release(teamId: number, key: string, invocationId: string): Promise<void> {
@@ -301,6 +337,51 @@ export class IdempotencyKeys {
         }
     }
 
+    static hash(key: string): string {
+        return createHash('sha256').update(key).digest('hex')
+    }
+
+    async replayUntilDayAfter(
+        teamId: number,
+        invocationId: string,
+        { hash, fingerprint, scheduledAt, replayFields }: QueuedIdempotencyKey,
+        latestDueAt: Date
+    ): Promise<boolean> {
+        const expiresAt = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000
+        if (expiresAt <= Date.now()) {
+            this.count('replay_until', 'expired')
+            return true
+        }
+        if (!this.valkey) {
+            this.count('replay_until', 'unavailable')
+            return false
+        }
+        try {
+            await this.writeQueued(
+                {
+                    redisKey: this.redisKeyOf(teamId, hash),
+                    value: {
+                        fingerprint,
+                        invocationId,
+                        queued: true,
+                        ...(replayFields && { replayFields }),
+                        ...(scheduledAt && { scheduledAt }),
+                    },
+                    expiresAt,
+                },
+                'replay_until'
+            )
+            return true
+        } catch (error) {
+            logger.error('🔑', 'idempotency key replay window not extended', {
+                scope: this.scope,
+                error: String(error),
+            })
+            this.count('replay_until', 'failed')
+            return false
+        }
+    }
+
     private count(operation: IdempotencyOperation, outcome: string): void {
         idempotencyOperationsTotal.inc({ scope: this.scope, operation, outcome })
     }
@@ -316,7 +397,10 @@ export class IdempotencyKeys {
 
     private redisKey(teamId: number, key: string): string {
         // Hashed so a long or unusual caller key can't shape the Valkey key.
-        const keyHash = createHash('sha256').update(key).digest('hex')
+        return this.redisKeyOf(teamId, IdempotencyKeys.hash(key))
+    }
+
+    private redisKeyOf(teamId: number, keyHash: string): string {
         return `@posthog/idempotency/${this.scope}/${teamId}/${keyHash}`
     }
 }

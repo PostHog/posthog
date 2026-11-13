@@ -815,6 +815,26 @@ const EXPERIMENT_METRIC: HighlightsApi['pulse'][number] = {
     },
 }
 
+const EVALUATION_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'evaluation:0195f0aa-7c1e-7000-8000-000000000001',
+    name: 'Answer accuracy',
+    value: 91.5,
+    unit: 'number',
+    change_pct: 8.9,
+    series: [78, 81, 80, 84, 83.5, 84, 91.5],
+    period_starts: ['2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28'],
+    interval: 'day',
+    url: '/ai-evals/evaluations/0195f0aa-7c1e-7000-8000-000000000001',
+    value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: null },
+    reason: 'evaluation',
+    opened_days: null,
+    last_opened: null,
+    movers: [],
+    previous_value: 84,
+    experiment: null,
+}
+
 function storyHighlights(): HighlightsApi {
     if (storyComputingCalls > 0) {
         storyComputingCalls -= 1
@@ -1453,6 +1473,25 @@ export const ExperimentNumberHoverCard: Story = {
     parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 
+export const EvaluationNumberHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayPulseCard
+                metric={EVALUATION_METRIC}
+                tone="good"
+                formatValue={(value) => `${value}%`}
+                onOpen={noop}
+                pinned={false}
+                pinDisabledReason="Evaluations can't be pinned"
+                onTogglePin={noop}
+                hideDisabledReason={null}
+                onHide={noop}
+            />
+        </HoverCardFrame>
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 export const SessionHoverCard: Story = {
     render: () => (
         <HoverCardFrame>
@@ -1586,14 +1625,14 @@ export const HomePulseMixed: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
-export const HomeWithExperimentNumber: Story = {
+export const HomeWithProductNumbers: Story = {
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/today/highlights/': withReadySlots({
                     ...HIGHLIGHTS,
                     items: [],
-                    pulse: [EXPERIMENT_METRIC, ...HIGHLIGHTS.pulse.slice(0, 3)],
+                    pulse: [EXPERIMENT_METRIC, EVALUATION_METRIC, ...HIGHLIGHTS.pulse.slice(0, 2)],
                 }),
             },
         }),

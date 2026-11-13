@@ -187,7 +187,7 @@ Both can reference the same event — the difference is whether you care about c
 
 - **Mean** with `math: "avg"` averages the value per user. A few extreme values pull the mean, and the average hides how the slow tail changed.
 - **Quantile** (shown as "Percentile" in the UI) takes the percentile over all events of a variant, pooled across users. It describes one point of the distribution, such as the slow tail at p90 or p99, and a few extreme values barely move it. Use it for latency, load times and other durations where the slow tail matters. Set `goal: "decrease"` when lower is better.
-- A percentile metric doesn't support breakdowns, data warehouse sources, CUPED or timeseries.
+- A percentile metric doesn't support data warehouse sources, CUPED or timeseries.
 
 **Retention: same vs different start/completion event**
 
