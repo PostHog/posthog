@@ -21,6 +21,8 @@ rules:
       owners: team-product-analytics
     - match: '/property_values_query_runner.py'
       owners: team-product-analytics
+    - match: ['/replay.py', '/test/test_replay.py']
+      owners: team-analytics-platform
     - match: ['/sessions_query_runner.py', '/sessions_timeline_query_runner.py']
       owners: team-analytics-platform
     - match:
