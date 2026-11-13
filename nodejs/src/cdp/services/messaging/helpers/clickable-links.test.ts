@@ -1,5 +1,7 @@
 import { TREE_MAX_DEPTH, TREE_MAX_ELEMENTS, TREE_MAX_LENGTH, clickableHrefs } from './clickable-links'
 
+const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
+
 describe('clickableHrefs', () => {
     it.each([
         ['an anchor', '<p>News</p><a href="https://example.com/bye">Unsubscribe</a>', ['https://example.com/bye']],
@@ -136,6 +138,11 @@ describe('clickableHrefs', () => {
             '<a href="https://example.com/bye"></a><frameset></frameset>',
             [],
         ],
+        [
+            'an anchor after a tag with more attributes than the scanner reads',
+            `<div ${manyAttributes}></div><a href="https://example.com/bye">Unsubscribe</a>`,
+            [],
+        ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
     })
@@ -143,6 +150,7 @@ describe('clickableHrefs', () => {
     it.each([
         ['nested deeper than the parser follows', '<div>'.repeat(TREE_MAX_DEPTH)],
         ['longer than the parser reads', ' '.repeat(TREE_MAX_LENGTH)],
+        ['with more attributes on one tag than the parser reads', `<div ${manyAttributes}></div>`],
         [
             'that rebuilds more elements than the parser keeps',
             '<div>' +

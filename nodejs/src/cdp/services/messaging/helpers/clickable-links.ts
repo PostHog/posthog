@@ -1,4 +1,13 @@
-import { DefaultTreeAdapterMap, Token, Tokenizer, TokenizerMode, TreeAdapter, defaultTreeAdapter, parse } from 'parse5'
+import {
+    DefaultTreeAdapterMap,
+    Parser,
+    ParserOptions,
+    Token,
+    Tokenizer,
+    TokenizerMode,
+    TreeAdapter,
+    defaultTreeAdapter,
+} from 'parse5'
 
 export const UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 
@@ -20,17 +29,34 @@ const TREE_ONLY_CONTENT = new Set(['svg', 'math', 'select', 'template', 'framese
 export const TREE_MAX_LENGTH = 1_500_000
 export const TREE_MAX_DEPTH = 128
 export const TREE_MAX_ELEMENTS = 500_000
+const TAG_MAX_ATTRIBUTES = 64
 
 type ParentNode = DefaultTreeAdapterMap['parentNode']
 
-class TooComplexForTree extends Error {}
+class TooComplex extends Error {}
+
+class BoundedTokenizer extends Tokenizer {
+    protected override _leaveAttrName(): void {
+        if ((this.currentToken as Token.TagToken).attrs.length >= TAG_MAX_ATTRIBUTES) {
+            throw new TooComplex()
+        }
+        super._leaveAttrName()
+    }
+}
+
+class BoundedParser extends Parser<DefaultTreeAdapterMap> {
+    constructor(options: ParserOptions<DefaultTreeAdapterMap>) {
+        super(options)
+        this.tokenizer = new BoundedTokenizer(this.options, this)
+    }
+}
 
 const ignore = (): void => {}
 
 const scannedHrefs = (body: string): string[] | undefined => {
     const hrefs: string[] = []
     let followed = true
-    const tokenizer: Tokenizer = new Tokenizer(
+    const tokenizer: Tokenizer = new BoundedTokenizer(
         {},
         {
             onStartTag: (tag: Token.TagToken) => {
@@ -54,7 +80,14 @@ const scannedHrefs = (body: string): string[] | undefined => {
             onWhitespaceCharacter: ignore,
         }
     )
-    tokenizer.write(body, true)
+    try {
+        tokenizer.write(body, true)
+    } catch (error) {
+        if (error instanceof TooComplex) {
+            return []
+        }
+        throw error
+    }
     return followed ? hrefs : undefined
 }
 
@@ -66,14 +99,14 @@ const boundedTree = (body: string): ParentNode | undefined => {
         createElement: (tagName, namespaceURI, attrs) => {
             elements += 1
             if (elements > TREE_MAX_ELEMENTS) {
-                throw new TooComplexForTree()
+                throw new TooComplex()
             }
             return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
         },
         onItemPush: () => {
             depth += 1
             if (depth > TREE_MAX_DEPTH) {
-                throw new TooComplexForTree()
+                throw new TooComplex()
             }
         },
         onItemPop: () => {
@@ -81,9 +114,9 @@ const boundedTree = (body: string): ParentNode | undefined => {
         },
     }
     try {
-        return parse(body, { treeAdapter })
+        return BoundedParser.parse(body, { treeAdapter })
     } catch (error) {
-        if (error instanceof TooComplexForTree) {
+        if (error instanceof TooComplex) {
             return undefined
         }
         throw error
