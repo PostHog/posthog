@@ -1407,6 +1407,34 @@ class VitallyConversationSignalInput(SignalInputBase):
     extra: VitallyConversationSignalExtra
 
 
+class IntercomTicketsTicketSignalExtra(SignalExtraBase):
+    ticket_id: str | None
+    category: str | None
+    ticket_state_category: str | None
+    ticket_type_name: str | None
+    created_at: str | None
+
+
+class IntercomTicketsTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM_TICKETS]
+    extra: IntercomTicketsTicketSignalExtra
+
+
+class PylonTicketSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    type: str | None
+    link: str | None
+    created_at: str | None
+
+
+class PylonTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.PYLON]
+    extra: PylonTicketSignalExtra
+
+
 # ── Incident management / on-call ─────────────────────────────────────────────────
 
 
@@ -1958,6 +1986,157 @@ class OkendoReviewSignalInput(SignalInputBase):
     extra: OkendoReviewSignalExtra
 
 
+class BeamerFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    category: str | None
+    votes_count: str | None
+    comments_count: str | None
+    date: str | None
+    permalink: str | None
+
+
+class BeamerFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.BEAMER]
+    extra: BeamerFeedbackSignalExtra
+
+
+class BeamerNpsFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    date: str | None
+
+
+class BeamerNpsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.BEAMER_NPS]
+    extra: BeamerNpsFeedbackSignalExtra
+
+
+class ChameleonFeedbackSignalExtra(SignalExtraBase):
+    button_text: str | None
+    survey_id: str | None
+    created_at: str | None
+
+
+class ChameleonFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.CHAMELEON]
+    extra: ChameleonFeedbackSignalExtra
+
+
+class FeaturebaseSurveysFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    created_at: str | None
+
+
+class FeaturebaseSurveysFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.FEATUREBASE_SURVEYS]
+    extra: FeaturebaseSurveysFeedbackSignalExtra
+
+
+class UservoiceNpsFeedbackSignalExtra(SignalExtraBase):
+    rating: str | None
+    created_at: str | None
+
+
+class UservoiceNpsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.USERVOICE_NPS]
+    extra: UservoiceNpsFeedbackSignalExtra
+
+
+class VitallyNpsFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    nps_type: str | None
+    created_at: str | None
+
+
+class VitallyNpsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.VITALLY_NPS]
+    extra: VitallyNpsFeedbackSignalExtra
+
+
+class EtsyReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    listing_id: str | None
+    language: str | None
+    created_timestamp: str | None
+
+
+class EtsyReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.ETSY]
+    extra: EtsyReviewSignalExtra
+
+
+class G2ReviewSignalExtra(SignalExtraBase):
+    star_rating: str | None
+    product_name: str | None
+    url: str | None
+    submitted_at: str | None
+
+
+class G2ReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.G2]
+    extra: G2ReviewSignalExtra
+
+
+class GumroadReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    product_id: str | None
+    created_at: str | None
+
+
+class GumroadReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.GUMROAD]
+    extra: GumroadReviewSignalExtra
+
+
+class TrustpilotProductReviewsReviewSignalExtra(SignalExtraBase):
+    stars: str | None
+    language: str | None
+    state: str | None
+    product_name: str | None
+    created_at: str | None
+
+
+class TrustpilotProductReviewsReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.TRUSTPILOT_PRODUCT_REVIEWS]
+    extra: TrustpilotProductReviewsReviewSignalExtra
+
+
+class WoocommerceReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    status: str | None
+    verified: str | None
+    product_id: str | None
+    date_created_gmt: str | None
+
+
+class WoocommerceReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.WOOCOMMERCE]
+    extra: WoocommerceReviewSignalExtra
+
+
+class YotpoReviewSignalExtra(SignalExtraBase):
+    score: str | None
+    sku: str | None
+    deleted: str | None
+    created_at: str | None
+
+
+class YotpoReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.YOTPO]
+    extra: YotpoReviewSignalExtra
+
+
 # ── Cloud security ────────────────────────────────────────────────────────────────
 
 
@@ -2015,6 +2194,65 @@ class MicrosoftDefenderCloudAppsScannerFindingSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.SCANNER_FINDING]
     source_product: Literal[SignalSourceProduct.MICROSOFT_DEFENDER_CLOUD_APPS]
     extra: MicrosoftDefenderCloudAppsScannerFindingSignalExtra
+
+
+class GithubDependabotScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    severity: str | None
+    ghsa_id: str | None
+    cve_id: str | None
+    package_ecosystem: str | None
+    package_name: str | None
+    vulnerable_version_range: str | None
+    first_patched_version: str | None
+    manifest_path: str | None
+    dependency_scope: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubDependabotScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_DEPENDABOT]
+    extra: GithubDependabotScannerFindingSignalExtra
+
+
+class GithubCodeScanningScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    rule_id: str | None
+    rule_severity: str | None
+    security_severity_level: str | None
+    tool_name: str | None
+    location_path: str | None
+    location_start_line: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubCodeScanningScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_CODE_SCANNING]
+    extra: GithubCodeScanningScannerFindingSignalExtra
+
+
+class GithubSecretScanningScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    secret_type: str | None
+    validity: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubSecretScanningScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_SECRET_SCANNING]
+    extra: GithubSecretScanningScannerFindingSignalExtra
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────
@@ -2096,6 +2334,8 @@ SignalInput = Annotated[
     | HelpscoutConversationSignalInput
     | DecagonConversationSignalInput
     | VitallyConversationSignalInput
+    | IntercomTicketsTicketSignalInput
+    | PylonTicketSignalInput
     | PagerdutyIncidentSignalInput
     | OpsgenieAlertSignalInput
     | IncidentIoIncidentSignalInput
@@ -2135,10 +2375,25 @@ SignalInput = Annotated[
     | GainsightPxFeedbackSignalInput
     | TrustpilotReviewSignalInput
     | OkendoReviewSignalInput
+    | BeamerFeedbackSignalInput
+    | BeamerNpsFeedbackSignalInput
+    | ChameleonFeedbackSignalInput
+    | FeaturebaseSurveysFeedbackSignalInput
+    | UservoiceNpsFeedbackSignalInput
+    | VitallyNpsFeedbackSignalInput
+    | EtsyReviewSignalInput
+    | G2ReviewSignalInput
+    | GumroadReviewSignalInput
+    | TrustpilotProductReviewsReviewSignalInput
+    | WoocommerceReviewSignalInput
+    | YotpoReviewSignalInput
     | AwsSecurityHubScannerFindingSignalInput
     | AwsGuarddutyScannerFindingSignalInput
     | AwsInspectorScannerFindingSignalInput
-    | MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    | MicrosoftDefenderCloudAppsScannerFindingSignalInput
+    | GithubDependabotScannerFindingSignalInput
+    | GithubCodeScanningScannerFindingSignalInput
+    | GithubSecretScanningScannerFindingSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -2213,6 +2468,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     HelpscoutConversationSignalInput,
     DecagonConversationSignalInput,
     VitallyConversationSignalInput,
+    IntercomTicketsTicketSignalInput,
+    PylonTicketSignalInput,
     PagerdutyIncidentSignalInput,
     OpsgenieAlertSignalInput,
     IncidentIoIncidentSignalInput,
@@ -2252,10 +2509,25 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GainsightPxFeedbackSignalInput,
     TrustpilotReviewSignalInput,
     OkendoReviewSignalInput,
+    BeamerFeedbackSignalInput,
+    BeamerNpsFeedbackSignalInput,
+    ChameleonFeedbackSignalInput,
+    FeaturebaseSurveysFeedbackSignalInput,
+    UservoiceNpsFeedbackSignalInput,
+    VitallyNpsFeedbackSignalInput,
+    EtsyReviewSignalInput,
+    G2ReviewSignalInput,
+    GumroadReviewSignalInput,
+    TrustpilotProductReviewsReviewSignalInput,
+    WoocommerceReviewSignalInput,
+    YotpoReviewSignalInput,
     AwsSecurityHubScannerFindingSignalInput,
     AwsGuarddutyScannerFindingSignalInput,
     AwsInspectorScannerFindingSignalInput,
     MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    GithubDependabotScannerFindingSignalInput,
+    GithubCodeScanningScannerFindingSignalInput,
+    GithubSecretScanningScannerFindingSignalInput,
     CheckFailedSignalInput,
     MonitoringUnresolvedSignalInput,
 )

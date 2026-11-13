@@ -27,6 +27,8 @@ __all__ = [
     "DuckLakeDayReplacement",
     "DuckLakeTableLayoutError",
     "DuckLakeTableReplacement",
+    "DuckgresConnectionRefused",
+    "DuckgresOrganizationUnavailable",
     "DuckgresQueryServerConfig",
     "DuckgresServerSummary",
     "DuckgresStoredBucketConfig",
@@ -63,6 +65,14 @@ __all__ = [
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+class DuckgresConnectionRefused(Exception):
+    """duckgres refused the connection because of its hostname, so no retry can succeed."""
+
+
+class DuckgresOrganizationUnavailable(DuckgresConnectionRefused):
+    """duckgres has no organization for the managed warehouse hostname of the connection."""
 
 
 @frozen

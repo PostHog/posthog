@@ -96,7 +96,6 @@ errorTrackingSpikeEvents projects/{}/error_tracking/spike_events
 errorTrackingStackFrames projects/{}/error_tracking/stack_frames/batch_get
 errorTrackingSymbolSet projects/{}/error_tracking/symbol_sets/{}
 errorTrackingSymbolSets projects/{}/error_tracking/symbol_sets
-evaluationRuns projects/{}/evaluation_runs
 eventDefinitionDetail projects/{}/event_definitions/{}
 eventDefinitions projects/{}/event_definitions
 experimentCreateExposureCohort projects/{}/experiments/{}/create_exposure_cohort_for_experiment

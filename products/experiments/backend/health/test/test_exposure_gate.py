@@ -15,7 +15,7 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.persons import create_person
+from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
@@ -204,6 +204,30 @@ class TestLoadFlagHistory(BaseTest):
         )
         self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[2:])
         self.assertEqual(query.call_count, 2)
+
+    def test_names_the_group_types_of_a_match_by_change(self) -> None:
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            name_plural="organizations",
+        )
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
+        self._log_change(
+            self.launched_at + timedelta(days=1),
+            filters=(
+                {**_filters(_split(50, 50)), "aggregation_group_type_index": 0},
+                {**_filters(_split(50, 50)), "aggregation_group_type_index": 1},
+            ),
+        )
+
+        history, _ = self._load([True])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.group_type_names, {0: "organizations", 1: "company"})
 
     def test_each_window_asks_with_the_key_the_flag_had_then(self) -> None:
         first_at = self.launched_at + timedelta(days=1)

@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier
+# name: TestBlastRadius.test_persons_seen_so_far_pins_v1_and_bounds_memory
   '''
   SELECT count() AS `count()`
   FROM
@@ -8,12 +8,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -22,7 +24,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.1
+# name: TestBlastRadius.test_persons_seen_so_far_pins_v1_and_bounds_memory.1
   '''
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
@@ -37,12 +39,14 @@
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), ifNull(equals(persons.properties___group, '0'), 0))
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -51,7 +55,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.2
+# name: TestBlastRadius.test_persons_seen_so_far_pins_v1_and_bounds_memory.2
   '''
   SELECT count() AS `count()`
   FROM
@@ -60,12 +64,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -90,12 +96,14 @@
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), in(persons.properties___group, tuple('0', '1', '2', '3')))
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -114,12 +122,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -365,12 +375,14 @@
                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                       FROM cohortpeople
                                                                                                                                                                                       WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -389,12 +401,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -435,12 +449,14 @@
                                                      (SELECT person_static_cohort.person_id AS person_id
                                                       FROM person_static_cohort
                                                       WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -459,12 +475,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -510,12 +528,14 @@
                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                      FROM cohortpeople
                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -534,12 +554,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -564,12 +586,14 @@
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -588,12 +612,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -633,12 +659,14 @@
                                                  (SELECT cohortpeople.person_id AS person_id
                                                   FROM cohortpeople
                                                   WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
@@ -657,12 +685,14 @@
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
+                     readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=4294967296,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      optimize_rewrite_aggregate_function_with_if=0,
