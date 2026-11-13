@@ -63,7 +63,7 @@ class TestIncidentIoTransport(SimpleTestCase):
             "status": "firing",
             "deduplication_key": "cfg-1::2026-09-30T09:00:00+00:00",
             "source_url": ALERT_URL,
-            "description": "**Value:** 312\n**runbook:** https://example.com/runbook",
+            "description": "**Value:** `312`\n**runbook:** `https://example.com/runbook`",
             "metadata": {
                 "team": "infra",
                 "service": "checkout",
@@ -123,9 +123,21 @@ class TestIncidentIoTransport(SimpleTestCase):
 
         assert adapter.sent == []
 
-    def test_a_detail_value_cannot_render_as_a_link(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "markdown_link",
+                "[Open the runbook](https://evil.example/sso)",
+                "`[Open the runbook](https://evil.example/sso)`",
+            ),
+            ("bare_url", "https://evil.example/sso", "`https://evil.example/sso`"),
+            # A backtick in the value must not close the code span early.
+            ("backticks", "a `b` https://evil.example", "``a `b` https://evil.example``"),
+        ]
+    )
+    def test_a_detail_value_cannot_render_as_a_link(self, _name: str, value: str, rendered: str) -> None:
         message = alert_message(
-            details=(MessageDetail(label="Service", value="[Open the runbook](https://evil.example/sso)"),),
+            details=(MessageDetail(label="Service", value=value),),
             transition=announced_transition(AlertEventKind.FIRING),
             incident_action=IncidentAction.TRIGGER,
         )
@@ -133,6 +145,4 @@ class TestIncidentIoTransport(SimpleTestCase):
         with pinned_post(202) as adapter:
             IncidentIoTransport().deliver(team_id=2, target=TARGET, message=message)
 
-        assert json.loads(adapter.sent[0].body or b"")["description"] == (
-            r"**Service:** \[Open the runbook\](https://evil.example/sso)"
-        )
+        assert json.loads(adapter.sent[0].body or b"")["description"] == f"**Service:** {rendered}"

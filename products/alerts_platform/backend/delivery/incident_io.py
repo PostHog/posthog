@@ -12,9 +12,9 @@ Whether an alert opens an incident is decided by the alert routes the customer c
 incident.io, not here.
 """
 
+import re
 from typing import Any, Final
 
-from products.alerts_platform.backend.delivery.discord import escape_markdown
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import dedup_key
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
@@ -34,6 +34,17 @@ _STATUSES: Final[dict[IncidentAction, str]] = {
 
 # A wrong secret or a deleted alert source. Each is the owner's to fix, and every retry fails the same way.
 _OWNER_REFUSALS: Final[dict[int, bytes | None]] = {401: None, 403: None, 404: None}
+
+
+def _code_span(value: str) -> str:
+    """`value` as inline code. A value can carry ingested data, such as a log's service name, and inline
+    code renders it as typed: no link, image or bare URL in it becomes clickable."""
+    text = value.replace("\n", " ")
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    # A value that starts or ends with a backtick needs a space, or it would merge with the fence.
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
 
 
 def endpoint(alert_source_config_id: str) -> str:
@@ -58,8 +69,7 @@ def incident_io_body(message: AlertMessage) -> dict[str, Any]:
     }
     details = (*message.details, *message.rule_details)
     if details:
-        # A value can come from ingested data, such as a log's service name, so it must not render as a link.
-        body["description"] = "\n".join(f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in details)
+        body["description"] = "\n".join(f"**{detail.label}:** {_code_span(detail.value)}" for detail in details)
     return body
 
 
