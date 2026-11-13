@@ -1301,9 +1301,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         """`f(properties, 'key', <more path>)` on the native table, run on the text of `key`.
 
         The document the property pass wrote is the JSON text of the value, which costs a validity check to tell a
-        stored object or array from a string. With more path to follow the function gives the same result on the
-        stored text: an object or array is stored as its JSON text, and no path leads into a string, a number or a
-        Bool, however it is spelled.
+        stored object or array from a string. With more path to follow the function runs on the stored text instead:
+        an object or array is stored as its JSON text, and no path leads into a number, a Bool or an ordinary string.
+        The results differ for one input, a string that holds JSON text after leading whitespace. The function
+        follows the path into it, and a whole-document read keeps it as a string.
         """
         if node.name not in JSON_KEY_PATH_FUNCTIONS or not node.args:
             return None
