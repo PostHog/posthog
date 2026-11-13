@@ -264,6 +264,7 @@ describe('DashboardItems', () => {
                     isEditablePlacement: canEditDashboard,
                     canEditLayout: canEditDashboard,
                     tileGroupSections: [],
+                    tileDisplayOptionsSavingIds: [],
                 }
             }
 
