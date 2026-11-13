@@ -492,11 +492,7 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
-            # The compile takes about 2m on a cold cache, and nothing before "Start Rust flags
-            # service" below reads its output: starting the docker services, priming the
-            # schema, running the migrations and seeding demo data take longer than that.
-            # So it runs in the background while the database is prepared, instead of
-            # blocking the whole setup chain for two minutes.
+            # Database setup does not need the binary, so compile while the database is prepared.
             - name: Build Rust flags service in the background
               working-directory: rust
               env:
@@ -515,9 +511,10 @@ jobs:
                   # open and returns as soon as cargo is started.
                   (
                       status=0
-                      cargo build -p feature-flags > /tmp/rust-build.log 2>&1 || status=$?
-                      echo "$status" > /tmp/rust-build.status
-                  ) &
+                      cargo build -p feature-flags || status=$?
+                      echo "$status" > /tmp/rust-build.status.tmp
+                      mv /tmp/rust-build.status.tmp /tmp/rust-build.status
+                  ) > /tmp/rust-build.log 2>&1 &
                   echo "cargo build -p feature-flags started in the background"
 
             - name: Download MaxMind Database
