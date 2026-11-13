@@ -66,9 +66,9 @@ class TestMaterializeSummary(SimpleTestCase):
             ),
             ("older payload", {"main_saving": None}, "would save about 40 minutes of query time a month (estimated)"),
             (
-                "capped measurement",
-                {"measurement_capped": True},
-                "would save people at least 40 minutes of waiting a month (estimated)",
+                "capped measurement rounds down",
+                {"measurement_capped": True, "waiting_seconds_saved_per_month": 2390.0},
+                "would save people at least 39 minutes of waiting a month (estimated)",
             ),
             (
                 "extra scanning",

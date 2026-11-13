@@ -1,5 +1,6 @@
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from datetime import timedelta
+from math import floor
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -169,13 +170,16 @@ def _unmaterialize_saving(payload: UnmaterializePayload) -> str:
 
 def _materialize_saving(payload: MaterializePayload) -> str:
     estimate_word = "at least" if payload.measurement_capped else "about"
+    rounding = floor if payload.measurement_capped else round
     if payload.main_saving == WarehouseSuggestionMainSaving.WAITING and payload.waiting_seconds_saved_per_month:
-        return f"people {estimate_word} {_about_duration(payload.waiting_seconds_saved_per_month)} of waiting"
+        waiting = _about_duration(payload.waiting_seconds_saved_per_month, rounding)
+        return f"people {estimate_word} {waiting} of waiting"
     if payload.main_saving == WarehouseSuggestionMainSaving.BACKGROUND and payload.background_seconds_saved_per_month:
-        return f"{estimate_word} {_about_duration(payload.background_seconds_saved_per_month)} of background work"
+        background = _about_duration(payload.background_seconds_saved_per_month, rounding)
+        return f"{estimate_word} {background} of background work"
     if payload.main_saving == WarehouseSuggestionMainSaving.SCANNED:
-        return f"{estimate_word} {_about_bytes(payload.saves_bytes_per_month)} of scanning"
-    return f"{estimate_word} {_about_duration(payload.saves_seconds_per_month)} of query time"
+        return f"{estimate_word} {_about_bytes(payload.saves_bytes_per_month, rounding)} of scanning"
+    return f"{estimate_word} {_about_duration(payload.saves_seconds_per_month, rounding)} of query time"
 
 
 def _freshness(payload: MaterializePayload, cadence: str) -> str:
@@ -203,18 +207,18 @@ def _app_step(url: str, *, can_act: bool) -> str:
     return f"Accepting it needs edit access to the view, so share {url} with someone who has it."
 
 
-def _about_duration(seconds: float) -> str:
+def _about_duration(seconds: float, rounding: Callable[[float], int] = round) -> str:
     for unit_seconds, unit in SECONDS_UNITS:
         if seconds >= unit_seconds:
-            count = round(seconds / unit_seconds)
+            count = rounding(seconds / unit_seconds)
             return f"{count} {unit}" if count == 1 else f"{count} {unit}s"
     return "under a second"
 
 
-def _about_bytes(byte_count: float) -> str:
+def _about_bytes(byte_count: float, rounding: Callable[[float], int] = round) -> str:
     for unit_bytes, unit in BYTE_UNITS:
         if byte_count >= unit_bytes:
-            return f"{byte_count / unit_bytes:.1f} {unit}"
+            return f"{rounding(byte_count / unit_bytes * 10) / 10:.1f} {unit}"
     return "under 1 MB"
 
 
