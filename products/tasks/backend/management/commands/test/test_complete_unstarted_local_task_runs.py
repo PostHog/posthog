@@ -1,7 +1,9 @@
 from datetime import timedelta
+from io import StringIO
 
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.db import OperationalError
 from django.test import TestCase
 from django.utils import timezone
@@ -108,7 +110,10 @@ class TestCompleteUnstartedLocalTaskRuns(TestCase):
             status=TaskRun.Status.NOT_STARTED, environment=TaskRun.Environment.LOCAL
         )
 
-        self.assertEqual(sum(complete_unstarted_local_task_runs(dry_run=True)), 1)
+        stdout = StringIO()
+        call_command("complete_unstarted_local_task_runs", "--dry-run", stdout=stdout)
 
         task_run.refresh_from_db()
-        self.assertEqual(task_run.status, TaskRun.Status.NOT_STARTED)
+        self.assertEqual(
+            (stdout.getvalue().strip(), task_run.status), ("Would complete 1 runs in all", TaskRun.Status.NOT_STARTED)
+        )
