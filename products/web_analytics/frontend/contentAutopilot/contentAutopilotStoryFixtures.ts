@@ -6,6 +6,7 @@ import type {
     AEOKeywordReportApi,
     AEOPromptApi,
     AEOPromptCheckApi,
+    AEOPromptCitationApi,
     AEOPromptSetCountsApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
@@ -504,6 +505,34 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         brand_sentiment: null,
         brand_sentiment_score: null,
         answer_text: null,
+    },
+]
+
+export const EXAMPLE_PROMPT_CITATIONS: AEOPromptCitationApi[] = [
+    {
+        ...EXAMPLE_CHECK,
+        prompt_id: EXAMPLE_PROMPTS[0].id,
+        prompt_text: EXAMPLE_PROMPTS[0].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[0].topic,
+        mentioned: true,
+    },
+    {
+        ...EXAMPLE_PROMPT_CHECKS[1],
+        prompt_id: EXAMPLE_PROMPTS[1].id,
+        prompt_text: EXAMPLE_PROMPTS[1].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[1].topic,
+        mentioned: false,
+    },
+    {
+        ...EXAMPLE_PROMPT_CHECKS[1],
+        id: '00000000-0000-4000-8000-000000000404',
+        engine: 'exa-answer',
+        created_at: '2026-09-27T09:00:00Z',
+        answer_text: 'Example Analytics and Rival Analytics both have free tiers.',
+        prompt_id: EXAMPLE_PROMPTS[1].id,
+        prompt_text: EXAMPLE_PROMPTS[1].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[1].topic,
+        mentioned: true,
     },
 ]
 

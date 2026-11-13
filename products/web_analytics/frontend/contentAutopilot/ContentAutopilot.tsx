@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
+import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
@@ -207,6 +208,7 @@ export const ContentAutopilot = (): JSX.Element => {
             <ContentAutopilotProposalDetail />
             <ContentAutopilotPromptAddModal />
             <ContentAutopilotPromptSuggestModal />
+            <ContentAutopilotCitationsModal />
         </div>
     )
 }
