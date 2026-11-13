@@ -87,6 +87,11 @@
 //      directly. The core modules that the SDK, or a conftest every vendor test
 //      collects, imports directly claim it too, in addition to their own lanes,
 //      and the set is read from those sources.
+//      The source field classification audit (field_classification.csv), which
+//      a new source or a changed source field regenerates, claims only the
+//      vendor lane too. No code reads it at runtime. Its one reader is the test
+//      that compares it with the generated output, and the warehouse sources
+//      job runs that test.
 //      The rest of posthog/, common/ and other products do not claim it, because
 //      they reach a vendor only through one of those modules.
 //
@@ -1547,6 +1552,10 @@ const WAREHOUSE_SOURCES_PRODUCT = 'warehouse_sources'
 const WAREHOUSE_SOURCE_PLUGIN_DIR = 'products/warehouse_sources/sources/'
 const WAREHOUSE_SOURCE_SDK_DIR = 'sdk'
 const WAREHOUSE_SOURCE_VENDORS = 'py:warehouse-source-vendors'
+// CLASSIFICATION_AUDIT_PATH in job_input_classification.py. If the file moves,
+// it falls back to the product lane, which is the safe direction.
+const WAREHOUSE_SOURCE_CLASSIFICATION_AUDIT =
+    'products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv'
 const REPO_INVARIANTS_DIR = 'posthog/test/repo_invariants/'
 
 // Without the product, the lane would name a target that no other PR can
@@ -1556,6 +1565,9 @@ function hasWarehouseSourceVendorLane(context) {
 }
 
 function isWarehouseSourceVendorFile(file) {
+    if (file === WAREHOUSE_SOURCE_CLASSIFICATION_AUDIT) {
+        return true
+    }
     if (!file.startsWith(WAREHOUSE_SOURCE_PLUGIN_DIR)) {
         return false
     }

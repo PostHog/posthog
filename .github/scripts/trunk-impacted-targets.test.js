@@ -1936,6 +1936,7 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
                 `${vendorDir}/icon.png`,
                 `${vendorDir}/tests/test_acme.py`,
                 `${vendorDir}/README.md`,
+                'products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv',
             ],
             context
         ),
