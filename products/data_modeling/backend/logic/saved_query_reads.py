@@ -2,6 +2,7 @@
 
 from collections.abc import Collection, Iterable
 from datetime import datetime
+from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -362,6 +363,16 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
     return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}
 
 
+def saved_query_ids_upstream_first(team_id: int, saved_query_ids: Collection[UUID]) -> list[UUID]:
+    """Order saved query ids so every upstream view precedes its downstream views."""
+    view_ids = set(saved_query_ids)
+    sorter: TopologicalSorter[UUID] = TopologicalSorter({view_id: set() for view_id in sorted(view_ids)})
+    for source_id, target_ids in dependent_saved_query_ids(team_id, view_ids).items():
+        for target_id in target_ids & view_ids:
+            sorter.add(target_id, source_id)
+    return list(sorter.static_order())
+
+
 def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
     """The DAG nodes that stand for this saved query."""
     return _node_ids_standing_for(team_id, {str(saved_query_id)})
@@ -432,6 +443,17 @@ def upstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozen
     """The saved queries this saved query reads from, directly or through other views in any DAG."""
     start_node_ids = _node_ids_standing_for(team_id, {str(saved_query_id)})
     reached = reachable_node_ids(team_id, start_node_ids, upstream=True, max_depth=None)
+    return frozenset(
+        Node.objects.filter(team_id=team_id, id__in=reached, saved_query_id__isnull=False)
+        .exclude(saved_query_id=saved_query_id)
+        .values_list("saved_query_id", flat=True)
+    )
+
+
+def downstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozenset[UUID]:
+    """The saved queries that read from this one, directly or through other views in any DAG."""
+    start_node_ids = _node_ids_standing_for(team_id, {str(saved_query_id)})
+    reached = reachable_node_ids(team_id, start_node_ids, upstream=False, max_depth=None)
     return frozenset(
         Node.objects.filter(team_id=team_id, id__in=reached, saved_query_id__isnull=False)
         .exclude(saved_query_id=saved_query_id)
