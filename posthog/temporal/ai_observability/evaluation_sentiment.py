@@ -1,6 +1,4 @@
 import json
-import asyncio
-import contextvars
 from typing import Any
 
 from temporalio import activity
@@ -93,15 +91,10 @@ async def run_sentiment_eval(evaluation: dict[str, Any], event_data: dict[str, A
     texts = [text for _message_index, text in user_messages]
 
     from posthog.temporal.ai_observability.sentiment.model import (  # noqa: PLC0415 -- loads ONNX deps lazily
-        classify,
-        inference_executor,
+        classify_in_executor,
     )
 
-    # Copy the context like asyncio.to_thread does, so log lines keep the bound team and evaluation.
-    context = contextvars.copy_context()
-    classification_results = await asyncio.get_running_loop().run_in_executor(
-        inference_executor, context.run, classify, texts
-    )
+    classification_results = await classify_in_executor(texts)
     return _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
 
 

@@ -140,7 +140,7 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
 
         results = []
         for start in range(0, len(texts), CLASSIFY_BATCH):
-            results.extend(await asyncio.to_thread(sentiment_model.classify, texts[start : start + CLASSIFY_BATCH]))
+            results.extend(await sentiment_model.classify_in_executor(texts[start : start + CLASSIFY_BATCH]))
     except (ImportError, FileNotFoundError) as error:
         logger.warning(
             "aeo_brand_sentiment_model_unavailable", team_id=inputs.team_id, run_id=inputs.run_id, error=str(error)
