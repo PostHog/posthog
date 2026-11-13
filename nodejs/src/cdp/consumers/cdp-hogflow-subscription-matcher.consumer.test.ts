@@ -133,11 +133,21 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public moveRows: MockRow[] = []
     public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
     public updateRowCount = 0
+    public pubSubHandlers: Record<string, (message: any) => void>
 
     constructor() {
+        const pubSubHandlers: Record<string, (message: any) => void> = {}
         // Non-empty URL satisfies the constructor's fail-fast guard; the real Pool (mocked
         // via jest.mock('pg')) is immediately replaced below with a fixture-dispatching fake.
-        super({ CYCLOTRON_NODE_DATABASE_URL: 'postgres://test' } as any, {} as any)
+        super(
+            { CYCLOTRON_NODE_DATABASE_URL: 'postgres://test' } as any,
+            {
+                pubSub: {
+                    on: (channel: string, handler: (message: any) => void) => (pubSubHandlers[channel] = handler),
+                },
+            } as any
+        )
+        this.pubSubHandlers = pubSubHandlers
         // Wire a fake pool that dispatches queries to predefined fixtures.
         const dispatch = (sql: string, params: any[]): Promise<{ rows: any[]; rowCount: number }> => {
             if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
@@ -340,7 +350,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                     CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: 'cyclotron:9092',
                 } as any,
-                {} as any
+                { pubSub: { on: jest.fn() } } as any
             )
             const byTopic = Object.fromEntries(
                 createConsumer.mock.calls.map(([config, rdKafka]) => [config.topic, rdKafka])
@@ -359,7 +369,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                         CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: topic,
                     } as any,
-                    {} as any
+                    { pubSub: { on: jest.fn() } } as any
                 )
                 const realtimeOnlyTopics = createConsumer.mock.calls
                     .filter(
@@ -1799,9 +1809,32 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 flows: [makeHogFlow({ id: 'wait-flow-1' }), makeHogFlow({ id: 'wait-flow-2', team_id: 2 })],
                 expectedPairs: null,
             },
-        ])('looks up watchers for $name', async ({ liveWatcherTeams, flows, expectedPairs }) => {
+            {
+                // Paused or goal removed after a run wrote its watcher: neither the set nor the cache shows it yet.
+                name: 'a team whose flows changed since the last refresh',
+                liveWatcherTeams: [],
+                flows: [],
+                flowsChanged: 'after refresh',
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'nothing for a flow change the last refresh already saw',
+                liveWatcherTeams: [],
+                flows: [],
+                flowsChanged: 'before refresh',
+                expectedPairs: null,
+            },
+        ])('looks up watchers for $name', async ({ liveWatcherTeams, flows, flowsChanged, expectedPairs }) => {
+            if (flowsChanged === 'before refresh') {
+                matcher.pubSubHandlers['reload-hog-flows']({ teamId: 1, hogFlowIds: ['goal-flow-1'] })
+            }
+            await (matcher as any).refreshTeamsWithLiveWatchers()
+            if (flowsChanged === 'after refresh') {
+                matcher.pubSubHandlers['reload-hog-flows']({ teamId: 1, hogFlowIds: ['goal-flow-1'] })
+            }
             ;(matcher as any).teamsWithLiveWatchers = new Set(liveWatcherTeams)
             matcher.setHogFlows(Object.fromEntries(flows.map((flow) => [flow.id, flow])))
+            matcher.calls = []
 
             await matcher.runWake([
                 cancelledEvent(),

@@ -263,9 +263,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
     // before consuming, so the gate is never consulted against an unpopulated set.
     private teamsWithLiveWatchers: Set<number> = new Set()
+    // Team -> refresh number current when its flows last changed. A watcher written just before its
+    // flow was paused or lost its goal is invisible to the set until a refresh that started after the
+    // change, and the active-only flow cache no longer shows the goal either.
+    private teamsWithChangedFlows: Map<number, number> = new Map()
+    private watcherRefreshNumber = 0
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
+        deps.pubSub.on<{ teamId: number }>('reload-hog-flows', ({ teamId }) => {
+            this.teamsWithChangedFlows.set(teamId, this.watcherRefreshNumber)
+        })
         this.kafkaConsumer = createKafkaConsumer(
             {
                 groupId: 'cdp-hogflow-subscription-matcher-consumer',
@@ -389,8 +397,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // exactly the blind spot watchers exist to remove. Only a goal flow's run writes a watcher.
         const watcherTeams = new Set(
             teamIds.filter(
-                (teamId) =>
-                    this.teamsWithLiveWatchers.has(teamId) || (hogFlowsByTeam[teamId] ?? []).some(hasConversionGoal)
+                (teamId) => this.mayHaveLiveWatchers(teamId) || (hogFlowsByTeam[teamId] ?? []).some(hasConversionGoal)
             )
         )
         if (watcherTeams.size > 0) {
@@ -856,17 +863,27 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (teamHogFlows.some(hasWaitUntilOrConversion)) {
             return true
         }
-        return this.teamsWithLiveWatchers.has(teamId)
+        return this.mayHaveLiveWatchers(teamId)
+    }
+
+    private mayHaveLiveWatchers(teamId: number): boolean {
+        return this.teamsWithLiveWatchers.has(teamId) || this.teamsWithChangedFlows.has(teamId)
     }
 
     // One small query per refresh, returning at most one row per team that has ever enrolled a run on
     // a goal workflow. Kept as a whole-set replace so a team whose watchers have all expired drops out
     // without needing its own invalidation.
     private async refreshTeamsWithLiveWatchers(): Promise<void> {
+        const refreshNumber = ++this.watcherRefreshNumber
         const result = await this.cyclotronPool.query(
             `SELECT DISTINCT team_id FROM conversion_watchers WHERE expires_at > NOW()`
         )
         this.teamsWithLiveWatchers = new Set(result.rows.map((row) => row.team_id))
+        for (const [teamId, changedAt] of this.teamsWithChangedFlows) {
+            if (changedAt < refreshNumber) {
+                this.teamsWithChangedFlows.delete(teamId)
+            }
+        }
         gaugeHogflowMatcherTeamsWithWatchers.set(this.teamsWithLiveWatchers.size)
     }
 
