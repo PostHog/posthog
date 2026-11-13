@@ -206,7 +206,7 @@ export interface inboxTriageLogicMeta {
         previousReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         nextReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         counter: (reports: SignalReport[], currentIndex: number, hasMore: boolean) => string
-        canCreatePr: (currentReport: SignalReport | null, isPhaiSandboxFlagOn: boolean) => boolean
+        canCreatePr: (currentReport: SignalReport | null) => boolean
         implementationDisabledReason: (
             currentReport: SignalReport | null,
             user: null | import('~/types').UserType
@@ -374,9 +374,9 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 reports.length === 0 ? '0 / 0' : `${currentIndex + 1} / ${reports.length}${hasMore ? '+' : ''}`,
         ],
         canCreatePr: [
-            (s) => [s.currentReport, s.isPhaiSandboxFlagOn],
-            (currentReport: SignalReport | null, isPhaiSandboxFlagOn: boolean): boolean =>
-                isPhaiSandboxFlagOn && currentReport !== null && canCreateImplementationPr(currentReport),
+            (s) => [s.currentReport],
+            (currentReport: SignalReport | null): boolean =>
+                currentReport !== null && canCreateImplementationPr(currentReport),
         ],
         implementationDisabledReason: [
             (s) => [s.currentReport, userLogic.selectors.user],
@@ -512,6 +512,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             createPrForCurrent: () => {
                 const report = values.currentReport
                 if (
+                    !values.isPhaiSandboxFlagOn ||
                     !report ||
                     !values.canCreatePr ||
                     values.isCreatingPr ||

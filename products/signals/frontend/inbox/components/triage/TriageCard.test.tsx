@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -13,6 +14,8 @@ import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { TriageCard } from './InboxTriageView'
+
+jest.mock('lib/utils/copyToClipboard')
 
 jest.mock('lib/components/TZLabel', () => ({
     TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
@@ -68,6 +71,22 @@ describe('TriageCard', () => {
 
         expect(screen.getByText('Unassign me')).toBeInTheDocument()
         expect(screen.queryByText('Dismiss')).not.toBeInTheDocument()
+    })
+
+    it('keeps implementation with your own agent available without PostHog AI access', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
+        const report = { ...makeReport('own-agent'), actionability: 'immediately_actionable' as const }
+        useMocks({
+            get: { '/api/projects/:team_id/signals/reports/': { results: [report], next: null, count: 1 } },
+        })
+        logic.mount()
+        render(<TriageCard report={report} expanded={false} />)
+        fireEvent.click(await screen.findByText('Implement'))
+        expect(await screen.findByText('Claude Code CLI')).toBeInTheDocument()
+        expect(screen.getByText('Cursor')).toBeInTheDocument()
+        expect(screen.queryByText('Implement with PostHog')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('Copy prompt for your agent'))
+        expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining(report.id), 'prompt for your agent')
     })
 
     it.each([

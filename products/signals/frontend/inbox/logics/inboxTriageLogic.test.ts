@@ -97,13 +97,13 @@ describe('inboxTriageLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
-    it('does not offer implementation through triage without AI access', async () => {
-        const report = makeReport('no-ai-access')
+    it('does not start PostHog implementation through the triage shortcut without AI access', async () => {
+        const report = { ...makeReport('no-ai-access'), actionability: 'immediately_actionable' as const }
         useMocks({ get: { [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] } } })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
         await mountAt({ report: report.id, at: 0 })
         expect(logic.values.currentReport?.id).toBe(report.id)
-        expect(logic.values.canCreatePr).toBe(false)
+        expect(logic.values.canCreatePr).toBe(true)
         await expectLogic(logic, () => logic.actions.createPrForCurrent()).toNotHaveDispatchedActions([
             'implementReport',
         ])

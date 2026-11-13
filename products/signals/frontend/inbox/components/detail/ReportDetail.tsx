@@ -298,7 +298,7 @@ export function InboxDetailFrame({
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
-    const hasImplementButton = hasPostHogAiAccess && !primaryAction && (showCreatePr || !!reportTaskToOpen)
+    const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
     if (
         hasImplementButton &&
         summaryHasSolution &&
