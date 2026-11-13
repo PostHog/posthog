@@ -116,6 +116,7 @@ describe('runner', () => {
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
+        groupLag: () => Promise.resolve(0),
         down: () => Promise.resolve(),
     }
 
@@ -631,6 +632,7 @@ describe('runner through seed, drive and judge', () => {
         },
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
+        groupLag: () => Promise.resolve(0),
         down: async () => {
             await roles?.stop()
             roles = undefined
