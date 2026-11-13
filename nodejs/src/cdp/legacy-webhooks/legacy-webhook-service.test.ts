@@ -17,7 +17,7 @@ import {
     insertRow,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
-import { Action, ClickHouseTimestamp, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
+import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
 import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { LegacyWebhookService } from './legacy-webhook-service'
 
@@ -86,50 +86,48 @@ describe('LegacyWebhookService', () => {
     const pageview = (teamId: number): Message =>
         createKafkaMessage(createIncomingEvent(teamId, { event: '$pageview' }))
 
-    const createMockAction = (teamId: number, overrides: Partial<Action> = {}): Action => {
-        return {
-            id: 1,
-            name: 'Test Action',
-            description: '',
-            team_id: teamId,
-            deleted: false,
-            post_to_slack: false,
-            slack_message_format: '',
-            is_calculating: false,
-            steps: [],
-            hooks: [],
-            created_at: new Date().toISOString(),
-            created_by_id: 1,
-            updated_at: new Date().toISOString(),
-            last_calculated_at: new Date().toISOString(),
-            ...overrides,
+    const pageviewEvent = (teamId: number): PostIngestionEvent => ({
+        eventUuid: randomUUID(),
+        event: '$pageview',
+        teamId,
+        distinctId: 'test-user',
+        properties: {},
+        timestamp: new Date().toISOString() as ISOTimestamp,
+        projectId: teamId as ProjectId,
+        person_created_at: null,
+        person_properties: {},
+        person_id: undefined,
+    })
+
+    const deleteTeamRows = async (teamId: number): Promise<void> => {
+        for (const table of ['ee_hook', 'posthog_action']) {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DELETE FROM ${table} WHERE team_id = $1`,
+                [teamId],
+                'deleteTestRows'
+            )
         }
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'DELETE FROM posthog_team WHERE id = $1',
+            [teamId],
+            'deleteTestTeam'
+        )
     }
 
-    const createMockHook = (teamId: number, overrides: Partial<Hook> = {}): Hook => {
-        return {
-            id: 'test-hook-id',
-            team_id: teamId,
-            user_id: 1,
-            resource_id: 1,
-            event: 'action_performed',
-            target: 'https://hooks.zapier.com/test',
-            created: new Date().toISOString(),
-            updated: new Date().toISOString(),
-            ...overrides,
-        }
-    }
-
-    const parseAndSend = async (messages: Message[]) => {
-        const events = await service.parseBatch(messages)
-        await service.processEvents(events).backgroundTask
-        const requests = mockFetch.mock.calls.map(([url, init]) => ({
+    const sentRequests = () =>
+        mockFetch.mock.calls.map(([url, init]) => ({
             url,
             method: init?.method,
             headers: init?.headers,
             body: parseJSON(init?.body as string),
         }))
-        return { events, requests }
+
+    const parseAndSend = async (messages: Message[]) => {
+        const events = await service.parseBatch(messages)
+        await service.processEvents(events).backgroundTask
+        return { events, requests: sentRequests() }
     }
 
     const startService = async (): Promise<void> => {
@@ -200,10 +198,11 @@ describe('LegacyWebhookService', () => {
             ])
         })
 
-        it('posts to the hook of every matching action', async () => {
+        it('posts to the hook of every matching action that has a target', async () => {
             await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
             await createPageviewHook(team.id, 'https://hooks.zapier.com/first')
             await createPageviewHook(team.id, 'https://hooks.zapier.com/second')
+            await createPageviewHook(team.id, '')
             await startService()
 
             const { requests } = await parseAndSend([pageview(team.id)])
@@ -231,155 +230,70 @@ describe('LegacyWebhookService', () => {
             )
         })
 
-        it('posts an identical payload regardless of group_analytics and never adds a groups key', async () => {
+        it('fails the background task when a webhook request errors', async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
+            await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
             await startService()
-            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
-            const hook = createMockHook(team.id)
-            const action = createMockAction(team.id, { hooks: [hook] })
-            service['actionMatcher'].match = jest.fn().mockReturnValue([action])
-
-            const fetchGroupsByKeysSpy = jest.spyOn(hub.groupRepository, 'fetchGroupsByKeys')
-            const fetchGroupSpy = jest.spyOn(hub.groupRepository, 'fetchGroup')
-
-            // Pin volatile fields so the two events are byte-for-byte identical
-            const fixedTimestamp = '2024-01-01 00:00:00.000' as ClickHouseTimestamp
-            const makeMessage = (): Message =>
-                createKafkaMessage(
-                    createIncomingEvent(team.id, {
-                        uuid: 'fixed-event-uuid',
-                        event: '$pageview',
-                        properties: JSON.stringify({ $groups: { project: 'test-project-id' }, foo: 'bar' }),
-                        timestamp: fixedTimestamp,
-                        created_at: fixedTimestamp,
-                        person_created_at: fixedTimestamp,
-                    })
-                )
-
-            // group_analytics ON (and zapier ON)
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            await parseAndSend([makeMessage()])
-            const bodyWithGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
-
-            mockFetch.mockClear()
-
-            // group_analytics OFF (zapier still ON) — the non-group case
-            hub.teamManager.hasAvailableFeature = jest
-                .fn()
-                .mockImplementation((_teamId, feature) => Promise.resolve(feature === 'zapier'))
-            await parseAndSend([makeMessage()])
-            const bodyWithoutGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
-
-            // The payload is byte-for-byte identical whether or not group_analytics is enabled
-            expect(bodyWithGroupAnalytics).toEqual(bodyWithoutGroupAnalytics)
-            // ...and crucially never carries a top-level groups key
-            expect(bodyWithGroupAnalytics.data).not.toHaveProperty('groups')
-            // ...while the fields that consumers actually read remain intact
-            expect(bodyWithGroupAnalytics.data.properties).toMatchObject({
-                $groups: { project: 'test-project-id' },
-                foo: 'bar',
-            })
-            expect(bodyWithGroupAnalytics.data).toHaveProperty('person')
-            expect(bodyWithGroupAnalytics.data).toHaveProperty('elementsList')
-            // ...and we never reach into the group repository
-            expect(fetchGroupsByKeysSpy).not.toHaveBeenCalled()
-            expect(fetchGroupSpy).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('processEvent', () => {
-        let event: PostIngestionEvent
-
-        beforeEach(async () => {
-            await startService()
-            event = {
-                eventUuid: 'test-uuid',
-                event: '$pageview',
-                teamId: team.id,
-                distinctId: 'test-user',
-                properties: {},
-                timestamp: new Date().toISOString() as ISOTimestamp,
-                projectId: team.id as ProjectId,
-                person_created_at: null,
-                person_properties: {},
-                person_id: undefined,
-            }
-        })
-
-        it('should skip events when team not found', async () => {
-            const hook = createMockHook(team.id)
-            const action = createMockAction(team.id, { hooks: [hook] })
-            service['actionMatcher'].match = jest.fn().mockReturnValue([action])
-            hub.teamManager.getTeam = jest.fn().mockResolvedValue(null)
-
-            await service.processEvent(event)
-
-            expect(mockFetch).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('fireWebhooks', () => {
-        let event: PostIngestionEvent
-
-        beforeEach(async () => {
-            await startService()
-            event = {
-                eventUuid: 'test-uuid',
-                event: '$pageview',
-                teamId: team.id,
-                distinctId: 'test-user',
-                properties: {},
-                timestamp: new Date().toISOString() as ISOTimestamp,
-                projectId: team.id as ProjectId,
-                person_created_at: null,
-                person_properties: {},
-                person_id: undefined,
-            }
-        })
-
-        it('should not fire webhooks when zapier feature is disabled', async () => {
-            const hook = createMockHook(team.id)
-            const action = createMockAction(team.id, { hooks: [hook] })
-
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
-
-            await service['fireWebhooks'](event, [action])
-
-            expect(mockFetch).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('postWebhook', () => {
-        let event: PostIngestionEvent
-
-        beforeEach(async () => {
-            await startService()
-            event = {
-                eventUuid: 'test-uuid',
-                event: '$pageview',
-                teamId: team.id,
-                distinctId: 'test-user',
-                properties: {},
-                timestamp: new Date().toISOString() as ISOTimestamp,
-                projectId: team.id as ProjectId,
-                person_created_at: null,
-                person_properties: {},
-                person_id: undefined,
-            }
-        })
-
-        it('should skip when no URL is provided', async () => {
-            const hook = createMockHook(team.id, { target: '' })
-
-            await service['postWebhook'](event, team, hook)
-
-            expect(mockFetch).not.toHaveBeenCalled()
-        })
-
-        it('should throw error when fetch has an error', async () => {
-            const hook = createMockHook(team.id)
             mockFetch.mockRejectedValue(new Error('Network error'))
 
-            await expect(service['postWebhook'](event, team, hook)).rejects.toThrow('Network error')
+            const events = await service.parseBatch([pageview(team.id)])
+
+            await expect(service.processEvents(events).backgroundTask).rejects.toThrow('Network error')
+        })
+
+        it.each([
+            { groupAnalytics: 'off', features: [ZAPIER] },
+            { groupAnalytics: 'on', features: [ZAPIER, { key: 'group_analytics', name: 'Group analytics' }] },
+        ])(
+            'posts the event properties and no groups key with group analytics $groupAnalytics',
+            async ({ features }) => {
+                await updateOrganizationAvailableFeatures(hub.postgres, organizationId, features)
+                await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
+                await startService()
+                const properties = { $groups: { project: 'test-project-id' }, foo: 'bar' }
+
+                const { requests } = await parseAndSend([
+                    createKafkaMessage(
+                        createIncomingEvent(team.id, { event: '$pageview', properties: JSON.stringify(properties) })
+                    ),
+                ])
+
+                expect(requests).toHaveLength(1)
+                const { data } = requests[0].body
+                expect(Object.keys(data).sort()).toEqual([
+                    'distinctId',
+                    'elementsList',
+                    'event',
+                    'eventUuid',
+                    'person',
+                    'properties',
+                    'teamId',
+                    'timestamp',
+                ])
+                expect(data.properties).toMatchObject(properties)
+            }
+        )
+    })
+
+    describe('processEvents', () => {
+        it('posts nothing for a team without zapier, even with a matching hook', async () => {
+            await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
+            await startService()
+
+            await service.processEvents([pageviewEvent(team.id)]).backgroundTask
+
+            expect(sentRequests()).toEqual([])
+        })
+
+        it('posts nothing for a team deleted after its hooks loaded', async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, otherOrganizationId, [ZAPIER])
+            await createPageviewHook(team2.id, 'https://hooks.zapier.com/other-team')
+            await startService()
+            await deleteTeamRows(team2.id)
+
+            await service.processEvents([pageviewEvent(team2.id)]).backgroundTask
+
+            expect(sentRequests()).toEqual([])
         })
     })
 })
