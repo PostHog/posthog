@@ -101,6 +101,7 @@ class MaterializeRules:
     min_seconds_saved: float
     min_bytes_saved: float
     min_saved_share: float
+    max_extra_bytes: float
     incremental_lookback_seconds: int
 
 
@@ -219,15 +220,16 @@ RULES = Rules(
         min_requests=50,
         min_users_or_surfaces=2,
         min_alone_reads=3,
-        min_seconds_saved=600.0,
+        min_seconds_saved=3600.0,
         min_bytes_saved=float(TERABYTE),
         min_saved_share=0.5,
+        max_extra_bytes=float(TERABYTE),
         incremental_lookback_seconds=int(timedelta(days=3).total_seconds()),
     ),
     measurement=MeasurementRules(max_per_team=3, max_per_run=50, max_seconds=180, retry_after_days=7),
     unmaterialize=UnmaterializeRules(
         min_runs=3,
-        min_seconds_saved=600.0,
+        min_seconds_saved=3600.0,
         min_bytes_saved=float(TERABYTE),
         min_saved_share=0.5,
         max_read_seconds=10.0,
