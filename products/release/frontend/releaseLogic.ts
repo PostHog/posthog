@@ -189,6 +189,12 @@ export interface ReleaseUsageEvent {
     properties: Record<string, string | number>
 }
 
+function captureUsage(usageEvent: ReleaseUsageEvent | undefined): void {
+    if (usageEvent) {
+        posthog.capture(usageEvent.event, usageEvent.properties)
+    }
+}
+
 const PAGE_SIZE = 500
 const RELOAD_WINDOW_MS = 2000
 const FLAG_SEARCH_LIMIT = 50
@@ -857,9 +863,7 @@ export const releaseLogic = kea<releaseLogicType>([
             cache.saving = previous.then(async () => {
                 try {
                     const saved = await releasesPartialUpdate(String(values.currentProjectId), id, changes)
-                    if (usageEvent) {
-                        posthog.capture(usageEvent.event, usageEvent.properties)
-                    }
+                    captureUsage(usageEvent)
                     if (cache.pendingById[id] === 1) {
                         actions.setReleaseLocally({
                             id,
