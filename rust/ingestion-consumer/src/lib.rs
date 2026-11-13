@@ -17,6 +17,7 @@ pub mod readiness;
 pub mod rebalance;
 pub mod routing;
 mod settlement;
+pub mod startup_gate;
 pub mod transport;
 pub mod types;
 pub mod worker_registry;
