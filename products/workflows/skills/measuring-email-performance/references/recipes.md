@@ -160,7 +160,7 @@ For people per link position, count distinct `person_id` on `$workflows_email_li
 ### Product outcome after the first send
 
 The people a step sent to in the window, and how many did the outcome event within `{outcome_days}` days after their first send in the window.
-The query groups only the recipients, but it still reads every outcome event in the window. For a common outcome event, such as `$pageview`, keep the window and `{outcome_days}` short.
+The query groups only the recipients, but it still reads every outcome event in the window. For a common outcome event, such as `$pageview`, keep the window and `{outcome_days}` short. When the query runs out of memory, shorten the send window and run it again.
 Set `{window_end}` at least `{outcome_days}` days before the end of the last closed UTC day. Then every recipient's outcome window has closed, and the read gives the same answer every time. When the sends are more recent, tell the user it is too early to judge the outcome.
 
 ```sql
