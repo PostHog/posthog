@@ -4,12 +4,12 @@ from typing import Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.types import ResourcePayload, ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import build_edges_for_ids
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -21,9 +21,8 @@ class ExperimentSavedMetricVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.experiments.backend.models.experiment import ExperimentSavedMetric
-
-        return ExperimentSavedMetric
+        # The experiments product registers its model from its AppConfig.ready().
+        return registered_model("ExperimentSavedMetric")
 
     @classmethod
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
@@ -36,7 +35,11 @@ class ExperimentSavedMetricVisitor(
 
         edges: list[ResourceTransferEdge] = []
         edges.extend(build_edges_for_ids(cohort_ids, Cohort, "cohort", _rewrite_cohort_in_saved_metric_payload))
-        edges.extend(build_edges_for_ids(action_ids, Action, "action", _rewrite_action_in_saved_metric_payload))
+        edges.extend(
+            build_edges_for_ids(
+                action_ids, registered_model("Action"), "action", _rewrite_action_in_saved_metric_payload
+            )
+        )
         return edges
 
 

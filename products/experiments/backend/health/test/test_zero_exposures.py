@@ -18,6 +18,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.zero_exposures import (
+    BILLING_LIMIT,
     CALLS_NOT_COUNTED,
     CUSTOM_EXPOSURE_NOT_MATCHED,
     EXPERIMENT_PAUSED,
@@ -37,6 +38,8 @@ from products.feature_flags.backend.facade.edits import FlagVariant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 Action = ExperimentHealthFindingActionKind
 WARNING = ExperimentHealthFindingSeverity.WARNING
@@ -92,11 +95,25 @@ class TestZeroExposures(TestCase):
                 "flag_called_by_test_accounts_only",
                 {"flag_called_during_run": True, "exposures": TEST_ACCOUNTS_ONLY},
                 CALLS_NOT_COUNTED,
-                (Action.EDIT_EXPOSURE_CRITERIA,),
+                (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
                 WARNING,
             ),
             ("calls_unknown", {"flag_called_during_run": None}, None, (Action.EDIT_EXPOSURE_CRITERIA,), WARNING),
             ("paused", {"is_paused": True, "flag_called_during_run": True}, EXPERIMENT_PAUSED, (), INFO),
+            (
+                "paused_flag_not_called",
+                {"is_paused": True, "flag_called_during_run": False},
+                FLAG_NOT_CALLED,
+                (),
+                WARNING,
+            ),
+            (
+                "paused_custom_event",
+                {"is_paused": True, "exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
+                EXPERIMENT_PAUSED,
+                (),
+                INFO,
+            ),
             (
                 "custom_event_whatever_the_flag_calls",
                 {"exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
@@ -123,6 +140,27 @@ class TestZeroExposures(TestCase):
                 {"flag": replace(FLAG, deleted=True), "flag_called_during_run": False},
                 None,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
+            ),
+            (
+                "billing_limit",
+                {"events_billing_limited": True, "flag_called_during_run": False},
+                BILLING_LIMIT,
+                (),
+                WARNING,
+            ),
+            (
+                "billing_limit_custom_event",
+                {"events_billing_limited": True, "exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
+                BILLING_LIMIT,
+                (),
+                WARNING,
+            ),
+            (
+                "billing_limit_after_calls_during_the_run",
+                {"events_billing_limited": True, "flag_called_during_run": True},
+                CALLS_NOT_COUNTED,
+                (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
                 WARNING,
             ),
             ("ended_flag_not_called", {**ENDED, "flag_called_during_run": False}, FLAG_NOT_CALLED, (), INFO),
@@ -173,6 +211,10 @@ class TestZeroExposures(TestCase):
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.subcode, finding.actions, finding.severity), (subcode, actions, severity))
         self.assertEqual(finding.detail.startswith("No users were exposed while the experiment ran"), ctx.has_ended)
+        self.assertEqual(
+            finding.detail.endswith("resuming it exposes nobody until your code reads the flag."),
+            ctx.is_paused and subcode == FLAG_NOT_CALLED,
+        )
 
     @parameterized.expand(
         [
@@ -221,8 +263,11 @@ class TestZeroExposures(TestCase):
                 "No users exposed: the test account filter removes all of them",
                 "The exposure criteria filter out test accounts, and the project's test account filters match all 1,200 "
                 'users that got a variant of the feature flag "checkout-test" during the experiment, so nobody is '
-                'counted as exposed. Turn off "Filter out internal and test users" in the exposure criteria, or change '
-                "the project's test account filters so that they don't match your users.",
+                "counted as exposed. If these are your own team's users, the experiment hasn't reached other users "
+                "yet. The code that reads the flag may only run in development, or the release conditions may include "
+                "only your team. Otherwise change the project's test account filters so "
+                'that they don\'t match your users, or turn off "Filter out internal and test users" in the exposure '
+                "criteria.",
             ),
             (
                 "ended_one_user",
@@ -233,8 +278,9 @@ class TestZeroExposures(TestCase):
                 "No users exposed: the test account filter removed all of them",
                 "No users were exposed while the experiment ran, because the exposure criteria filter out test "
                 "accounts, and the project's test account filters matched the only user that got a variant of the "
-                'feature flag "checkout-test". Turn off "Filter out internal and test users" in the exposure criteria '
-                "to count them.",
+                "feature flag \"checkout-test\". If these were your own team's users, the experiment didn't reach "
+                'other users. Otherwise turn off "Filter out internal and test users" in the exposure criteria to '
+                "count them.",
             ),
             (
                 "nobody_without_the_filter",
@@ -353,10 +399,19 @@ class TestFlagCalledDuringRun(BaseTest):
                 False,
             ),
             (
-                "ended_called_after_the_end",
+                "ended_called_after_the_end_but_not_lately",
                 LAUNCHED_AT,
                 ENDED_AT,
                 datetime(2026, 10, 15, tzinfo=UTC),
+                FlagEvaluationsMode.EVENTS,
+                None,
+                False,
+            ),
+            (
+                "ended_called_lately",
+                LAUNCHED_AT,
+                ENDED_AT,
+                datetime(2026, 10, 19, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 None,
                 True,
@@ -425,6 +480,33 @@ class TestFlagCalledDuringRun(BaseTest):
         )
 
         with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"), time_machine.travel(NOW, tick=False):
-            ctx = load_health_context(experiment)
+            ctx = load_health_context(experiment, can_read_flag_calls=True)
 
         self.assertEqual((ctx.flag_called_during_run, ctx.flag_called_after_end), (during_run, after_end))
+
+
+class TestEventsBillingLimited(BaseTest):
+    @parameterized.expand(
+        [
+            ("limited_while_running", None, True, True),
+            ("not_limited", None, False, False),
+            ("limited_after_the_end", ENDED_AT, True, None),
+        ]
+    )
+    def test_reads_the_events_limit_while_the_experiment_runs(
+        self, _name: str, end_date: datetime | None, limited: bool, expected: bool | None
+    ) -> None:
+        if limited:
+            add_limited_team_tokens(
+                QuotaResource.EVENTS,
+                {self.team.api_token: int((datetime.now(UTC) + timedelta(days=1)).timestamp())},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+        flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team, name="exp", feature_flag=flag, start_date=LAUNCHED_AT, end_date=end_date
+        )
+
+        ctx = load_health_context(experiment, NO_EXPOSURES)
+
+        self.assertEqual(ctx.events_billing_limited, expected)

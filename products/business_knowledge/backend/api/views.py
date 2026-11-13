@@ -19,6 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 from posthog.models.user import User
@@ -30,8 +31,11 @@ from .. import libraries, logic
 from ..constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
+    BK_RERANK_REQUEST_MAX_RETRIES,
+    BK_RERANK_REQUEST_TIMEOUT,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
+    MAX_URLS_PER_SOURCE,
 )
 from ..file_parse import FileParseError
 from ..github_repos import connection_status
@@ -93,6 +97,11 @@ def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
     except libraries.LibraryRejected as exc:
         raise exceptions.ValidationError(exc.errors) from None
     return parsed
+
+
+class SourceDocumentsPagination(BoundedLimitOffsetPagination):
+    # The frontend reads a source's whole document list in one request, and a crawl stops at this many URLs.
+    max_limit = MAX_URLS_PER_SOURCE
 
 
 class _ConflictError(exceptions.APIException):
@@ -450,6 +459,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
                 always_include=serializer.validated_data.get("always_include"),
             )
+            if updated is not None and updated.is_refresh_claimed:
+                self._start_background_refresh(updated.source)
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except (logic.UrlFetchFailedError, logic.EmptyContentError):
@@ -462,7 +473,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
-        return Response(KnowledgeSourceSerializer(instance=updated).data)
+        fresh = logic.get_for_team(updated.source.id, self.team_id) or updated.source
+        return Response(KnowledgeSourceSerializer(instance=fresh).data)
 
     @extend_schema(
         responses={200: KnowledgeAvailabilitySerializer},
@@ -498,6 +510,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["get"],
         url_path="documents",
         required_scopes=["business_knowledge:read"],
+        pagination_class=SourceDocumentsPagination,
     )
     def documents(self, request: Request, pk: str, **kwargs) -> Response:
         try:
@@ -573,7 +586,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     source_id=str(source.id),
                     claim_id=str(source.processing_claim_id) if source.processing_claim_id else None,
                 ),
-                id=f"business-knowledge-refresh-{source.id}",
+                id=f"business-knowledge-refresh-{source.id}-{source.processing_claim_id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )
         except Exception:
@@ -730,7 +743,15 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
         )
         if rerank:
-            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
+            results = logic.rerank_chunks(
+                self.team,
+                query.strip(),
+                results,
+                top_k=limit,
+                trace=trace,
+                timeout=BK_RERANK_REQUEST_TIMEOUT,
+                max_retries=BK_RERANK_REQUEST_MAX_RETRIES,
+            )
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]

@@ -116,6 +116,50 @@ describe('featurePreviewsLogic', () => {
         })
     })
 
+    describe('stage selectors', () => {
+        let logic: ReturnType<typeof featurePreviewsLogic.build>
+
+        const flagKeys = (features: { flagKey: string }[]): string[] => features.map((f) => f.flagKey).sort()
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+
+            initKeaTests()
+            logic = featurePreviewsLogic()
+            logic.mount()
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        })
+
+        test('splits beta and alpha features from concept features', async () => {
+            logic.actions.loadEarlyAccessFeaturesSuccess([
+                { flagKey: 'beta-flag', name: 'Beta thing', stage: 'beta' } as any,
+                { flagKey: 'alpha-flag', name: 'Alpha thing', stage: 'alpha' } as any,
+                { flagKey: 'concept-flag', name: 'Concept thing', stage: 'concept' } as any,
+            ])
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(flagKeys(logic.values.activePreviewFeatures)).toEqual(['alpha-flag', 'beta-flag'])
+            expect(flagKeys(logic.values.conceptPreviewFeatures)).toEqual(['concept-flag'])
+            expect(logic.values.shouldShowEmptyState).toBe(false)
+        })
+
+        test.each([
+            ['no features loaded', true, [], ''],
+            [
+                'a search hides every feature',
+                false,
+                [{ flagKey: 'beta-flag', name: 'Beta thing', stage: 'beta' }],
+                'zzz',
+            ],
+        ])('shouldShowEmptyState when %s: %s', async (_, expected, features, searchTerm) => {
+            logic.actions.loadEarlyAccessFeaturesSuccess(features as any)
+            logic.actions.setSearchTerm(searchTerm)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.shouldShowEmptyState).toBe(expected)
+        })
+    })
+
     describe('updateEarlyAccessFeatureEnrollment', () => {
         let logic: ReturnType<typeof featurePreviewsLogic.build>
         const mockUpdateEnrollment = jest.fn()
@@ -257,6 +301,12 @@ describe('featurePreviewsLogic', () => {
                 "This feature isn't accepting sign-ups yet. Please try again later."
             )
             await expectLogic(logic).toMatchValues({ conceptSurveySubmissions: {} })
+        })
+
+        test('captures an event when a preview image opens', () => {
+            logic.actions.openFeaturePreviewImage('data-warehouse')
+
+            expect(mockCapture).toHaveBeenCalledWith('feature preview image opened', { flag_key: 'data-warehouse' })
         })
 
         test('does not capture anything during an impersonated session', async () => {

@@ -1,4 +1,6 @@
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { calculateFreeTier } from 'scenes/billing/billing-utils'
+import { INBOX_PR_PRICING_END_DATE } from 'scenes/billing/constants'
 
 import { BillingProductV2Type, BillingTierType } from '~/types'
 
@@ -62,4 +64,17 @@ export function pricePerPrUsd(product: BillingProductV2Type | null): number | nu
 export function freePrs(product: BillingProductV2Type | null): number {
     const credits = creditsPerPr(product)
     return product && credits ? Math.round(calculateFreeTier(product) / credits) : 0
+}
+
+/** Tooltip for the legacy Inbox card, or null for every other product. */
+export function legacyInboxPricingNotice(productType: string | null | undefined, today: Dayjs): string | null {
+    if (productType !== INBOX_PRODUCT_TYPE) {
+        return null
+    }
+    const endDate = dayjs(INBOX_PR_PRICING_END_DATE)
+    const endDateText = endDate.format('MMMM D, YYYY')
+    if (today.isAfter(endDate, 'day')) {
+        return `This PR-based plan ended on ${endDateText}. Self-driving inbox (usage-based) now bills your Inbox usage.`
+    }
+    return `Self-driving inbox has moved to usage-based pricing, billed under Self-driving inbox (usage-based). Your organization keeps this PR-based plan until ${endDateText}.`
 }

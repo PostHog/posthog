@@ -66,7 +66,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
 )
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ def finding_counts(
     return counts, dismissed
 
 
-def _content_json() -> Cast:
+def content_json() -> Cast:
     return Cast("content", JSONField())
 
 
@@ -155,11 +155,11 @@ def snapshot_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, Snap
 
     def _annotated(qs: QuerySet) -> QuerySet:
         return qs.annotate(
-            meta=KeyTransform("pr_metadata", _content_json()),
+            meta=KeyTransform("pr_metadata", content_json()),
             files_reviewed=Func(
-                KeyTransform("pr_files", _content_json()), function="jsonb_array_length", output_field=IntegerField()
+                KeyTransform("pr_files", content_json()), function="jsonb_array_length", output_field=IntegerField()
             ),
-            review_design=KeyTextTransform("review_design", _content_json()),
+            review_design=KeyTextTransform("review_design", content_json()),
         ).values("report_id", "meta", "files_reviewed", "review_design")
 
     def _ingest(row: dict[str, Any], *, head_matched: bool) -> None:
@@ -213,7 +213,7 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
         .filter(head_q, type=ReviewReportArtefact.ArtefactType.CHUNK_SET)
         .annotate(
             chunk_count=Func(
-                KeyTransform("chunks", _content_json()), function="jsonb_array_length", output_field=IntegerField()
+                KeyTransform("chunks", content_json()), function="jsonb_array_length", output_field=IntegerField()
             ),
         )
         .order_by("created_at", "id")
@@ -226,10 +226,10 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(head_q, type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT)
         .annotate(
-            pass_number=Cast(KeyTextTransform("pass_number", _content_json()), IntegerField()),
-            chunk_id=Cast(KeyTextTransform("chunk_id", _content_json()), IntegerField()),
+            pass_number=Cast(KeyTextTransform("pass_number", content_json()), IntegerField()),
+            chunk_id=Cast(KeyTextTransform("chunk_id", content_json()), IntegerField()),
             issue_count=Func(
-                KeyTransform("issues", KeyTransform("review", _content_json())),
+                KeyTransform("issues", KeyTransform("review", content_json())),
                 function="jsonb_array_length",
                 output_field=IntegerField(),
             ),
@@ -274,6 +274,13 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     return stats
 
 
+def _json_bool(value: str | None) -> bool | None:
+    # KeyTextTransform renders a JSON boolean as the text "true" or "false".
+    if value is None:
+        return None
+    return value == "true"
+
+
 @frozen
 class TurnMarker:
     """The mode, design and head of one executed turn, from its `turn_marker` artefact."""
@@ -283,6 +290,7 @@ class TurnMarker:
     # When the marker row was written, which is just before the turn's review sessions start.
     started_at: datetime
     review_design: str = REVIEW_DESIGN_PIPELINE
+    clean_full_coverage: bool | None = None
 
 
 def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
@@ -294,11 +302,12 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
         .annotate(
-            marker_run_index=KeyTextTransform("run_index", _content_json()),
-            marker_review_mode=KeyTextTransform("review_mode", _content_json()),
-            marker_review_design=KeyTextTransform("review_design", _content_json()),
+            marker_run_index=KeyTextTransform("run_index", content_json()),
+            marker_review_mode=KeyTextTransform("review_mode", content_json()),
+            marker_review_design=KeyTextTransform("review_design", content_json()),
+            marker_clean_full_coverage=KeyTextTransform("clean_full_coverage", content_json()),
             fingerprint_review_design=KeyTextTransform(
-                "review_design", KeyTransform("fingerprint_inputs", _content_json())
+                "review_design", KeyTransform("fingerprint_inputs", content_json())
             ),
         )
         .order_by("created_at", "id")
@@ -308,6 +317,7 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             "marker_run_index",
             "marker_review_mode",
             "marker_review_design",
+            "marker_clean_full_coverage",
             "fingerprint_review_design",
             "created_at",
         )
@@ -325,6 +335,7 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             head_sha=row["head_sha"],
             started_at=row["created_at"],
             review_design=review_design,
+            clean_full_coverage=_json_bool(row["marker_clean_full_coverage"]),
         )
     return markers
 
@@ -388,7 +399,7 @@ def run_outcome_markers(
     rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.NOTE)
-        .annotate(note_author=KeyTextTransform("author", _content_json()))
+        .annotate(note_author=KeyTextTransform("author", content_json()))
         .filter(note_author=RUN_OUTCOME_NOTE_AUTHOR)
     )
     if since is not None:
@@ -473,7 +484,7 @@ def _activity_artefacts(queryset: QuerySet) -> QuerySet:
     note_author = Case(
         When(
             type=ReviewReportArtefact.ArtefactType.NOTE,
-            then=KeyTextTransform("author", _content_json()),
+            then=KeyTextTransform("author", content_json()),
         ),
         default=Value(None),
         output_field=CharField(),
@@ -525,7 +536,7 @@ def _run_signals(team_id: int, report_ids: list[str]) -> _RunSignals:
         snapshot_latest=_latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT)),
         note_latest=_latest_created_at(
             scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
-            .annotate(note_author=KeyTextTransform("author", _content_json()))
+            .annotate(note_author=KeyTextTransform("author", content_json()))
             .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
         ),
         activity_latest=_latest_created_at(_activity_artefacts(scoped)),
@@ -582,12 +593,12 @@ def _thread_verdicts(
             created_at__gte=min(started_at for _, started_at in live.values()),
         )
         .annotate(
-            thread_id=KeyTextTransform("thread_id", _content_json()),
-            outcome=KeyTextTransform("outcome", _content_json()),
-            reply_posted=KeyTextTransform("reply_posted", _content_json()),
-            commit_sha=KeyTextTransform("commit_sha", _content_json()),
-            commit_verified=KeyTextTransform("commit_verified", _content_json()),
-            commit_restricted=KeyTextTransform("commit_restricted", _content_json()),
+            thread_id=KeyTextTransform("thread_id", content_json()),
+            outcome=KeyTextTransform("outcome", content_json()),
+            reply_posted=KeyTextTransform("reply_posted", content_json()),
+            commit_sha=KeyTextTransform("commit_sha", content_json()),
+            commit_verified=KeyTextTransform("commit_verified", content_json()),
+            commit_restricted=KeyTextTransform("commit_restricted", content_json()),
         )
         .order_by("created_at", "id")
         .values(

@@ -32,7 +32,6 @@ from posthog.temporal.ai_observability.evaluation_errors import (
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     GenerationNotFoundError,
-    extract_event_io,
     extract_event_tools,
     hydrate_event_reference,
 )
@@ -42,7 +41,6 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_skipped_evaluation_result,
 )
 from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, build_attachment_prompt
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
     increment_key_type,
@@ -55,6 +53,11 @@ from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    extract_event_io,
+    extract_text_from_messages,
+    format_tool_definitions,
+)
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.decisions import (
@@ -547,10 +550,10 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
     """
-    return _execute_llm_judge_activity(inputs)
+    return run_generation_llm_judge(inputs)
 
 
-def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+def run_generation_llm_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
     try:
         event_data = hydrate_event_reference(inputs.event_data)
@@ -693,6 +696,9 @@ def call_llm_judge(
         provider_key=provider_key,
         config=config,
         capture_analytics=False,
+        # Temporal retries a rate limit after the provider's delay. SDK retries underneath would
+        # multiply the calls and can run past the activity's timeout before the last attempt ends.
+        max_retries=0,
     )
 
     probability: float | None = None
@@ -932,10 +938,12 @@ def call_llm_judge(
         # Decision endpoints raise this error for outages too (408, 503, 529). Only a 429 on the
         # customer's own key is a limit that the customer sets and PostHog cannot act on.
         customer_limited = is_byok and e.status == 429
-        if customer_limited and last and not backfill:
-            increment_user_errors("rate_limit_retries_exhausted", provider=provider)
-            return _build_rate_limit_skip_result(e, allows_na=allows_na, output_type=output_type)
-        increment_errors("rate_limit", provider=provider)
+        if customer_limited:
+            if last and not backfill:
+                increment_user_errors("rate_limit_retries_exhausted", provider=provider)
+                return _build_rate_limit_skip_result(e, allows_na=allows_na, output_type=output_type)
+        else:
+            increment_errors("rate_limit", provider=provider)
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
         error_class = ApplicationError if last and not customer_limited else NonReportableApplicationError
         raise error_class(

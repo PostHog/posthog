@@ -4,7 +4,8 @@ import { fireEvent, render } from '@testing-library/react'
 
 import { DashboardPlacement, DashboardTile } from '~/types'
 
-import { TextCard, TextContent } from './TextCard'
+import { TextCard } from './TextCard'
+import { TextContent } from './TextContent'
 
 const makeTextTile = (overrides: Partial<DashboardTile> = {}): DashboardTile =>
     ({
@@ -31,26 +32,6 @@ describe('TextCard', () => {
         // click the visible more button (aria-label="more") and ensure overlay content appears
         fireEvent.click(getByLabelText('more'))
         expect(getByText('more overlay')).toBeInTheDocument()
-    })
-
-    it('renders edit-mode edge overlay when enabled and not resizing', () => {
-        const onEnterEditModeFromEdge = jest.fn()
-
-        const { getAllByTitle } = render(
-            <TextCard
-                textTile={makeTextTile()}
-                placement={DashboardPlacement.Dashboard}
-                canEnterEditModeFromEdge={true}
-                onEnterEditModeFromEdge={onEnterEditModeFromEdge}
-            />
-        )
-
-        // Wiring guard only: the exact zone count is pinned by EditModeEdgeOverlay's own test.
-        const edges = getAllByTitle('Drag to resize')
-        expect(edges.length).toBeGreaterThan(0)
-
-        fireEvent.mouseDown(edges[0])
-        expect(onEnterEditModeFromEdge).toHaveBeenCalledTimes(1)
     })
 
     describe('TextContent', () => {

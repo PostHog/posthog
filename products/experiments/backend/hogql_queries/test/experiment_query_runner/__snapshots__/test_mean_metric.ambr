@@ -740,9 +740,9 @@
             any(t.numeric_value) AS value
      FROM experiment_metric_events_preaggregated AS t
      WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')))
-     GROUP BY t.entity_id,
+     GROUP BY accurateCastOrNull(t.entity_id, 'UUID'),
               toTimeZone(t.timestamp, 'UTC'),
-              t.event_uuid),
+              t.event_uuid SETTINGS load_balancing='random'),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,

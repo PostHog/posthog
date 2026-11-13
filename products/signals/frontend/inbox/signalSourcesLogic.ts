@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -15,7 +15,14 @@ import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
-import { ExternalDataSource, ExternalDataSourceSchema, IntegrationType, TeamPublicType, TeamType } from '~/types'
+import {
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    type ExternalDataSourceType,
+    IntegrationType,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -29,7 +36,6 @@ import { visionScannersList, visionScannersPartialUpdate } from 'products/replay
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigsPartialUpdate } from '../generated/api'
 import type {
@@ -48,6 +54,7 @@ import { EXTERNAL_SIGNAL_SOURCES, ExternalSignalSource, isExternalSignalSource }
 import {
     SignalSourceCatalogOrigin,
     SignalSourceToggleFailureReason,
+    captureSignalSourceAlertScopeChanged,
     captureSignalSourceCatalogOpened,
     captureSignalSourceCatalogSourceSelected,
     captureSignalSourceConfigsLoadFailed,
@@ -61,7 +68,16 @@ import {
     SourceRecommendationInput,
     recommendSources,
 } from './sourceRecommendations'
-import { SOURCE_STEERING_KEY, SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
+import {
+    SOURCE_ALERT_SCOPE_KEY,
+    SOURCE_ISSUE_FILTERS_KEY,
+    SOURCE_STEERING_KEY,
+    SignalAlertScope,
+    SignalSourceConfig,
+    SignalSourceConfigStatus,
+    ToggleSignalSourceParams,
+    alertScopeFromConfig,
+} from './types'
 
 /** product_enablement recipe names for products that back a signal source. */
 export type SourceProductEnablement = 'session_replay' | 'error_tracking' | 'conversations'
@@ -72,6 +88,8 @@ export interface SourceProductStatus {
     productName: string
     enabled: boolean | null
     enablement: SourceProductEnablement | null
+    /** Set when the current user can't turn the product on, so the button can't send a request that 403s. */
+    enableDisabledReason?: string
     dataStatus: SourceProductDataStatus
 }
 
@@ -100,7 +118,14 @@ function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<str
     const steering = configs
         .map((config) => config.config[SOURCE_STEERING_KEY])
         .find((value) => typeof value === 'string' && value.trim())
-    return steering ? { [SOURCE_STEERING_KEY]: steering } : {}
+    // One filter covers the whole source, so a type turned on later must not admit what the others skip.
+    const issueFilters = configs
+        .map((config) => config.config[SOURCE_ISSUE_FILTERS_KEY])
+        .find((value) => !!value && typeof value === 'object')
+    return {
+        ...(steering ? { [SOURCE_STEERING_KEY]: steering } : {}),
+        ...(issueFilters ? { [SOURCE_ISSUE_FILTERS_KEY]: issueFilters } : {}),
+    }
 }
 
 /** Warehouse-backed signal sources, keyed by roster source id. */
@@ -178,7 +203,7 @@ type WarehouseSourceCompletion =
  * once connected. Keyed by signal source, not warehouse product — GitHub backs more than one source.
  */
 interface WarehouseSourceSetup {
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: string[]
     requiredTableSyncType?: 'full_refresh'
     completion: WarehouseSourceCompletion
@@ -290,6 +315,7 @@ export interface signalSourcesLogicValues {
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
     sourcesLoadError: boolean // sourcesDataLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    analyticsAlertScope: SignalAlertScope
     anomalyInvestigationConfig: SignalSourceConfig | null
     ciSignalsConfig: CISignalsConfigApi | null
     ciSignalsConfigLoading: boolean
@@ -335,6 +361,7 @@ export interface signalSourcesLogicValues {
     productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
     recommendedSources: SourceRecommendation[]
     rosterGroups: AgentRosterGroup[]
+    savingAnalyticsAlertScope: SignalAlertScope | null
     scannerInventoryKnown: boolean
     sourceCatalog: SourceCatalogGroup[]
     sourceCategory: string
@@ -500,6 +527,12 @@ export interface signalSourcesLogicActions {
             enabled: boolean
         }
     }
+    setAnalyticsAlertScope: (alertScope: SignalAlertScope) => {
+        alertScope: SignalAlertScope
+    }
+    setAnalyticsAlertScopeComplete: () => {
+        value: true
+    }
     setDataWarehouseSourceEnabled: (
         source: WarehouseBackedSource,
         enabled: boolean
@@ -612,6 +645,8 @@ export interface signalSourcesLogicMeta {
             sourceCategory: string,
             externalSourceStates: Record<
                 | 'aha'
+                | 'airbrake'
+                | 'amazon_cloudwatch'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -622,52 +657,67 @@ export interface signalSourcesLogicMeta {
                 | 'aws_security_hub'
                 | 'azure_application_insights'
                 | 'azure_devops'
+                | 'beamer'
+                | 'beamer_nps'
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
+                | 'chameleon'
                 | 'checkly'
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
                 | 'dynamics365'
                 | 'dynatrace'
+                | 'etsy'
                 | 'featurebase'
+                | 'featurebase_surveys'
                 | 'firehydrant'
                 | 'formbricks'
                 | 'freshdesk'
                 | 'freshservice'
                 | 'frill'
                 | 'front'
+                | 'g2'
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'gumroad'
                 | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
                 | 'instatus'
                 | 'intercom'
+                | 'intercom_tickets'
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
                 | 'lacework'
                 | 'langsmith'
                 | 'linear'
+                | 'logicmonitor'
                 | 'microsoft_defender_cloud_apps'
                 | 'mintlify'
                 | 'monday'
                 | 'monte_carlo'
+                | 'mux'
+                | 'newrelic'
                 | 'okendo'
                 | 'opsgenie'
                 | 'orca_security'
@@ -676,6 +726,7 @@ export interface signalSourcesLogicMeta {
                 | 'plain'
                 | 'plane'
                 | 'productboard'
+                | 'pylon'
                 | 'qualtrics'
                 | 'rapid7_insightvm'
                 | 'raygun'
@@ -700,12 +751,17 @@ export interface signalSourcesLogicMeta {
                 | 'trello'
                 | 'trigger_dev'
                 | 'trustpilot'
+                | 'trustpilot_product_reviews'
                 | 'typeform'
                 | 'usersnap'
                 | 'uservoice'
+                | 'uservoice_nps'
                 | 'vitally'
+                | 'vitally_nps'
+                | 'woocommerce'
                 | 'wrike'
                 | 'xmatters'
+                | 'yotpo'
                 | 'zendesk'
                 | 'zoho_crm',
                 ExternalSignalSourceState
@@ -726,6 +782,8 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'airbrake'
+                | 'amazon_cloudwatch'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -736,52 +794,67 @@ export interface signalSourcesLogicMeta {
                 | 'aws_security_hub'
                 | 'azure_application_insights'
                 | 'azure_devops'
+                | 'beamer'
+                | 'beamer_nps'
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
+                | 'chameleon'
                 | 'checkly'
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
                 | 'dynamics365'
                 | 'dynatrace'
+                | 'etsy'
                 | 'featurebase'
+                | 'featurebase_surveys'
                 | 'firehydrant'
                 | 'formbricks'
                 | 'freshdesk'
                 | 'freshservice'
                 | 'frill'
                 | 'front'
+                | 'g2'
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'gumroad'
                 | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
                 | 'instatus'
                 | 'intercom'
+                | 'intercom_tickets'
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
                 | 'lacework'
                 | 'langsmith'
                 | 'linear'
+                | 'logicmonitor'
                 | 'microsoft_defender_cloud_apps'
                 | 'mintlify'
                 | 'monday'
                 | 'monte_carlo'
+                | 'mux'
+                | 'newrelic'
                 | 'okendo'
                 | 'opsgenie'
                 | 'orca_security'
@@ -790,6 +863,7 @@ export interface signalSourcesLogicMeta {
                 | 'plain'
                 | 'plane'
                 | 'productboard'
+                | 'pylon'
                 | 'qualtrics'
                 | 'rapid7_insightvm'
                 | 'raygun'
@@ -814,12 +888,17 @@ export interface signalSourcesLogicMeta {
                 | 'trello'
                 | 'trigger_dev'
                 | 'trustpilot'
+                | 'trustpilot_product_reviews'
                 | 'typeform'
                 | 'usersnap'
                 | 'uservoice'
+                | 'uservoice_nps'
                 | 'vitally'
+                | 'vitally_nps'
+                | 'woocommerce'
                 | 'wrike'
                 | 'xmatters'
+                | 'yotpo'
                 | 'zendesk'
                 | 'zoho_crm',
                 ExternalSignalSourceState
@@ -830,6 +909,8 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'airbrake'
+                | 'amazon_cloudwatch'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -840,52 +921,67 @@ export interface signalSourcesLogicMeta {
                 | 'aws_security_hub'
                 | 'azure_application_insights'
                 | 'azure_devops'
+                | 'beamer'
+                | 'beamer_nps'
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
+                | 'chameleon'
                 | 'checkly'
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
                 | 'dynamics365'
                 | 'dynatrace'
+                | 'etsy'
                 | 'featurebase'
+                | 'featurebase_surveys'
                 | 'firehydrant'
                 | 'formbricks'
                 | 'freshdesk'
                 | 'freshservice'
                 | 'frill'
                 | 'front'
+                | 'g2'
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'gumroad'
                 | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
                 | 'instatus'
                 | 'intercom'
+                | 'intercom_tickets'
                 | 'jira'
                 | 'judgeme_reviews'
                 | 'kustomer'
                 | 'lacework'
                 | 'langsmith'
                 | 'linear'
+                | 'logicmonitor'
                 | 'microsoft_defender_cloud_apps'
                 | 'mintlify'
                 | 'monday'
                 | 'monte_carlo'
+                | 'mux'
+                | 'newrelic'
                 | 'okendo'
                 | 'opsgenie'
                 | 'orca_security'
@@ -894,6 +990,7 @@ export interface signalSourcesLogicMeta {
                 | 'plain'
                 | 'plane'
                 | 'productboard'
+                | 'pylon'
                 | 'qualtrics'
                 | 'rapid7_insightvm'
                 | 'raygun'
@@ -918,12 +1015,17 @@ export interface signalSourcesLogicMeta {
                 | 'trello'
                 | 'trigger_dev'
                 | 'trustpilot'
+                | 'trustpilot_product_reviews'
                 | 'typeform'
                 | 'usersnap'
                 | 'uservoice'
+                | 'uservoice_nps'
                 | 'vitally'
+                | 'vitally_nps'
+                | 'woocommerce'
                 | 'wrike'
                 | 'xmatters'
+                | 'yotpo'
                 | 'zendesk'
                 | 'zoho_crm',
                 ExternalSignalSourceState
@@ -964,6 +1066,10 @@ export interface signalSourcesLogicMeta {
         isEvalReportsToggling: (togglingSourceKeys: Set<string>) => boolean
         anomalyInvestigationConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
+        analyticsAlertScope: (
+            savingAnalyticsAlertScope: SignalAlertScope | null,
+            anomalyInvestigationConfig: SignalSourceConfig | null
+        ) => SignalAlertScope
         productStatusBySource: (
             currentTeam: TeamPublicType | TeamType | null,
             productDataEvents: Set<string> | null,
@@ -1045,6 +1151,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleEvalReports: true,
         toggleConversations: true,
         toggleAnomalyInvestigation: true,
+        setAnalyticsAlertScope: (alertScope: SignalAlertScope) => ({ alertScope }),
+        setAnalyticsAlertScopeComplete: true,
         enableSourceProduct: (enablement: SourceProductEnablement) => ({ enablement }),
         enableSourceProductComplete: true,
         setErrorTrackingHasIssues: (hasIssues: boolean | null) => ({ hasIssues }),
@@ -1197,6 +1305,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 enableSourceProduct: (_, { enablement }) => enablement,
                 enableSourceProductComplete: () => null,
+            },
+        ],
+        // The scope being saved, so the control shows the choice and stays disabled until the save settles.
+        savingAnalyticsAlertScope: [
+            null as SignalAlertScope | null,
+            {
+                setAnalyticsAlertScope: (_, { alertScope }) => alertScope,
+                setAnalyticsAlertScopeComplete: () => null,
             },
         ],
         productDataEventsFailed: [
@@ -1655,6 +1771,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.Analytics}_${SignalSourceType.AnomalyInvestigation}`),
         ],
+        analyticsAlertScope: [
+            (s) => [s.savingAnalyticsAlertScope, s.anomalyInvestigationConfig],
+            (
+                savingAnalyticsAlertScope: SignalAlertScope | null,
+                anomalyInvestigationConfig: SignalSourceConfig | null
+            ): SignalAlertScope =>
+                savingAnalyticsAlertScope ?? alertScopeFromConfig(anomalyInvestigationConfig?.config),
+        ],
         productStatusBySource: [
             (s) => [
                 s.currentTeam,
@@ -1716,6 +1840,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         productName: 'Support',
                         enabled: team ? !!team.conversations_enabled : null,
                         enablement: 'conversations',
+                        // product_enablement keeps conversations admin-only, matching the Team API.
+                        enableDisabledReason:
+                            (team?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin
+                                ? undefined
+                                : 'Ask a project admin to turn on Support',
                         dataStatus: 'unavailable',
                     },
                     llm_analytics: {
@@ -2291,6 +2420,46 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     sourceType: SignalSourceType.AnomalyInvestigation,
                     enabled: desiredEnabled,
                 })
+            },
+            setAnalyticsAlertScope: async ({ alertScope }) => {
+                const config = values.anomalyInvestigationConfig
+                const previousAlertScope = alertScopeFromConfig(config?.config)
+                // The write needs a persisted row. The control asks for the source to be turned on first.
+                if (!config || config.id.startsWith('new_') || alertScope === previousAlertScope) {
+                    actions.setAnalyticsAlertScopeComplete()
+                    return
+                }
+                try {
+                    const updated = await signalsSourceConfigsPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        config.id,
+                        { config_set: { [SOURCE_ALERT_SCOPE_KEY]: alertScope } }
+                    )
+                    // Read the row again: an on/off toggle may have changed it while this save ran.
+                    const latest = values.anomalyInvestigationConfig ?? config
+                    actions.replaceSourceConfig({
+                        ...latest,
+                        config: updated.config ?? latest.config,
+                        updated_at: updated.updated_at,
+                    })
+                    captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: true })
+                    lemonToast.success(
+                        {
+                            [SignalAlertScope.AllFiringAlerts]:
+                                'Product analytics now turns every firing alert into a signal.',
+                            [SignalAlertScope.InvestigatedOnly]:
+                                'Product analytics now turns only investigated alerts into signals.',
+                            [SignalAlertScope.Off]: 'Product analytics no longer turns alerts into signals.',
+                        }[alertScope]
+                    )
+                } catch (error: any) {
+                    captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: false })
+                    lemonToast.error(
+                        error?.detail || error?.message || "Couldn't change which alerts become signals. Try again."
+                    )
+                } finally {
+                    actions.setAnalyticsAlertScopeComplete()
+                }
             },
             enableSourceProduct: async ({ enablement }) => {
                 try {

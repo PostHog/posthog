@@ -4,7 +4,7 @@ description: >
   Guides PostHog engineers through dashboard platform and scene changes. Use when changing
   Dashboard, DashboardTile, dashboardLogic, dashboard layouts, dashboard sharing or embeds,
   public dashboards, templates, filters, variables, refresh behavior, tile loading, dashboard
-  lists, or dashboard permissions. Also use for slow dashboard loading, scrolling, edit-mode entry or exit,
+  lists, or dashboard permissions. Also use for slow dashboard loading, scrolling, layout autosave or undo,
   low frame rates, chart flicker, and tile drag or resize performance. Covers normal, shared, embedded, export, product-embedded,
   and template surfaces; RBAC; cache and query behavior; responsive layouts; and large or small
   dashboards. Use manage-dashboard-widgets instead for a widget_type or WidgetCard change.
@@ -16,7 +16,7 @@ Use this skill for a dashboard change that affects the dashboard platform, dashb
 
 Use [`manage-dashboard-widgets`](../manage-dashboard-widgets/SKILL.md) for a new `widget_type` or a `WidgetCard` change.
 
-For dashboard loading, scrolling, edit-mode transitions, tile movement, resize, or chart flicker, read the [dashboard performance guide](../../../products/dashboards/PERFORMANCE.md) before implementation.
+For dashboard loading, scrolling, layout autosave, tile movement, resize, or chart flicker, read the [dashboard performance guide](../../../products/dashboards/PERFORMANCE.md) before implementation.
 For drag or resize delays, measure start, movement, and release separately. On a long dashboard, repeat after scrolling through every tile before accepting a fix.
 For loading or scroll delays, compare a cold fast scroll with a settled repeat. Measure frame stalls and time until visible tiles display results.
 
@@ -123,18 +123,18 @@ Run the focused tests for each edited layer. Then run the relevant checks from [
 
 ## 6. Code map
 
-| Concern                                                                 | Start here                                                                                           |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/api/dashboard.py`                                                       |
-| Dashboard model and tile model                                          | `products/dashboards/backend/models/dashboard.py`, `models/dashboard_tile.py`                        |
-| Sharing routes                                                          | `products/dashboards/backend/routes.py`                                                              |
-| Templates                                                               | `products/dashboards/backend/api/dashboard_templates.py`, `models/dashboard_templates.py`            |
-| Main scene, state, refresh, and layout persistence                      | `frontend/src/scenes/dashboard/Dashboard.tsx`, `dashboardLogic.tsx`, `DashboardItems.tsx`            |
-| Layout geometry and tile size constraints                               | `frontend/src/scenes/dashboard/tileLayouts.ts`, `dashboardUtils.ts`                                  |
-| Shared and export rendering                                             | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`      |
-| Refresh defaults and shared safety clamp                                | `posthog/hogql_queries/refresh_policy.py`                                                            |
-| Resource transfer                                                       | `posthog/models/resource_transfer/visitors/dashboard.py`, `dashboard_tile.py`, `dashboard_widget.py` |
-| MCP tool definitions                                                    | `products/dashboards/mcp/tools.yaml`                                                                 |
+| Concern                                                                 | Start here                                                                                                             |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/presentation/views/dashboard.py`                                                          |
+| Dashboard model and tile model                                          | `products/dashboards/backend/models/dashboard.py`, `models/dashboard_tile.py`                                          |
+| Sharing routes                                                          | `products/dashboards/backend/routes.py`                                                                                |
+| Templates                                                               | `products/dashboards/backend/presentation/views/dashboard_templates.py`, `models/dashboard_templates.py`               |
+| Main scene, state, refresh, and layout persistence                      | `frontend/src/scenes/dashboard/Dashboard.tsx`, `dashboardLogic.tsx`, `products/dashboards/frontend/DashboardItems.tsx` |
+| Layout geometry and tile size constraints                               | `products/dashboards/frontend/tileLayouts.ts`, `frontend/src/scenes/dashboard/dashboardUtils.ts`                       |
+| Shared and export rendering                                             | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`                        |
+| Refresh defaults and shared safety clamp                                | `posthog/hogql_queries/refresh_policy.py`                                                                              |
+| Resource transfer                                                       | `posthog/models/resource_transfer/visitors/dashboard.py`, `dashboard_tile.py`, `dashboard_widget.py`                   |
+| MCP tool definitions                                                    | `products/dashboards/mcp/tools.yaml`                                                                                   |
 
 ## Companion skills
 

@@ -1,6 +1,7 @@
 export interface RecordingView {
     sessionId: string
     personLabel: string
+    countryCode: string | null
     startedAt: string | null
     endedAt: string | null
     durationSeconds: number
@@ -77,6 +78,7 @@ export interface SessionListRow {
     sessionId: string
     title: string | null
     personLabel: string
+    countryCode: string | null
     startedAt: string | null
     durationSeconds: number | null
     keyMomentMs: number | null

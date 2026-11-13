@@ -1,15 +1,23 @@
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated
 
-import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, StringConstraints
+from rest_framework.exceptions import Throttled
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.scopes import APIScopeObject
+from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.ai_observability.backend.facade import (
+    api as ai_observability_api,
+    contracts,
+)
 from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH
+from products.ai_observability.backend.presentation.query_concurrency import query_concurrency_slots
 
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolRetryableError
 
 
 def _load_dsl_reference() -> str:
@@ -40,9 +48,11 @@ chat conversation. Choose the representation that actually fits the data:
 When the mapping is obvious from the sample, call the tool directly without asking.
 
 How it works:
-- You author the complete recipe YAML and pass it as `yaml_source`.
-- The user's browser compiles the recipe, runs it against the actual sample event, and saves it
-  to the team's parser recipes only if the previously-unrecognized sides become recognized.
+- You author the complete recipe YAML and pass it as `yaml_source`, with the `trace_id` and
+  `event_uuid` of the event it is for.
+- The server compiles the recipe, tests it against that event together with the team's existing
+  recipes, and saves it to the team's parser recipes only if every side that was not parsed
+  becomes parsed.
 - The tool returns the validation outcome. On failure, fix the recipe using the reported error
   and call the tool again. If validation keeps failing after about 3 attempts, stop and explain
   what's blocking instead of retrying further.
@@ -55,6 +65,8 @@ CONTEXT_PROMPT_TEMPLATE = (
 The user is looking at an AI observability event that renders as raw JSON because no parser
 recipe recognizes its shape.
 
+Trace ID: {trace_id}
+Trace timestamp: {trace_timestamp}
 Event UUID: {event_uuid}
 Event type: {event_type}
 Unrecognized sides: {unrecognized}
@@ -81,23 +93,25 @@ The parser recipe DSL reference, with worked examples:
 
 
 class CreateParserRecipeArgs(BaseModel):
-    name: str = Field(description="Short human-readable name for the recipe, e.g. the SDK or format it parses.")
+    # Mirrors the recipe serializer's name rules, which this tool's save does not go through.
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)] = Field(
+        description="Short human-readable name for the recipe, e.g. the SDK or format it parses."
+    )
     yaml_source: str = Field(
         description="The complete recipe YAML (a `rules:` sequence; `id` is not needed). "
         "Write rules for the shapes shown in the sample event."
     )
+    trace_id: str = Field(
+        description="ID of the trace the event belongs to — echo the `Trace ID` value from your context exactly."
+    )
     event_uuid: str = Field(
         description="UUID of the event the recipe is written for — echo the `Event UUID` value "
-        "from your context exactly. Validation refuses if the user has navigated to a different event."
+        "from your context exactly. The recipe is tested against this event."
     )
-
-
-class ParserRecipeVerdict(BaseModel):
-    valid: bool
-    saved: bool = True
-    wrong_event: bool = False
-    error: str | None = None
-    recipe_id: str | None = None
+    trace_timestamp: str | None = Field(
+        default=None,
+        description="Echo the `Trace timestamp` value from your context exactly, or omit it when the context has none.",
+    )
 
 
 class CreateParserRecipeTool(MaxTool):
@@ -110,56 +124,108 @@ class CreateParserRecipeTool(MaxTool):
         return [("llm_analytics", "editor")]
 
     async def _arun_impl(
-        self, name: str, yaml_source: str, event_uuid: str
+        self, name: str, yaml_source: str, trace_id: str, event_uuid: str, trace_timestamp: str | None = None
     ) -> tuple[str, dict[str, str | None] | None]:
-        # Tool args bypass the serializer's length cap, so bound the source before the sync parse
-        # to keep an oversized payload from blocking the event loop.
+        # Tool args bypass the serializer's length cap, so bound the source before compiling it.
         if len(yaml_source) > MAX_SOURCE_LENGTH:
             return (
                 f"The recipe YAML is too large ({len(yaml_source)} characters; the limit is {MAX_SOURCE_LENGTH}). "
                 "Write a more concise recipe and call this tool again.",
                 None,
             )
-
         try:
-            # PyYAML raises RecursionError (not YAMLError) on deeply nested input.
-            yaml.safe_load(yaml_source)
-        except (yaml.YAMLError, RecursionError) as e:
-            return (f"The recipe is not valid YAML: {e}. Fix the syntax and call this tool again.", None)
-
-        # The DSL compiler only exists in the frontend: the browser compiles the recipe, runs it
-        # against the sample event, saves it when it works, and resumes us with the verdict
-        response = self.request_client_execution()
-        if "client_execution_error" in response:
+            # A ClickHouse read and two normalizer runs would hold the shared thread-sensitive executor for seconds.
+            result = await database_sync_to_async(self._run_parser_test, thread_sensitive=False)(
+                trace_id, event_uuid, _timestamp_hint(trace_timestamp), yaml_source
+            )
+        except ai_observability_api.RecipeCompileError as e:
+            return (f"The recipe does not compile: {e}. Fix the recipe and call this tool again.", None)
+        except ai_observability_api.TraceNodeNotFoundError:
             return (
-                f"The recipe could not be validated client-side: {response['client_execution_error']} "
-                "Ask the user to reopen the event view and try again — do not rewrite the recipe.",
+                "The event was not found in this trace, or it is past AI events retention. Check `trace_id` and "
+                "`event_uuid` against your context; if they match, tell the user the event can no longer be read.",
                 None,
             )
-        try:
-            verdict = ParserRecipeVerdict.model_validate(response)
-        except ValidationError as e:
-            raise MaxToolRetryableError(f"Invalid validation verdict from the client: {e}")
-
-        if not verdict.valid:
-            if verdict.wrong_event:
-                return (f"Validation refused: {verdict.error}", None)
+        except Throttled:
             return (
-                f"Validation rejected the recipe: {verdict.error or 'the sample event was not recognized'}. "
-                "Adjust the recipe and call this tool again.",
+                "Too many queries are running for this organization right now. Wait a moment and call this tool "
+                "again with the same arguments.",
                 None,
             )
 
-        if not verdict.saved:
+        if not result.input.needed_fixing and not result.output.needed_fixing:
             return (
-                "The recipe is correct — it compiled and recognized the sample event — but saving it failed: "
-                f"{verdict.error or 'unknown error'}. Do not rewrite the recipe; call this tool again with the "
+                "Both sides of this event already render with the team's parser recipes, so nothing was saved. "
+                "Tell the user the event needs no new parser.",
+                None,
+            )
+        if not result.passed:
+            return (f"The recipe was not saved: {_failure_reason(result)}.", None)
+
+        try:
+            recipe_id = await database_sync_to_async(ai_observability_api.create_parser_recipe)(
+                self._team, self._user, name, yaml_source
+            )
+        except Exception as e:
+            return (
+                "The recipe is correct — it compiled and parsed the event — but saving it failed: "
+                f"{e}. Do not rewrite the recipe; call this tool again with the "
                 "same yaml_source to retry the save, or surface the problem to the user.",
                 {"name": name, "source": yaml_source},
             )
 
         return (
-            f"The recipe '{name}' compiled, recognized the sample event, and was saved to the team's "
+            f"The recipe '{name}' compiled, parsed the event, and was saved to the team's "
             "parser recipes. The event now renders with it.",
-            {"recipe_id": verdict.recipe_id, "name": name, "source": yaml_source},
+            {"recipe_id": recipe_id, "name": name, "source": yaml_source},
         )
+
+    def _run_parser_test(
+        self, trace_id: str, event_uuid: str, timestamp_hint: datetime | None, yaml_source: str
+    ) -> contracts.TraceNodeParserTest:
+        tag_queries(feature=Feature.QUERY)
+        # Only the ClickHouse load holds the slot; the returned build normalizes without querying.
+        with query_concurrency_slots(self._team):
+            build = ai_observability_api.run_trace_node_parser_test(
+                self._team, self._user, trace_id, event_uuid, timestamp_hint, yaml_source
+            )
+        return build()
+
+
+def _timestamp_hint(trace_timestamp: str | None) -> datetime | None:
+    # The hint only narrows the read, so a value the agent garbled, or one the read window cannot hold, is dropped
+    # rather than failing the tool.
+    try:
+        hint = datetime.fromisoformat(trace_timestamp) if trace_timestamp else None
+    except ValueError:
+        return None
+    if hint is None:
+        return None
+    hint = hint if hint.tzinfo is not None else hint.replace(tzinfo=UTC)
+    return hint if ai_observability_api.is_usable_timestamp_hint(hint) else None
+
+
+def _failure_reason(result: contracts.TraceNodeParserTest) -> str:
+    reasons: list[str] = []
+    for side_name, side in (("input", result.input), ("output", result.output)):
+        if side.error is not None and side.error.source == "existing_recipes":
+            reasons.append(
+                f"the team's existing parser recipes fail on the {side_name} ({side.error.message}). This is not a "
+                "problem with your recipe; tell the user and do not rewrite it"
+            )
+        elif side.error is not None:
+            reasons.append(
+                f"your recipe failed while parsing the {side_name} ({side.error.message}). Simplify the rules and "
+                "call this tool again"
+            )
+        elif side.broken:
+            reasons.append(
+                f"the {side_name} is parsed without your recipe but not with it. Narrow your rules so they leave "
+                "that side alone and call this tool again"
+            )
+        elif side.needed_fixing and not side.fixed:
+            reasons.append(
+                f"the {side_name} is still not parsed. Write rules that match the shapes in the sample and call "
+                "this tool again"
+            )
+    return "; ".join(reasons)

@@ -52,6 +52,7 @@ import type {
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssueSuccessResponseApi,
     ErrorTrackingIssueSummaryResponseApi,
+    ErrorTrackingIssueTagDefinitionsResponseApi,
     ErrorTrackingIssueValuesResponseApi,
     ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
@@ -1183,24 +1184,6 @@ export const errorTrackingIssuesSummaryRetrieve = async (
     })
 }
 
-export const getErrorTrackingIssuesSummaryRegenerateCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/issues/${id}/summary/regenerate/`
-}
-
-export const errorTrackingIssuesSummaryRegenerateCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ErrorTrackingIssueSummaryResponseApi> => {
-    return apiMutator<ErrorTrackingIssueSummaryResponseApi>(
-        getErrorTrackingIssuesSummaryRegenerateCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
-}
-
 export const getErrorTrackingIssuesAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/issues/activity/`
 }
@@ -1244,6 +1227,23 @@ export const errorTrackingIssuesExistsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getErrorTrackingIssuesTagDefinitionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/issues/tag_definitions/`
+}
+
+export const errorTrackingIssuesTagDefinitionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueTagDefinitionsResponseApi> => {
+    return apiMutator<ErrorTrackingIssueTagDefinitionsResponseApi>(
+        getErrorTrackingIssuesTagDefinitionsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingIssuesValuesRetrieveUrl = (

@@ -10,7 +10,7 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
-import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
+import type { BandSlot, ChartDimensions, ResolveValueFn, Series, TimeScale, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
@@ -78,7 +78,10 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
 /** Split a {@link ValueDomain} into a pinned `[min, max]` (both ends given) and the adjustments to
  *  an auto-scaled domain (either end left open). An inverted pair is dropped rather than swapped;
  *  see {@link ValueDomain}. */
-function resolveValueDomain(valueDomain: ValueDomain | undefined): {
+function resolveValueDomain(
+    valueDomain: ValueDomain | undefined,
+    log = false
+): {
     fixed?: readonly [number, number]
     include?: readonly number[]
     bounds?: ValueDomain
@@ -90,7 +93,9 @@ function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     const min = usableBound(valueDomain.min)
     const max = usableBound(valueDomain.max)
 
-    if (min !== undefined && max !== undefined) {
+    // A log domain can't hold zero, so a pair with a non-positive end stays a clamp on the auto
+    // domain, where `applyValueBounds` drops that end if the axis really is logarithmic.
+    if (min !== undefined && max !== undefined && (!log || min > 0)) {
         // Both ends pinned, so `include` has nothing left to stretch.
         return min < max ? { fixed: [min, max] } : { include }
     }
@@ -142,6 +147,19 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): Sca
         .domain(labels)
         .range([dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth])
         .padding(0)
+}
+
+export function createTimeXScale(
+    { parse, domain }: TimeScale,
+    dimensions: ChartDimensions
+): (label: string) => number | undefined {
+    const scale = scaleLinear()
+        .domain(domain)
+        .range([dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth])
+    return (label) => {
+        const t = parse(label)
+        return t >= domain[0] && t <= domain[1] ? scale(t) : undefined
+    }
 }
 
 /** Min/max y-axis tick counts. `MIN_Y_TICKS` doubles as the floor for a non-finite/non-positive
@@ -227,6 +245,20 @@ function repairDegenerateExtent(min: number, max: number): [number, number] {
     return [lo, Math.max(0, isFinite(max) ? max : 0, lo + 1)]
 }
 
+/** A value scale over a pinned `[min, max]`. A log domain can't hold zero, so a log pin with a
+ *  non-positive end falls back to linear. Unclamped, like the linear pin, so a value past the pin
+ *  maps off the plot and overlays such as goal lines can tell it is out of range. */
+function fixedValueScale(
+    fixed: readonly [number, number],
+    range: [number, number],
+    scaleType: 'linear' | 'log'
+): D3YScale {
+    if (scaleType === 'log' && fixed[0] > 0) {
+        return scaleLog().domain(fixed).range(range)
+    }
+    return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(range)
+}
+
 export function createYScale(
     series: Series[],
     dimensions: ChartDimensions,
@@ -240,13 +272,11 @@ export function createYScale(
     } = {}
 ): ScaleLinear<number, number> | ScaleLogarithmic<number, number> {
     const { scaleType = 'linear', percentStack = false, valueDomain, floatBaseline = false } = options
-    const { fixed, include, bounds } = resolveValueDomain(valueDomain)
+    const { fixed, include, bounds } = resolveValueDomain(valueDomain, scaleType === 'log')
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (fixed) {
-        return scaleLinear()
-            .domain(sanitizeFixedDomain(fixed))
-            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+        return fixedValueScale(fixed, [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop], scaleType)
     }
 
     if (percentStack) {
@@ -536,7 +566,9 @@ function buildStackData(
             const row: Record<string, number> = Object.create(null)
             for (const s of axisSeries) {
                 const raw = s.data[i] ?? 0
-                row[s.key] = allowNegative ? raw : Math.max(0, raw)
+                // A non-finite value stacks as 0, so the series above it keep their place.
+                const value = Number.isFinite(raw) ? raw : 0
+                row[s.key] = allowNegative ? value : Math.max(0, value)
             }
             return row
         })
@@ -546,14 +578,22 @@ function buildStackData(
             stack.offset(offset)
         }
 
-        const stacked = stack(tableData)
-        for (const layer of stacked) {
-            // stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
+        stack(tableData).forEach((layer, seriesIndex) => {
+            const { data } = axisSeries[seriesIndex]
+            const edge = (stacked: number, i: number): number => {
+                const raw = data[i]
+                // A non-finite value is a gap in its own series: NaN edges break the line and the area there.
+                if (typeof raw === 'number' && !Number.isFinite(raw)) {
+                    return NaN
+                }
+                // stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
+                return Number.isFinite(stacked) ? stacked : 0
+            }
             result.set(layer.key, {
-                top: layer.map((d) => (Number.isFinite(d[1]) ? d[1] : 0)),
-                bottom: layer.map((d) => (Number.isFinite(d[0]) ? d[0] : 0)),
+                top: layer.map((d, i) => edge(d[1], i)),
+                bottom: layer.map((d, i) => edge(d[0], i)),
             })
-        }
+        })
     }
 
     return result
@@ -565,6 +605,13 @@ export function computeStackData(series: Series[], labels: string[]): Map<string
 
 export function computePercentStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
     return buildStackData(series, labels, { offset: stackOffsetExpand })
+}
+
+/** True when a stacked layout has a value the plain stack would clamp to 0. */
+export function hasNegativeStackValue(series: Series[]): boolean {
+    return series.some(
+        (s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay && s.data?.some((value) => value < 0)
+    )
 }
 
 /** Stack that preserves negative segments — positives accumulate upward from 0, negatives
@@ -820,7 +867,7 @@ function buildBarValueScale(
 ): D3YScale {
     const { fixed, include } = resolveValueDomain(valueDomain)
     if (fixed) {
-        return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(valueRange)
+        return fixedValueScale(fixed, valueRange, scaleType)
     }
     if (barLayout === 'percent') {
         return scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)

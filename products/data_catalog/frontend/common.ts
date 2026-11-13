@@ -1,14 +1,18 @@
+import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import type { Sorting } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { slugify } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type {
+    DataCatalogMetricApi,
     DataCatalogMetricNameConflictApi,
     DataCatalogMetricNameConflictExistingApi,
 } from './generated/api.schemas'
+import type { NewMetricPrefill } from './proposedRows'
 
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
@@ -42,9 +46,19 @@ export function humanizeDefinitionKind(kind: string | null): string {
     return kind
 }
 
+/** The form values travel in the hash, because a query can outgrow what a URL path should carry to the server.
+ * Analytics keeps only the path of a URL with this key, so the SQL stays out of autocaptured links. */
+export function newMetricUrl(prefill: NewMetricPrefill): string {
+    return combineUrl(urls.dataCatalogNewMetric(), {}, { metric_prefill: prefill }).url
+}
+
 export function sqlNameFromDisplayName(displayName: string): string {
     const sqlName = slugify(displayName).replace(/-/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
     return /^[0-9]/.test(sqlName) ? `metric_${sqlName}` : sqlName
+}
+
+export function sqlNameAfterDisplayNameChange(displayName: string, sqlName: string, nextDisplayName: string): string {
+    return sqlName === sqlNameFromDisplayName(displayName) ? sqlNameFromDisplayName(nextDisplayName) : sqlName
 }
 
 export function validateMetricName(name: string): string | undefined {
@@ -80,6 +94,10 @@ export function reportCatalogTableSorted(table: DataCatalogTable, sorting: Sorti
     })
 }
 
+export function metricDisplayName(metric: Pick<DataCatalogMetricApi, 'name' | 'display_name'>): string {
+    return metric.display_name || metric.name
+}
+
 export function metricCount(count: number): string {
     return `${count} ${count === 1 ? 'metric' : 'metrics'}`
 }
@@ -98,4 +116,16 @@ export function existingMetricFromNameConflict(error: unknown): DataCatalogMetri
     }
     const body = error.data as DataCatalogMetricNameConflictApi | undefined
     return body?.extra?.existing_metric ?? null
+}
+
+/** A usage read answers 404 until a scan finishes, so the 404 becomes `'none'` and not an error. */
+export async function noneWhenNoScan<T>(request: Promise<T>): Promise<T | 'none'> {
+    try {
+        return await request
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+            return 'none'
+        }
+        throw error
+    }
 }

@@ -22,7 +22,7 @@ from posthog.psycopg_helpers import (
     prefer_routable_addresses,
     resolve_psycopg_hostaddr_with_timeout,
 )
-from posthog.security.oob_domains import matched_oob_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_instance_region
 
@@ -65,6 +65,7 @@ HOST_RESOLUTION_TIMEOUT_SECONDS = 15
 # the volatile host details.
 DATABASE_HOST_NOT_ALLOWED_ERROR = "Database host not allowed"
 SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR = "SSH tunnel host not allowed"
+SOURCE_HOST_NOT_ALLOWED_ERROR = "Source host not allowed"
 TEMPORARY_HOST_RESOLUTION_PREFIX = "Temporary failure resolving the host"
 # Stored as the job's error once every retry of a connect was spent on the pin's own lookup failing.
 HOST_RESOLUTION_EXHAUSTED_MESSAGE = (
@@ -187,7 +188,8 @@ def resolve_safe_host(
     the exemption is never granted on the name alone. `port` and `source_type` select the listener
     that exemption applies to, and omitting either leaves the host on the ordinary path.
     """
-    note_oob_domain(host, team_id)
+    if check_oob_domain(host, team_id) is not None:
+        return HostResolution(connect_host=None, error=OOB_DOMAIN_REFUSAL)
 
     if is_cloud() and (guard_error := _single_host_error(host)) is not None:
         _log_host_check(host, team_id, "block", "malformed_host", guard_error)
@@ -276,7 +278,8 @@ def check_resolved_addresses(
     all configured ingress addresses, so an answer the caller resolved itself is checked exactly
     as one this module resolved would be.
     """
-    note_oob_domain(host, team_id, stage="oob_domain_resolved")
+    if check_oob_domain(host, team_id, stage="oob_domain_resolved") is not None:
+        return HostResolution(connect_host=None, error=OOB_DOMAIN_REFUSAL)
 
     if is_cloud() and (guard_error := _single_host_error(host)) is not None:
         _log_host_check(host, team_id, "block", "malformed_host", guard_error)
@@ -320,7 +323,8 @@ def pinned_host_kwargs(
     lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
     lookup is skipped there, as in `_get_sslmode`.
     """
-    note_oob_domain(host, team_id)
+    if check_oob_domain(host, team_id) is not None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {OOB_DOMAIN_REFUSAL}")
 
     if host_lookup_is_skipped():
         return {"host": host}
@@ -544,25 +548,29 @@ def _managed_warehouse_organization_id(team_id: int | None) -> str | None:
         return None
 
 
-def note_oob_domain(host: str, team_id: int | None, stage: str = "oob_domain") -> None:
-    """Record a lookup of an out-of-band interaction domain, without refusing it.
+def check_oob_domain(host: str, team_id: int | None, stage: str = "oob_domain") -> str | None:
+    """The listed out-of-band interaction domain this host belongs to, or None.
 
-    Runs before the exemptions, so an allowlisted team is recorded too, and before the resolve,
+    Runs before the exemptions, so an allowlisted team is refused too, and before the resolve,
     because the lookup alone confirms the path to whoever runs the collaborator. `stage` tells a
     reader which call site produced the line, so a count does not double on the pinned paths.
+
+    The caller refuses the host. This function only matches and records.
     """
     if not is_cloud():
-        return
+        return None
 
     try:
         oob_domain = matched_oob_domain(unbracket_host(host))
     except Exception:
-        # Detection never refuses a connection, so a fault here stays invisible to the customer.
+        # A fault in the matcher must not fail a customer's sync. The caller goes on to the
+        # address checks, which is where every host stood before this list existed.
         logger.exception("data_imports.oob_domain_check_failed", host=host, team_id=team_id)
-        return
+        return None
 
     if oob_domain is not None:
-        _log_host_check(host, team_id, "allow", stage, oob_domain)
+        _log_host_check(host, team_id, "block", stage, oob_domain)
+    return oob_domain
 
 
 def _check_resolved_ips(host: str, team_id: int | None, resolved_ips: list[str]) -> HostResolution:
@@ -779,9 +787,10 @@ def _check_direct_host(config, team_id: int | None, source_type: str | None = No
     this module resolves the host once, validates that answer with `check_resolved_addresses`,
     and dials exactly those addresses through libpq's `host`/`hostaddr` pair. The MySQL client
     resolves the host itself, validates the answer with `check_resolved_addresses`, and dials
-    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client hands the
-    hostname to its driver, whose single `server` argument is both the dial target and the
-    login server name, so for MSSQL this check is the only one.
+    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client dials the addresses
+    `resolve_safe_host` approves. Its driver's single `server` argument is both the dial target
+    and the login server name, so an Azure SQL host, whose gateway routes on that name, keeps the
+    hostname, and for those hosts this check is the only one.
 
     A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
     same either way; it only costs the internal-host exemption on entry points that don't carry a

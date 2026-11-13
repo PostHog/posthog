@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentWarehouseNativeNode,
@@ -22,7 +23,13 @@ from posthog.dataclasses import frozen
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
-ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+ExperimentMetric = (
+    ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
+)
 
 # Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics carry no
 # metric_type and are filtered out by is_scheduled_metric, so they never reach build_metric.
@@ -31,12 +38,14 @@ METRIC_BUILDERS: dict[str, type[ExperimentMetric]] = {
     "funnel": ExperimentFunnelMetric,
     "ratio": ExperimentRatioMetric,
     "retention": ExperimentRetentionMetric,
+    "quantile": ExperimentQuantileMetric,
 }
 
 # The daily timeseries activities compute every buildable type. A type the recalculation computes but the
 # daily run skips publishes nothing, so the results panel recomputes on first open every morning for the
 # experiments that use it; a deliberate future exclusion must subtract from METRIC_BUILDERS explicitly.
-DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS)
+# Quantile metrics stay out until their main results path is proven in production.
+DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS) - {"quantile"}
 
 
 def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:
@@ -211,7 +220,7 @@ def build_metric(metric_dict: dict[str, Any]) -> ExperimentMetric:
 # are the same across the two readers below: source, series[*], numerator, denominator, start_event,
 # completion_event. Keep the pair in step — one reads the typed metric, the other a raw saved definition.
 def metric_source_nodes(metric: ExperimentMetric) -> list[Any]:
-    if isinstance(metric, ExperimentMeanMetric):
+    if isinstance(metric, ExperimentMeanMetric | ExperimentQuantileMetric):
         return [metric.source]
     if isinstance(metric, ExperimentFunnelMetric):
         return list(metric.series)
@@ -220,7 +229,7 @@ def metric_source_nodes(metric: ExperimentMetric) -> list[Any]:
     return [metric.start_event, metric.completion_event]
 
 
-def _metric_dict_source_nodes(metric_dict: dict[str, Any]) -> list[Any]:
+def metric_dict_source_nodes(metric_dict: dict[str, Any]) -> list[Any]:
     """A field absent on a shape is simply missing from the dict."""
     return [
         metric_dict.get("source"),
@@ -242,7 +251,7 @@ def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
     sampling)."""
     return any(
         isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode"
-        for node in _metric_dict_source_nodes(metric_dict)
+        for node in metric_dict_source_nodes(metric_dict)
     )
 
 
@@ -254,5 +263,5 @@ def metric_uses_warehouse_native_source(metric: ExperimentMetric) -> bool:
 def metric_dict_uses_warehouse_native_source(metric_dict: dict[str, Any]) -> bool:
     return any(
         isinstance(node, dict) and node.get("kind") == "ExperimentWarehouseNativeNode"
-        for node in _metric_dict_source_nodes(metric_dict)
+        for node in metric_dict_source_nodes(metric_dict)
     )

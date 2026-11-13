@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime
 from typing import Any, cast
 
 from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
@@ -5,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from clickhouse_driver.errors import SocketTimeoutError
 from kombu.exceptions import OperationalError as KombuOperationalError
@@ -17,6 +20,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.hogql.hogql import HogQLContext
 
+from posthog.api.cohort import CohortFilters
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error
 from posthog.exceptions import (
@@ -26,21 +30,32 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+from posthog.models.event.new_events_schema import events_read_settings
+from posthog.models.instance_setting import override_instance_config
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
+from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     ERROR_CODE_MESSAGES,
+    STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     _recalculate_cohortpeople_for_team,
+    _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
+    count_cohort_members,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
+    insert_cohort_filter_actors_into_ch,
+    insert_cohort_people_into_pg,
     insert_cohort_query_actors_into_ch,
+    legacy_groups_to_filters,
     parse_error_code,
     print_cohort_hogql_query,
     run_cohort_query,
@@ -133,6 +148,40 @@ class TestRunCohortQueryStatsScheduling(SimpleTestCase):
             ],
         )
         self.assertEqual(mock_capture.call_count, 2)
+
+
+class TestLegacyGroupsToFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_without_operator", {"key": "email", "value": "a@example.com", "type": "person"}),
+            ("cohort_in", {"key": "id", "value": 1, "type": "cohort", "operator": "in"}),
+            ("cohort_not_in", {"key": "id", "value": 1, "type": "cohort", "operator": "not_in"}),
+        ]
+    )
+    def test_converted_filters_pass_filters_validation(self, _name: str, leaf: dict[str, Any]) -> None:
+        filters = legacy_groups_to_filters([{"properties": [leaf]}])
+
+        assert filters is not None
+        CohortFilters.model_validate(filters)
+
+    @parameterized.expand(
+        [
+            ("in", "in", False, False),
+            ("in_with_negation", "in", True, True),
+            ("not_in", "not_in", False, True),
+            ("not_in_with_negation", "not_in", True, True),
+        ]
+    )
+    def test_cohort_in_and_not_in_become_negation(
+        self, _name: str, operator: str, negation: bool, expected_negation: bool
+    ) -> None:
+        leaf_in = {"key": "id", "value": 1, "type": "cohort", "operator": operator, "negation": negation}
+        filters = legacy_groups_to_filters([{"properties": [leaf_in]}])
+
+        assert filters is not None
+        leaf = filters["properties"]["values"][0]["values"][0]
+        assert "operator" not in leaf
+        assert leaf.get("negation", False) is expected_negation
 
 
 class TestCohortUtils(BaseTest):
@@ -519,13 +568,72 @@ class TestCohortUtils(BaseTest):
             query={"kind": "ActorsQuery", "search": "example.com"},
         )
 
-        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+        self.assertEqual(insert_cohort_query_actors_into_ch(cohort, team=self.team), 1)
+        self.assertEqual(insert_cohort_query_actors_into_ch(cohort, team=self.team), 0)
 
         rows = sync_execute(
             f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
             {"team_id": self.team.id, "cohort_id": cohort.id},
         )
         self.assertEqual(rows[0][0], 1)
+
+    def test_copy_to_postgres_rereads_until_it_has_seen_the_rows_it_wrote(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        person = _create_person(team_id=self.team.id, distinct_ids=["person"], uuid=uuid.uuid4())
+        flush_persons_and_events()
+
+        # The first pass reads an empty replica. The second pass reads the row, then the empty page that ends it.
+        with (
+            patch(
+                "products.cohorts.backend.models.util.sync_execute",
+                side_effect=[[], [(str(person.uuid), 1)], []],
+            ),
+            patch("products.cohorts.backend.models.util.time.sleep"),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        self.assertEqual(cohort.count, 1)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
+
+    def test_copy_to_postgres_fails_when_the_written_rows_never_appear(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", return_value=[]),
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            self.assertRaises(StaticCohortReadBackIncomplete),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], list(STATIC_COHORT_READ_BACK_WAITS_SECONDS))
+
+    def test_copy_to_postgres_does_not_count_existing_members_as_the_rows_it_wrote(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        existing = _create_person(team_id=self.team.id, distinct_ids=["existing"], uuid=uuid.uuid4())
+        added = _create_person(team_id=self.team.id, distinct_ids=["added"], uuid=uuid.uuid4())
+        flush_persons_and_events()
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), existing.uuid, cohort.pk, self.team.id, datetime(2026, 1, 1))],
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.time.sleep"),
+            self.assertRaises(StaticCohortReadBackIncomplete),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
+
+        # A retry queued before written_since existed counts every row.
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
+
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), added.uuid, cohort.pk, self.team.id, datetime(2026, 6, 1))],
+        )
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
+
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 2)
 
     def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
@@ -692,6 +800,37 @@ class TestCohortUtils(BaseTest):
         self.assertIn("WHERE distinct_id IN", result)
         # Should include settings
         self.assertIn("SETTINGS", result)
+        if not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("json_type_escape_dots_in_keys", result)
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+            patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner),
+        ):
+            switched = print_cohort_hogql_query(
+                cohort, HogQLContext(team_id=self.team.id, enable_select_queries=True), team=self.team
+            )
+        self.assertIn("json_type_escape_dots_in_keys=1", switched)
+        self.assertIn("output_format_json_escape_forward_slashes=0", switched)
+
+    def test_recalculate_cohortpeople_hogql_sends_the_native_read_settings_for_a_switched_team(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="switched",
+            groups=[{"properties": [{"key": "$browser", "value": "Chrome", "type": "person"}]}],
+        )
+        history = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=timezone.now()
+        )
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+            patch("products.cohorts.backend.models.util.sync_execute", return_value=0) as execute,
+        ):
+            _recalculate_cohortpeople_for_team_hogql(cohort, 1, self.team, history)
+        settings = execute.call_args.kwargs["settings"]
+        self.assertEqual(settings["json_type_escape_dots_in_keys"], 1)
+        self.assertEqual(settings["output_format_json_escape_forward_slashes"], 0)
 
     def test_print_cohort_hogql_query_with_select_star_raises_error(self):
         """Test that SELECT * queries without explicit ID columns raise an error"""
@@ -945,11 +1084,29 @@ class TestCohortUtils(BaseTest):
                 "max_bytes_before_external_sort": 21 * 1024**3,
                 "max_bytes_ratio_before_external_group_by": 0,
                 "max_bytes_ratio_before_external_sort": 0,
+                **events_read_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA),
             },
         )
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
         self.assertEqual(kwargs["ch_user"], ClickHouseUser.COHORTS)
         self.assertEqual(kwargs["team_id"], self.team.id)
+
+    def test_insert_cohort_filter_actors_into_ch_sends_the_native_read_settings_for_a_switched_team(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="switched static",
+            is_static=True,
+            groups=[{"properties": [{"key": "$browser", "value": "Chrome", "type": "person"}]}],
+        )
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+            patch("products.cohorts.backend.models.util.sync_execute") as execute,
+        ):
+            insert_cohort_filter_actors_into_ch(cohort, team=self.team)
+        settings = execute.call_args.kwargs["settings"]
+        self.assertEqual(settings["json_type_escape_dots_in_keys"], 1)
+        self.assertEqual(settings["output_format_json_escape_forward_slashes"], 0)
 
     @parameterized.expand(
         [
@@ -1006,15 +1163,18 @@ class TestCohortUtils(BaseTest):
     def test_print_cohort_hogql_query_supports_multi_column_aliased_and_aggregating_queries(
         self, _name: str, hogql_query: str
     ):
+        # Person rows outlive each test in ClickHouse, so a fixed uuid could pick up another test's properties.
         p_with_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_domain_{_name}"],
             properties={"email": f"with_{_name}@example.com", "domain": "example.com"},
+            uuid=uuid.uuid4(),
         )
-        _create_person(
+        p_without_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_nodomain_{_name}"],
             properties={"email": f"without_{_name}@example.com"},
+            uuid=uuid.uuid4(),
         )
         flush_persons_and_events()
 
@@ -1038,7 +1198,9 @@ class TestCohortUtils(BaseTest):
                 f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
                 {"team_id": self.team.id, "cohort_id": cohort.id},
             )
-            self.assertEqual([str(r[0]) for r in rows], [str(p_with_domain.uuid)])
+            member_ids = {str(r[0]) for r in rows}
+            self.assertIn(str(p_with_domain.uuid), member_ids)
+            self.assertNotIn(str(p_without_domain.uuid), member_ids)
 
     def test_print_cohort_hogql_query_with_multi_column_distinct_id_query(self):
         from posthog.hogql import ast

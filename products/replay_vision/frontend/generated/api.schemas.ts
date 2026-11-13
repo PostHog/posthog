@@ -1313,6 +1313,24 @@ export interface ScannerExperimentTargetingApi {
 }
 
 /**
+ * * `manual` - Turned off by a person
+ * * `free_credits_used` - Free credits used
+ * * `no_ai_consent` - No AI consent
+ * * `creator_lost_access` - Creator lost access
+ * * `experiment_deleted` - Experiment deleted
+ */
+export type ScannerDisabledReasonEnumApi =
+    (typeof ScannerDisabledReasonEnumApi)[keyof typeof ScannerDisabledReasonEnumApi]
+
+export const ScannerDisabledReasonEnumApi = {
+    Manual: 'manual',
+    FreeCreditsUsed: 'free_credits_used',
+    NoAiConsent: 'no_ai_consent',
+    CreatorLostAccess: 'creator_lost_access',
+    ExperimentDeleted: 'experiment_deleted',
+} as const
+
+/**
  * A Replay Vision scanner: its type, targeting query, and AI configuration.
  */
 export interface ReplayScannerApi {
@@ -1353,6 +1371,12 @@ export interface ReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /**
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+     * @nullable
+     * @pattern ^[a-z0-9_]{1,64}$
+     */
+    entry_point?: string | null
     /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
     take_over_as_creator?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -1380,7 +1404,7 @@ export interface ReplayScannerApi {
      * @nullable
      */
     credit_limit?: number | null
-    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
     free_only?: boolean
     /** LLM provider. v1 is Google-only.
      *
@@ -1430,6 +1454,11 @@ export interface ReplayScannerApi {
     /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
     readonly sweep_throttle_factor: number
     /**
+     * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+     * @nullable
+     */
+    readonly sweep_interval_minutes: number | null
+    /**
      * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
      * @nullable
      */
@@ -1443,6 +1472,14 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly filter_error: string | null
+    /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+     *
+     * * `manual` - Turned off by a person
+     * * `free_credits_used` - Free credits used
+     * * `no_ai_consent` - No AI consent
+     * * `creator_lost_access` - Creator lost access
+     * * `experiment_deleted` - Experiment deleted */
+    readonly disabled_reason: ScannerDisabledReasonEnumApi | null
     readonly created_at: string
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
@@ -1504,6 +1541,12 @@ export interface PatchedReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /**
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+     * @nullable
+     * @pattern ^[a-z0-9_]{1,64}$
+     */
+    entry_point?: string | null
     /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
     take_over_as_creator?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -1531,7 +1574,7 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     credit_limit?: number | null
-    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
     free_only?: boolean
     /** LLM provider. v1 is Google-only.
      *
@@ -1581,6 +1624,11 @@ export interface PatchedReplayScannerApi {
     /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
     readonly sweep_throttle_factor?: number
     /**
+     * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+     * @nullable
+     */
+    readonly sweep_interval_minutes?: number | null
+    /**
      * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
      * @nullable
      */
@@ -1594,6 +1642,14 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly filter_error?: string | null
+    /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+     *
+     * * `manual` - Turned off by a person
+     * * `free_credits_used` - Free credits used
+     * * `no_ai_consent` - No AI consent
+     * * `creator_lost_access` - Creator lost access
+     * * `experiment_deleted` - Experiment deleted */
+    readonly disabled_reason?: ScannerDisabledReasonEnumApi | null
     readonly created_at?: string
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
@@ -2218,8 +2274,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 16
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -2399,6 +2455,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `no_output` - No output
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
+ * * `trial_scout_limit` - Free trial scout limit
  * * `retired` - Retired
  * * `background_removed` - Background removed
  */
@@ -2409,6 +2466,7 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
+    TrialScoutLimit: 'trial_scout_limit',
     Retired: 'retired',
     BackgroundRemoved: 'background_removed',
 } as const
@@ -2493,6 +2551,7 @@ export interface SignalScoutConfigApi {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `trial_scout_limit` - Free trial scout limit
      * * `retired` - Retired
      * * `background_removed` - Background removed */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
@@ -2543,8 +2602,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 16
      */
     readonly write_scopes: readonly string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -2827,7 +2886,7 @@ export interface DraftScannerRequestApi {
      * @maximum 100000000
      */
     monthly_credit_budget?: number
-    /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+    /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and stops when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
     free_only?: boolean
     /**
      * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { type Series, TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -73,6 +73,33 @@ export function CoverageSummaryBanner(): JSX.Element | null {
                     </p>
                 )}
             </div>
+        </LemonBanner>
+    )
+}
+
+export const COVERAGE_PANEL_DATA_ATTR = 'autoresearch-predictions-coverage-panel'
+
+/** One line above the segments when few people have a recent score. The full summary sits in the coverage panel. */
+export function LowCoverageNotice(): JSX.Element | null {
+    const { lowCoveragePct } = useValues(autoresearchPipelineLogic)
+    const { showCoverage } = useActions(autoresearchPipelineLogic)
+    if (lowCoveragePct == null) {
+        return null
+    }
+    return (
+        <LemonBanner type="info">
+            <span>{`${Math.round(lowCoveragePct)}% of people have a recent score. `}</span>
+            <Link
+                data-attr="autoresearch-see-coverage"
+                onClick={() => {
+                    showCoverage()
+                    document.querySelector(`[data-attr="${COVERAGE_PANEL_DATA_ATTR}"]`)?.scrollIntoView({
+                        behavior: 'smooth',
+                    })
+                }}
+            >
+                See coverage
+            </Link>
         </LemonBanner>
     )
 }

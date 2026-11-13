@@ -35,12 +35,12 @@ function fixture(t) {
     )
     writeFileSync(
         preload,
-        `import {readFileSync,writeFileSync} from 'node:fs';globalThis.fetch=async()=>{const state=JSON.parse(readFileSync(process.env.MOBILE_FAKE_STATE,'utf8'));state.expoReads=(state.expoReads??0)+1;writeFileSync(process.env.MOBILE_FAKE_STATE,JSON.stringify(state));const variables=process.env.MOBILE_FAKE_SECRET==='1'?[{name:'APPLE_TEAM_ID',type:'STRING',visibility:'SECRET',value:null}]:process.env.MOBILE_FAKE_UNSUPPORTED==='1'?[{name:'UNSUPPORTED_BUILD_INPUT',type:'STRING',visibility:'PUBLIC',value:'example'}]:process.env.MOBILE_FAKE_FILE==='unreadable'?[{name:'GOOGLE_SERVICES_JSON',type:'FILE_BASE64',visibility:'SENSITIVE'}]:process.env.MOBILE_FAKE_CHANGE==='remove'&&state.expoReads===1?[{name:'EXPO_PUBLIC_POSTHOG_HOST',type:'STRING',visibility:'SENSITIVE',value:'on'}]:[];return {ok:true,json:async()=>({data:{app:{byId:{environmentVariablesIncludingSensitive:variables,ownerAccount:{environmentVariablesIncludingSensitive:[]}}}}})}}`
+        `import {readFileSync,writeFileSync} from 'node:fs';import timers from 'node:timers/promises';import {syncBuiltinESMExports} from 'node:module';timers.setTimeout=async()=>{};syncBuiltinESMExports();globalThis.fetch=async()=>{const state=JSON.parse(readFileSync(process.env.MOBILE_FAKE_STATE,'utf8'));state.expoReads=(state.expoReads??0)+1;writeFileSync(process.env.MOBILE_FAKE_STATE,JSON.stringify(state));const fault=JSON.parse(process.env.MOBILE_FAKE_EXPO_READS??'[]')[state.expoReads-1];if(fault==='network')throw new TypeError('invented-sensitive-response');if(fault==='json')return {ok:true,json:async()=>{throw new SyntaxError('invented-sensitive-response')}};if(fault==='graphql')return {ok:true,json:async()=>({errors:[{message:'invented-sensitive-response'}]})};if(typeof fault==='number')return {ok:false,status:fault,body:{cancel:async()=>{}}};const variables=process.env.MOBILE_FAKE_SECRET==='1'?[{name:'APPLE_TEAM_ID',type:'STRING',visibility:'SECRET',value:null}]:process.env.MOBILE_FAKE_UNSUPPORTED==='1'?[{name:'UNSUPPORTED_BUILD_INPUT',type:'STRING',visibility:'PUBLIC',value:'example'}]:process.env.MOBILE_FAKE_FILE==='unreadable'?[{name:'GOOGLE_SERVICES_JSON',type:'FILE_BASE64',visibility:'SENSITIVE'}]:process.env.MOBILE_FAKE_CHANGE==='remove'&&state.expoReads===1?[{name:'EXPO_PUBLIC_POSTHOG_HOST',type:'STRING',visibility:'SENSITIVE',value:'on'}]:[];return {ok:true,json:async()=>({data:{app:{byId:{environmentVariablesIncludingSensitive:variables,ownerAccount:{environmentVariablesIncludingSensitive:[]}}}}})}}`
     )
     for (const path of [scripts, requests, bin]) {
         mkdirSync(path, { recursive: true })
     }
-    for (const name of ['release.mjs', 'policy.mjs']) {
+    for (const name of ['release.mjs', 'policy.mjs', 'receipt.mjs']) {
         copyFileSync(join(scriptRoot, name), join(scripts, name))
     }
     copyFileSync(join(scriptRoot, '../eas-build.sh'), join(app, 'scripts/eas-build.sh'))
@@ -165,7 +165,7 @@ function fixture(t) {
     }
 }
 
-test('real CLI stages exact native builds, submits their IDs, then promotes an OTA group and deduplicates reruns', (t) => {
+test('real CLI publishes readable notes and receipts, promotes an OTA from a legacy receipt and deduplicates reruns', (t) => {
     const f = fixture(t)
     f.addRequest('native-140', 'native', null)
     let outcome = f.invoke(['publish'])
@@ -173,15 +173,42 @@ test('real CLI stages exact native builds, submits their IDs, then promotes an O
     let state = f.state()
     assert.deepEqual(state.submissions, ['1'.repeat(36), '2'.repeat(36)])
     assert.equal(state.releases['mobile-release/native-140'].draft, false)
-    assert.equal(state.releases['mobile-release/native-140'].tag_name, 'mobile-release/native-140')
-    assert.equal(JSON.parse(state.releases['mobile-release/native-140'].body).state, 'complete')
+    const native = state.releases['mobile-release/native-140']
+    assert.equal(native.tag_name, 'mobile-release/native-140')
+    const nativeReceipt = JSON.parse(native.assets[0].content)
+    assert.equal(nativeReceipt.state, 'complete')
+    assert.deepEqual(
+        nativeReceipt.result.submittedBuilds.map(({ id }) => id),
+        state.submissions
+    )
+    assert.match(native.body, /Invented test release\./)
+    assert.match(native.body, /\| iOS \| TestFlight \| Completed \|/)
+    assert.match(native.body, /\| Android \| Google Play internal testing \| Completed \|/)
+    assert.match(native.body, /mobile-release%2Fnative-140\/mobile-release-receipt\.json/)
+    assert.doesNotMatch(native.body, /certificateFingerprint|schemaVersion/)
     assert.deepEqual(state.deploymentStatuses, ['in_progress', 'success'])
     assert.ok(state.commands.filter(({ tool }) => tool === 'eas').every(({ args }) => !args.includes('--latest')))
+    const nativeEffects = state.commands.filter(({ tool }) => tool === 'eas').length
+    assert.equal(f.invoke(['publish']).status, 0)
+    assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, nativeEffects)
+    native.assets[0].content = 'invalid JSON'
+    writeFileSync(f.stateFile, JSON.stringify(state))
+    assert.notEqual(f.invoke(['publish']).status, 0)
+    assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, nativeEffects)
+    delete native.assets
+    writeFileSync(f.stateFile, JSON.stringify(state))
+    assert.notEqual(f.invoke(['publish']).status, 0)
+    assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, nativeEffects)
+    native.body = JSON.stringify(nativeReceipt)
+    writeFileSync(f.stateFile, JSON.stringify(state))
     f.addRequest('chart-fix', 'ota', 'native-140')
     outcome = f.invoke(['publish'])
     assert.equal(outcome.status, 0, outcome.stderr)
     state = f.state()
-    const ota = JSON.parse(state.releases['mobile-release/chart-fix'].body)
+    const otaRelease = state.releases['mobile-release/chart-fix']
+    const ota = JSON.parse(otaRelease.assets[0].content)
+    assert.match(otaRelease.body, /Published to the production channel for iOS and Android\./)
+    assert.doesNotMatch(otaRelease.body, /Build submissions/)
     assert.equal(ota.staged.group, 'b'.repeat(36))
     assert.equal(ota.result.productionGroup, 'c'.repeat(36))
     assert.equal(ota.native.runtimeVersion, '1.4.0')
@@ -197,6 +224,85 @@ test('real CLI stages exact native builds, submits their IDs, then promotes an O
     outcome = f.invoke(['publish'])
     assert.equal(outcome.status, 0, outcome.stderr)
     assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
+})
+
+test('environment reads retry transient failures and fail closed without repeating publication', async (t) => {
+    for (const [name, faults, succeeds, builds, reads, error] of [
+        ['post-build network and server failures', [null, 'network', 503], true, 1, 4, null],
+        ['initial rate limit', [429], true, 1, 3, null],
+        [
+            'exhausted post-build network failures',
+            [null, 'network', 'network', 'network'],
+            false,
+            1,
+            4,
+            /3 attempt.*network failure/,
+        ],
+        ['exhausted server failures', [503, 503, 503], false, 0, 3, /3 attempt.*HTTP 503/],
+        ['authentication failure', [403], false, 0, 1, /1 attempt.*HTTP 403/],
+        ['malformed response', ['json'], false, 0, 1, /invalid JSON response/],
+        ['GraphQL rejection', ['graphql'], false, 0, 1, /Cannot audit/],
+    ]) {
+        await t.test(name, (t) => {
+            const f = fixture(t)
+            f.addRequest('native-140', 'native', null)
+            const outcome = f.invoke(['publish'], { MOBILE_FAKE_EXPO_READS: JSON.stringify(faults) })
+            assert.equal(outcome.status === 0, succeeds, outcome.stderr)
+            const state = f.state()
+            assert.equal(state.commands.filter(({ command }) => command === 'build').length, builds)
+            assert.equal(state.submissions.length, succeeds ? 2 : 0)
+            assert.equal(state.expoReads, reads)
+            assert.doesNotMatch(outcome.stderr, /invented-sensitive-response/)
+            if (succeeds) {
+                assert.equal(
+                    JSON.parse(state.releases['mobile-release/native-140'].assets[0].content).state,
+                    'complete'
+                )
+            } else {
+                assert.match(outcome.stderr, error)
+                assert.equal(state.pointer, null)
+                if (builds) {
+                    assert.equal(JSON.parse(state.releases['mobile-release/native-140'].body).state, 'claimed')
+                    assert.deepEqual(state.deploymentStatuses, ['in_progress', 'failure'])
+                } else {
+                    assert.deepEqual(state.releases, {})
+                }
+            }
+        })
+    }
+})
+
+test('receipt finalization failures retain the staged claim and never advance production or resubmit', async (t) => {
+    for (const failure of ['receipt-upload', 'receipt-download', 'receipt-publish']) {
+        await t.test(failure, (t) => {
+            const f = fixture(t)
+            f.addRequest('native-140', 'native', null)
+            const failed = f.invoke(['publish'], { MOBILE_FAKE_FAIL: failure })
+            assert.notEqual(failed.status, 0)
+            const state = f.state()
+            const release = state.releases['mobile-release/native-140']
+            assert.equal(release.draft, true)
+            const claim = JSON.parse(release.body)
+            assert.equal(claim.state, 'claimed')
+            assert.equal(claim.staged.builds.length, 2)
+            if (failure === 'receipt-upload') {
+                assert.equal(release.assets, undefined)
+            } else {
+                assert.equal(JSON.parse(release.assets[0].content).state, 'complete')
+            }
+            if (failure === 'receipt-download') {
+                assert.match(failed.stderr, /Uploaded release receipt differs/)
+            }
+            assert.equal(state.pointer, null)
+            assert.equal(state.submissions.length, 2)
+            const effectsBefore = state.commands.filter(({ tool }) => tool === 'eas').length
+            const retry = f.invoke(['publish'])
+            assert.notEqual(retry.status, 0)
+            assert.match(retry.stderr, /already claimed/)
+            assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
+            assert.equal(f.state().pointer, null)
+        })
+    }
 })
 
 test('lost submission response retains staged IDs and rerunning the workflow cannot duplicate submissions', (t) => {
@@ -237,6 +343,12 @@ test('lost submission response retains staged IDs and rerunning the workflow can
     assert.equal(f.state().submissions.length, 1)
     assert.equal(f.state().releases['mobile-release/native-150'], undefined)
     const duplicate = f.state()
+    duplicate.releases['mobile-release/native-140'].body = JSON.stringify({ ...receipt, state: 'abandoned' })
+    writeFileSync(f.stateFile, JSON.stringify(duplicate))
+    const stagedAbandonment = f.invoke(['publish'], { MOBILE_FAKE_VERSION: '1.5.0' })
+    assert.notEqual(stagedAbandonment.status, 0)
+    assert.match(stagedAbandonment.stderr, /sharing this predecessor/)
+    assert.equal(f.state().submissions.length, 1)
     duplicate.extraReleases.push({ ...duplicate.releases['mobile-release/native-140'], id: 1000 })
     writeFileSync(f.stateFile, JSON.stringify(duplicate))
     const ambiguous = f.invoke(['publish'])
@@ -287,16 +399,36 @@ test('unreadable native environment inputs stop before claim and mismatched buil
     assert.match(mismatch.stderr, /build fingerprints differ/)
     assert.deepEqual(f.state().submissions, [])
     assert.deepEqual(f.state().deploymentStatuses, ['in_progress', 'failure'])
+    f.addRequest('native-corrected', 'native', null, '1.5.0')
+    const unreconciled = f.invoke(['publish'], { MOBILE_FAKE_VERSION: '1.5.0' })
+    assert.notEqual(unreconciled.status, 0)
+    assert.match(unreconciled.stderr, /sharing this predecessor/)
+    const state = f.state()
+    const claim = state.releases['mobile-release/native-140']
+    claim.body = JSON.stringify({ ...JSON.parse(claim.body), state: 'abandoned' })
+    writeFileSync(f.stateFile, JSON.stringify(state))
+    const corrected = f.invoke(['publish'], { MOBILE_FAKE_VERSION: '1.5.0' })
+    assert.equal(corrected.status, 0, corrected.stderr)
+    assert.equal(f.state().releases['mobile-release/native-140'].body, claim.body)
+    assert.equal(f.state().releases['mobile-release/native-corrected'].draft, false)
+    assert.equal(f.state().submissions.length, 2)
 })
 
-test('removing a build-time variable during staging cannot inherit a stale value and publish', (t) => {
-    const f = fixture(t)
-    f.addRequest('native-140', 'native', null)
-    const outcome = f.invoke(['publish'], { MOBILE_FAKE_CHANGE: 'remove' })
-    assert.notEqual(outcome.status, 0)
-    assert.match(outcome.stderr, /names, types or contents changed/)
-    assert.deepEqual(f.state().submissions, [])
-    assert.equal(f.state().pointer, null)
+test('removing a build-time variable blocks publication even after a retried environment read', async (t) => {
+    for (const faults of [[], [null, 'network']]) {
+        await t.test(JSON.stringify(faults), (t) => {
+            const f = fixture(t)
+            f.addRequest('native-140', 'native', null)
+            const outcome = f.invoke(['publish'], {
+                MOBILE_FAKE_CHANGE: 'remove',
+                MOBILE_FAKE_EXPO_READS: JSON.stringify(faults),
+            })
+            assert.notEqual(outcome.status, 0)
+            assert.match(outcome.stderr, /names, types or contents changed/)
+            assert.deepEqual(f.state().submissions, [])
+            assert.equal(f.state().pointer, null)
+        })
+    }
 })
 
 test('signing configuration and a matching private key are required before a release is claimed', (t) => {
@@ -326,9 +458,10 @@ test('signing configuration and a matching private key are required before a rel
     }
     for (const fingerprint of [undefined, 'different-certificate']) {
         const state = f.state()
-        const receipt = JSON.parse(state.releases['mobile-release/native-140'].body)
+        const asset = state.releases['mobile-release/native-140'].assets[0]
+        const receipt = JSON.parse(asset.content)
         receipt.native.certificateFingerprint = fingerprint
-        state.releases['mobile-release/native-140'].body = JSON.stringify(receipt)
+        asset.content = JSON.stringify(receipt)
         writeFileSync(f.stateFile, JSON.stringify(state))
         const outcome = f.invoke(['publish'])
         assert.notEqual(outcome.status, 0)

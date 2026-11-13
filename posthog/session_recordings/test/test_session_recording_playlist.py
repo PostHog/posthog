@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
@@ -36,8 +35,6 @@ from posthog.session_recordings.session_recording_playlist_api import (
     _attach_empty_recordings_counts,
     _empty_saved_filters_counts,
     count_collection_recordings,
-    parse_non_negative_int,
-    parse_positive_int,
     precompute_recordings_counts,
 )
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
@@ -917,6 +914,27 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("recordings_non_numeric_limit", True, {"limit": "abc"}),
+            ("recordings_negative_offset", True, {"offset": -1}),
+            ("list_non_numeric_limit", False, {"limit": "abc"}),
+            ("list_negative_limit", False, {"limit": -5}),
+            ("list_negative_offset", False, {"offset": -1}),
+        ]
+    )
+    def test_rejects_bad_paging_params(self, _name: str, recordings: bool, params: dict[str, str | int]) -> None:
+        url = f"/api/projects/{self.team.id}/session_recording_playlists"
+        if recordings:
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="collection", created_by=self.user, type="collection"
+            )
+            url = f"{url}/{playlist.short_id}/recordings"
+
+        response = self.client.get(url, data=params)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
             ("narrow_window_excludes", "-1d", False),
             ("covering_window_includes", "-30d", True),
         ]
@@ -1153,6 +1171,68 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         ).first()
         assert fs_entry is not None
         assert "Special Folder/Session Recordings" in fs_entry.path
+
+    @parameterized.expand([["single_pin"], ["bulk_add"]])
+    def test_pinning_stores_recording_start_time(self, mode: str) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="pins",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        # ClickHouse rows outlive each test case, so each case needs its own session IDs
+        in_clickhouse = f"in-clickhouse-{mode}"
+        not_in_clickhouse = f"not-in-clickhouse-{mode}"
+        start_time = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0)
+        produce_replay_summary(
+            team_id=self.team.id,
+            session_id=in_clickhouse,
+            distinct_id="123",
+            first_timestamp=start_time,
+            last_timestamp=start_time + timedelta(seconds=5),
+        )
+
+        base_url = f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+        session_ids = [in_clickhouse, not_in_clickhouse]
+        with self.captureOnCommitCallbacks(execute=True):
+            if mode == "single_pin":
+                for session_id in session_ids:
+                    assert self.client.post(f"{base_url}/{session_id}").status_code == status.HTTP_200_OK
+            else:
+                response = self.client.post(
+                    f"{base_url}/bulk_add", {"session_recording_ids": session_ids}, format="json"
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+        pinned = SessionRecording.objects.get(team=self.team, session_id=in_clickhouse)
+        assert pinned.start_time == start_time
+        assert pinned.retention_period_days is not None
+        assert SessionRecording.objects.get(team=self.team, session_id=not_in_clickhouse).start_time is None
+
+    @parameterized.expand([["single_pin"], ["bulk_add"]])
+    def test_repinning_does_not_queue_metadata_lookup(self, mode: str) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="repins",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        base_url = f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+
+        with (
+            patch("posthog.tasks.tasks.store_pinned_recording_metadata.delay") as mock_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for _ in range(3):
+                if mode == "single_pin":
+                    response = self.client.post(f"{base_url}/repinned")
+                else:
+                    response = self.client.post(
+                        f"{base_url}/bulk_add", {"session_recording_ids": ["repinned"]}, format="json"
+                    )
+                assert response.status_code == status.HTTP_200_OK
+
+        mock_delay.assert_called_once_with(self.team.id, ["repinned"])
 
     @parameterized.expand(
         [
@@ -1729,6 +1809,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         [
             ("soft_deleted", {"deleted": True}, {}),
             ("expired", {}, {"start_time": datetime.now(UTC) - timedelta(days=31)}),
+            ("expired_without_start_time", {"created_at": datetime.now(UTC) - timedelta(days=31)}, {}),
         ]
     )
     def test_gone_items_excluded_from_count_and_watched(
@@ -1736,7 +1817,12 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
     ) -> None:
         playlist = self._make_playlist("gone")
         rec = SessionRecording.objects.create(team=self.team, session_id="gone-1", **recording_kwargs)
-        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, **item_kwargs)
+        item_created_at = item_kwargs.get("created_at")
+        item = SessionRecordingPlaylistItem.objects.create(
+            playlist=playlist, recording=rec, **{k: v for k, v in item_kwargs.items() if k != "created_at"}
+        )
+        if item_created_at:
+            SessionRecordingPlaylistItem.objects.filter(pk=item.pk).update(created_at=item_created_at)
         kept = SessionRecording.objects.create(
             team=self.team, session_id="kept-1", start_time=datetime.now(UTC) - timedelta(days=29)
         )
@@ -1748,6 +1834,18 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
         assert playlist._prefetched_collection_count == {"count": 1, "watched_count": 1}  # type: ignore[attr-defined]
         assert count_collection_recordings(playlist, self.user, self.team) == {"count": 1, "watched_count": 1}
+
+    def test_recording_retention_overrides_team_retention(self) -> None:
+        playlist = self._make_playlist("longer retention")
+        rec = SessionRecording.objects.create(
+            team=self.team,
+            session_id="kept-longer",
+            start_time=datetime.now(UTC) - timedelta(days=40),
+            retention_period_days=90,
+        )
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec)
+
+        assert count_collection_recordings(playlist, self.user, self.team) == {"count": 1, "watched_count": 0}
 
     def test_empty_collection_loads_saved_filters_from_redis(self) -> None:
         playlist = self._make_playlist("empty")
@@ -1887,31 +1985,3 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         # and certainly no self-referential loop.
         assert data["next"] is None
         assert len(data["results"]) == data["count"]
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 0),
-        ("-5", 0),
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_non_negative_int(value: object, expected: int) -> None:
-    assert parse_non_negative_int(value, 100) == expected
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 100),  # limit=0 would loop pagination -> default
-        ("-5", 100),  # non-positive -> default
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_positive_int(value: object, expected: int) -> None:
-    assert parse_positive_int(value, 100) == expected

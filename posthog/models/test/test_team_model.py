@@ -1,12 +1,9 @@
-from collections.abc import Callable
-
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -16,8 +13,6 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
-from posthog.storage.team_metadata_cache import team_metadata_hypercache
-from posthog.tasks.team_metadata import ROTATED_TOKEN_EVICTION_DELAY_SECONDS
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -469,59 +464,6 @@ class TestTeamSetTokenAndSave(BaseTest):
         assert change["field"] == "api_token"
         assert change["before"] == "phc_old_token_value"
         assert change["after"] == "phc_new_token_value"
-
-    @parameterized.expand(
-        [
-            ("reset", lambda team, user: team.reset_token_and_save(user=user, is_impersonated_session=False)),
-            (
-                "set",
-                lambda team, user: team.set_token_and_save(
-                    new_token="phc_new_token_value", user=user, is_impersonated_session=False
-                ),
-            ),
-        ]
-    )
-    @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
-    @patch("posthog.tasks.team_metadata.evict_rotated_token_team_metadata_cache_task.apply_async")
-    @patch("posthog.tasks.remote_config.update_team_remote_config.delay")
-    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
-    def test_token_change_evicts_old_token_from_team_metadata_cache(
-        self,
-        _name: str,
-        change_token: Callable[[Team, User], None],
-        _mock_push_vercel,
-        _mock_sync_remote_config,
-        mock_delayed_eviction,
-    ) -> None:
-        old_key = team_metadata_hypercache.get_cache_key("phc_old_token_value")
-        team_metadata_hypercache.set_cache_value_redis_only(self.team, {"id": self.team.id})
-        assert team_metadata_hypercache.cache_client.get(old_key) is not None
-
-        with self.captureOnCommitCallbacks(execute=True):
-            change_token(self.team, self.user)
-
-        assert team_metadata_hypercache.cache_client.get(old_key) is None
-        mock_delayed_eviction.assert_called_once_with(
-            args=["phc_old_token_value"], countdown=ROTATED_TOKEN_EVICTION_DELAY_SECONDS
-        )
-
-    @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
-    @patch("posthog.tasks.team_metadata.capture_exception")
-    @patch.object(team_metadata_hypercache, "delete_cache_entry", side_effect=ConnectionError("redis down"))
-    @patch("posthog.tasks.team_metadata.evict_rotated_token_team_metadata_cache_task.apply_async")
-    @patch("posthog.tasks.remote_config.update_team_remote_config.delay")
-    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
-    def test_failed_eviction_does_not_block_the_token_change(
-        self, _mock_push_vercel, mock_sync_remote_config, mock_delayed_eviction, _mock_delete, mock_capture
-    ) -> None:
-        with self.captureOnCommitCallbacks(execute=True):
-            self.team.set_token_and_save(new_token="phc_new_token_value", user=self.user, is_impersonated_session=False)
-
-        self.team.refresh_from_db()
-        assert self.team.api_token == "phc_new_token_value"
-        mock_capture.assert_called_once()
-        mock_sync_remote_config.assert_any_call(self.team.id, old_token="phc_old_token_value")
-        mock_delayed_eviction.assert_called_once()
 
     def test_set_token_and_save_rejects_token_already_taken_by_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, api_token="phc_already_taken")

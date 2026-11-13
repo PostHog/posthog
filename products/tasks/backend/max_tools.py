@@ -9,12 +9,15 @@ from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
 from posthog.storage import object_storage
 
+from products.signals.backend.facade.trial import prepare_task_trial
+
 from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
 from .facade.access import analytics_context_reader
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
+from .task_profiles import USER
 from .temporal.client import execute_task_processing_workflow_async
 from .visibility import task_control_q, task_visibility_q
 
@@ -87,6 +90,7 @@ By default, the task will be created and immediately executed. Set run=false to 
                 title=title,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
+                profile=USER.key,
                 repository=repository,
                 github_integration_id=github_integration.id if github_integration is not None else None,
             )
@@ -154,35 +158,55 @@ Use this tool when the user wants to:
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
 
         @sync_to_async
-        @transaction.atomic
-        def get_task_and_create_run():
-            task = (
-                Task.objects.select_for_update(of=("self",))
-                .filter(id=task_id, team=self._team, deleted=False)
-                .filter(task_control_q(self._user.id))
-                .first()
+        def get_task_and_create_run() -> dict[str, str | int] | None:
+            tasks = Task.objects.filter(id=task_id, team=self._team, deleted=False).filter(
+                task_control_q(self._user.id)
             )
-
-            if not task:
+            admission_task = tasks.first()
+            if admission_task is None:
                 return None
-            if task.runtime == Task.Runtime.PI:
-                return {"error": "unsupported_runtime"}
-
-            task_run = task.create_run()
-            enqueue_or_start_workflow(
-                task_run,
-                start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
-                options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+            trial_admission = prepare_task_trial(
+                team=self._team,
+                origin=admission_task.origin_product,
+                report_id=admission_task.signal_report_source_id,
+                mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
             )
-            task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
-            return {
-                "task_id": str(task.id),
-                "run_id": str(task_run.id),
-                "slug": task.slug,
-                "title": task.title,
-                "team_id": task.team.id,
-                "url": task_url,
-            }
+            if trial_admission is None and admission_task.uses_self_driving_billing("background"):
+                tasks_facade.enforce_self_driving_pr_quota(
+                    self._team,
+                    report_id=str(admission_task.signal_report_source_id)
+                    if admission_task.signal_report_source_id
+                    else None,
+                    stage="task_tool",
+                )
+
+            with transaction.atomic():
+                if trial_admission is not None:
+                    trial_admission.lock_report(admission_task.signal_report_source_id)
+                task = tasks.select_for_update(of=("self",)).first()
+                if task is None:
+                    return None
+                if task.runtime == Task.Runtime.PI:
+                    return {"error": "unsupported_runtime"}
+
+                try:
+                    task_run = task.create_run(_trial_admission=trial_admission)
+                except tasks_facade.TaskDoneError:
+                    return {"error": "task_done"}
+                enqueue_or_start_workflow(
+                    task_run,
+                    start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
+                    options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+                )
+                task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
+                return {
+                    "task_id": str(task.id),
+                    "run_id": str(task_run.id),
+                    "slug": task.slug,
+                    "title": task.title,
+                    "team_id": task.team.id,
+                    "url": task_url,
+                }
 
         result = await get_task_and_create_run()
 
@@ -190,6 +214,8 @@ Use this tool when the user wants to:
             return f"Task with ID {task_id} not found", {"error": "not_found"}
         if result.get("error") == "unsupported_runtime":
             return "Pi tasks cannot be run through the ACP task workflow.", result
+        if result.get("error") == "task_done":
+            return str(tasks_facade.TaskDoneError()), result
 
         return (
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"
@@ -419,14 +445,13 @@ Use this tool when the user wants to:
                 else:
                     qs = qs.filter(repository__iendswith=f"/{repo_str}")
 
-            tasks = list(qs.prefetch_related("runs")[:limit])
+            tasks = list(qs[:limit])
 
             task_list = []
             lines = [f"Found {len(tasks)} task(s):\n"] if tasks else []
 
             for task in tasks:
-                latest_run = task.latest_run
-                status = latest_run.get_status_display() if latest_run else "Not run"
+                status = task.status_label or "Unknown"
 
                 lines.append(f"- {task.slug} (ID: {task.id}): {task.title}")
                 lines.append(f"  Status: {status} | Repository: {task.repository or 'N/A'}")
@@ -438,7 +463,8 @@ Use this tool when the user wants to:
                         "title": task.title,
                         "repository": task.repository,
                         "origin_product": task.origin_product,
-                        "status": latest_run.status if latest_run else None,
+                        "status": task.status,
+                        "status_reason": task.status_reason,
                     }
                 )
 

@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
+import { Input } from '@posthog/quill'
 
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { StickinessOperator } from '~/queries/schema/schema-general'
@@ -11,6 +13,7 @@ import { EditorFilterProps, PropertyOperator } from '~/types'
 export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Element {
     const { stickinessFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     const stickinessCriteria = stickinessFilter?.stickinessCriteria
     const currentOperator = stickinessCriteria?.operator ?? PropertyOperator.GreaterThanOrEqual
@@ -21,6 +24,17 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
         PropertyOperator.GreaterThanOrEqual,
         PropertyOperator.Exact,
     ]
+
+    const onValueChange = (newValue: number | undefined): void => {
+        // A cleared or half-typed number field reports NaN, which would serialize to null and
+        // fail the backend's integer validation, so drop any non-finite value.
+        if (newValue === undefined || !Number.isFinite(newValue)) {
+            return
+        }
+        // The backend requires an integer of at least 1, so never post 0 or a negative value.
+        const value = Math.max(1, Math.floor(newValue))
+        updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value } })
+    }
 
     return (
         <div className="flex items-center gap-2 @min-[0px]/editor-panel:flex-wrap">
@@ -35,22 +49,23 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
                     }}
                 />
             </div>
-            <LemonInput
-                type="number"
-                className="w-20"
-                defaultValue={currentValue}
-                min={1}
-                onChange={(newValue: number | undefined) => {
-                    // A cleared or half-typed number field reports NaN, which would serialize to null and
-                    // fail the backend's integer validation, so drop any non-finite value.
-                    if (newValue === undefined || !Number.isFinite(newValue)) {
-                        return
-                    }
-                    // The backend requires an integer of at least 1, so never post 0 or a negative value.
-                    const value = Math.max(1, Math.floor(newValue))
-                    updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value } })
-                }}
-            />
+            {quillSurface ? (
+                <Input
+                    type="number"
+                    className="w-20"
+                    defaultValue={currentValue}
+                    min={1}
+                    onChange={(event) => onValueChange(event.currentTarget.valueAsNumber)}
+                />
+            ) : (
+                <LemonInput
+                    type="number"
+                    className="w-20"
+                    defaultValue={currentValue}
+                    min={1}
+                    onChange={onValueChange}
+                />
+            )}
             <span className="@min-[0px]/editor-panel:whitespace-nowrap">time(s) per interval</span>
         </div>
     )

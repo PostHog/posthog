@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     Badge,
     Button,
@@ -24,6 +23,7 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
+    Skeleton,
     Spinner,
     Table,
     TableBody,
@@ -33,6 +33,9 @@ import {
     TableHeader,
     TableRow,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
     getPaginationRange,
 } from 'lib/ui/quill'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
@@ -59,10 +62,11 @@ function JobStatus({ status, error }: { status: string; error: string | null }):
     )
 
     return error ? (
-        <Tooltip title={<span className="whitespace-pre-wrap">{error}</span>} interactive>
-            <span tabIndex={0} aria-label={`${status}. ${error}`}>
-                {badge}
-            </span>
+        <Tooltip>
+            <TooltipTrigger render={<span tabIndex={0} aria-label={`${status}. ${error}`} />}>{badge}</TooltipTrigger>
+            <TooltipContent>
+                <span className="whitespace-pre-wrap">{error}</span>
+            </TooltipContent>
         </Tooltip>
     ) : (
         badge
@@ -208,14 +212,30 @@ export function MaterializationJobsTable({
                                 })}
                             </TableBody>
                         ) : jobsLoading && !materializationJobs ? (
-                            <TableBody>
-                                <TableRow>
-                                    <TableCell colSpan={managedWarehouseEnabled ? 7 : 6}>
-                                        <div className="flex justify-center py-8">
-                                            <Spinner />
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
+                            <TableBody aria-label="Loading materialization jobs">
+                                {Array.from({ length: 4 }, (_, index) => (
+                                    <TableRow key={index} aria-hidden="true">
+                                        <TableCell expand>
+                                            <Skeleton className="motion-reduce:animate-none h-4 w-40 max-w-full" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Skeleton className="motion-reduce:animate-none h-4 w-20" />
+                                        </TableCell>
+                                        {managedWarehouseEnabled ? (
+                                            <TableCell>
+                                                <Skeleton className="motion-reduce:animate-none h-4 w-24" />
+                                            </TableCell>
+                                        ) : null}
+                                        {Array.from({ length: 4 }, (_, column) => (
+                                            <TableCell
+                                                key={column}
+                                                className="hidden @min-[48rem]/main-content:table-cell"
+                                            >
+                                                <Skeleton className="motion-reduce:animate-none h-4 w-16" />
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))}
                             </TableBody>
                         ) : (
                             <TableEmpty className="py-8 text-secondary">

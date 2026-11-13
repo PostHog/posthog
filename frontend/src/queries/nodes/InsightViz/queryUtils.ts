@@ -72,10 +72,10 @@ export const syncSelectedVariablesToQuery = (
     selectedVariables: HogQLVariable[]
 ): HogQLVariable[] => {
     const queryCodeNames = Array.from(new Set(getVariablesFromQuery(query ?? '')))
-    const queryCodeNamesSet = new Set(queryCodeNames)
     const variablesByCodeName = new Map(variables.map((variable) => [variable.code_name, variable]))
 
-    const syncedVariables = selectedVariables.filter((variable) => queryCodeNamesSet.has(variable.code_name))
+    const availableIds = new Set(variables.map((variable) => variable.id))
+    const syncedVariables = selectedVariables.filter((variable) => availableIds.has(variable.variableId))
     const selectedVariableIds = new Set(syncedVariables.map((variable) => variable.variableId))
 
     queryCodeNames.forEach((codeName) => {
@@ -223,17 +223,14 @@ export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['se
     )
 }
 
-// The caller passes the regex check so that the RE2 engine stays out of every bundle that imports this module.
-export const validateQuery = (q: DataNode, hasInvalidRegexFilter: (q: DataNode) => boolean): boolean => {
+// Regex filters are checked separately with `hasInvalidRegexPattern`, because the RE2 engine loads on demand.
+export const validateQuery = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
         return isFunnelWithEnoughSteps(q.series) && !isFunnelWithIncompleteDataWarehouseStep(q.series)
     }
 
     if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
         return !isBoxPlotMissingProperty(q.series)
-    }
-    if (hasInvalidRegexFilter(q)) {
-        return false
     }
     return true
 }

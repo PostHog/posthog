@@ -7,28 +7,24 @@ Provides async tasks for updating and syncing team metadata caches.
 import time
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 
 import structlog
 from celery import shared_task
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,
-    evict_team_metadata_cache_for_token,
     get_cache_stats,
     refresh_expiring_caches,
+    team_metadata_hypercache,
     update_team_metadata_cache,
 )
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
-
-# Both scheduled jobs run hourly. The verification task stops at its 40-minute hard limit.
-# The refresh task has no time limit. One hour assumes that a refresh run ends within its period.
-ROTATED_TOKEN_EVICTION_DELAY_SECONDS = 60 * 60
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -60,52 +56,6 @@ def update_team_metadata_cache_task(team_id: int) -> None:
     ).inc()
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
-    autoretry_for=(Exception,),
-    max_retries=5,
-    retry_backoff=30,
-)
-@skip_team_scope_audit
-def evict_rotated_token_team_metadata_cache_task(old_token: str) -> None:
-    """
-    Delete a rotated token's team metadata entry that a scheduled cache job wrote back after the rotation.
-    """
-    # The task runs an hour after the rotation. By then the team may have set this token again.
-    # Another team may also have taken it. In both cases the token's entry is live.
-    if Team.objects.filter(api_token=old_token).exists():
-        return
-
-    evict_team_metadata_cache_for_token(old_token)
-
-
-def evict_team_metadata_cache_after_token_change(old_token: str) -> None:
-    """
-    Evict a rotated token's entry now, and schedule a second eviction after the scheduled cache jobs.
-
-    A refresh or verification run that loaded the team before the rotation writes the old token's
-    entry back when it reaches the team. The delayed task deletes that entry and retries a failed delete.
-    The function captures a failure and never raises it, because the token change has already committed.
-    """
-    if not settings.FLAGS_REDIS_URL:
-        return
-
-    try:
-        evict_team_metadata_cache_for_token(old_token)
-    except Exception as e:
-        logger.exception("Failed to evict team metadata cache entry of a rotated token")
-        capture_exception(e)
-
-    try:
-        evict_rotated_token_team_metadata_cache_task.apply_async(
-            args=[old_token], countdown=ROTATED_TOKEN_EVICTION_DELAY_SECONDS
-        )
-    except Exception as e:
-        logger.exception("Failed to schedule the delayed eviction of a rotated token")
-        capture_exception(e)
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def update_related_teams_metadata_cache_task(organization_id: int | None = None, project_id: int | None = None) -> None:
@@ -135,6 +85,30 @@ def update_related_teams_metadata_cache_task(organization_id: int | None = None,
             error=str(e),
         )
         raise
+
+
+# The task retries because no rebuild repairs an entry whose token no longer belongs to a team.
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=900,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def clear_team_metadata_cache_for_token_task(api_token: str) -> None:
+    """Clear the metadata cache entry for a token that no longer belongs to a team, from Redis and S3.
+
+    The task takes the token because the Team row may be gone, and then no query can find the token from a team id.
+    """
+    # A retry can run hours later, after a staff token change gave the token back to a team.
+    # The check reads the primary because a lagging replica still shows the old owner.
+    # The task would then skip the delete and never retry it.
+    if Team.objects.using(DEFAULT_DB_ALIAS).filter(api_token=api_token).exists():
+        return
+    # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
+    team_metadata_hypercache.delete_cache_entry(api_token, strict_mirror=True)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -195,8 +169,8 @@ def cleanup_stale_expiry_tracking_task() -> None:
     """
     Periodic task to clean up stale entries in the expiry tracking sorted set.
 
-    Removes entries for teams that no longer exist in the database.
-    Runs daily to prevent sorted set bloat from deleted teams.
+    Deletes the cache entries of teams that no longer exist and removes their tracking members.
+    Runs daily, because a refresh can write a deleted team's entry again after the delete path cleared it.
     """
     if not settings.FLAGS_REDIS_URL:
         logger.info("Flags Redis URL not set, skipping expiry tracking cleanup")

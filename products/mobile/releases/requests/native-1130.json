@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-1130",
+    "kind": "native",
+    "runtimeVersion": "1.13.0",
+    "previousRelease": "ota-1110-final-reply",
+    "notes": "This release adds session replay video, report links that open in the app, updated iOS icons and a masked mobile replay prototype. Verify replay playback and session handoff, report links after cold and warm starts, and light, dark and tinted iOS icons. Check sign-in, chats, notifications and home screen widgets on both platforms."
+}

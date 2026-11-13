@@ -7,6 +7,7 @@ import dataclasses
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, get_args, get_type_hints
+from urllib.parse import urlsplit
 
 import orjson
 import stripe as stripe_lib
@@ -40,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookFallback,
+    WebhookSourceManager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     APPLICATION_FEE_RESOURCE_NAME,
@@ -84,6 +88,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_ATTEMPT_RESOURCE_NAME,
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
+    STRIPE_V2_MONEY_MANAGEMENT_VERSIONS,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -106,6 +111,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     DEFAULT_PRIMARY_KEYS,
     NON_PARTITIONED_ENDPOINTS,
     PRIMARY_KEYS,
+    V2_LIST_PATHS,
     WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS,
 )
@@ -120,6 +126,9 @@ if TYPE_CHECKING:
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+# Stripe's v2 Money Management list endpoints (V2_LIST_PATHS) cap `limit` at 50, unlike the v1
+# lists' 100 — requesting DEFAULT_LIMIT against one raises "Limit must be between 1 and 50".
+V2_LIST_PAGE_LIMIT = 50
 # Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
 # discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
 # objects can grow past the size that reliably transfers intact, and the response then arrives
@@ -218,6 +227,16 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
     return _head_mentions_list_object(raw, start)
 
 
+def _is_truncated_json_object(body: Any) -> bool:
+    """True when ``body`` opens a JSON object but never closes it. API v2 lists carry no
+    ``"object": "list"`` marker, so this is the only shape check that applies to them."""
+    bounds = _trimmed_body_bounds(body)
+    if bounds is None:
+        return False
+    raw, start, end = bounds
+    return raw[start] == _OPEN_BRACE and raw[end] != _CLOSE_BRACE
+
+
 def _is_non_list_stripe_response(body: Any) -> bool:
     """True when ``body`` is a *complete* JSON object that is not a Stripe ``list``.
 
@@ -272,6 +291,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
+    _last_request_is_v2: bool = False
 
     def __init__(
         self,
@@ -295,6 +315,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         post_data: Any = None,
     ) -> tuple[bytes, int, Mapping[str, str]]:
         self._last_request_method = (method or "").lower()
+        self._last_request_is_v2 = urlsplit(url).path.startswith("/v2/")
         if self._before_request is not None:
             self._before_request()
         return super().request(method, url, headers, post_data)
@@ -329,6 +350,8 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         body, status_code, _ = response
         if not (200 <= status_code < 300):
             return False
+        if self._last_request_is_v2:
+            return self._last_request_method == "get" and _is_truncated_json_object(body)
         if _is_truncated_stripe_list_response(body):
             return True
         # A complete but non-list body identifies a corrupt list read only for a GET — a write
@@ -475,6 +498,39 @@ class _SingleObjectList:
 
     def auto_paging_iter(self):
         yield self._obj
+
+
+class _V2ListPage:
+    """A fetched API v2 list page behind the ``auto_paging_iter`` interface of the v1 lists.
+
+    API v2 pages by following `next_page_url`, not by object-id cursors, so the first page is
+    requested up front (a probe surfaces its error there) and later pages are fetched lazily.
+    """
+
+    def __init__(self, client: StripeClient, page: dict[str, Any]) -> None:
+        self._client = client
+        self._page = page
+
+    def auto_paging_iter(self) -> Iterator[dict[str, Any]]:
+        page = self._page
+        while True:
+            data = page.get("data")
+            # A page without `data` is a corrupt response, not the end of the list. Raise so the sync
+            # retries rather than finishing with a truncated table.
+            if not isinstance(data, list):
+                raise stripe_lib.APIError("Stripe returned an API v2 list page without a data array")
+            yield from data
+            next_page_url = page.get("next_page_url")
+            if not next_page_url:
+                return
+            page = self._client.raw_request("get", next_page_url).data
+
+
+def _v2_lister(client: StripeClient, path: str) -> Callable[..., ListObject[Any]]:
+    def _list(params: dict[str, Any]) -> ListObject[Any]:
+        return cast(ListObject[Any], _V2ListPage(client, client.raw_request("get", path, limit=params["limit"]).data))
+
+    return _list
 
 
 def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
@@ -942,6 +998,7 @@ def _build_resources(
             parent=StripeResource(method=client.setup_intents.list),
             parent_name=SETUP_INTENT_RESOURCE_NAME,
         ),
+        **{name: StripeResource(method=_v2_lister(client, path)) for name, path in V2_LIST_PATHS.items()},
     }
 
 
@@ -975,6 +1032,41 @@ def _stripe_client(
     )
 
 
+def _lists_every_object(
+    resource: Union[StripeResource, StripeNestedResource],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_earliest_value: Optional[Any],
+) -> bool:
+    """Whether a read lists every object, or only the objects created after the stored cursor."""
+    return (
+        not should_use_incremental_field
+        or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
+        or isinstance(resource, StripeNestedResource)
+    )
+
+
+def _webhook_fallback(
+    api_key: str,
+    endpoint: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_earliest_value: Optional[Any],
+) -> Optional[WebhookFallback]:
+    """How `get_rows` reads a webhook-sync table whose webhook is missing, or None when it reads nothing."""
+    if endpoint in V2_LIST_PATHS:
+        return WebhookFallback.FULL_REFRESH
+    # Only the kind of resource matters here. Building the resources sends no request.
+    resource = _build_resources(StripeClient(api_key)).get(endpoint)
+    if resource is None:
+        return None
+    if _lists_every_object(
+        resource, should_use_incremental_field, db_incremental_field_last_value, db_incremental_field_earliest_value
+    ):
+        return WebhookFallback.FULL_REFRESH
+    return WebhookFallback.INCREMENTAL
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -984,7 +1076,6 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     api_version: str,
-    skip_full_listing: bool = False,
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
@@ -1011,9 +1102,23 @@ def get_rows(
         logger.debug(f"Stripe: {endpoint} endpoint is webhook-only, skipping API list")
         return
 
+    if endpoint in V2_LIST_PATHS and api_version not in STRIPE_V2_MONEY_MANAGEMENT_VERSIONS:
+        raise StripeUnsupportedVersionError(endpoint, api_version)
+
     resource = resources.get(endpoint, None)
     if not resource:
         raise Exception(f"Stripe endpoint does not exist: {endpoint}")
+
+    if endpoint in V2_LIST_PATHS:
+        # A v2 page token cannot be saved as a v1 `starting_after` cursor, so these full-refresh tables
+        # save no resume state. An interrupted sync reads the list again and overwrites the table.
+        yield from _batch_and_yield(
+            _iter_cleaning_errors(
+                _call_stripe(resource.method, params={"limit": V2_LIST_PAGE_LIMIT}).auto_paging_iter()
+            ),
+            batcher,
+        )
+        return
 
     logger.debug(f"Stripe: reading from resource {resource}")
 
@@ -1022,19 +1127,11 @@ def get_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if (
-        not should_use_incremental_field
-        or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
-        or isinstance(resource, StripeNestedResource)
+    # The isinstance check repeats one inside `_lists_every_object` so the type checker narrows
+    # `resource` to a flat resource on the incremental path below.
+    if isinstance(resource, StripeNestedResource) or _lists_every_object(
+        resource, should_use_incremental_field, db_incremental_field_last_value, db_incremental_field_earliest_value
     ):
-        if skip_full_listing:
-            logger.warning(
-                f"Stripe: skipped the {endpoint} sync. This table uses webhook sync, but the source has no "
-                "active webhook. Set up the webhook on the source's Webhook tab, or change the table to a "
-                "different sync method."
-            )
-            return
-
         logger.debug(f"Stripe: iterating all objects from resource")
         # Set only on the nested warehouse path; the final flush below is shared with flat
         # resources, which have no parent sweep to checkpoint.
@@ -1449,7 +1546,7 @@ def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
 
     Reading columns through `_column` (None-filled when absent) keeps a malformed payload — only
     reachable with the signature check bypassed — from raising and wedging the batch forever:
-    the S3 files are only deleted after a successful yield, so a raising transformer would replay
+    the S3 files are only deleted after the job completes, so a raising transformer would replay
     the same poison batch on every sync.
     """
 
@@ -1618,17 +1715,23 @@ def stripe_source(
     # re-enable — a poll could never rebuild the table.
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
-    # A webhook table with no webhook falls back to a poll. Only a poll that lists the whole table
-    # is skipped: a table that kept its `created` cursor still polls cheaply with `created[gt]`.
-    webhook_unregistered = (
-        not webhook_enabled and not webhook_only and async_to_sync(webhook_source_manager.webhook_unregistered)()
-    )
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
     warehouse_table_id: Optional[str] = None
     if not webhook_enabled:
         warehouse_parent, warehouse_table_id = _reconcile_warehouse_resume(
             endpoint, warehouse_parent, resumable_source_manager, logger
         )
+        # A webhook-only endpoint has no list to poll, so its run reads nothing and has no fallback.
+        if webhook_source_manager.webhook_missing and not webhook_only:
+            fallback = _webhook_fallback(
+                api_key,
+                endpoint,
+                should_use_incremental_field,
+                db_incremental_field_last_value,
+                db_incremental_field_earliest_value,
+            )
+            if fallback is not None:
+                async_to_sync(webhook_source_manager.record_webhook_fallback)(fallback)
 
     def items():
         if webhook_enabled:
@@ -1666,7 +1769,6 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
-            skip_full_listing=webhook_unregistered,
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
@@ -1719,6 +1821,16 @@ class StripeTransientError(Exception):
     def __init__(self, stripe_message: str):
         self.stripe_message = stripe_message
         super().__init__(stripe_message)
+
+
+class StripeUnsupportedVersionError(Exception):
+    """A table was synced under a pinned API version that does not serve its endpoint."""
+
+    def __init__(self, endpoint: str, api_version: str):
+        super().__init__(
+            f"Stripe {endpoint} is not available on Stripe API version {api_version}. "
+            f"It needs one of: {', '.join(STRIPE_V2_MONEY_MANAGEMENT_VERSIONS)}."
+        )
 
 
 class StripeValidationError(Exception):
@@ -1780,13 +1892,19 @@ def validate_credentials(
     api_key: str,
     endpoints: Optional[list[str]] = None,
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    api_version: Optional[str] = None,
 ) -> bool:
     """Validate Stripe credentials.
 
     - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
     - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    client = StripeClient(
+        api_key,
+        stripe_version=api_version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     if endpoints is None:
@@ -1834,12 +1952,18 @@ def check_endpoint_permissions(
     api_key: str,
     endpoints: list[str],
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    api_version: Optional[str] = None,
 ) -> dict[str, str | None]:
     """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
 
     Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    client = StripeClient(
+        api_key,
+        stripe_version=api_version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     results: dict[str, str | None] = {}

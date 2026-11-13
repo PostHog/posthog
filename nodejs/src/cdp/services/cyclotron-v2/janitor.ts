@@ -6,14 +6,11 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
-import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import {
-    CYCLOTRON_COUNTER_MAX,
-    CyclotronV2CleanupResult,
-    CyclotronV2DequeuedJob,
-    CyclotronV2JanitorConfig,
-} from './types'
+import { QUEUE_DEPTHS_SQL } from './due-rows-sql'
+import { v2JobToInvocation } from './job-codec'
+import { createCyclotronPool } from './pg-pool'
+import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
 // the janitor writes when it gives up on a poison pill. Lets operators target
@@ -75,6 +72,17 @@ const conversionWatchersSweptCounter = new Counter({
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
 
+const idempotencyKeysSweptCounter = new Counter({
+    name: 'cdp_cyclotron_v2_idempotency_keys_swept',
+    help: 'Expired idempotency key rows deleted by the janitor.',
+})
+
+// An alert fires when this stops advancing, so the name must not change.
+const janitorLastSuccessGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_janitor_last_success_timestamp_seconds',
+    help: 'Unix time of the last janitor cycle in which at least one cyclotron stage succeeded',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
@@ -99,16 +107,13 @@ interface PoisonRow {
     created: string
     parent_run_id: string | null
     state: Buffer | null
-    distinct_id: string | null
-    person_id: string | null
-    action_id: string | null
     janitor_touch_count: number
-    transition_count: number
 }
 
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
+    private tickInFlight = false
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -129,7 +134,7 @@ export class CyclotronV2Janitor {
         // refuses to drop a job it can't record a recovery row for.
         private invocationResults?: HogInvocationResultsService
     ) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('janitor', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 5,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
@@ -159,25 +164,45 @@ export class CyclotronV2Janitor {
         const client = await this.pool.connect()
         client.release()
 
-        this.intervalHandle = setInterval(() => {
-            this.runOnce().catch((err) => {
-                logger.error('CyclotronV2Janitor run error', { error: String(err) })
-            })
-        }, this.cleanupIntervalMs)
+        this.intervalHandle = setInterval(() => void this.tick(), this.cleanupIntervalMs)
+        await this.tick()
+    }
 
-        // Run immediately on start
-        await this.runOnce()
+    // A slow cycle must not overlap the next one: both would stack up on the same locked rows.
+    private async tick(): Promise<void> {
+        if (this.tickInFlight) {
+            return
+        }
+        this.tickInFlight = true
+        try {
+            await this.runOnce()
+        } catch (err) {
+            logger.error('CyclotronV2Janitor run error', { error: String(err) })
+        } finally {
+            this.tickInFlight = false
+        }
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
-        // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
-        // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
-        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
-        // sweep touches a different table and swallows its own errors, so running it up front keeps
-        // expired watchers draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
+        await this.sweepExpiredIdempotencyKeys()
 
-        const deletedCounts = await this.cleanupTerminalJobs()
+        // Each stage is isolated, so a failure on one query (a statement timeout on cyclotron_jobs) never
+        // skips stalled recovery or freezes the depth gauges.
+        let succeeded = 0
+        const stage = async <T>(name: string, run: () => Promise<T>, fallback: T): Promise<T> => {
+            try {
+                const result = await run()
+                succeeded++
+                return result
+            } catch (err) {
+                logger.error('CyclotronV2Janitor stage failed', { stage: name, error: String(err) })
+                captureException(err)
+                return fallback
+            }
+        }
+
+        const deletedCounts = await stage('cleanup', () => this.cleanupTerminalJobs(), {})
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
         // Give up on genuine poison pills. The kill-switch picks between two
@@ -185,16 +210,22 @@ export class CyclotronV2Janitor {
         // the new record-then-delete path, or master's legacy mark-failed path.
         // The legacy path (and the flag) can be deleted wholesale once we trust
         // recording in production.
-        const poisonedIds = this.poisonRecoveryEnabled
-            ? await this.recordAndDeletePoisonPills()
-            : await this.failPoisonPills()
+        const poisonedIds = await stage<string[] | null>(
+            'poison',
+            () => (this.poisonRecoveryEnabled ? this.recordAndDeletePoisonPills() : this.failPoisonPills()),
+            null
+        )
 
-        const stalled = await this.resetStalledJobs()
-        const depths = await this.measureQueueDepths()
+        // When the poison stage failed, leave its jobs running rather than hand known poison pills back to workers.
+        const stalled = await stage('stalled', () => this.resetStalledJobs(poisonedIds === null), 0)
+        const depths = await stage('depths', () => this.measureQueueDepths(), new Map<string, number>())
 
+        if (succeeded > 0) {
+            janitorLastSuccessGauge.setToCurrentTime()
+        }
         janitorRunCounter.inc()
 
-        return { deleted, stalled, poisoned: poisonedIds.length, poisonedIds, depths }
+        return { deleted, stalled, poisoned: poisonedIds?.length ?? 0, poisonedIds: poisonedIds ?? [], depths }
     }
 
     private async cleanupTerminalJobs(): Promise<Record<string, number>> {
@@ -295,8 +326,7 @@ export class CyclotronV2Janitor {
 
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
-                    parent_run_id, state, distinct_id, person_id, action_id,
-                    janitor_touch_count, transition_count
+                    parent_run_id, state, janitor_touch_count
              FROM cyclotron_jobs
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
@@ -420,7 +450,7 @@ export class CyclotronV2Janitor {
     // `hogFlow` carries only the id the lifecycle row needs (function_id), while
     // the rerun path rebuilds the full flow from the function id on replay.
     private poisonRowToInvocation(row: PoisonRow): CyclotronJobInvocationHogFlow {
-        const job: CyclotronV2DequeuedJob = {
+        const invocation = v2JobToInvocation({
             id: row.id,
             teamId: row.team_id,
             functionId: row.function_id,
@@ -429,24 +459,13 @@ export class CyclotronV2Janitor {
             scheduled: DateTime.fromISO(row.scheduled, { zone: 'utc' }),
             created: DateTime.fromISO(row.created, { zone: 'utc' }),
             parentRunId: row.parent_run_id,
-            transitionCount: row.transition_count,
             state: row.state,
-            distinctId: row.distinct_id,
-            personId: row.person_id,
-            actionId: row.action_id,
             cancelRequestedAt: null,
-            ack: () => Promise.resolve(),
-            fail: () => Promise.resolve(),
-            reschedule: () => Promise.resolve(),
-            cancel: () => Promise.resolve(),
-            heartbeat: () => Promise.resolve(),
-            bulkCreateAndCheckIn: () => Promise.resolve({ newJobIds: [] }),
-        }
-        const invocation = v2JobToInvocation(job)
+        })
         return { ...invocation, hogFlow: { id: invocation.functionId } } as CyclotronJobInvocationHogFlow
     }
 
-    private async resetStalledJobs(): Promise<number> {
+    private async resetStalledJobs(skipPoisonPills: boolean): Promise<number> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
         // Defer the reset job's next scheduled time so repeated stalls back off
@@ -470,6 +489,7 @@ export class CyclotronV2Janitor {
         const params: (Date | number)[] = backoffEnabled
             ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs, STALL_BACKOFF_FIRST_RETRY_SPREAD_MS]
             : [heartbeatCutoff]
+        const poisonClause = skipPoisonPills ? `AND janitor_touch_count < $${params.push(this.maxTouchCount)}` : ''
 
         const result = await this.pool.query(
             `WITH stalled AS (
@@ -477,6 +497,7 @@ export class CyclotronV2Janitor {
                 FROM cyclotron_jobs
                 WHERE status = 'running'
                   AND COALESCE(last_heartbeat, $1) <= $1
+                  ${poisonClause}
                 FOR UPDATE SKIP LOCKED
             )
             UPDATE cyclotron_jobs
@@ -508,23 +529,45 @@ export class CyclotronV2Janitor {
      * and it must not stop the janitor finishing its cyclotron work. The report matters because the
      * catch hides the failure from the run otherwise — a persistent one grows the table unbounded.
      */
-    async sweepExpiredConversionWatchers(): Promise<number> {
+    sweepExpiredConversionWatchers(): Promise<number> {
+        return this.sweepExpiredRows('conversion_watchers', conversionWatchersSweptCounter)
+    }
+
+    // Keeps a key while its job exists, so a repeat cannot insert a second job with the same id.
+    sweepExpiredIdempotencyKeys(): Promise<number> {
+        return this.sweepExpiredRows(
+            'cyclotron_idempotency_keys',
+            idempotencyKeysSweptCounter,
+            'AND NOT EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = cyclotron_idempotency_keys.id)'
+        )
+    }
+
+    // SKIP LOCKED keeps the sweep from waiting on a writer, and the outer expiry check spares a row renewed meanwhile.
+    private async sweepExpiredRows(
+        table: 'conversion_watchers' | 'cyclotron_idempotency_keys',
+        sweptCounter: Counter,
+        keepCondition = ''
+    ): Promise<number> {
         try {
             const result = await this.pool.query(
-                `DELETE FROM conversion_watchers
+                `DELETE FROM ${table}
                  WHERE id IN (
-                     SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
-                 )`,
+                     SELECT id FROM ${table}
+                     WHERE expires_at <= NOW() ${keepCondition}
+                     LIMIT $1
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 AND expires_at <= NOW()`,
                 [this.cleanupBatchSize]
             )
             const deleted = result.rowCount ?? 0
             if (deleted > 0) {
-                conversionWatchersSweptCounter.inc(deleted)
-                logger.info('CyclotronV2Janitor swept expired conversion watchers', { count: deleted })
+                sweptCounter.inc(deleted)
+                logger.info('CyclotronV2Janitor swept expired rows', { table, count: deleted })
             }
             return deleted
         } catch (err) {
-            logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
+            logger.error('CyclotronV2Janitor sweep failed', { table, error: String(err) })
             captureException(err)
             return 0
         }
@@ -532,11 +575,7 @@ export class CyclotronV2Janitor {
 
     async measureQueueDepths(): Promise<Map<string, number>> {
         const result = await this.pool.query<{ queue_name: string; count: string; oldest_due_age_ms: number }>(
-            `SELECT queue_name, COUNT(*) as count,
-                    EXTRACT(EPOCH FROM NOW() - MIN(scheduled))::float8 * 1000 as oldest_due_age_ms
-             FROM cyclotron_jobs
-             WHERE status = 'available' AND scheduled <= NOW()
-             GROUP BY queue_name`
+            QUEUE_DEPTHS_SQL
         )
 
         const depths = new Map<string, number>()

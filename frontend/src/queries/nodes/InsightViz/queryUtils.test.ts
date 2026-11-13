@@ -1,4 +1,3 @@
-import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightType } from '~/types'
@@ -35,7 +34,18 @@ describe('filterVariablesReferencedInQuery', () => {
 })
 
 describe('syncSelectedVariablesToQuery', () => {
-    it('removes stale selected variables while preserving values for ones still in use', () => {
+    it.each([
+        [[], []],
+        [[{ id: 'new-region-id', code_name: 'region' }], [{ variableId: 'new-region-id', code_name: 'region' }]],
+    ])('drops deleted definitions before adding replacements', (definitions, expected) => {
+        expect(
+            syncSelectedVariablesToQuery('SELECT {variables.region}', definitions, [
+                { variableId: 'region-id', code_name: 'region', value: 'South' },
+            ])
+        ).toEqual(expected)
+    })
+
+    it('preserves selected variables and their values when references are removed', () => {
         expect(
             syncSelectedVariablesToQuery(
                 'SELECT * FROM events WHERE timestamp >= {variables.date}',
@@ -45,7 +55,10 @@ describe('syncSelectedVariablesToQuery', () => {
                     { variableId: 'product-id', code_name: 'product', value: 'mobile' },
                 ]
             )
-        ).toEqual([{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }])
+        ).toEqual([
+            { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
+            { variableId: 'product-id', code_name: 'product', value: 'mobile' },
+        ])
     })
 
     it('adds newly referenced variables once, in query order', () => {
@@ -56,6 +69,7 @@ describe('syncSelectedVariablesToQuery', () => {
                 [{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }]
             )
         ).toEqual([
+            { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
             { variableId: 'product-id', code_name: 'product' },
             { variableId: 'region-id', code_name: 'region' },
         ])
@@ -68,7 +82,7 @@ describe('validateQuery', () => {
             kind: NodeKind.FunnelsQuery,
             series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
         }
-        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
+        expect(validateQuery(funnelQuery)).toBe(false)
     })
 
     it('returns true for funnels with 2+ steps', () => {
@@ -79,7 +93,7 @@ describe('validateQuery', () => {
                 { kind: NodeKind.EventsNode, event: '$signup' },
             ],
         }
-        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(true)
+        expect(validateQuery(funnelQuery)).toBe(true)
     })
 
     it('returns false for funnels with incomplete data warehouse step', () => {
@@ -95,34 +109,7 @@ describe('validateQuery', () => {
                 { kind: NodeKind.EventsNode, event: '$signup' },
             ],
         }
-        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
-    })
-
-    it('returns false for query with invalid regex property filter', () => {
-        const trendsQuery = {
-            kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-            properties: [{ type: 'event', key: 'url', operator: 'regex', value: '(?=lookahead)' }],
-        }
-        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(false)
-    })
-
-    it('returns true for query with valid regex property filter', () => {
-        const trendsQuery = {
-            kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-            properties: [{ type: 'event', key: 'url', operator: 'regex', value: '^/api/.*' }],
-        }
-        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
-    })
-
-    it('returns true for query without regex filters', () => {
-        const trendsQuery = {
-            kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-            properties: [{ type: 'event', key: 'url', operator: 'exact', value: '/home' }],
-        }
-        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
+        expect(validateQuery(funnelQuery)).toBe(false)
     })
 })
 

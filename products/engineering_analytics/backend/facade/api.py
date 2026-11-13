@@ -1,21 +1,10 @@
-"""Facade for engineering_analytics.
+"""The only module other products and the DRF presentation layer import for PR and CI analytics.
 
-The ONLY module other products (and the DRF presentation layer) import for
-runtime PR/CI analytics. Public functions take a team plus PostHog-convention
-parameters and return canonical contract types.
-
-``repo`` is an optional ``owner/name`` filter, applied against the curated repo
-identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
-``head_branch`` filter for workflow health, a workflow's runs list, and its runner
-costs; the same surfaces also take a broader ``run_scope`` filter (see
-``WorkflowHealthRunScope``). ``date_from`` / ``date_to`` accept
-relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
-``source_id`` selects a specific connected GitHub source when the team has more than
-one; it defaults to the oldest connected source. ``user_access_control`` enforces the
-requesting user's per-source warehouse access (pass the request's; ``None`` for system
-contexts). Each function resolves the team's authorized curated read handle once, here,
-then delegates to the read layer: source selection and access control live in this layer,
-not in the query builders below it.
+Shared parameters: ``repo`` is ``owner/name``. ``date_from`` / ``date_to`` accept relative strings
+(``-30d``) or ISO8601, resolved in the team timezone. ``source_id`` selects one connected GitHub
+source and defaults to the oldest synced one. ``user_access_control`` enforces the requesting user's
+per-source warehouse access, and ``None`` is for system contexts. Source selection and access
+control happen here, not in the query builders.
 """
 
 from typing import TYPE_CHECKING
@@ -41,6 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
+    DepotCIRepoUsage,
     DoraOverview,
     FlakyTestList,
     GitHubSource,
@@ -88,16 +78,17 @@ def _authorized_source(
     *,
     query_limit: int | None = None,
 ) -> "CuratedGitHubSource":
-    """Resolve this caller's curated read handle: the single place source selection and per-source
-    warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
-    filters out sources the requesting user can't access; ``source_id`` selects a specific source,
-    else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
-    prefers the source connected for that repo, so a team with one source per repository reads the
-    right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
+    """``repo`` prefers the source connected for that repository when ``source_id`` is not given.
+    Raises ``GitHubSourceNotConnectedError``, or ``ValueError`` for a bad ``source_id``.
     """
     return logic.CuratedGitHubSource.for_team(
         team, source_id=source_id, repo=repo, user_access_control=user_access_control, query_limit=query_limit
     )
+
+
+def enable(*, team: Team) -> None:
+    """Opt the team in. Idempotent."""
+    logic.enroll(team)
 
 
 def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:
@@ -178,11 +169,8 @@ def resolve_branch(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[BranchPRMatch]:
-    """Resolve a git branch to the pull request(s) it belongs to: the cross-product link seam
-    (LLM analytics links a git branch to a PR detail page). ``branch`` is required; ``repo``
-    ('owner/name') optionally narrows to one repository. ``timestamp`` (the trace's capture time)
-    prefers the PR that was active at that moment when a branch name was reused across PRs over
-    time. It is a ranking hint only, never a filter.
+    """The pull requests a git branch belongs to. ``branch`` is required. ``timestamp`` ranks the PR
+    that was active at that moment first when a branch name was reused, and it never filters.
     """
     return logic.build_resolve_branch(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
@@ -338,8 +326,7 @@ def get_author_friction(
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> AuthorFrictionList:
-    """Every author's friction over the last 30 days, most first. ``github_team`` lists only its members,
-    with their repository-wide scores and ranks."""
+    """``github_team`` lists only its members, with their repository-wide scores and ranks."""
     return logic.build_author_friction(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         github_team=github_team.strip() if github_team and github_team.strip() else None,
@@ -354,7 +341,6 @@ def get_author_friction_detail(
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> AuthorFrictionDetail:
-    """One author's friction next to their teams, and the pull requests that added the most of it."""
     return logic.build_author_friction_detail(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo), author=author
     )
@@ -368,7 +354,6 @@ def get_pull_request_friction(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestFrictionDetail:
-    """One merged pull request's friction as a multiple of the typical pull request, with the counts behind it."""
     return logic.build_pull_request_friction(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo), repo=repo, number=pr_number
     )
@@ -385,8 +370,8 @@ def get_delivery_summary(
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> DeliverySummary:
-    """Delivery figures for exactly one of ``author`` or ``github_team``, each against the repository."""
-    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    """Takes exactly one of ``author`` or ``github_team``."""
+    # Validate the scope before resolving the source, so a bad scope is not reported as a missing source.
     scope = logic.SummaryScope.from_params(author=author, github_team=github_team, pr_number=None, repo=None)
     return logic.build_delivery_summary(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
@@ -407,8 +392,8 @@ def get_delivery_comparison(
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> DeliveryComparison:
-    """An author's ready-to-merge medians next to their team's and the repository's. ``pr_number`` names a
-    pull request by the author, and a team that this pull request asked to review wins the team choice."""
+    """``pr_number`` names a pull request by the author, and needs ``repo``. A team that this pull
+    request asked to review wins the team choice."""
     author = (author or "").strip()
     if not author:
         raise ValueError("author is required")
@@ -437,8 +422,8 @@ def get_pull_request_timelines(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestTimelines:
-    """Timelines for exactly one of ``author``, ``github_team``, or ``pr_number`` (which needs ``repo``)."""
-    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    """Takes exactly one of ``author``, ``github_team``, or ``pr_number`` (which needs ``repo``)."""
+    # Validate the scope before resolving the source, so a bad scope is not reported as a missing source.
     scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=pr_number, repo=repo)
     return logic.build_pull_request_timelines(
         # One budget covers the PR batches and their evidence pages; exhaustion must not return partial totals.
@@ -575,15 +560,10 @@ def list_recently_merged_pull_requests(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[MergedPullRequest]:
-    """Merged pull requests in ``repository`` ('owner/name'), newest first, each with its branch-tip
-    ``head_sha``: the discovery seam for ReviewHog telemetry. Raises
-    ``GitHubSourceNotConnectedError`` (propagated to the caller) when no GitHub source is connected.
+    """Merged pull requests in ``repository``, newest first. Raises ``GitHubSourceNotConnectedError``.
 
-    Ask one of two ways. ``numbers`` returns exactly those PRs whatever their merge date, which is
-    what a caller waiting on specific PRs wants: it also keeps a high-merge-volume repo from pushing
-    them past the query's row ceiling. ``since`` scans everything merged at or after a cutoff. They
-    are alternatives, not filters that combine, so a by-number ask can never come back empty merely
-    because the PR merged before some cutoff. Supply exactly one; ``numbers`` wins if both are given.
+    ``numbers`` returns exactly those PRs whatever their merge date. ``since`` returns everything
+    merged at or after a cutoff. They do not combine, and ``numbers`` wins if both are given.
     """
     return logic.build_merged_pull_requests(
         curated=_authorized_source(team, source_id, user_access_control, repo=repository),
@@ -623,6 +603,9 @@ def list_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     runner: CITestRunner | None = None,
+    test: str | None = None,
+    branch: str | None = None,
+    pr_number: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -634,6 +617,9 @@ def list_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
         runner=runner,
+        test=test,
+        branch=branch,
+        pr_number=pr_number,
     )
 
 
@@ -700,11 +686,15 @@ def get_team_merge_trend(
 def get_broken_tests(
     *,
     team: Team,
+    test: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> BrokenTestsResult:
-    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+    return logic.build_broken_tests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), test=test, branch=branch
+    )
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
@@ -728,9 +718,6 @@ def get_quarantine(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> QuarantineFile:
-    # Quarantine resolves its source lazily (DEBUG reads the local checkout, an explicit ``repo`` needs
-    # no source) so it stays fail-open where the curated reads above don't. ``source_id`` /
-    # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
 
 
@@ -870,10 +857,19 @@ def list_job_aggregates(
 
 
 def get_github_team_roster(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> GitHubTeamRoster:
-    """Who is on which GitHub org team, from the team's synced membership snapshot.
-
-    Narrower than every read above: it resolves the membership table alone, so a caller routing work
-    at a team slug does not need the ``pull_requests`` / ``workflow_runs`` pair the curated handle
-    insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
+    """Needs only the membership table, not the ``pull_requests`` / ``workflow_runs`` pair the other
+    reads require. An unsynced snapshot comes back as ``synced=False``, never an error.
     """
     return logic.build_github_team_roster(team=team, user_access_control=user_access_control)
+
+
+def get_depot_ci_usage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[DepotCIRepoUsage]:
+    return logic.build_depot_ci_usage(
+        team=team, date_from=date_from, date_to=date_to, user_access_control=user_access_control
+    )

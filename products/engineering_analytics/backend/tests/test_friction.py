@@ -88,8 +88,6 @@ def _row(pr: PullRequestFriction) -> tuple:
 
 
 class _Curated:
-    """The slice of CuratedGitHubSource the friction read uses."""
-
     repository = "PostHog/posthog"
     source_id = "0192f000-0000-7000-8000-000000000001"
 
@@ -187,9 +185,8 @@ class TestFrictionScore(SimpleTestCase):
 
         assert friction.available is available
         assert [(item.author, item.rank) for item in friction.items] == expected
-        # The view unions every source of the team, so the read must keep to its own.
+        # The view unions every source of the team, so the read must filter on its own source.
         assert curated.friction_placeholders["source_id"].value == curated.source_id
-        # A pair of scored members is below the team floor, so only the larger team shows.
         assert [team.github_team for team in friction.teams] == expected_teams
 
     @parameterized.expand(
@@ -205,7 +202,6 @@ class TestFrictionScore(SimpleTestCase):
         detail = build_author_friction_detail(curated=curated, author=author)  # type: ignore[arg-type]
 
         assert (detail.author.rank if detail.author else None) == rank
-        # The author stays out of their own team baseline, so "pair" drops below two other members.
         assert [team.github_team for team in detail.teams] == teams
         assert [(pr.number, pr.title) for pr in detail.pull_requests] == [(n, f"PR {n}") for n in numbers]
 
@@ -234,7 +230,6 @@ class TestFrictionScore(SimpleTestCase):
         breakdown = detail.pull_request
         assert (None if breakdown is None else (breakdown.master_red_count, breakdown.kickout_count)) == counts
         if breakdown is not None:
-            # The PR page and the author page's top list must agree on a pull request's score.
             author_page = build_author_friction_detail(curated=curated, author="blocked")  # type: ignore[arg-type]
             listed = next(pr for pr in author_page.pull_requests if pr.number == number)
             assert breakdown.score == pytest.approx(listed.score)

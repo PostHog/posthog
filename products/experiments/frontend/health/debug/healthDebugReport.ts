@@ -9,6 +9,7 @@ import type {
     HealthExposureInputsStatusEnumApi,
 } from '../../generated/api.schemas'
 import { FLAG_STATE_FINDING_CODES, experimentWarningFromHealth } from '../experimentHealthFindingEvents'
+import { exposureAnswerComputedAt } from '../exposureHealth'
 import type { HealthPanelFinding } from '../healthPanelFindings'
 
 export type HealthDebugDomain = 'experiment' | 'flag' | 'exposures' | 'metrics' | 'project' | 'raw'
@@ -247,6 +248,16 @@ function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string
     return `Failed: ${failures.join(', ')}. Calculated at ${evidence.calculated_at}.`
 }
 
+function metricAllZeroNote({ evidence }: ExperimentHealthFindingApi): string {
+    const metrics = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+$/.test(key))
+        .map(([key, value]) => {
+            const side = evidence[`${key}_side`]
+            return `${value}${side ? ` ${side}` : ''} (${evidence[`${key}_cause`] ?? 'no cause shown'})`
+        })
+    return `Zero in every variant: ${metrics.join(', ')}.`
+}
+
 function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
     if (subcode === 'filter_on_another_flag') {
         return `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
@@ -257,27 +268,18 @@ function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi)
     return `Not received: ${evidence.event}.`
 }
 
-const EXPOSURE_FILTERS_FINDING_CODES: ReadonlySet<ExperimentHealthFindingApi['code']> = new Set([
-    'exposure_filter_on_dynamic_cohort',
-    'exposure_filter_excludes_events',
-])
-
 function exposureFiltersCheck(input: HealthDebugInput): HealthDebugCheck {
-    const finding = input.health?.findings.find(({ code }) => EXPOSURE_FILTERS_FINDING_CODES.has(code)) ?? null
+    const finding = findingOf(input, 'exposure_filter_on_dynamic_cohort')
     return {
         check: 'exposure_filters',
         source: 'health endpoint',
         reads: ['experiment', 'flag', 'project'],
-        ...serverResult('exposure_filters', input.health, (code) => EXPOSURE_FILTERS_FINDING_CODES.has(code)),
+        ...serverResult('exposure_filters', input.health, (code) => code === 'exposure_filter_on_dynamic_cohort'),
         browser: null,
         browserLabel: BROWSER_RULES,
         ...NO_TIMES,
         difference: null,
-        note: !finding
-            ? null
-            : finding.code === 'exposure_filter_on_dynamic_cohort'
-              ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.`
-              : `Leaves out events by: ${finding.evidence.properties}.`,
+        note: finding ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.` : null,
     }
 }
 
@@ -320,13 +322,6 @@ function pageExposureResult(input: HealthDebugInput, code: HealthPanelFinding['c
     return finding ? describeFinding(code, finding) : NO_FINDING
 }
 
-// The page's answer comes from the cache, but its type does not declare the cache fields.
-function pageComputedAt(exposures: HealthDebugInput['exposures']): string | null {
-    return exposures && 'last_refresh' in exposures && typeof exposures.last_refresh === 'string'
-        ? exposures.last_refresh
-        : null
-}
-
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const exposureCheck = (
         check: HealthPanelFinding['code'],
@@ -344,7 +339,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
             browser: page,
             browserLabel: "Page's exposure answer",
             computedAt: serverAnswered ? (input.serverExposures?.computed_at ?? null) : null,
-            browserComputedAt: page !== null ? pageComputedAt(input.exposures) : null,
+            browserComputedAt: page !== null ? exposureAnswerComputedAt(input.exposures) : null,
             difference: serverAnswered && page !== null && page !== server.result ? 'drift' : null,
             note,
         }
@@ -362,6 +357,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
             ['exposures', 'flag'],
             'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
         ),
+        exposureCheck(
+            'unserved_variant_exposures',
+            ['exposures', 'flag'],
+            "The finding needs 5 or more users or groups, and more than 1% of those first exposed after the day of the flag's last save, in variants that the flag doesn't serve. It leaves a flag with a 0% rollout to the flag-state check."
+        ),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
         exposureCheck(
             'multiple_variants_share',
@@ -375,6 +375,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         flagStateCheck(input),
+        serverOnlyCheck(input, 'flag_shared', null),
         serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
         serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
         serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
@@ -385,6 +386,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
         serverOnlyCheck(input, 'metric_calculation_failed', metricCalculationNote, ['metrics']),
+        serverOnlyCheck(input, 'metric_all_zero', metricAllZeroNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
         exposureFiltersCheck(input),
         serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),

@@ -26,7 +26,7 @@ IDENTITY_MESSAGE = """You are an expert in writing HogQL. HogQL is PostHog's var
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- toFloat64() is not supported and will fail if used. Use toFloat() instead. toFloat64OrNull() and toFloatOrNull() are accepted aliases of toFloat().
+- toInt64(), toFloat64() and their OrNull/OrZero/OrDefault variants work as aliases of toInt() and toFloat(), which return NULL on input they cannot convert. Other widths such as toInt32() or toUInt8() are not supported, so use toInt() or toFloat() instead.
 - LAG/LEAD are not supported at all.
 - count() does not take * as an argument, it's just count().
 - Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
@@ -198,7 +198,12 @@ def write_sql_from_prompt(
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        completion = hit_openai(messages, f"{instance_region}/{user.pk}")
+        completion = hit_openai(
+            messages,
+            f"{instance_region}/{user.pk}",
+            posthog_properties={"ai_product": "hogql", "ai_feature": "draft_sql", "team_id": team.pk},
+            distinct_id=user.distinct_id,
+        )
         prompt_tokens_total += completion.prompt_tokens
         completion_tokens_total += completion.completion_tokens
         if completion.content.startswith(UNCLEAR_PREFIX):

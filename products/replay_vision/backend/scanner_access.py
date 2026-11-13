@@ -18,7 +18,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerDisabledReason
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -57,12 +57,12 @@ def creator_can_scan(scanner: ReplayScanner) -> bool:
     return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
 
 
-def unrunnable_reason(scanner: ReplayScanner) -> Literal["no_ai_consent", "creator_lost_access"] | None:
+def unrunnable_reason(scanner: ReplayScanner) -> ScannerDisabledReason | None:
     """Why the sweep can never spend for this scanner, or None when it can."""
     if not scanner.team.organization.is_ai_data_processing_approved:
-        return "no_ai_consent"
+        return ScannerDisabledReason.NO_AI_CONSENT
     if not creator_can_scan(scanner):
-        return "creator_lost_access"
+        return ScannerDisabledReason.CREATOR_LOST_ACCESS
     return None
 
 

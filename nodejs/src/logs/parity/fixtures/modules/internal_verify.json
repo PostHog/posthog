@@ -1,0 +1,152 @@
+{
+ "cases": [
+  {
+   "input": {
+    "signature": null,
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944631.941d08cb1fde4da1e595ea6ea2549bc8efcf2783274138f3e6c263e33f3afb02",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": {
+    "source": "hog_flow",
+    "billed": false,
+    "teamRules": false
+   }
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944631.38d73c568b90cdfddc8a4b379ccfd6b1c586ad7e40868ef5931dd23d93aed8dd",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": {
+    "source": "hog_flow",
+    "billed": false,
+    "teamRules": false
+   }
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944631.941d08cb1fde4da1e595ea6ea2549bc8efcf2783274138f3e6c263e33f3afb02",
+    "team_id": 3,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944631.0aa106dcdac74c5d205628c7d1ea12a44132000a637e534350f8ded6093a05fb",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.billed_src.1736944631.e10901e9dedd3d9de71a0c40ef9384fde60dcbfdfcb8365eadd3ab0ccb9c3e5a",
+    "team_id": 2,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": {
+    "source": "billed_src",
+    "billed": true,
+    "teamRules": true
+   }
+  },
+  {
+   "input": {
+    "signature": "v1.constructor.1736944631.b7db83f87d885b8168ecfd053a66719efaf26b5dd8cc2e2c394b29bc415b6128",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.unknown.1736944631.392719f6e9d8f016cf05b3c36f77405a2bce68d313d8d95a87b220faa302acc5",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944332.39033b2d6497f24e9fc579b30a37d02e40e169cc9fe5a8bda68b1defbbd78f31",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944334.a34637d0658c7da81fb1f0e187ad3ac411127c3b3546cef01419e98685bff327",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": {
+    "source": "hog_flow",
+    "billed": false,
+    "teamRules": false
+   }
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944631.941d08cb1fde4da1e595ea6ea2549bc8efcf2783274138f3e6c263e33f3afb02",
+    "team_id": 1,
+    "created_at": null
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944631.941d08cb1fde4da1e595ea6ea2549bc8efcf2783274138f3e6c263e33f3afb02",
+    "team_id": 1,
+    "created_at": "Wed, 15 Jan 2025 12:37:13 GMT"
+   },
+   "output": {
+    "source": "hog_flow",
+    "billed": false,
+    "teamRules": false
+   }
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.1736944631.00",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.HOG.1736944631.00",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "v1.hog_flow.0123456789.00",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  },
+  {
+   "input": {
+    "signature": "garbage",
+    "team_id": 1,
+    "created_at": "2025-01-15T12:37:13.250Z"
+   },
+   "output": null
+  }
+ ]
+}

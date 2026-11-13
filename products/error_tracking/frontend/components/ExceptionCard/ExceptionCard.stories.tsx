@@ -8,7 +8,6 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
-import type { Mocks } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -302,7 +301,13 @@ type StoryCombinedEventRow = [
     exceptionIssueId: string | null,
 ]
 
-type StoryEventDetailsRow = [uuid: string, eventName: string, timestamp: string, properties: Record<string, unknown>]
+type StoryEventDetailsRow = [
+    uuid: string,
+    eventName: string,
+    timestamp: string,
+    properties: Record<string, unknown>,
+    distinctId: string,
+]
 type StoryExceptionRow = [uuid: string, timestamp: string, properties: string]
 type StoryPageRow = [uuid: string, timestamp: string, url: string, lib: string]
 type StoryCustomRow = [uuid: string, eventName: string, timestamp: string, lib: string]
@@ -381,7 +386,7 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
             }
 
             const properties = uuid === event.uuid ? event.properties : baseProperties
-            return [String(uuid), [uuid, eventName, ts, properties]]
+            return [String(uuid), [uuid, eventName, ts, properties, 'story-user-distinct-id']]
         }
     )
 
@@ -628,13 +633,13 @@ const HEADER_WIDTHS: { width: number; caption: string }[] = [
     { width: 900, caption: '900px — roomy: symmetric gutters, tab bar dead centre' },
 ]
 
-// Both actions outgrow a 1fr gutter just above @xl, so this matrix also covers the band up to where they fit.
+// The action outgrows a 1fr gutter just above @xl, so this matrix also covers the band up to where it fits.
 const HEADER_WIDTHS_WITH_ACTION: typeof HEADER_WIDTHS = [
     ...HEADER_WIDTHS.filter(({ width }) => width < 576),
-    { width: 576, caption: '576px — @xl boundary: actions keep their width, tab bar scrolls' },
-    { width: 600, caption: '600px — logo kept, tab bar scrolls' },
-    { width: 640, caption: '640px — tab bar sits off-centre to clear the actions' },
-    { width: 700, caption: '700px — label is back, tab bar still off-centre' },
+    { width: 576, caption: '576px — @xl boundary: the action keeps its width' },
+    { width: 600, caption: '600px — logo kept' },
+    { width: 640, caption: '640px — tab bar clears the action' },
+    { width: 700, caption: '700px — label is back' },
     { width: 800, caption: '800px — room for both: tab bar centred' },
 ]
 
@@ -678,8 +683,9 @@ export function ExceptionCardHeaderWidths(): JSX.Element {
 ExceptionCardHeaderWidths.parameters = { mockDate: HEADER_WIDTHS_MOCK_DATE }
 
 /*
- * Worst case: the right-hand cell holds both actions, so the tab bar has the least room it ever gets in
- * production. The actions have to survive at every width — the label is the only thing allowed to go.
+ * Worst case: without the Trace tab, the right-hand cell holds the View trace action, so the tab bar has the
+ * least room it ever gets in production. The action has to survive at every width, and the label is the
+ * only thing allowed to go.
  */
 export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
     const baseEvent = asErrorEventType(TEST_EVENTS['javascript_resolved'])
@@ -702,30 +708,9 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
         </div>
     )
 }
-ExceptionCardHeaderWidthsWithAction.parameters = { ...headerActionParameters(), mockDate: HEADER_WIDTHS_MOCK_DATE }
-
-// The action is a ViewLogsButton: feature-flagged, and only rendered on the timeline/recording tabs.
-// Both have to be satisfied or the right-hand cell renders empty and the story stops testing the
-// crowded case it exists for.
-function headerActionParameters(): Record<string, unknown> {
-    const timeline = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
-    const timelineMocks = (timeline.msw as { mocks: Mocks }).mocks
-
-    return {
-        featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
-        msw: {
-            mocks: {
-                ...timelineMocks,
-                get: {
-                    'api/projects/:team_id/logs_config/': {
-                        logs_distinct_id_attribute_key: 'posthogDistinctId',
-                        logs_distinct_id_attribute_keys: ['posthogDistinctId'],
-                        logs_session_id_attribute_keys: ['sessionId'],
-                    },
-                },
-            },
-        },
-    }
+ExceptionCardHeaderWidthsWithAction.parameters = {
+    ...sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved'])),
+    mockDate: HEADER_WIDTHS_MOCK_DATE,
 }
 
 //////////////////// Logs tab
@@ -837,3 +822,84 @@ export const ExceptionCardLogsWithSessionOnly = logsStory('issue-session-only', 
 })
 
 export const ExceptionCardLogsWithoutSession = logsStory('issue-no-session', { sessionId: null })
+
+//////////////////// Trace tab
+
+function storyTraceSpan(
+    index: number,
+    parent: number | null,
+    name: string,
+    service: string,
+    startMs: number,
+    endMs: number,
+    statusCode = 0
+): Record<string, unknown> {
+    const at = (ms: number): string => new Date(Date.parse('2024-07-09T12:00:04.000Z') + ms).toISOString()
+    return {
+        uuid: `story-span-${index}`,
+        trace_id: LOGS_STORY_TRACE_ID.toUpperCase(),
+        span_id: storySpanId(index).toUpperCase(),
+        parent_span_id: parent === null ? '' : storySpanId(parent).toUpperCase(),
+        name,
+        kind: 2,
+        service_name: service,
+        status_code: statusCode,
+        timestamp: at(startMs),
+        end_time: at(endMs),
+        duration_nano: (endMs - startMs) * 1_000_000,
+        is_root_span: parent === null,
+        matched_filter: true,
+        attributes: {},
+        resource_attributes: {},
+    }
+}
+
+export function ExceptionCardTrace(): JSX.Element {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: null })
+    event.properties = { ...event.properties, $trace_id: LOGS_STORY_TRACE_ID, $span_id: LOGS_STORY_SPAN_ID }
+
+    return (
+        <div className="w-[1000px] h-[500px]">
+            <OpenTab tab="trace" issueId="issue-trace">
+                <ExceptionCard issueId="issue-trace" issueName="Test Issue" loading={false} event={event} />
+            </OpenTab>
+        </div>
+    )
+}
+
+ExceptionCardTrace.parameters = {
+    featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+    testOptions: { snapshotBrowsers: [] },
+    msw: {
+        mocks: {
+            post: {
+                '/api/projects/:team_id/tracing/spans/trace/:trace_id/': {
+                    results: [
+                        storyTraceSpan(0, null, 'GET /api/projects/7/config', 'posthog-web', 0, 920, 2),
+                        storyTraceSpan(1, 0, 'auth.verify_session', 'posthog-web', 10, 60),
+                        storyTraceSpan(2, 0, 'SELECT team_config', 'posthog-web', 70, 180),
+                        storyTraceSpan(4, 0, 'GET config-service /v1/config', 'config-service', 200, 900, 2),
+                    ],
+                    hasMore: false,
+                    nextOffset: null,
+                },
+            },
+        },
+    },
+}
+
+export function ExceptionCardTraceWithoutTraceId(): JSX.Element {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: null })
+
+    return (
+        <div className="w-[1000px] h-[500px]">
+            <OpenTab tab="trace" issueId="issue-no-trace">
+                <ExceptionCard issueId="issue-no-trace" issueName="Test Issue" loading={false} event={event} />
+            </OpenTab>
+        </div>
+    )
+}
+ExceptionCardTraceWithoutTraceId.parameters = {
+    featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+    testOptions: { snapshotBrowsers: [] },
+}

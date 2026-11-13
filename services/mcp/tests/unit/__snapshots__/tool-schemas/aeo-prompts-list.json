@@ -12,6 +12,17 @@
             ],
             "description": "Only list prompts that are on (true) or off (false). Omit to list both."
         },
+        "branded": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand."
+        },
         "include_archived": {
             "default": false,
             "description": "Also list archived prompts. Archived prompts are left out by default.",
@@ -19,7 +30,13 @@
         },
         "limit": {
             "description": "Number of results to return per page.",
+            "maximum": 1000,
             "type": "number"
+        },
+        "needs_improvement": {
+            "default": false,
+            "description": "Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.",
+            "type": "boolean"
         },
         "offset": {
             "description": "The initial index from which to return the results.",

@@ -7,6 +7,8 @@
 //! callers that need decoded text use [`unescape`], and callers that meet an escaped **key** must fall
 //! back to a real parse — a `\uXXXX` key could alias a routing key, and byte comparison would miss it.
 
+use std::borrow::Cow;
+
 /// Half-open byte range into the scanned buffer.
 pub type Span = (usize, usize);
 
@@ -146,6 +148,13 @@ const MAX_BRACKET_NESTING: usize = 1024;
 pub fn skip_balanced(bytes: &[u8], start: usize, open: u8, close: u8) -> Result<usize> {
     debug_assert_eq!(bytes.get(start), Some(&open));
     let _ = close;
+    skip_balanced_below(bytes, start, 0)
+}
+
+/// As [`skip_balanced`] for a container that `outer` containers enclose, so that a reader that opens the outer ones
+/// itself stops at the nesting where a scan from the outermost one stops.
+fn skip_balanced_below(bytes: &[u8], start: usize, outer: usize) -> Result<usize> {
+    let deepest = MAX_BRACKET_NESTING.saturating_sub(outer);
     let mut stack = [0u64; MAX_BRACKET_NESTING / 64];
     let mut depth: usize = 0;
     let mut pos = start;
@@ -156,7 +165,7 @@ pub fn skip_balanced(bytes: &[u8], start: usize, open: u8, close: u8) -> Result<
                 continue;
             }
             b'{' | b'[' => {
-                if depth >= MAX_BRACKET_NESTING {
+                if depth >= deepest {
                     return Err(ScanError("bracket nesting too deep"));
                 }
                 if bytes[pos] == b'[' {
@@ -200,15 +209,95 @@ fn skip_scalar(bytes: &[u8], start: usize) -> usize {
 
 /// Span of the JSON value starting at (or after whitespace from) `start`.
 pub fn locate_value(bytes: &[u8], start: usize) -> Result<Span> {
+    locate_value_below(bytes, start, 0)
+}
+
+/// As [`locate_value`] for a value that `outer` containers enclose.
+pub fn locate_value_below(bytes: &[u8], start: usize, outer: usize) -> Result<Span> {
     let start = skip_ws(bytes, start);
     let end = match bytes.get(start) {
         Some(b'"') => skip_string(bytes, start)?,
-        Some(b'{') => skip_balanced(bytes, start, b'{', b'}')?,
-        Some(b'[') => skip_balanced(bytes, start, b'[', b']')?,
+        Some(b'{' | b'[') => skip_balanced_below(bytes, start, outer)?,
         Some(_) => skip_scalar(bytes, start),
         None => return Err(ScanError("expected a value")),
     };
     Ok((start, end))
+}
+
+/// As [`locate_value_below`], for a reader that must find what a scan of the enclosing container finds. `None` when
+/// the value does not read, and for a scalar with a quote or an opening bracket in it, which that scan reads as the
+/// start of a string or a container.
+pub fn locate_value_as_scanned(bytes: &[u8], start: usize, outer: usize) -> Option<Span> {
+    let value = locate_value_below(bytes, start, outer).ok()?;
+    let scalar = !matches!(bytes.get(value.0), Some(b'"' | b'{' | b'['));
+    if scalar && memchr::memchr3(b'"', b'{', b'[', &bytes[value.0..value.1]).is_some() {
+        return None;
+    }
+    Some(value)
+}
+
+pub struct Key {
+    pub key: Span,
+    pub escaped: bool,
+    pub value_start: usize,
+}
+
+/// Walks the keys of an object whose end is not known yet, with the checks of [`ObjectEntries`]. The caller finds the
+/// end of each value, by skipping it or by reading into it, so a reader that descends reads each byte once, where
+/// [`object_entries`] of each level in turn reads a nested value once per level.
+pub struct ObjectKeys<'b> {
+    bytes: &'b [u8],
+    pos: usize,
+    first: bool,
+}
+
+impl<'b> ObjectKeys<'b> {
+    pub fn new(bytes: &'b [u8], start: usize) -> Result<Self> {
+        if bytes.get(start) != Some(&b'{') {
+            return Err(ScanError("not an object"));
+        }
+        Ok(Self {
+            bytes,
+            pos: start + 1,
+            first: true,
+        })
+    }
+
+    /// The next key, or the position past the closing brace. The caller gives the end of the key's value to
+    /// [`Self::value_ended`] before it asks again.
+    pub fn next_key(&mut self) -> Result<std::result::Result<Key, usize>> {
+        let bytes = self.bytes;
+        let mut pos = skip_ws(bytes, self.pos);
+        if bytes.get(pos) == Some(&b'}') {
+            return Ok(Err(pos + 1));
+        }
+        if !self.first {
+            if bytes.get(pos) != Some(&b',') {
+                return Err(ScanError("expected ',' between object entries"));
+            }
+            pos = skip_ws(bytes, pos + 1);
+        }
+        self.first = false;
+        if bytes.get(pos) != Some(&b'"') {
+            return Err(ScanError("expected object key"));
+        }
+        let key_end = skip_string(bytes, pos)?;
+        let key = (pos + 1, key_end - 1);
+        pos = skip_ws(bytes, key_end);
+        if bytes.get(pos) != Some(&b':') {
+            return Err(ScanError("expected ':' after object key"));
+        }
+        self.pos = pos + 1;
+        Ok(Ok(Key {
+            key,
+            escaped: bytes[key.0..key.1].contains(&b'\\'),
+            value_start: pos + 1,
+        }))
+    }
+
+    pub fn value_ended(&mut self, end: usize) {
+        self.pos = end;
+    }
 }
 
 /// One scanned object entry. `key` excludes the quotes and is *raw* (not unescaped);
@@ -348,6 +437,95 @@ impl<'b> Iterator for ArrayItems<'b> {
         };
         self.pos = item.1;
         Some(Ok(item))
+    }
+}
+
+/// The values of `keys` in the object at `object`, top level only. The last of a repeated key wins, an escaped key
+/// is not one of `keys`, and an entry that does not read ends the lookup.
+pub fn object_fields<const N: usize>(
+    bytes: &[u8],
+    object: Span,
+    keys: [&[u8]; N],
+) -> [Option<Span>; N] {
+    let mut found = [None; N];
+    let Ok(entries) = object_entries(bytes, object) else {
+        return found;
+    };
+    for entry in entries.filter_map(Result::ok).filter(|e| !e.key_escaped) {
+        let key = &bytes[entry.key.0..entry.key.1];
+        if let Some(index) = keys.iter().position(|&k| k == key) {
+            found[index] = Some(entry.value);
+        }
+    }
+    found
+}
+
+/// Each item of the array at `arr` with the [`object_fields`] of `keys` in it, found in the pass that finds where the
+/// item ends.
+pub fn array_items_with_fields<'b, const N: usize>(
+    bytes: &'b [u8],
+    arr: Span,
+    keys: [&'b [u8]; N],
+) -> Result<ArrayItemsWithFields<'b, N>> {
+    Ok(ArrayItemsWithFields {
+        items: array_items(bytes, arr)?,
+        keys,
+    })
+}
+
+pub struct ArrayItemsWithFields<'b, const N: usize> {
+    items: ArrayItems<'b>,
+    keys: [&'b [u8]; N],
+}
+
+impl<const N: usize> ArrayItemsWithFields<'_, N> {
+    /// The end and the fields of the object at `start`. `None` when [`object_fields`] must decide.
+    fn object(&self, start: usize) -> Option<(usize, [Option<Span>; N])> {
+        let bytes = self.items.bytes;
+        let mut found = [None; N];
+        let mut entries = ObjectKeys::new(bytes, start).ok()?;
+        loop {
+            let key = match entries.next_key().ok()? {
+                Ok(key) => key,
+                Err(end) => return Some((end, found)),
+            };
+            let value = locate_value_as_scanned(bytes, key.value_start, 1)?;
+            entries.value_ended(value.1);
+            if key.escaped {
+                continue;
+            }
+            let name = &bytes[key.key.0..key.key.1];
+            if let Some(index) = self.keys.iter().position(|&k| k == name) {
+                found[index] = Some(value);
+            }
+        }
+    }
+}
+
+impl<const N: usize> Iterator for ArrayItemsWithFields<'_, N> {
+    type Item = Result<(Span, [Option<Span>; N])>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let items = &self.items;
+        if items.done {
+            return None;
+        }
+        let bytes = items.bytes;
+        let mut pos = skip_ws(bytes, items.pos);
+        let ended = pos + 1 == items.end && bytes.get(pos) == Some(&b']');
+        if !ended && (items.first || bytes.get(pos) == Some(&b',')) {
+            pos += usize::from(!items.first);
+            let start = skip_ws(bytes, pos);
+            if let Some((end, found)) = self.object(start) {
+                self.items.first = false;
+                self.items.pos = end;
+                return Some(Ok(((start, end), found)));
+            }
+        }
+        let keys = self.keys;
+        self.items
+            .next()
+            .map(|item| item.map(|item| (item, object_fields(bytes, item, keys))))
     }
 }
 
@@ -698,6 +876,69 @@ pub fn write_json_string(s: &str, out: &mut Vec<u8>) {
     out.push(b'"');
 }
 
+/// The bytes with each JSON string that holds an escape `write_json_string` does not write, such as `\/` or `\u0041`,
+/// written again as it writes them. Capture writes events that way, but the JSON inside a `cv` payload arrives as the
+/// page wrote it, and a client can send any escape. A URL or a data URI could then hide behind an escape from a reader
+/// that matches bytes.
+pub fn canonical_strings(bytes: &[u8]) -> Cow<'_, [u8]> {
+    if !bytes.contains(&b'\\') {
+        return Cow::Borrowed(bytes);
+    }
+    let mut out: Option<Vec<u8>> = None;
+    let mut copied_to = 0;
+    let mut position = 0;
+    while let Some(start) = bytes[position..]
+        .iter()
+        .position(|&b| b == b'"')
+        .map(|at| position + at)
+    {
+        let mut end = start + 1;
+        let mut canonical = true;
+        while end < bytes.len() && bytes[end] != b'"' {
+            if bytes[end] == b'\\' {
+                match bytes.get(end + 1) {
+                    Some(b'"' | b'\\' | b'b' | b'f' | b'n' | b'r' | b't') => {}
+                    Some(b'u') => canonical &= is_written_escape(bytes.get(end + 2..end + 6)),
+                    _ => canonical = false,
+                }
+                end += 1;
+            }
+            end += 1;
+        }
+        if end >= bytes.len() {
+            break;
+        }
+        if !canonical {
+            if let Ok(text) = unescape(bytes, (start, end + 1)) {
+                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+                out.extend_from_slice(&bytes[copied_to..start]);
+                write_json_string(&text, out);
+                copied_to = end + 1;
+            }
+        }
+        position = end + 1;
+    }
+    match out {
+        Some(mut out) => {
+            out.extend_from_slice(&bytes[copied_to..]);
+            Cow::Owned(out)
+        }
+        None => Cow::Borrowed(bytes),
+    }
+}
+
+/// Whether `write_json_string` writes this `\u` escape: a control character without a short escape, in lowercase hex.
+fn is_written_escape(hex: Option<&[u8]>) -> bool {
+    let Some(&[b'0', b'0', high, low]) = hex else {
+        return false;
+    };
+    let digit = |b: u8| matches!(b, b'0'..=b'9' | b'a'..=b'f');
+    digit(high)
+        && digit(low)
+        && high <= b'1'
+        && !matches!((high, low), (b'0', b'8' | b'9' | b'a' | b'c' | b'd'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -743,6 +984,68 @@ mod tests {
             })
             .collect();
         assert_eq!(items, vec![r#"{"a":1}"#, r#""two""#, "3", "[4]", "null"]);
+    }
+
+    #[test]
+    fn reads_the_fields_of_array_items_as_a_lookup_in_each_item_does() {
+        let nested = |depth: usize| {
+            format!(
+                r#"[{{"id":1,"node":{}{}}},{{"id":2}}]"#,
+                "[".repeat(depth),
+                "]".repeat(depth)
+            )
+        };
+        let mut seeds: Vec<String> = [
+            r#"[{"id":1,"node":{"id":2,"childNodes":[{"id":3}]},"parentId":4},{"node":"}","id":5}, 6 ,"s",[{"id":7}],{}]"#,
+            r#" [ { "id" : 1 , "id" : 2 , "i\u0064" : 3 } , { "node" : 1 "id" : 4 } , { "id" : 5 , } , { "id" 6 } ] "#,
+            r#"[]"#,
+        ]
+        .map(str::to_owned)
+        .into();
+        seeds.extend((1021..=1025).map(nested));
+        let keys = [&b"id"[..], b"node"];
+        let by_lookup = |bytes: &[u8], span: Span| -> Vec<Option<(Span, [Option<Span>; 2])>> {
+            array_items(bytes, span)
+                .unwrap()
+                .map(|item| {
+                    item.ok()
+                        .map(|item| (item, object_fields(bytes, item, keys)))
+                })
+                .collect()
+        };
+        let mut read = 0;
+        for seed in &seeds {
+            let seed = seed.as_bytes();
+            let positions = if seed.len() > 1000 { 0 } else { seed.len() };
+            let mut inputs = vec![seed.to_vec()];
+            for at in 0..positions {
+                inputs.push([&seed[..at], &seed[at + 1..]].concat());
+                for &byte in b"{}[],:\"\\ 1" {
+                    inputs.push([&seed[..at], &[byte], &seed[at + 1..]].concat());
+                    inputs.push([&seed[..at], &[byte], &seed[at..]].concat());
+                }
+            }
+            for input in inputs {
+                let Ok(span) = locate_value(&input, 0) else {
+                    continue;
+                };
+                if !is_array(&input, span) {
+                    continue;
+                }
+                read += 1;
+                let in_one_pass: Vec<_> = array_items_with_fields(&input, span, keys)
+                    .unwrap()
+                    .map(Result::ok)
+                    .collect();
+                assert_eq!(
+                    in_one_pass,
+                    by_lookup(&input, span),
+                    "{}",
+                    input.escape_ascii()
+                );
+            }
+        }
+        assert!(read > 1000, "{read} of the inputs read");
     }
 
     #[test]

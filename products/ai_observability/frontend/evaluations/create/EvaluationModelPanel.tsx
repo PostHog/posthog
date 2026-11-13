@@ -1,10 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconInfo } from '@posthog/icons'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { EvaluationJudgeModelPicker } from '../components/EvaluationJudgeModelPicker'
 import { decisionModelHint } from '../constants'
@@ -14,7 +11,6 @@ import { llmEvaluationLogic } from '../llmEvaluationLogic'
 export function EvaluationModelPanel(): JSX.Element | null {
     const { evaluation, usesDecisionModel, includeMedia } = useValues(llmEvaluationLogic)
     const { setIncludeMedia } = useActions(llmEvaluationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!evaluation) {
         return null
@@ -31,24 +27,27 @@ export function EvaluationModelPanel(): JSX.Element | null {
                         : 'Runs on your own AI provider key. Each run is one call to this model.'}
                 </p>
             </div>
-            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES] && !usesDecisionModel && (
-                <LemonField.Pure
-                    label="Attachments"
-                    info="If the judge can't take an attachment, it judges the text without it. This happens when the judge's model can't read the file type, when there are more than 20 attachments, or when the provider rejects a file, such as a PDF with too many pages."
-                >
-                    <LemonSwitch
-                        checked={includeMedia}
-                        onChange={setIncludeMedia}
-                        bordered
-                        label="Send to the judge"
-                        data-attr="llma-evaluation-include-attachments"
-                    />
-                    <p className="text-muted text-sm">
-                        The judge sees the images, PDFs, audio and video in what it evaluates. PDFs need an OpenAI,
-                        Anthropic or Gemini judge, audio a Gemini judge or an OpenAI audio model, and video a Gemini
-                        judge. Other file types are not supported yet.
-                    </p>
-                </LemonField.Pure>
+            {!usesDecisionModel && (
+                <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1">
+                        <LemonCheckbox
+                            checked={includeMedia}
+                            onChange={setIncludeMedia}
+                            label="Send attachments to the judge"
+                            data-attr="llma-evaluation-include-attachments"
+                        />
+                        <Tooltip
+                            title="PDFs need an OpenAI, Anthropic, or Gemini model, audio a Gemini or OpenAI audio model, and video a Gemini model. On OpenRouter, the judge gets the file types its model reads. It judges the text alone when its model can't read a file, past 20 attachments, or when the provider rejects a file."
+                            openOnClick
+                        >
+                            <IconInfo className="text-secondary text-base" aria-label="Which models read which files" />
+                        </Tooltip>
+                    </div>
+                    <span className="text-xs text-secondary pl-6">
+                        For checks that depend on images, PDFs, audio, or video. Each file adds input tokens, so runs
+                        cost more.
+                    </span>
+                </div>
             )}
         </div>
     )

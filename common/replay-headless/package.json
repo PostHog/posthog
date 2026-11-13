@@ -26,8 +26,8 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@swc/core": "^1.11.29",
-        "@swc/jest": "^0.2.37",
+        "@swc/core": "^1.16.20",
+        "@swc/jest": "^0.2.39",
         "esbuild": "^0.25.11",
         "jest": "^29.7.0",
         "puppeteer": "19.0.0"

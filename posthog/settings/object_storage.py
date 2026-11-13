@@ -103,10 +103,15 @@ AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
 INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "")
 INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
 # Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
-# examples reach, and how many trailing days of reports grade a candidate. Promotion is manual: a
-# person runs `inbox_ranking_promote_job`, which writes the served pointer.
+# examples reach, and how many trailing days of reports grade a candidate.
 INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 90, type_cast=int)
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
+# Serving publish (products/signals/dags/inbox_ranking/training/dag.py): once this many days have
+# passed since the last promotion, the daily publish serves the newest version of the served recipe
+# that passed the promotion gate. 0 turns the step off, and promotion is then only the manual
+# `inbox_ranking_promote_job`. A valid `interval_days` in the `inbox-ranking-auto-promotion` flag
+# payload takes precedence over this value.
+INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS = get_from_env("INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS", 3, type_cast=int)
 # Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
 # partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.
 INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRESH_MAX_RUNS", 6, type_cast=int)
@@ -142,9 +147,18 @@ INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )
+# The sweep records the facts of each report it scores (products/signals/backend/ranking/report_facts.py).
+# Off turns off only the facts read and its events, and scoring does not change.
+INBOX_RANKING_RECORD_REPORT_FACTS = get_from_env("INBOX_RANKING_RECORD_REPORT_FACTS", True, type_cast=str_to_bool)
 # Activity summary tick (products/signals/backend/activity_summary/tick.py). The `activity-summary`
 # flag payload gates the work and holds the caps, so the schedule ticks in every environment.
 ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES = get_from_env("ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES", 60, type_cast=int)
+# Personal inbox ranking tick (products/signals/backend/personal_ranking/tick.py). The `tick` object of the
+# `personal-inbox-ranking` flag payload gates the work. It ticks more often than the list's target interval,
+# so a list comes due soon after the interval passes.
+PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES = get_from_env(
+    "PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES", 15, type_cast=int
+)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

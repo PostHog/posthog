@@ -23,6 +23,7 @@
                     table_type: {
                       table: {
                         description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                        events_retention_field: "timestamp",
                         fields: {
                           $group_0: {
                             description: None,
@@ -2046,6 +2047,7 @@
                     from_asterisk: False
                     start: 7
                     type: {
+                      as_json: False
                       chain: [
                         "$exception_issue_id"
                       ]
@@ -2053,6 +2055,7 @@
                         name: "properties"
                         table_type: <recursion ...>
                       }
+                      joined_subquery_json_text: False
                     }
                   }
                   from_asterisk: False
@@ -2307,6 +2310,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -3117,6 +3121,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -3124,6 +3129,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -5321,6 +5327,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -6364,6 +6371,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -8390,6 +8398,7 @@
                       from_asterisk: False
                       start: 7
                       type: {
+                        as_json: False
                         chain: [
                           "$exception_issue_id"
                         ]
@@ -8397,6 +8406,7 @@
                           name: "properties"
                           table_type: <recursion ...>
                         }
+                        joined_subquery_json_text: False
                       }
                     }
                     from_asterisk: False
@@ -9040,6 +9050,7 @@
                           from_asterisk: False
                           start: 7
                           type: {
+                            as_json: False
                             chain: [
                               "$exception_issue_id"
                             ]
@@ -9047,6 +9058,7 @@
                               name: "properties"
                               table_type: <recursion ...>
                             }
+                            joined_subquery_json_text: False
                           }
                         }
                         from_asterisk: False
@@ -9536,6 +9548,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -10342,6 +10355,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -10349,6 +10363,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -11232,6 +11247,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -12039,6 +12055,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -12046,6 +12063,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -12930,6 +12948,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -13235,6 +13254,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -13888,6 +13908,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -14229,6 +14250,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -14574,6 +14596,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -14959,6 +14982,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -15350,6 +15374,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -15713,6 +15738,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -16077,6 +16103,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -16424,6 +16451,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -16885,6 +16913,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -17187,6 +17216,7 @@
                   table_type: {
                     table: {
                       description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                      events_retention_field: "timestamp",
                       fields: {
                         $group_0: {
                           description: None,
@@ -17511,6 +17541,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,

@@ -11,7 +11,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.ai_observability.backend.api.dataset_serializers import StrictDatasetSerializer
-from products.ai_observability.backend.dataset_queries import latest_dataset_revision
+from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetRevision
 from products.exports.backend.facade.api import (
     DATASET_EXPORT_KIND,
@@ -83,21 +83,13 @@ def create_dataset_export(
     was_impersonated: bool,
     revision: int | None,
 ) -> ExportedAsset:
-    selected_revision = revision
-    if selected_revision is None:
-        latest_revision = latest_dataset_revision(team_id=team.id, dataset_id=dataset.id)
-        if latest_revision is None:
-            raise DatasetExportUnavailableError("Add an item before exporting this dataset.")
-        selected_revision = latest_revision.revision
-    elif (
-        not DatasetRevision.objects.for_team(team.id, canonical=True)
-        .filter(
-            dataset_id=dataset.id,
-            revision=selected_revision,
-        )
-        .exists()
-    ):
-        raise DatasetExportUnavailableError("This dataset revision does not exist.")
+    try:
+        selected = DatasetUsage.read_revision(dataset, revision)
+    except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
+        raise DatasetExportUnavailableError("This dataset revision is no longer available.") from error
+    if selected is None:
+        raise DatasetExportUnavailableError("Add an item before exporting this dataset.")
+    selected_revision = selected.revision
 
     asset = create_export_asset_async(
         team=team,

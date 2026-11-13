@@ -1,23 +1,32 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { trainingScheduleLogic } from '../trainingScheduleLogic'
 import { SuggestionForm } from './SuggestionForm'
 import { SuggestionList } from './SuggestionList'
 
 /** A collapsed bar to suggest ideas for the next run, next to the button that starts one. */
 export function SteerAgentBar(): JSX.Element {
-    const { pipeline, startTrainingResultLoading, hasLiveTrainingRun, queuedSuggestionCount } =
-        useValues(autoresearchPipelineLogic)
-    const { startTraining, steerOpened } = useActions(autoresearchPipelineLogic)
-    const trainDisabledReason = startTrainingResultLoading
-        ? 'Starting…'
-        : pipeline?.status === 'paused'
-          ? 'Resume the model to train it'
-          : hasLiveTrainingRun
-            ? 'A training run is already in progress'
-            : undefined
+    const {
+        pipeline,
+        startTrainingResultLoading,
+        firstRunCheckRunning,
+        hasLiveTrainingRun,
+        queuedSuggestionCount,
+        stoppingTraining,
+    } = useValues(autoresearchPipelineLogic)
+    const { requestTraining, steerOpened, stopTraining } = useActions(autoresearchPipelineLogic)
+    const { props } = useMountedLogic(autoresearchPipelineLogic)
+    const { trainDisabledByLimitReason } = useValues(trainingScheduleLogic(props))
+    const trainDisabledReason = firstRunCheckRunning
+        ? 'Checking your data'
+        : startTrainingResultLoading
+          ? 'Starting…'
+          : pipeline?.status === 'paused'
+            ? 'Resume the model to train it'
+            : trainDisabledByLimitReason
     return (
         <div className="flex flex-col @md:flex-row @md:items-start gap-2">
             <LemonCollapse
@@ -51,16 +60,43 @@ export function SteerAgentBar(): JSX.Element {
                     },
                 ]}
             />
-            <LemonButton
-                type="primary"
-                onClick={() => void startTraining()}
-                data-attr="autoresearch-model-train"
-                loading={startTrainingResultLoading}
-                disabledReason={trainDisabledReason}
-                className="self-start"
-            >
-                Run training
-            </LemonButton>
+            {hasLiveTrainingRun ? (
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    onClick={() =>
+                        LemonDialog.open({
+                            title: 'Stop this training run?',
+                            description:
+                                pipeline?.status === 'bootstrapping'
+                                    ? 'The agent stops now and no model comes from this run. The model goes back to draft, so you can change its setup before you train it again. The run still counts toward your daily training limit.'
+                                    : 'The agent stops now and no model comes from this run. The current model keeps scoring. The run still counts toward your daily training limit.',
+                            primaryButton: {
+                                children: 'Stop training',
+                                status: 'danger',
+                                onClick: () => stopTraining(),
+                            },
+                            secondaryButton: { children: 'Keep training' },
+                        })
+                    }
+                    data-attr="autoresearch-model-stop-training"
+                    loading={stoppingTraining}
+                    className="self-start"
+                >
+                    Stop training
+                </LemonButton>
+            ) : (
+                <LemonButton
+                    type="primary"
+                    onClick={() => requestTraining()}
+                    data-attr="autoresearch-model-train"
+                    loading={startTrainingResultLoading || firstRunCheckRunning}
+                    disabledReason={trainDisabledReason}
+                    className="self-start"
+                >
+                    Run training
+                </LemonButton>
+            )}
         </div>
     )
 }

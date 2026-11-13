@@ -7,12 +7,14 @@ import functools
 import contextlib
 import dataclasses
 import collections.abc
+from urllib.parse import urlsplit
 
 import pyarrow as pa
 import aioboto3
 import botocore.exceptions
 from aiobotocore.config import AioConfig
 from aiobotocore.credentials import AioRefreshableCredentials
+from aiobotocore.httpsession import AIOHTTPSession
 from aiobotocore.session import get_session
 from opentelemetry import trace
 
@@ -37,6 +39,16 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
 )
 from posthog.models.team import Team
+from posthog.security.pinned_aiohttp import PinnedTCPConnector
+from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import (
+    UNRESOLVED_HOST_REASON,
+    ResolvedIPs,
+    _dev_bypass_enabled,
+    _test_bypass_enabled,
+    canonicalize_host,
+    validate_url_and_pin_ips,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -579,10 +591,84 @@ def get_refreshable_session(credentials: AWSCredentials, refresh_using: RefreshC
     return aioboto3.Session(botocore_session=botocore_session)
 
 
+class PinnedS3HTTPSession(AIOHTTPSession):
+    def __init__(self, **kwargs: typing.Any) -> None:
+        super().__init__(**kwargs)
+        self._host_to_resolved_ips: dict[str, ResolvedIPs] = {}
+        self._hosts_to_refresh: set[str] = set()
+        self._pin_lock = asyncio.Lock()
+
+    def _create_connector(self, proxy_url: str | None) -> PinnedTCPConnector:
+        """Replace aioboto3's connector with our own."""
+        connector = super()._create_connector(proxy_url)  # type: ignore[misc]
+        self._exit_stack.push_async_callback(connector.close)  # type: ignore[attr-defined]
+
+        return PinnedTCPConnector(
+            self._host_to_resolved_ips,
+            limit=connector.limit,
+            ssl=connector._ssl,
+            **self._connector_args,  # type: ignore[attr-defined]
+        )
+
+    async def _pin_host(self, host: str, origin: str) -> None:
+        if host in self._host_to_resolved_ips and host not in self._hosts_to_refresh:
+            return
+
+        async with self._pin_lock:
+            # Another request may have populated or refreshed the pins while we waited.
+            if host in self._host_to_resolved_ips and host not in self._hosts_to_refresh:
+                return
+
+            verdict = await asyncio.to_thread(validate_url_and_pin_ips, origin)
+
+            if verdict.reason == UNRESOLVED_HOST_REASON:
+                # Raise this to allow the SDK to retry.
+                raise botocore.exceptions.EndpointConnectionError(endpoint_url=origin)
+
+            if not verdict.allowed or not verdict.pinned_ips:
+                raise InvalidS3EndpointError()
+
+            self._host_to_resolved_ips[host] = verdict.pinned_ips
+            self._hosts_to_refresh.discard(host)
+
+    async def send(self, request):
+        """Validate IPs before sending the request."""
+        url = urlsplit(request.url)
+        host = url.hostname
+
+        if host is None:
+            raise InvalidS3EndpointError()
+
+        host = canonicalize_host(host)
+        origin = url._replace(path="", query="", fragment="").geturl()
+        await self._pin_host(host, origin)
+        pinned_ips = self._host_to_resolved_ips[host]
+
+        try:
+            return await super().send(request)
+        except (
+            botocore.exceptions.EndpointConnectionError,
+            botocore.exceptions.ConnectTimeoutError,
+            botocore.exceptions.ReadTimeoutError,
+            botocore.exceptions.ConnectionClosedError,
+        ):
+            if self._proxy_config.proxy_url_for(request.url):  # type: ignore[attr-defined]
+                raise
+            # A delayed failure must not invalidate pins refreshed by another request.
+            if self._host_to_resolved_ips[host] is pinned_ips:
+                # IMPORTANT: Do not clear validated ips as an empty dict permits normal DNS
+                self._hosts_to_refresh.add(host)
+            raise
+        except botocore.exceptions.HTTPClientError as err:
+            if isinstance(err.kwargs.get("error"), SSRFBlockedError):
+                raise InvalidS3EndpointError(str(err.kwargs["error"])) from err
+            raise
+
+
 @contextlib.asynccontextmanager
 async def s3_client(
     aws_credentials: AWSCredentials,
-    region: str,
+    region: str | None,
     use_virtual_style_addressing: bool = False,
     endpoint_url: str | None = None,
     refresh_using: RefreshCoroutine | None = None,
@@ -606,6 +692,9 @@ async def s3_client(
     }
     if use_virtual_style_addressing:
         config["s3"] = {"addressing_style": "virtual"}
+
+    if endpoint_url is not None and not (_dev_bypass_enabled() or _test_bypass_enabled()):
+        config["http_session_cls"] = PinnedS3HTTPSession
 
     try:
         async with session.client(
@@ -757,83 +846,85 @@ async def insert_into_s3_from_stage(
         get_s3_key_from_inputs(inputs, file_name_prefix=file_name_prefix),
     )
 
-    queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-    producer = ProducerFromInternalStage()
-    assert inputs.batch_export_id is not None
-    producer_task = await producer.start(
-        queue=queue,
-        batch_export_id=inputs.batch_export_id,
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
-        max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
-        stage_folder=inputs.stage_folder,
-    )
-
-    record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
-    if record_batch_schema is None:
-        external_logger.info(
-            "Batch export will finish early as there is no data matching specified filters in range %s - %s",
-            inputs.data_interval_start or "START",
-            inputs.data_interval_end or "END",
-        )
-
-        return S3BatchExportResult(records_completed=0, bytes_exported=0)
-
-    record_batch_schema = pa.schema(
-        # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-        # record batches have them as nullable.
-        # Until we figure it out, we set all fields to nullable. There are some fields we know
-        # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-        # between batches.
-        [field.with_nullable(True) for field in record_batch_schema]
-    )
-
-    json_columns = ("properties", "person_properties", "set", "set_once")
-    if inputs.file_format.lower() == "jsonlines":
-        transformer = get_json_stream_transformer(
-            compression=inputs.compression,
-            include_inserted_at=True,
-            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-        )
-    else:
-        transformer = ParquetStreamTransformer(
-            compression=inputs.compression,
-            include_inserted_at=True,
-            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-        )
-
-    async with s3_client(
-        credentials,
-        use_virtual_style_addressing=inputs.use_virtual_style_addressing,
-        region=inputs.region,
-        endpoint_url=endpoint_url,
-        refresh_using=refresh_credentials,
-    ) as client:
-        consumer = ConcurrentS3Consumer.from_inputs(
-            s3_client=client,
-            s3_inputs=inputs,
-            part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-            max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
-            checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
-            file_name_prefix=file_name_prefix,
-        )
-
-        result = await run_consumer_from_stage(
+    async with contextlib.AsyncExitStack() as cleanup:
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = ProducerFromInternalStage()
+        assert inputs.batch_export_id is not None
+        producer_task = await producer.start(
             queue=queue,
-            consumer=consumer,
-            producer_task=producer_task,
-            transformer=transformer,
-            json_columns=json_columns,
-            records_total=inputs.records_total,
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            stage_folder=inputs.stage_folder,
+        )
+        cleanup.push_async_callback(producer.stop)
+
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
+            external_logger.info(
+                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
+                inputs.data_interval_start or "START",
+                inputs.data_interval_end or "END",
+            )
+
+            return S3BatchExportResult(records_completed=0, bytes_exported=0)
+
+        record_batch_schema = pa.schema(
+            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+            # record batches have them as nullable.
+            # Until we figure it out, we set all fields to nullable. There are some fields we know
+            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+            # between batches.
+            [field.with_nullable(True) for field in record_batch_schema]
         )
 
-    return S3BatchExportResult(
-        bytes_exported=result.bytes_exported,
-        records_completed=result.records_completed,
-        records_failed=result.records_failed,
-        error=result.error,
-        files_uploaded=consumer.files_uploaded,
-    )
+        json_columns = ("properties", "person_properties", "set", "set_once")
+        if inputs.file_format.lower() == "jsonlines":
+            transformer = get_json_stream_transformer(
+                compression=inputs.compression,
+                include_inserted_at=True,
+                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            )
+        else:
+            transformer = ParquetStreamTransformer(
+                compression=inputs.compression,
+                include_inserted_at=True,
+                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            )
+
+        async with s3_client(
+            credentials,
+            use_virtual_style_addressing=inputs.use_virtual_style_addressing,
+            region=inputs.region,
+            endpoint_url=endpoint_url,
+            refresh_using=refresh_credentials,
+        ) as client:
+            consumer = ConcurrentS3Consumer.from_inputs(
+                s3_client=client,
+                s3_inputs=inputs,
+                part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+                checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
+                file_name_prefix=file_name_prefix,
+            )
+
+            result = await run_consumer_from_stage(
+                queue=queue,
+                consumer=consumer,
+                producer_task=producer_task,
+                transformer=transformer,
+                json_columns=json_columns,
+                records_total=inputs.records_total,
+            )
+
+        return S3BatchExportResult(
+            bytes_exported=result.bytes_exported,
+            records_completed=result.records_completed,
+            records_failed=result.records_failed,
+            error=result.error,
+            files_uploaded=consumer.files_uploaded,
+        )
 
 
 class ConcurrentS3Consumer(Consumer):

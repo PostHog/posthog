@@ -1,15 +1,13 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
-from parameterized import parameterized
-
 from posthog.models.project import Project
-from posthog.models.team.team import Team
-from posthog.storage.team_metadata_cache import team_metadata_hypercache
+from posthog.storage import object_storage
 from posthog.tasks.team_metadata import (
-    evict_rotated_token_team_metadata_cache_task,
+    clear_team_metadata_cache_for_token_task,
+    team_metadata_hypercache,
     update_related_teams_metadata_cache_task,
 )
 
@@ -52,25 +50,20 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
         mock_logger.exception.assert_called_once()
 
 
-@override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
-class TestEvictRotatedTokenTeamMetadataCacheTask(BaseTest):
-    @parameterized.expand(
-        [
-            ("unowned_token_is_deleted_from_every_tier", False),
-            ("token_owned_again_is_kept", True),
-        ]
-    )
-    def test_evicts_only_an_unowned_token(self, _name: str, token_owned: bool) -> None:
-        if token_owned:
-            Team.objects.create(organization=self.organization, api_token="phc_rotated_token")
+class TestClearTeamMetadataCacheForTokenTask(BaseTest):
+    def test_skips_a_token_that_belongs_to_a_team(self) -> None:
+        with patch.object(team_metadata_hypercache, "delete_cache_entry") as mock_delete:
+            clear_team_metadata_cache_for_token_task(self.team.api_token)
+
+        mock_delete.assert_not_called()
+
+    def test_failed_mirror_delete_raises_so_the_task_retries(self) -> None:
+        mirror = Mock()
+        mirror.delete.side_effect = ConnectionError("mirror down")
 
         with (
-            override_settings(TEST=False),
-            patch.object(team_metadata_hypercache, "delete_cache_entry") as mock_delete,
+            patch.object(team_metadata_hypercache, "secondary_cache_client", mirror),
+            patch.object(object_storage, "delete"),
+            self.assertRaises(ConnectionError),
         ):
-            evict_rotated_token_team_metadata_cache_task("phc_rotated_token")
-
-        if token_owned:
-            mock_delete.assert_not_called()
-        else:
-            mock_delete.assert_called_once_with("phc_rotated_token", kinds=None)
+            clear_team_metadata_cache_for_token_task("phc_retired_token")
