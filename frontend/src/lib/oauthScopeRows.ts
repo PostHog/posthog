@@ -153,8 +153,7 @@ const IDENTITY_SCOPE_LABELS: Record<string, string> = {
     profile: 'Profile',
 }
 
-// Identity scopes such as `openid` have no read or write level, so their rows are locked at read. They are
-// display-only: the grant takes identity scopes from the request, never from these rows.
+// Display-only: the grant takes identity scopes from the request, never from these rows.
 export function identityScopeRows(scopes: string[], appName: string): OAuthScopeRow[] {
     return scopes
         .filter((scope) => IDENTITY_SCOPE_LABELS[scope])
@@ -171,8 +170,6 @@ export function identityScopeRows(scopes: string[], appName: string): OAuthScope
         }))
 }
 
-// The rows in product-area groups. Identity rows join the group of the `user` scope. `*` is not in any
-// product area, so it gets a group of its own.
 export function oauthScopeGroups(resourceRows: OAuthScopeRow[], identityRows: OAuthScopeRow[]): OAuthScopeGroup[] {
     const wildcardRows = resourceRows.filter((row) => row.key === '*')
     const identityKeys = new Set(identityRows.map((row) => row.key))

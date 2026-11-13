@@ -90,7 +90,6 @@ export function ScopeAccessGroup({
                             )}
                         </span>
                     </span>
-                    {/* An open group shows a control on every row, so a second one in the header would repeat them. */}
                     {!open && (
                         <ScopeRowsLevelControl
                             rows={rows}
