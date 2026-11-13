@@ -28,7 +28,6 @@ ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(minutes=5),
 )
 
-PAGED_RUN_PATCH = "health-check-paged-run-2026-10"
 # Temporal terminates a workflow at 51,200 history events, and a run that ends that way sends no metrics
 # and raises nothing. A run continues as new well below the limit, even when the server never suggests it.
 MAX_HISTORY_EVENTS_PER_RUN = 10_000
@@ -49,8 +48,6 @@ class HealthCheckWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: HealthCheckWorkflowInputs) -> dict:
-        # Histories that carry the patch marker replay with deprecate_patch. Delete it once those runs drain.
-        temporalio.workflow.deprecate_patch(PAGED_RUN_PATCH)
         progress = inputs.progress or HealthCheckRunProgress()
         semaphore = asyncio.Semaphore(inputs.max_concurrent)
         while True:

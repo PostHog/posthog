@@ -105,12 +105,12 @@ class PublishQueryableTableInputs(PrepareQueryableTableInputs):
 async def _stage_files(inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, logger) -> str:
     queryable_folder = saved_query.table.queryable_folder if saved_query.table else None
     await logger.adebug(
-        f"Copying query files to S3: folder_path={saved_query.folder_path} table_name={saved_query.normalized_name} "
+        f"Copying query files to S3: folder_path={saved_query.folder_path} table_name={saved_query.storage_name} "
         f"existing_queryable_folder={queryable_folder}"
     )
     return await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
-        table_name=saved_query.normalized_name,
+        table_name=saved_query.storage_name,
         file_uris=inputs.file_uris,
         preserve_table_name_casing=True,
         existing_queryable_folder=queryable_folder,

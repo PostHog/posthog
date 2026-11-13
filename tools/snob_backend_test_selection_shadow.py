@@ -95,6 +95,8 @@ FULL_RUN_PATTERNS = (
     "posthog/security/crosslang/",
     # The AI event limits, which get_ai_event_limits reads at runtime, so a change to them is a behavior change
     "products/ai_observability/shared/crosslang/",
+    # The flag_evaluations TTL, which sql.py reads at import time, so a change to it is a behavior change
+    "posthog/models/flag_evaluations/crosslang/",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",

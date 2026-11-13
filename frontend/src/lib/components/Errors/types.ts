@@ -19,6 +19,7 @@ export type ErrorTrackingRuntime =
     | 'web'
     | 'python'
     | 'node'
+    | 'convex'
     | 'go'
     | 'rust'
     | 'ruby'

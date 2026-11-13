@@ -104,7 +104,7 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     refresh_interval_seconds: number
     /** Query time materializing saves in a month, in seconds. */
     saves_seconds_per_month: number
-    /** Bytes materializing saves from scanning in a month. */
+    /** Bytes materializing saves from scanning in a month. Negative when its refreshes scan more than its reads would. */
     saves_bytes_per_month: number
     /**
      * How old the view's data can be today, in seconds. Null when its sources are live.
@@ -139,6 +139,8 @@ export interface WarehouseSuggestionMaterializePayloadApi {
      * @nullable
      */
     read_seconds?: number | null
+    /** True when measuring the view's cost hit the time limit. The cost and every saving are then lower bounds. */
+    measurement_capped?: boolean
 }
 
 export interface WarehouseSuggestionUnmaterializePayloadApi {
@@ -467,11 +469,11 @@ export const WarehouseSuggestionSurfaceEnumApi = {
 } as const
 
 export interface SurfaceMoreWarehouseSuggestionsApi {
-    /** Page to show more suggestions on. Only the kinds that page shows are picked.
+    /** Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.
      *
      * * `models` - Models
      * * `catalog` - Data catalog */
-    surface: WarehouseSuggestionSurfaceEnumApi
+    surface?: WarehouseSuggestionSurfaceEnumApi
 }
 
 export interface WarehouseSuggestionSurfaceMoreResultApi {
@@ -597,7 +599,7 @@ export const WarehouseSuggestionsDismissCreateSurface = {
 
 export type WarehouseSuggestionsStatusRetrieveParams = {
     /**
-     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     * Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.
      *
      * * `models` - Models
      * * `catalog` - Data catalog

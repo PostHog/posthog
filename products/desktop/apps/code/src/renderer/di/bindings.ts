@@ -134,6 +134,10 @@ import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
+import {
+  WARM_TASK_SERVICE,
+  type WarmTaskService,
+} from "@posthog/core/task-detail/warmTaskService";
 import type { WorkspaceSetupSaga } from "@posthog/core/task-detail/workspaceSetupSaga";
 import {
   type ITaskDeletionHost,
@@ -341,6 +345,7 @@ export interface RendererBindings {
   [TASK_CREATION_EFFECTS]: TaskCreationEffects;
   [RENDERER_TASK_SERVICE]: TaskService;
   [TASK_SERVICE]: TaskService;
+  [WARM_TASK_SERVICE]: WarmTaskService;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
   [SESSION_SERVICE]: SessionService;
   [GIT_WRITE_CLIENT]: IGitWriteClient;

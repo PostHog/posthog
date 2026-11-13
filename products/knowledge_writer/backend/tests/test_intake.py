@@ -12,15 +12,17 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
-from products.knowledge_writer.backend.adapters.registry import REGISTRY
-from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
-from products.knowledge_writer.backend.facade.enums import DocsRequestSource
-from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG
+from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
+from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
+from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
+from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import (
     COMPARE_FILE_LIMIT,
+    DRAFT_EVENT,
     LINK_BACK_START,
+    OPEN_PULL_REQUESTS_OFF,
     open_or_join_pull_request,
     section_label,
     section_marker,
@@ -39,6 +41,7 @@ from products.knowledge_writer.backend.logic.records import (
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.knowledge_writer.backend.settings import writer_settings
 from products.knowledge_writer.backend.task_profiles import WRITER
+from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
@@ -58,16 +61,9 @@ WRITER_APP_LOGIN = "posthog-app[bot]"
 CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
+CAPTURE_DRAFT = "products.knowledge_writer.backend.logic.pull_requests.ph_scoped_capture"
 
-COMMAND = DocsCommandRequest(
-    repository="PostHog/posthog",
-    pull_request_number=123,
-    pull_request_url="https://github.com/PostHog/posthog/pull/123",
-    head_sha="abc123",
-    note="Document the new retention option.",
-    requested_by="@octo",
-    requested_by_user_id=42,
-)
+COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
 
 
 @pytest.fixture
@@ -87,6 +83,7 @@ def writer_env(team, user):
         ),
         patch(f"{GITHUB}.get_default_branch", return_value="master"),
         patch(LIST_PULL_REQUESTS, side_effect=_changed_on_branch(DOCS_PAGE_PATH)),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag == OPEN_PULL_REQUESTS_FLAG),
     ):
         yield
 
@@ -125,22 +122,50 @@ def _open_on_github(
 
 def _changed_on_branch(*changed_files: str | dict[str, str], status_code: int = 200) -> Callable[..., MagicMock]:
     listed = [changed if isinstance(changed, dict) else {"filename": changed} for changed in changed_files]
-    compared = {"ahead_by": 1, "files": listed}
-    return lambda method, path, **kwargs: MagicMock(status_code=status_code, json=MagicMock(return_value=compared))
+    return lambda method, path, **kwargs: MagicMock(
+        status_code=status_code,
+        json=MagicMock(
+            return_value={
+                "ahead_by": 1,
+                "files": listed,
+                "html_url": f"https://github.com{path.removeprefix('/repos')}",
+            }
+        ),
+    )
 
 
-def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = ()):
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
-        dataclasses.replace(
-            COMMAND,
-            pull_request_number=pull_request_number,
-            pull_request_url=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
-        )
+def _verdict(
+    pull_request_number: int = 123,
+    suggested_page_urls: tuple[str, ...] = (),
+    *,
+    commit_sha: str = "a" * 40,
+    note: str = "Document the new retention option.",
+):
+    report = MergeCheckReport(
+        commit_sha=commit_sha,
+        commit_url=f"https://github.com/PostHog/posthog/commit/{commit_sha}",
+        title="Add a retention option to session replay",
+        needs_docs=True,
+        reason="judge",
+        repository="PostHog/posthog",
+        pull_request_number=pull_request_number,
+        low_confidence=False,
+        criteria=(),
+        change_kind=DocsChangeKind.UPDATE,
+        page_urls=suggested_page_urls,
+        evidence=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
     )
-    assert verdict.request is not None
-    return dataclasses.replace(
-        verdict, request=dataclasses.replace(verdict.request, suggested_page_urls=suggested_page_urls)
+    inputs = MergeCheckInputs(
+        commit_sha=None,
+        team_id=0,
+        repository="PostHog/posthog",
+        pull_request_number=pull_request_number,
+        origin=DocsRequestSource.COMMAND_TAG,
+        requested_by="@octo",
+        requested_by_user_id=42,
+        note=note,
     )
+    return RepoMergeAdapter().assess(report, inputs)
 
 
 def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
@@ -277,7 +302,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     ):
         started = intake.submit(first_verdict, team_id=team.id)
     assert started.task_id is not None
-    second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,))
+    second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,), commit_sha="c" * 40)
     with (
         patch(FLAG_CHECK, return_value=True),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
@@ -325,7 +350,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert _issued_branch(started.task_id).startswith("knowledge-writer/")
     assert create_pull_request.call_args.kwargs["draft"] is True
     assert LINK_BACK_START in create_pull_request.call_args.kwargs["body"]
-    assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
+    assert COMMIT_URL in create_pull_request.call_args.kwargs["body"]
 
     first_body = create_pull_request.call_args.kwargs["body"]
     section = docs_section(SECTION_PAGE)
@@ -374,7 +399,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     update_body.assert_not_called()
     comment.assert_called_once()
     assert comment.call_args.args[:2] == ("posthog.com", 9)
-    assert "https://github.com/PostHog/posthog/pull/456" in comment.call_args.args[2]
+    assert f"https://github.com/PostHog/posthog/commit/{'c' * 40}" in comment.call_args.args[2]
     stored = tasks_facade.read_task_state_entry(joined.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == 9
@@ -464,6 +489,61 @@ def test_a_publish_retry_reclaims_the_claim_its_crashed_attempt_left_and_opens_t
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "open_pull_requests_reply, expected_outcomes",
+    [(False, ["logged"]), (None, [])],
+)
+def test_with_pull_requests_off_a_finished_run_is_logged_with_a_compare_url_and_keeps_its_branch(
+    team,
+    writer_env,
+    django_capture_on_commit_callbacks,
+    monkeypatch,
+    open_pull_requests_reply,
+    expected_outcomes,
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
+    monkeypatch.setenv("KNOWLEDGE_WRITER_DOCS_PATHS", "contents/docs")
+    with (
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+    assert started.task_id is not None
+    patched_file = {"filename": DOCS_PAGE_PATH, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}
+    with (
+        patch(
+            FLAG_CHECK,
+            side_effect=lambda flag, *args, **kwargs: (
+                open_pull_requests_reply if flag == OPEN_PULL_REQUESTS_FLAG else True
+            ),
+        ),
+        patch(CREATE_PULL_REQUEST) as create_pull_request,
+        patch(f"{GITHUB}.delete_branch", return_value={"success": True}) as delete_branch,
+        patch(CAPTURE_DRAFT) as scoped_capture,
+    ):
+        _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=(patched_file,))
+
+    create_pull_request.assert_not_called()
+    delete_branch.assert_not_called()
+    capture = scoped_capture.return_value.__enter__.return_value
+    assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == expected_outcomes
+    if open_pull_requests_reply is None:
+        return
+    assert (
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
+        == OPEN_PULL_REQUESTS_OFF
+    )
+    event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
+    assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [SECTION_PAGE])
+    assert properties["files"] == [{**patched_file, "is_patch_truncated": False}]
+    assert properties["compare_url"] == (
+        f"https://github.com/PostHog/posthog.com/compare/master...{_issued_branch(started.task_id)}"
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "github_responses, handed_pages, withheld_pages",
     [
         (_open_on_github(published_page_paths=("logs/logql-api",)), (SECTION_PAGE,), (REPOSITORY_SOURCED_PAGE,)),
@@ -524,9 +604,16 @@ def test_a_request_whose_every_page_is_sourced_from_its_own_repository_starts_no
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("author_login, expected_status", [(WRITER_APP_LOGIN, "joined"), ("someone-else", "started")])
-def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
-    team, writer_env, author_login, expected_status
+@pytest.mark.parametrize(
+    "author_login, flags_off, expected_status",
+    [
+        (WRITER_APP_LOGIN, (), "joined"),
+        ("someone-else", (), "started"),
+        (WRITER_APP_LOGIN, (OPEN_PULL_REQUESTS_FLAG,), "started"),
+    ],
+)
+def test_only_a_pull_request_the_writer_app_opened_can_be_joined_while_pull_requests_are_on(
+    team, writer_env, author_login, flags_off, expected_status
 ) -> None:
     verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     assert verdict.request is not None
@@ -534,7 +621,7 @@ def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
     assert section is not None
     lookalike_body = f"{LINK_BACK_START}\n{section_marker(section)}"
     with (
-        patch(FLAG_CHECK, return_value=True),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag not in flags_off),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, lookalike_body), author_login=author_login)),
         patch(START_WORKFLOW),
     ):
@@ -570,13 +657,9 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env
 @pytest.mark.django_db
 def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, user, writer_env) -> None:
     verdict = _verdict()
-    renewed_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
-        dataclasses.replace(COMMAND, head_sha="fff999", note="Only touch the API reference.")
-    )
-    later_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(dataclasses.replace(COMMAND, head_sha="eee111"))
-    after_refusal_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
-        dataclasses.replace(COMMAND, head_sha="ddd222")
-    )
+    renewed_verdict = _verdict(commit_sha="f" * 40, note="Only touch the API reference.")
+    later_verdict = _verdict(commit_sha="e" * 40)
+    after_refusal_verdict = _verdict(commit_sha="d" * 40)
 
     with (
         patch(FLAG_CHECK, return_value=True),
@@ -603,7 +686,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
     assert new_run.state["include_live_context"] is False
     task = Task.objects.get(id=started.task_id)
-    assert "fff999" in task.description and "Only touch the API reference." in task.description
+    assert "f" * 40 in task.description and "asked: Only touch the API reference.\nUNTRUSTED>>>" in task.description
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
     assert (
         isinstance(stored_request, dict) and stored_request["trigger_instructions"] == "Only touch the API reference."

@@ -17,9 +17,10 @@ A second flag tests the person's stored personal list as the recommended order:
 | `control`  | priority                                | no   |
 | `personal` | the stored personal list, then priority | yes  |
 
-Only a person whose stored list has at least `PERSONAL_ARM_MIN_ENTRIES` entries is evaluated on it, so only they
-record an exposure. For every other person, and when the second flag gives no known variant, the first flag picks
-the arm.
+Only a person whose stored list has at least `PERSONAL_ARM_MIN_ENTRIES` entries records an exposure. A rebuild can
+make the list of an exposed person shorter, so a person with a shorter list that is not empty also gets the arm of
+their variant, with no exposure. For a person with no stored list, and when the second flag gives no known variant,
+the first flag picks the arm.
 
 A head ranker sorts by the served score of its outcome, highest first, then in priority order. Unscored and stale
 reports come after every scored report, in priority order. The merge key follows the same order, so a client can merge
@@ -97,9 +98,13 @@ def resolve_recommended_arm(
     distinct_id = user.distinct_id
     if not distinct_id:
         return CONTROL_ARM
-    if personal_list_size >= PERSONAL_ARM_MIN_ENTRIES:
+    if personal_list_size > 0:
         arm = _flag_arm(
-            PERSONAL_RECOMMENDED_FLAG, PERSONAL_RECOMMENDED_ARMS, team, distinct_id, send_feature_flag_events
+            PERSONAL_RECOMMENDED_FLAG,
+            PERSONAL_RECOMMENDED_ARMS,
+            team,
+            distinct_id,
+            send_feature_flag_events and personal_list_size >= PERSONAL_ARM_MIN_ENTRIES,
         )
         if arm is not None:
             return arm

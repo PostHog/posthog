@@ -33,7 +33,7 @@ const report = makeReport({
 const meta: Meta<typeof ReportDiscussionComposer> = {
     title: 'Scenes-App/Inbox/DiscussReportButton',
     component: ReportDiscussionComposer,
-    parameters: { layout: 'centered' },
+    parameters: { layout: 'centered', featureFlags: { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } },
     decorators: [
         function ReportContext(Story, context): JSX.Element {
             useAttachedContext([{ type: 'inbox_report', key: report.id, label: `Report: ${report.title}` }])
@@ -96,7 +96,7 @@ export const MetricSuggestion: Story = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
         testOptions: { snapshotBrowsers: [] },
     },
     render: function MetricSuggestion(): JSX.Element {

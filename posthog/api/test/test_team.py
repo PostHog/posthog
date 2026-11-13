@@ -3471,7 +3471,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=stored_mode
         )
-        request = RequestFactory().get("/")
+        request = RequestFactory().get("/?deferred_app_context=0")
         request.user = self.user
         request.session = self.client.session
 

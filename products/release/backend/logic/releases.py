@@ -31,6 +31,8 @@ def create_release(
     owner_id: int | None,
     feature_flag_ids: list[int],
     broadcast_ids: list[UUID],
+    survey_ids: list[UUID] | None = None,
+    insight_ids: list[int] | None = None,
 ) -> Release:
     return Release.objects.create(
         team_id=team_id,
@@ -39,11 +41,15 @@ def create_release(
         owner_id=owner_id,
         feature_flag_ids=feature_flag_ids,
         broadcast_ids=broadcast_ids,
+        survey_ids=survey_ids or [],
+        insight_ids=insight_ids or [],
     )
 
 
 def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
     release = get_release(team_id, release_id)
+    if "name" in changes:
+        changes = {**changes, "auto_named": False}
     for field, value in changes.items():
         setattr(release, field, value)
     release.save(update_fields=[*changes.keys(), "updated_at"])

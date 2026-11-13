@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.schema.information_schema import references_denied_table
 
 from posthog.dataclasses import frozen
@@ -31,10 +31,10 @@ from posthog.models.scoping import team_scope
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
-from ..facade.contracts import MetricBulkOwnerChange
+from ..facade.contracts import MetricBulkOwnerChange, MetricListFilters
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
-from ..tasks.tasks import sync_metric_lineage_task
+from ..tasks.tasks import refresh_metric_embedding_task, sync_metric_lineage_task
 from .analytics import (
     METRIC_APPROVAL_BLOCKED_EVENT,
     METRIC_APPROVED_EVENT,
@@ -47,6 +47,7 @@ from .analytics import (
 from .drift import canonical_query_hash, compute_drift, fetch_insight
 from .exceptions import MetricChanged, MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from .lineage import remove_metric_lineage
+from .metric_embeddings import EMBEDDED_FIELDS, can_embed, clear_stale_embedding
 from .validation import validate_description, validate_metric_definition
 
 if TYPE_CHECKING:
@@ -212,6 +213,8 @@ def _refine(metric: Metric, fields: dict) -> None:
 
 
 def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    if user_access_control.is_organization_admin:
+        return {f"system.{name}" for name in system_table_denials(team, user, user_access_control)}
     return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
 
 
@@ -255,6 +258,19 @@ def _schedule_lineage_sync(metric: Metric) -> None:
     """
     metric_id, team_id = str(metric.id), metric.team_id
     transaction.on_commit(lambda: sync_metric_lineage_task.delay(metric_id, team_id), robust=True)
+
+
+def _schedule_embedding_refresh(metric: Metric) -> None:
+    """Clear the stale vector, then refresh it after the write commits, for organizations that allow embedding.
+
+    `robust=True` for the same reason as the lineage sync. The embedding backfill sweep repairs a
+    message that never went.
+    """
+    clear_stale_embedding(metric)
+    if not can_embed(metric.team):
+        return
+    metric_id, team_id = str(metric.id), metric.team_id
+    transaction.on_commit(lambda: refresh_metric_embedding_task.delay(metric_id, team_id), robust=True)
 
 
 def upsert_metric(
@@ -359,6 +375,8 @@ def upsert_metric(
 
     if created or written_fields & _LINEAGE_FIELDS:
         _schedule_lineage_sync(metric)
+    if created or written_fields & EMBEDDED_FIELDS:
+        _schedule_embedding_refresh(metric)
     capture_metric_event(
         METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT,
         metric,
@@ -416,6 +434,8 @@ def update_metric(
         raise ValidationError({"name": "A metric with this name already exists."})
     if renamed_from is not None or changed_fields & _LINEAGE_FIELDS:
         _schedule_lineage_sync(metric)
+    if changed_fields & EMBEDDED_FIELDS:
+        _schedule_embedding_refresh(metric)
     capture_metric_event(
         METRIC_UPDATED_EVENT,
         metric,
@@ -690,14 +710,32 @@ def _reset_to_proposed(metric: Metric) -> None:
 
 
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
-    """Live (non-deleted) metrics for a team, newest first."""
-    return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+    """Live (non-deleted) metrics for a team, newest first. The search vector is not loaded."""
+    return Metric.objects.for_team(team.id).filter(deleted=False).defer("embedding").order_by("-created_at")
 
 
-def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
-    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
+def metrics_visible_to_user(
+    team: Team,
+    user: User,
+    user_access_control: UserAccessControl,
+    filters: MetricListFilters | None = None,
+    *,
+    denied_tables: set[str] | None = None,
+) -> QuerySet[Metric]:
+    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read.
+
+    With ``filters``, only the metrics the list shows. The plain list and the ranked search both pass them here.
+    Building the denied-table set loads the team's whole HogQL catalog, so a caller that already has it passes it in.
+    """
     metrics = metrics_for_team(team)
-    denied_tables = _denied_tables(team, user, user_access_control)
+    if filters is not None and filters.status:
+        metrics = metrics.filter(status=filters.status)
+    if filters is not None and filters.definition_kind:
+        metrics = metrics.filter(definition__kind=filters.definition_kind)
+    if denied_tables is None:
+        if not metrics.exists():
+            return metrics.none()
+        denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
     visible_metric_ids = [

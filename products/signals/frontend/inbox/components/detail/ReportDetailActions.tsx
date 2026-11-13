@@ -209,9 +209,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       label: 'Reopen',
                       icon: <IconUndo />,
                       loading: reportStateSaving,
+                      tooltip: 'Move this report back to ready',
                       onClick: () => {
                           captureInboxReportAction({ report, actionType: 'reopen', surface: 'detail_pane' })
-                          changeReportState('potential')
+                          changeReportState('ready')
                       },
                   },
               ]
