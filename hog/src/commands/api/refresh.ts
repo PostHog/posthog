@@ -35,6 +35,7 @@ export default defineCommand({
                 needs_newer_hog: 'Update hog to get the newest tools.',
                 pinned: 'Unset HOG_API_CATALOG to download the catalog.',
                 insecure_tls: 'Turn TLS verification back on to download the catalog.',
+                plain_http: 'Use the https address of this PostHog instance to download the catalog.',
                 not_served: 'Update this PostHog instance to serve the newest tools to hog.',
             }
             throw new HogError(

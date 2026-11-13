@@ -26,8 +26,7 @@ import type { Runtime } from './runtime'
 import { SKILL_COMMANDS } from './skill-commands'
 import { Telemetry } from './telemetry'
 
-// An invalid HOG_PROJECT_ID, or a posthog.json host a CI job can't use, fails the command once it needs
-// credentials. Until then, picking the catalog host treats it as missing.
+// Settings that fail the command once it needs credentials, such as an invalid HOG_PROJECT_ID, count as missing here.
 function orUndefined<T>(read: () => T): T | undefined {
     try {
         return read()
