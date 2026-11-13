@@ -784,9 +784,16 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
         })
 
-        it('saves a tile group moved above the group before it', async () => {
+        it.each([
+            { name: 'in bands', groupDisplay: 'sections' as const, openTab: null },
+            { name: 'in tabs, with the open tab kept open', groupDisplay: 'tabs' as const, openTab: 'target' },
+        ])('saves a tile group moved below the group after it $name', async ({ groupDisplay, openTab }) => {
             groupTiles({})
-            dashboards[5] = { ...dashboards[5], user_access_level: 'editor' as DashboardType['user_access_level'] }
+            dashboards[5] = {
+                ...dashboards[5],
+                customization: { group_display: groupDisplay },
+                user_access_level: 'editor' as DashboardType['user_access_level'],
+            }
             useMocks({
                 patch: {
                     '/api/environments/:team_id/dashboards/5/': async ({ request }) => {
@@ -807,7 +814,7 @@ describe('dashboardLogic', () => {
             await mountDashboard()
             logic.actions.updateContainerWidth(1200, 12)
 
-            await expectLogic(logic, () => logic.actions.moveTileGroup('other', 'up'))
+            await expectLogic(logic, () => logic.actions.moveTileGroup('target', 'down'))
                 .toDispatchActions(['stageLayouts', 'saveLayoutOrColorsSuccess'])
                 .toFinishAllListeners()
 
@@ -815,7 +822,29 @@ describe('dashboardLogic', () => {
                 'group-other',
                 'group-target',
             ])
+            expect(logic.values.activeTileGroupTab).toEqual(openTab)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
+        it('does not move a tile group while tiles still stream in', async () => {
+            groupTiles({})
+            dashboards[5] = { ...dashboards[5], user_access_level: 'editor' as DashboardType['user_access_level'] }
+            await mountDashboard()
+            logic.actions.updateContainerWidth(1200, 12)
+            const streamTiles = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(jest.fn())
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            const onMessage = streamTiles.mock.calls[0][2]
+            onMessage({ type: 'metadata', dashboard: { ...dashboards[5], tiles: [] } })
+            dashboards[5].tiles.forEach((tile, order) => onMessage({ type: 'tile', tile, order }))
+
+            await expectLogic(logic, () => logic.actions.moveTileGroup('target', 'down')).toFinishAllListeners()
+
+            expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
+                'group-target',
+                'group-other',
+            ])
         })
 
         describe('moving a tile between tile groups', () => {

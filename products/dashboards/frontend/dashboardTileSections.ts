@@ -98,8 +98,9 @@ export function getDashboardSections({
         if (last?.kind === 'tiles') {
             last.tiles.push(tile)
         } else {
-            // Named after the group above it, so the key holds when the band's own tiles reorder.
-            const key = last ? `tiles-after-${last.groupKey}` : 'tiles-start'
+            // Numbered among the bands outside any group, so the key holds when the band's own tiles reorder
+            // and when a group moves past the band.
+            const key = `tiles-${sections.filter((section) => section.kind === 'tiles').length}`
             sections.push({ kind: 'tiles', key, tiles: [tile] })
         }
     }
@@ -280,7 +281,7 @@ function getTileGroupSwapIndex(
 }
 
 /**
- * The directions each group can move in, from the dashboard's bands, also when it shows them as tabs.
+ * The directions each group can move in, among the dashboard's bands or tabs.
  * Empty when there is nothing to reorder, so the menu does not offer two actions that can never run.
  */
 export function getTileGroupMoveDirections(
@@ -311,8 +312,9 @@ export function getTileGroupMoveDirections(
 }
 
 /**
- * The dashboard layout after a group trades places with the band next to it, or null when it cannot move that way.
- * Every tile keeps its place inside its band, so only the order of the bands changes.
+ * The dashboard layout after a group trades places with the band or tab next to it, or null when it cannot move
+ * that way. `sections` are the bands or tabs as the dashboard shows them, and every tile keeps its place inside
+ * its own, so only their order changes.
  */
 export function getLayoutAfterTileGroupMove({
     layout,
