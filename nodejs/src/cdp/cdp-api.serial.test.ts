@@ -14,12 +14,15 @@ import pino from 'pino'
 import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
+import { version as uuidVersion } from 'uuid'
 
+import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT } from '~/common/outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -1599,6 +1602,39 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a deadline', { wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
+            ['no request', undefined, 200, undefined],
+            ['an unreadable deadline', { wait_until: 'soon' }, 400, undefined],
+        ])(
+            'resolves the audience up front only on a valid deadline: %s',
+            async (_desc, audienceSnapshot, status, waitUntil) => {
+                const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+                api['batchResolverProducer'] = fakeJobProducer({ createJob: createJobMock })
+
+                try {
+                    const res = await supertest(app)
+                        .post(
+                            `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-794`
+                        )
+                        .send({ audience_snapshot: audienceSnapshot })
+
+                    expect(res.status).toEqual(status)
+                    if (status !== 200) {
+                        expect(createJobMock).not.toHaveBeenCalled()
+                        return
+                    }
+                    const arg = createJobMock.mock.calls[0][0]
+                    // The resolver asks Django for the snapshot on its first dequeue, so the job starts now.
+                    expect(arg.scheduled).toBeUndefined()
+                    const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                    expect(state.audienceSnapshot).toEqual(waitUntil ? { waitUntil } : undefined)
+                } finally {
+                    api['batchResolverProducer'] = null
+                }
+            }
+        )
+
+        it.each([
             ['a deadline', { id: 7, team_id: 1, wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
             ['no deadline', { id: 7, team_id: 1 }, 200, undefined],
             ['an unreadable deadline', { id: 7, team_id: 1, wait_until: 'tomorrow-ish' }, 400, undefined],
@@ -2582,10 +2618,8 @@ describe('CDP API', () => {
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = Object.assign(createMockJobQueue(), { queueInvocations: mockQueueInvocations })
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
-            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
-            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         })
 
         afterEach(() => {
@@ -2690,6 +2724,7 @@ describe('CDP API', () => {
             const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
+                mockProducerObserver.resetKafkaProducer()
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
@@ -2703,25 +2738,45 @@ describe('CDP API', () => {
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
                 [
-                    'a code send from a sender without an address',
+                    'a code send without a from address after it resolved to another sender',
                     'transactional_email/send',
                     { ...body, send: addresslessSend },
-                    { ...body, send: addresslessSend },
+                    { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
-                    const sent = await sendKeyedOn(route, first)
-                    const replayed = await sendKeyedOn(route, retry)
+                    const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+                    const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                    await queue.startAsProducer()
+                    api['hogflowQueue'] = queue
+                    try {
+                        const sent = await sendKeyedOn(route, first)
+                        const replayed = await sendKeyedOn(route, retry)
 
-                    expect(sent.status).toEqual(202)
-                    expect(sent.body).toMatchObject({ replayed: false })
-                    expect(replayed.status).toEqual(202)
-                    expect(replayed.body).toEqual({ ...sent.body, replayed: true })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                    expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
-                    ])
+                        expect(sent.status).toEqual(202)
+                        expect(sent.body).toMatchObject({ replayed: false })
+                        expect(replayed.status).toEqual(202)
+                        expect(replayed.body).toEqual({ ...sent.body, replayed: true })
+                        const { rows } = await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [
+                            hogFlow.id,
+                        ])
+                        expect(rows.map((row) => row.id)).toEqual([sent.body.invocation_id])
+                        await waitForExpect(() =>
+                            expect(
+                                mockProducerObserver
+                                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                                    .filter(({ key }) => key === sent.body.invocation_id)
+                            ).toEqual([
+                                expect.objectContaining({
+                                    value: expect.objectContaining({ status: 'queued' }),
+                                }),
+                            ])
+                        )
+                    } finally {
+                        await queue.stopProducer()
+                        await cyclotron.end()
+                    }
                 }
             )
 
@@ -2747,14 +2802,6 @@ describe('CDP API', () => {
                     [
                         'transactional_email/send',
                         { ...body, send: { ...codeSend, from: { ...codeSend.from, email: 'alerts@example.com' } } },
-                    ],
-                ],
-                [
-                    'another sender without an address',
-                    ['transactional_email/send', { ...body, send: addresslessSend }],
-                    [
-                        'transactional_email/send',
-                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                     ],
                 ],
                 [
@@ -2848,6 +2895,252 @@ describe('CDP API', () => {
                 } finally {
                     api['transactionalEmailIdempotencyKeys'] = keys
                 }
+            })
+
+            describe('claimed in the cyclotron database', () => {
+                const valkeyKey = (key: string) =>
+                    `@posthog/idempotency/transactional-email/${team.id}/${createHash('sha256').update(key).digest('hex')}`
+                const valkey = () => api['transactionalEmailIdempotencyKeys']['valkey']!
+                const forgetValkeyRecord = (key: string) =>
+                    valkey().useClient({ name: 'test' }, (client) => client.del(valkeyKey(key)))
+                const jobsOfFlow = async (): Promise<string[]> =>
+                    (
+                        await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                    ).rows.map((row) => row.id)
+                const claimFingerprint = async (id: string): Promise<string | undefined> =>
+                    (await cyclotron.query('SELECT fingerprint FROM cyclotron_idempotency_keys WHERE id = $1', [id]))
+                        .rows[0]?.fingerprint
+
+                beforeEach(async () => {
+                    await useRealQueue()
+                })
+
+                afterEach(async () => {
+                    api['batchResolverProducer'] = null
+                    await cyclotron.query('DELETE FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                })
+
+                it('claims a keyed send in the cyclotron database under an id derived from the key', async () => {
+                    const sent = await sendKeyed()
+
+                    expect(sent.status).toEqual(202)
+                    expect(sent.body.invocation_id).toEqual(
+                        keyedRunId(team.id, 'transactional-email', keyed.idempotency_key as string)
+                    )
+                    expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
+                })
+
+                it.each([
+                    [
+                        'its recipient is now suppressed',
+                        () => jest.spyOn(api['emailSuppressionService'], 'isKnownSuppressed').mockResolvedValue(true),
+                    ],
+                    [
+                        'its workflow is gone',
+                        () =>
+                            jest
+                                .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
+                                .mockResolvedValue(null),
+                    ],
+                ])(
+                    'replays a retry from the cyclotron database once Valkey has lost the send, when %s',
+                    async (_, refuse) => {
+                        const sent = await sendKeyed()
+                        await forgetValkeyRecord(keyed.idempotency_key as string)
+                        refuse()
+
+                        const retry = await sendKeyed()
+
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                        expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    }
+                )
+
+                it('replays a scheduled send from the cyclotron database with the time it was scheduled for', async () => {
+                    const scheduledAt = inDays(2)
+                    const sent = await sendKeyedOn('transactional_email', { ...body, scheduled_at: scheduledAt })
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+
+                    const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: scheduledAt })
+
+                    expect(sent.body).toMatchObject({ status: 'scheduled', scheduled_at: scheduledAt })
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    const olderPod = api['transactionalEmailIdempotencyKeys']
+                    expect(
+                        await olderPod.reserve(
+                            team.id,
+                            keyed.idempotency_key as string,
+                            (await claimFingerprint(sent.body.invocation_id))!,
+                            randomUUID()
+                        )
+                    ).toMatchObject({ status: 'replayed', invocationId: sent.body.invocation_id, scheduledAt })
+                })
+
+                it.each([
+                    ['refuses', inDays(30.01), 400],
+                    ['schedules', inDays(29.9), 202],
+                ])('%s a keyed send scheduled that far after it was accepted', async (_, scheduledAt, status) => {
+                    const res = await sendKeyedOn('transactional_email', { ...body, scheduled_at: scheduledAt })
+
+                    expect(res.status).toEqual(status)
+                })
+
+                it('answers 503 and queues nothing when the claim lookup fails', async () => {
+                    jest.spyOn(queue, 'findIdempotencyKey').mockRejectedValueOnce(
+                        new Error('canceling statement due to statement timeout')
+                    )
+
+                    const res = await sendKeyed()
+
+                    expect(res.status).toEqual(503)
+                    expect(res.body).toEqual({ error: 'idempotency_unavailable' })
+                    expect(await jobsOfFlow()).toEqual([])
+                })
+
+                it('answers 503 and queues nothing while a stalled pod holds the claim uncommitted', async () => {
+                    const runId = keyedRunId(team.id, 'transactional-email', keyed.idempotency_key as string)
+                    const stalledPod = await cyclotron.connect()
+                    await stalledPod.query('BEGIN')
+                    await stalledPod.query(
+                        `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                         VALUES ($1, $2, 'a', NOW() + interval '1 day')`,
+                        [runId, team.id]
+                    )
+                    try {
+                        const res = await sendKeyed()
+
+                        expect(res.status).toEqual(503)
+                        expect(res.body).toEqual({ error: 'idempotency_unavailable' })
+                    } finally {
+                        await stalledPod.query('ROLLBACK')
+                        stalledPod.release()
+                    }
+
+                    expect(await jobsOfFlow()).toEqual([])
+                    expect((await sendKeyed()).status).toEqual(202)
+                })
+
+                it('rejects a reused key from the cyclotron database once Valkey has lost the send', async () => {
+                    const sent = await sendKeyed()
+                    const winner = (await claimFingerprint(sent.body.invocation_id))!
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                    expect(await jobsOfFlow()).toHaveLength(1)
+                    const olderPod = api['transactionalEmailIdempotencyKeys']
+                    expect(
+                        await olderPod.reserve(team.id, keyed.idempotency_key as string, winner, randomUUID())
+                    ).toMatchObject({ status: 'replayed', invocationId: sent.body.invocation_id })
+                })
+
+                it('records the queued send in Valkey when a reused key finds it only at the claim', async () => {
+                    const sent = await sendKeyed()
+                    const winner = (await claimFingerprint(sent.body.invocation_id))!
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+                    jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                    const olderPod = api['transactionalEmailIdempotencyKeys']
+                    const key = keyed.idempotency_key as string
+                    expect(await olderPod.reserve(team.id, key, winner, randomUUID())).toMatchObject({
+                        status: 'replayed',
+                        invocationId: sent.body.invocation_id,
+                    })
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                })
+
+                it('keeps a scheduled send recorded in Valkey until it is due when a reused key finds it only at the claim', async () => {
+                    const sent = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(5) })
+                    const winner = (await claimFingerprint(sent.body.invocation_id))!
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+                    jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    const ttlSeconds = await valkey().useClient({ name: 'test' }, (client) =>
+                        client.ttl(valkeyKey(keyed.idempotency_key as string))
+                    )
+                    // Past the day after it is due, so an older pod still replays it instead of queueing a second run.
+                    expect(ttlSeconds).toBeGreaterThan((6 * DAY_MS) / 1000)
+                    const olderPod = api['transactionalEmailIdempotencyKeys']
+                    expect(
+                        await olderPod.reserve(team.id, keyed.idempotency_key as string, winner, randomUUID())
+                    ).toMatchObject({ status: 'replayed', invocationId: sent.body.invocation_id })
+                })
+
+                it('keeps the record past the latest a reschedule can move the winner to, even when it was created after this request', async () => {
+                    const sent = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(5) })
+                    // The winner's row reads as created after this request built its own send, as with pod clock skew
+                    // or a request that waited before claiming. A reschedule may move the winner to that created time
+                    // plus 30 days.
+                    const { rows } = await cyclotron.query<{ created_ms: number }>(
+                        `UPDATE cyclotron_jobs SET created = created + interval '30 minutes' WHERE id = $1
+                         RETURNING (extract(epoch FROM created) * 1000)::float8 AS created_ms`,
+                        [sent.body.invocation_id]
+                    )
+                    const latestDueMs = rows[0].created_ms + 30 * DAY_MS
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+                    jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    const ttlMs = await valkey().useClient({ name: 'test' }, (client) =>
+                        client.pttl(valkeyKey(keyed.idempotency_key as string))
+                    )
+                    expect(Date.now() + ttlMs!).toBeGreaterThan(latestDueMs + DAY_MS)
+                })
+
+                it('replays the id an older pod queued and recorded only in Valkey', async () => {
+                    const sent = await sendKeyed()
+                    const key = valkeyKey(keyed.idempotency_key as string)
+                    const legacyId = new UUIDT().toString()
+                    await valkey().useClient({ name: 'test' }, async (client) => {
+                        const stored = parseJSON((await client.get(key))!)
+                        await client.set(key, JSON.stringify({ ...stored, invocationId: legacyId }), 'EX', 3600)
+                    })
+                    await cyclotron.query('DELETE FROM cyclotron_jobs WHERE id = $1', [sent.body.invocation_id])
+                    await cyclotron.query('DELETE FROM cyclotron_idempotency_keys WHERE id = $1', [
+                        sent.body.invocation_id,
+                    ])
+
+                    const retry = await sendKeyed()
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toMatchObject({ invocation_id: legacyId, replayed: true })
+                    expect(await jobsOfFlow()).toEqual([])
+                })
+
+                it('queues one job for two first requests with the same key that both pass Valkey', async () => {
+                    // Both reservations find the key absent, so only the claim can stop a second job.
+                    const useClient = valkey().useClient.bind(valkey())
+                    jest.spyOn(valkey(), 'useClient').mockImplementation((options, callback) =>
+                        options.name === 'idempotency-reserve' ? Promise.resolve(null) : useClient(options, callback)
+                    )
+
+                    const responses = await Promise.all([sendKeyed(), sendKeyed()])
+
+                    const jobs = await jobsOfFlow()
+                    expect(jobs).toHaveLength(1)
+                    expect(
+                        responses.map((res) => [res.status, res.body.invocation_id, res.body.replayed]).sort()
+                    ).toEqual([
+                        [202, jobs[0], false],
+                        [202, jobs[0], true],
+                    ])
+                })
             })
         })
 
@@ -3693,11 +3986,26 @@ describe('CDP API', () => {
                 const offTheList = await servedForOneTest({ CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id + 1}` })
                 const stagesBefore = await stageCounts()
 
-                const res = await sendWithFiles(newKey(), [reference(invoice)], { app: offTheList })
+                const key = newKey()
+
+                const res = await sendWithFiles(key, [reference(invoice)], { app: offTheList })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'field_not_accepted' })
-                expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({ auth: 1, validate: 1, total: 1 })
+                expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
+                    auth: 1,
+                    validate: 1,
+                    idempotency: 1,
+                    total: 1,
+                })
+                const reservation = await api['transactionalEmailIdempotencyKeys']['valkey']!.useClient(
+                    { name: 'test' },
+                    (client) =>
+                        client.get(
+                            `@posthog/idempotency/transactional-email/${team.id}/${createHash('sha256').update(key).digest('hex')}`
+                        )
+                )
+                expect(reservation).toBeNull()
                 expect(await queuedIds()).toEqual([])
             })
 
@@ -4346,7 +4654,18 @@ describe('CDP API', () => {
                     total: 1,
                 })
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
-                expect(emailStatusRows()).toEqual([])
+                const refusedSend = {
+                    team_id: team.id,
+                    message_id: expect.any(String),
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }
+                expect(emailStatusRows()).toEqual([
+                    expect.objectContaining({ ...refusedSend, status: 'queued', reason: '' }),
+                    expect.objectContaining({ ...refusedSend, status: 'failed', reason: code }),
+                ])
+                const [queuedRow, failedRow] = emailStatusRows()
+                expect(failedRow.message_id).toEqual(queuedRow.message_id)
 
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 
@@ -4639,6 +4958,28 @@ describe('CDP API', () => {
                 api['batchResolverProducer'] = null
             })
 
+            it('moves and cancels a keyed scheduled send by its id, and dates every status row of it alike', async () => {
+                const idempotencyKey = `key-${new UUIDT().toString()}`
+                const sent = await send(
+                    hogFlow.id,
+                    { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                    { ...body, scheduled_at: inDays(2), idempotency_key: idempotencyKey }
+                )
+                const messageId = sent.body.invocation_id
+                expect(messageId).toEqual(keyedRunId(team.id, 'transactional-email', idempotencyKey))
+
+                const tooFar = await manage('reschedule', messageId, { scheduled_at: inDays(30.01) })
+                const moved = await manage('reschedule', messageId, { scheduled_at: inDays(5) })
+                const canceled = await manage('cancel', messageId)
+
+                expect(tooFar.status).toEqual(400)
+                expect(moved.status).toEqual(200)
+                expect(canceled.status).toEqual(200)
+                const rows = emailStatusRows().filter((row) => row.message_id === messageId)
+                expect(rows.map((row) => row.status)).toEqual(['scheduled', 'scheduled', 'canceled'])
+                expect(new Set(rows.map((row) => row.created_at)).size).toEqual(1)
+            })
+
             it.each([
                 ['loads', true],
                 ['fails to load', false],
@@ -4833,22 +5174,55 @@ describe('CDP API', () => {
                             })
                             expect(moved.status).toEqual(200)
                         }
+                        // By then the job has run and its claim has expired, so only Valkey can still answer the retry.
+                        await cyclotron.query('DELETE FROM cyclotron_jobs WHERE id = $1', [first.body.invocation_id])
+                        await cyclotron.query(
+                            `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 millisecond' WHERE id = $1`,
+                            [first.body.invocation_id]
+                        )
                         await letStoreTimePass(retryAfterMs)
 
                         const retry = await sendFirstRequest()
 
                         expect(retry.status).toEqual(202)
-                        expect(retry.body).toEqual({
-                            ...first.body,
-                            invocation_id: retry.body.invocation_id,
-                            replayed: replays,
-                        })
-                        expect(retry.body.invocation_id === first.body.invocation_id).toEqual(replays)
+                        expect(retry.body).toEqual({ ...first.body, replayed: replays })
                     } finally {
                         api['transactionalEmailIdempotencyKeys'] = keys
                     }
                 }
             )
+
+            it('replays a retry of a moved code send without a from address after it resolved to another sender', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                const valkey = keys['valkey']!
+                const scope = `scope-${new UUIDT().toString()}`
+                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
+                const keyed = (send: Record<string, unknown>) => ({ ...body, send, idempotency_key: `key-${scope}` })
+                try {
+                    const first = await sendAccepted(hogFlow.id, keyed(addresslessSend))
+                    expect(first.status).toEqual(202)
+                    const moved = await manage('reschedule', first.body.invocation_id, { scheduled_at: inDays(29.9) })
+                    expect(moved.status).toEqual(200)
+                    await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                        for (const stored of await client.keys(`*${scope}*`)) {
+                            const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                            await client.pexpire(storedKey, (await client.pttl(storedKey)) - (DAY_MS + HOUR_MS))
+                        }
+                    })
+
+                    const retry = await sendAccepted(
+                        hogFlow.id,
+                        keyed({ ...addresslessSend, from: { integrationId: codeSend.from.integrationId + 3 } })
+                    )
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    expect(await idsAnEmailWorkerClaims()).toEqual([])
+                } finally {
+                    api['transactionalEmailIdempotencyKeys'] = keys
+                }
+            })
 
             it.each([
                 ['the key store is down', 'failed'],

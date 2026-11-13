@@ -650,6 +650,21 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB execution timeout with no progress should be classified retryable: {error_msg}"
         )
 
+    def test_cosmos_db_request_rate_too_large_is_classified_retryable(self):
+        # OperationFailure code 16500 (codeName 'RequestRateTooLarge') is Azure Cosmos DB's API for
+        # MongoDB reporting its own throughput throttling (HTTP 429 underneath). The cluster already
+        # says to retry later, so this must not flood error tracking as an unclassified bug on every
+        # occurrence of a self-recovering rate limit.
+        error_msg = (
+            "Error=16500, RetryAfterMs=72, Details='Response status code does not indicate success: "
+            'TooManyRequests (429); Reason: (Errors : ["Request rate is large."]);, full error: '
+            "{'ok': 0.0, 'errmsg': 'Error=16500, RetryAfterMs=72, ...', 'code': 16500, "
+            "'codeName': 'RequestRateTooLarge'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB Cosmos DB RequestRateTooLarge should be classified retryable: {error_msg}"
+        )
+
 
 class TestGetRowsToSync(SimpleTestCase):
     """rows_to_sync is a best-effort progress estimate; a failed count must degrade to

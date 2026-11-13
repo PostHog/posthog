@@ -13,6 +13,7 @@
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
+# - cli-catalog-build: build the API tool catalog that hog downloads from /api/cli/catalog.json
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
 #
@@ -192,6 +193,27 @@ RUN cd /code/common/plugin_transpiler && \
     rm -rf node_modules/@babel/standalone && \
     mkdir -p node_modules/@babel && \
     cp -rL "$BABEL_REAL" node_modules/@babel/standalone
+
+
+#
+# ---------------------------------------------------------
+#
+# The API tool catalog that hog downloads from /api/cli/catalog.json, built from the MCP tool code of
+# this commit. The script exits non-zero when it can't build the catalog, which fails the image build.
+#
+FROM node-base AS cli-catalog-build
+COPY pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY patches/ patches/
+COPY services/mcp/package.json services/mcp/
+COPY tools/openapi-codegen/package.json tools/openapi-codegen/
+COPY packages/ packages/
+# No install scripts: the catalog build only needs esbuild and tsx, which run from their platform packages.
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    CI=1 pnpm --filter=@posthog/mcp... install --frozen-lockfile --ignore-scripts --store-dir /tmp/pnpm-store-v24
+COPY services/mcp/ services/mcp/
+# The tool code imports a few files from products/.
+COPY products/ products/
+RUN cd services/mcp && pnpm run build:cli:catalog && test -s dist/cli-catalog.json
 
 
 #
@@ -432,6 +454,8 @@ RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
 COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
+# Served by posthog/api/cli_catalog.py.
+COPY --from=cli-catalog-build --chown=posthog:posthog /code/services/mcp/dist/cli-catalog.json /code/services/mcp/dist/cli-catalog.json
 
 # Pre-compile first-party bytecode. Site-packages are already compiled (UV_COMPILE_BYTECODE=1), but
 # the app runs as `nobody` (bin/docker-server), which cannot write __pycache__ under the posthog-owned

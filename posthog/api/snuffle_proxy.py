@@ -124,9 +124,9 @@ def snuffle_url(workload: Workload) -> str:
     return settings.SNUFFLE_METRICS_URL if workload == Workload.METRICS else settings.SNUFFLE_APM_URL
 
 
-def _snuffle_auth(ch_user: ClickHouseUser | None, workload: Workload) -> HTTPBasicAuth | None:
+def _snuffle_auth(ch_user: ClickHouseUser, workload: Workload) -> HTTPBasicAuth | None:
     # A token-backed user's file rotates, so the credential is read for each request.
-    if ch_user is not None and (creds := connection_creds(workload, ch_user)) is not None:
+    if (creds := connection_creds(workload, ch_user)) is not None:
         return HTTPBasicAuth(creds.user, creds.read_password())
     if workload == Workload.METRICS:
         user, password = settings.SNUFFLE_METRICS_USER, settings.SNUFFLE_METRICS_PASSWORD
@@ -151,14 +151,15 @@ def snuffle_request(
 
     `upstream_path` is the Snuffle path, for example ``/api/v1/query_range``. `workload` picks the
     Snuffle: METRICS for PromQL, LOGS for LogQL. Snuffle connects to ClickHouse as `ch_user` when
-    it is a registered user of that workload's cluster. Network errors from
-    `requests` propagate, so each caller can map them to its own error format.
+    it is a registered user of that workload's cluster. Without a `ch_user` it connects as SNUFFLE,
+    once the deployment registers that user, and as the configured Snuffle user until then. Network
+    errors from `requests` propagate, so each caller can map them to its own error format.
     """
     base_url = snuffle_url(workload)
     if not base_url:
         raise SnuffleNotConfiguredError("PromQL/LogQL query API is not configured")
     headers = {TEAM_ID_HEADER: str(team_id), "Accept": accept}
-    auth = _snuffle_auth(ch_user, workload)
+    auth = _snuffle_auth(ch_user or ClickHouseUser.SNUFFLE, workload)
     upstream = internal_requests.request(
         method,
         f"{base_url.rstrip('/')}{upstream_path}",

@@ -349,6 +349,19 @@ def fail_job(team_id: int, job_id: str, error: str) -> None:
     _save_job(team_id, KeywordSuggestionJob(id=job_id, status=SuggestionJobStatus.FAILED, error=error))
 
 
+def suggest_keywords(team_id: int, request: KeywordSuggestionRequest) -> list[KeywordSuggestion]:
+    """Ask the model for keywords that fit the room left in the list. Raises KeywordSuggestionError."""
+    context = read_context(team_id)
+    count = suggestion_count(request.count, len(context.existing_keywords))
+    if count == 0:
+        raise KeywordSuggestionError(NO_ROOM_ERROR)
+    candidates = generate_keyword_suggestions(team_id, request, context, count=count)
+    # Read the list again, so keywords a person added while the model worked are neither suggested nor overflow the cap.
+    existing = existing_keywords(team_id)
+    room = suggestion_count(request.count, len(existing))
+    return [candidate for candidate in candidates if candidate.keyword not in existing][:room]
+
+
 def run_job(team_id: int, job_id: str, request: KeywordSuggestionRequest) -> None:
     # A task that waited in a backed-up queue may start after readers saw the job fail, so it must not pay for a call.
     try:
@@ -356,20 +369,11 @@ def run_job(team_id: int, job_id: str, request: KeywordSuggestionRequest) -> Non
             return
     except KeywordSuggestionJobNotFoundError:
         return
-    context = read_context(team_id)
-    count = suggestion_count(request.count, len(context.existing_keywords))
-    if count == 0:
-        fail_job(team_id, job_id, NO_ROOM_ERROR)
-        return
     try:
-        candidates = generate_keyword_suggestions(team_id, request, context, count=count)
+        suggestions = suggest_keywords(team_id, request)
     except KeywordSuggestionError as error:
         fail_job(team_id, job_id, str(error))
         return
-    # Read the list again, so keywords a person added while Claude worked are neither suggested nor overflow the cap.
-    existing = existing_keywords(team_id)
-    room = suggestion_count(request.count, len(existing))
-    suggestions = [candidate for candidate in candidates if candidate.keyword not in existing][:room]
     _save_job(
         team_id,
         KeywordSuggestionJob(id=job_id, status=SuggestionJobStatus.COMPLETED, suggestions=tuple(suggestions)),

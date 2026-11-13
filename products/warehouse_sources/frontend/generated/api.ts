@@ -54,6 +54,7 @@ import type {
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
+    ExternalDataSourcesRetrieveParams,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
     IncrementalFieldRecommendationsRequestApi,
@@ -68,6 +69,7 @@ import type {
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
+    PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     PatchedExternalDataSourceSerializersApi,
     SchemaDestinationsApi,
     SourceConfigMapResponseApi,
@@ -724,8 +726,24 @@ export const externalDataSourcesCreate = async (
     })
 }
 
-export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
+export const getExternalDataSourcesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/`
 }
 
 /**
@@ -734,9 +752,10 @@ export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string)
 export const externalDataSourcesRetrieve = async (
     projectId: string,
     id: string,
+    params?: ExternalDataSourcesRetrieveParams,
     options?: RequestInit
 ): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesRetrieveUrl(projectId, id), {
+    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -1152,15 +1171,18 @@ export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (pro
 export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializersApi?: NonReadonly<PatchedExternalDataSourceSerializersApi>,
+    patchedExternalDataSourceRevenueAnalyticsConfigApi?: PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-    })
+): Promise<ExternalDataSourceSerializersApi> => {
+    return apiMutator<ExternalDataSourceSerializersApi>(
+        getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceRevenueAnalyticsConfigApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {

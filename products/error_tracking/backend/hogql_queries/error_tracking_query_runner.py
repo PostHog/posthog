@@ -1,4 +1,5 @@
 import datetime
+import dataclasses
 from functools import cached_property
 from zoneinfo import ZoneInfo
 
@@ -6,11 +7,17 @@ from django.db import OperationalError
 
 import structlog
 
-from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
+from posthog.schema import (
+    CachedErrorTrackingQueryResponse,
+    ErrorTrackingIssueTagFilter,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY
 from posthog.hogql.parser import parse_select
@@ -21,6 +28,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.applied_issue_tags import applied_issue_tags_query
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
@@ -30,6 +38,9 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     latest_issue_state_watermark,
     load_recent_issue_states,
 )
+from products.error_tracking.backend.logic.issue_tags.enabled import enabled_issue_tag_definitions
+from products.error_tracking.backend.logic.issue_tags.reader import group_issue_tags
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -73,7 +84,28 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     @cached_property
     def _builder(self) -> ErrorTrackingQueryBuilder:
-        return ErrorTrackingQueryBuilder(self.query, self.team, self.date_from, self.date_to)
+        return self._make_builder(include_recent_issue_state=False)
+
+    def _make_builder(self, *, include_recent_issue_state: bool) -> ErrorTrackingQueryBuilder:
+        return ErrorTrackingQueryBuilder(
+            self.query,
+            self.team,
+            self.date_from,
+            self.date_to,
+            include_recent_issue_state=include_recent_issue_state,
+            issue_tag_filter=self._issue_tag_filter,
+        )
+
+    @cached_property
+    def _enabled_tag_definitions(self) -> tuple[IssueTagDefinition, ...]:
+        return enabled_issue_tag_definitions(self.team.pk)
+
+    @cached_property
+    def _issue_tag_filter(self) -> ErrorTrackingIssueTagFilter | None:
+        tag_filter = self.query.issueTag
+        if tag_filter is None or tag_filter.key not in {definition.key for definition in self._enabled_tag_definitions}:
+            return None
+        return tag_filter
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -143,13 +175,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
     def _calculate(self):
         recent_issue_states = self.recent_issue_states()
         context = self._hogql_context(recent_issue_states)
-        builder = ErrorTrackingQueryBuilder(
-            self.query,
-            self.team,
-            self.date_from,
-            self.date_to,
-            include_recent_issue_state=bool(recent_issue_states),
-        )
+        builder = self._make_builder(include_recent_issue_state=bool(recent_issue_states))
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=builder.build_query(),
@@ -167,12 +193,36 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=builder.process_results(columns, results),
+            results=self._attach_tags(builder.process_results(columns, results), context.database),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def _attach_tags(self, results: list[dict], database: Database | None) -> list[dict]:
+        if not results or not self._enabled_tag_definitions:
+            return results
+        keys = [definition.key for definition in self._enabled_tag_definitions]
+        with self.timings.measure("error_tracking_query_tags"):
+            response = execute_hogql_query(
+                query=applied_issue_tags_query(keys, [result["id"] for result in results]),
+                team=self.team,
+                query_type="ErrorTrackingIssueTagsQuery",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+                # The list query built this database already, and building another costs tens of milliseconds.
+                context=HogQLContext(
+                    team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+                ),
+            )
+        rows = ((issue_id, key, None) for _latest_value, issue_id, key in response.results)
+        tags_by_issue = group_issue_tags(rows, self._enabled_tag_definitions)
+        for result in results:
+            result["tags"] = [dataclasses.asdict(tag) for tag in tags_by_issue.get(result["id"], [])]
+        return results
 
     # Aggregation queries return only event uuids for first/last event (reading the
     # properties blob inside argMin/argMax decompresses every matching event's blob);
