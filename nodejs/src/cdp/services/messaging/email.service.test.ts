@@ -865,9 +865,10 @@ describe('EmailService', () => {
                 expect(ses.sent.map((email) => email.subject)).toEqual(['Test Subject'])
             })
 
-            it.each<[string, Record<string, number>, FakeSesFault]>([
+            it.each<[string, Record<string, number>, FakeSesFault | FakeSesFault[]]>([
                 ['SES stays down past the last retry', { sesUnavailableRetries: 10 }, unavailable],
                 ['the connection drops after the request went out, so SES may have taken it', {}, 'drop-connection'],
+                ['a dropped connection comes before SDK retries that get 503', {}, ['drop-connection', unavailable]],
             ])('fails the email when %s', async (_name, metadata, fault) => {
                 invocation.queueMetadata = { ...invocation.queueMetadata, ...metadata }
                 ses.failWith(fault)
