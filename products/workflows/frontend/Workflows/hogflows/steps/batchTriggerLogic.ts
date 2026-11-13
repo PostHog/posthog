@@ -23,6 +23,7 @@ import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schema
 import { HogFlowAction } from '../types'
 import { REALTIME_COHORT_STATUS_POLL_MS, isRealtimeCohortUnresolved } from './realtimeCohortStatus'
 import { recipientEmailProperty } from './recipientEmail'
+import { isRejectedAudience } from './rejectedAudience'
 
 export function getAudienceDedupeKey(workflow?: { actions?: HogFlowAction[] } | null): 'email' | undefined {
     // Mirrors the backend (`canDedupeByEmail` in `nodejs/src/cdp/cdp-api.ts`): batch sends dedupe by
@@ -47,10 +48,6 @@ export function hogFlowSendsEmail(workflow?: { actions?: HogFlowAction[] } | nul
     return (workflow?.actions ?? []).some(
         (action) => action.type === 'function_email' || (action as any)?.config?.template_id === 'template-email'
     )
-}
-
-export function isRejectedAudience(error: unknown): error is ApiError & { detail: string } {
-    return error instanceof ApiError && error.status === 400 && !!error.detail
 }
 
 export interface BatchTriggerLogicProps {

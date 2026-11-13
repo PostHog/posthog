@@ -69,7 +69,6 @@ import {
     messageDraftEmail,
     parseMessageDraftPrefill,
 } from '../MessageAudience/messageDrafts'
-import { isRejectedAudience } from '../Workflows/hogflows/steps/batchTriggerLogic'
 import type { MissingRecipientEmailBannerProps } from '../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import {
     DEFAULT_STATE,
@@ -88,6 +87,7 @@ import {
     keepOnlyRealtimeCohort,
 } from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
+import { isRejectedAudience } from '../Workflows/hogflows/steps/rejectedAudience'
 import { getTemplatingError } from '../Workflows/hogflows/steps/templatingError'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import {
@@ -397,6 +397,7 @@ export interface broadcastWizardLogicValues {
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
     blastRadius: BlastRadiusApi | null
+    blastRadiusError: string | null
     blastRadiusLoading: boolean
     breadcrumbs: Breadcrumb[]
     broadcast: HogFlowApi | null
@@ -698,6 +699,9 @@ export interface broadcastWizardLogicActions {
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     }
+    setBlastRadiusError: (error: string | null) => {
+        error: string | null
+    }
     setChannel: (channel: BroadcastChannel) => {
         channel: BroadcastChannel
     }
@@ -910,6 +914,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
+        setBlastRadiusError: (error: string | null) => ({ error }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -965,7 +970,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         duplicateBroadcastFinished: true,
     }),
 
-    loaders(({ props, values, cache }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         broadcast: [
             null as HogFlowApi | null,
             {
@@ -990,10 +995,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                             audiencePreviewRequest(values.audienceProperties, values.channel)
                         )
                     } catch (error) {
-                        if (isRejectedAudience(error)) {
-                            return null
+                        if (!isRejectedAudience(error)) {
+                            throw error
                         }
-                        throw error
+                        actions.setBlastRadiusError(error.detail)
+                        return null
                     }
                 },
             },
@@ -1113,6 +1119,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // A stale result would keep a realtime cohort's restrictions on an audience that no longer has one.
             loadBlastRadiusFailure: () => null,
         },
+        blastRadiusError: [
+            null as string | null,
+            {
+                loadBlastRadius: () => null,
+                setBlastRadiusError: (_, { error }) => error,
+            },
+        ],
         broadcast: {
             saveBroadcastFinished: (state: HogFlowApi | null, { broadcast }: { broadcast: HogFlowApi | null }) =>
                 broadcast ?? state,

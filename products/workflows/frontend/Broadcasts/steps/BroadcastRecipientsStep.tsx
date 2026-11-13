@@ -25,7 +25,7 @@ import { broadcastWizardLogic } from '../broadcastWizardLogic'
 import { BroadcastChannelPicker } from './BroadcastChannelPicker'
 
 function AudienceSizePreview(): JSX.Element | null {
-    const { blastRadius, blastRadiusLoading, channel, channelReach } = useValues(broadcastWizardLogic)
+    const { blastRadius, blastRadiusLoading, blastRadiusError, channel, channelReach } = useValues(broadcastWizardLogic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -33,9 +33,12 @@ function AudienceSizePreview(): JSX.Element | null {
 
     if (!blastRadius) {
         return (
-            <div className="text-warning text-xs flex items-center gap-1 mt-1">
+            <div className="text-warning text-xs flex items-start gap-1 mt-1">
                 <IconWarning className="text-base shrink-0" />
-                <span>Couldn't estimate the audience size. Check your filters and try again.</span>
+                <div>
+                    <div>Couldn't estimate the audience size. Check your filters and try again.</div>
+                    {blastRadiusError ? <div className="mt-1 text-muted">Details: {blastRadiusError}</div> : null}
+                </div>
             </div>
         )
     }

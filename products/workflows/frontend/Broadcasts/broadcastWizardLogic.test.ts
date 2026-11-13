@@ -990,21 +990,34 @@ describe('broadcastWizardLogic', () => {
     it.each([
         {
             answer: 'the rejection of an unfinished filter',
-            response: [400, { type: 'validation_error', code: 'invalid', detail: 'An audience filter is incomplete.' }],
+            response: [
+                400,
+                { type: 'validation_error', code: 'invalid_input', detail: 'An audience filter is incomplete.' },
+            ],
             settledBy: 'loadBlastRadiusSuccess',
+            blastRadiusError: 'An audience filter is incomplete.',
             toasts: [],
             reportedStatuses: [],
+        },
+        {
+            answer: 'a query over its size limit',
+            response: [400, { type: 'validation_error', code: 'too_many_bytes', detail: 'Simulated query size limit' }],
+            settledBy: 'loadBlastRadiusFailure',
+            blastRadiusError: null,
+            toasts: [expect.stringContaining('Simulated query size limit')],
+            reportedStatuses: [400],
         },
         {
             answer: 'a server error',
             response: [500, { detail: 'Simulated outage' }],
             settledBy: 'loadBlastRadiusFailure',
+            blastRadiusError: null,
             toasts: [expect.stringContaining('Simulated outage')],
             reportedStatuses: [500],
         },
     ])(
         'settles the audience size without a count on $answer',
-        async ({ response, settledBy, toasts, reportedStatuses }) => {
+        async ({ response, settledBy, blastRadiusError, toasts, reportedStatuses }) => {
             const reportedExceptions: { status?: number }[] = []
             const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
                 reportedExceptions.push(error as { status?: number })
@@ -1027,7 +1040,7 @@ describe('broadcastWizardLogic', () => {
                     logic.actions.loadBlastRadius()
                 })
                     .toDispatchActions([settledBy])
-                    .toMatchValues({ blastRadius: null })
+                    .toMatchValues({ blastRadius: null, blastRadiusError })
                 await act(async () => {})
                 expect({
                     toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),

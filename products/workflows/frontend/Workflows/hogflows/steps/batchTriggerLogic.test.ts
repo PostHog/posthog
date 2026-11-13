@@ -217,7 +217,7 @@ describe('batchTriggerLogic', () => {
                 post: {
                     '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
                         400,
-                        { type: 'validation_error', code: 'invalid', detail: rejection, attr: null },
+                        { type: 'validation_error', code: 'invalid_input', detail: rejection, attr: null },
                     ],
                 },
             })

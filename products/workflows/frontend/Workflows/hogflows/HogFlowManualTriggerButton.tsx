@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -33,7 +33,7 @@ const TriggerPopover = ({
     const isAccountAudience =
         workflow?.trigger?.type === 'batch' && workflow.trigger.filters?.audience_type === 'accounts'
 
-    const { blastRadius, blastRadiusLoading, recipientsWithoutEmail } = useValues(
+    const { blastRadius, blastRadiusLoading, blastRadiusError, recipientsWithoutEmail } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
@@ -127,6 +127,11 @@ const TriggerPopover = ({
                 />
             ))}
             <RealtimeCohortCalculatingBanner status={realtimeCohort} />
+            {workflow?.trigger?.type === 'batch' && blastRadiusError ? (
+                <LemonBanner type="warning">
+                    Couldn't estimate the audience size. Details: {blastRadiusError}
+                </LemonBanner>
+            ) : null}
             <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"
