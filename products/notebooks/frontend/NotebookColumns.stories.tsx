@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { notebookTestTemplate } from 'scenes/notebooks/Notebook/__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
@@ -87,7 +86,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
-        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
         testOptions: {
             waitForSelector: '.MarkdownNotebook__columns .DataVisualization canvas',
             snapshotBrowsers: [],
