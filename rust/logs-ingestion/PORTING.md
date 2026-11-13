@@ -37,6 +37,7 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
 | `services/logs-rate-limiter.service.ts`, `common/services/keyed-rate-limiter.service.ts`     | `rate_limiter`    | Done (Redis behind `TokenBucketRedis`)      |
 | `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`, `processLogMessageBuffer`, `app-metrics-aggregator.ts` | `pipeline` | Done (hog transformations: trait slot only) |
 | `servers/ingestion-logs-server.ts`, `servers/ingestion-traces-server.ts`, `logs/config.ts`, `logs/outputs/*`, `common/kafka/consumer/consumer-v2.ts` (batch loop) | `service`, `bin/logs-ingestion.rs` | Done, with shadow mode |
+| `services/unknown-token-recorder.ts`                                                          | `unknown_tokens`  | Done, primary mode only                     |
 | `common/utils/team-manager.ts`, `common/utils/lazy-loader.ts`, `quota-limiting.service.ts`, `sampling-rules-cache.ts`, `retention-rules-cache.ts`, `tracing-config-cache.ts`, `metric-rules-cache.ts`, `pattern-message-keys-cache.ts`, `metrics-emitter.ts` (POST), `usage-ingestion/*` | `service` | Done |
 
 ## API
@@ -238,6 +239,11 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - `scenario_parts` returns the consumer inputs of a scenario before they become a consumer, so a test can swap the outputs.
 - `LogsIngestionConsumerDeps::source_offset_header` stamps `source_offset` on `logs` outputs. Only shadow mode sets it.
 - `KeyRoot::Shadow` (`@posthog-logs-rust-shadow`) is the shadow's Redis key root.
+- `LogsIngestionConsumerDeps::unknown_tokens` is the `UnknownTokenRecorder` slot. The parse step records a token whose lookup returned no team, never one whose lookup failed. `build_deps` fills it in primary mode only, on the logs or traces Redis, and `shadow_deps` clears it.
+
+### `unknown_tokens`
+
+`UnknownTokenRecorder::new(redis, clock)` implements the `UnknownTokens` trait with Node's constants, counter name and help text. It is public so another port that writes the same set, such as the metrics consumer, can share it. `with_key` points it at another key for tests.
 
 ### `service`
 
@@ -283,6 +289,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **`LazyLoader` instrumentation.** The OpenTelemetry spans and the hit and miss counters are not ported; `lazy_loader_cache_size` is. Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
 - **Rule-cache spans.** The `logs.sampling.*`, `logs.retention.*`, `traces.retention.*` and `logs.patterns.*` span attributes are not ported.
 - **Metric-rule windows.** Node sums metric-rule tallies across batches for teams in `LOGS_METRICS_RULES_WINDOW_TEAMS` (`metrics-rules/metric-rules-window.ts`) and sends the open window on shutdown. The port ignores `LOGS_METRICS_RULES_WINDOW_TEAMS` and `LOGS_METRICS_RULES_WINDOW_MS`, and sends one point per series per batch for every team.
+- **The unknown-token write deadline.** Node's 1-second deadline bounds only the Redis pool acquire. The port bounds the whole write at 1 second, so a Redis that stops answering frees its in-flight slot after a second, where Node keeps it until the command times out.
 - **The logs Redis password.** Node never passes `LOGS_REDIS_PASSWORD` to the logs Redis client, and neither does the port.
 
 ## Regenerating references

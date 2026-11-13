@@ -37,7 +37,8 @@ The loop follows the Node consumer (`consumer-v2.ts`):
 
 ### Primary mode
 
-Primary mode behaves as the Node consumer: Node's topics and producers, `ingested_event` writes, usage records to usage-ingestion over gRPC, and metric-rule OTLP pushes to `LOGS_METRICS_RULES_EXPORT_URL` (or the traces one). [PORTING.md](PORTING.md) lists what it does not reproduce.
+Primary mode behaves as the Node consumer: Node's topics and producers, `ingested_event` writes, usage records to usage-ingestion over gRPC, metric-rule OTLP pushes to `LOGS_METRICS_RULES_EXPORT_URL` (or the traces one), and confirmed unknown tokens written to `capture_logs:unknown_tokens` in the logs or traces Redis. [PORTING.md](PORTING.md) lists what it does not reproduce.
+A token whose team lookup finds no team is written to that sorted set, which capture's `UNKNOWN_TOKEN_MODE=reject` reads to turn the token away at the edge. As in Node (`unknown-token-recorder.ts`), it is written only once its misses span 3 minutes, at most every 30 seconds per token, with the set trimmed to the last hour and 100,000 entries on every write and at most 20 writes in flight. A failed lookup is never recorded. The outcomes are counted in `logs_ingestion_unknown_token_write_total`.
 Hog transformations are not ported, so primary mode refuses to start when `LOGS_TRANSFORMATIONS_ENABLED_TEAMS` is not empty. The traces consumer reads the same key, as in Node.
 
 ## Shadow mode
@@ -60,6 +61,7 @@ What shadow mode suppresses, and why:
 | Metric-rule OTLP push | Reported as sent, nothing is sent | It would create customer metrics twice. The emitter stays present, because its presence decides whether a buffer is decoded, and so the DLQ routing. |
 | Hog transformations and their function logs | Not run (not ported) | They write to `log_entries`. |
 | Rate-limit and sampling buckets | Kept under `@posthog-logs-rust-shadow/` in Node's logs or traces Redis | Spending Node's tokens would drop Node's traffic. The shadow sees the same traffic, so its buckets drain at the same rate. |
+| Unknown-token writes to `capture_logs:unknown_tokens` | Skipped, no recorder is built | The set is production state that capture uses to turn tokens away. |
 | Quota limits | Read from the production PostHog Redis (`POSTHOG_REDIS_*`), as Node does | This is a deliberate read of production state. It is `ZRANGEBYSCORE` only, so it writes nothing, and the shadow needs the same quota decisions as Node for parity. |
 
 The shadow `logs` output carries `source_offset` next to Node's `source_topic` and `source_partition`, so each output names its input message exactly. Primary mode never writes it. The DLQ already carries all three in both implementations.
@@ -84,6 +86,7 @@ cargo test --release -p logs-ingestion
 ```
 
 - `tests/parity_corpus.rs` replays the corpus through the pipeline. It needs Redis on 127.0.0.1:6379.
+- `tests/unknown_tokens.rs` runs the unknown-token recorder against Redis on 127.0.0.1:6379 (database 11, its own key), checks that only a token with no team is recorded, and that shadow mode builds no recorder. It skips without Redis.
 - `tests/service_postgres.rs` runs the Postgres dependencies against `test_posthog` on localhost:5432. It copies a team, seeds rule rows and deletes them. It skips without Postgres.
 - `tests/service_kafka.rs` runs on librdkafka's mock cluster: the Kafka outputs, commit-after-success with a real consumer group, and shadow mode end to end. For the `passthrough`, `parse-failures` and `codecs` scenarios it produces the inputs, runs one batch, and checks that the shadow topics hold the outputs Node recorded and that no production topic received anything.
 
