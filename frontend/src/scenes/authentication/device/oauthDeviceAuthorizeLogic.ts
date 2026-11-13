@@ -1,8 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { combineUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     buildOAuthScopeRows,
     grantedResourceScopes,
@@ -15,12 +17,14 @@ import {
     type ScopeAccessSelections,
 } from 'lib/oauthScopeRows'
 import { type ScopeAccessLevel, countScopeRowsByLevel, getMinimumEquivalentScopes } from 'lib/scopes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
     oauthDeviceApproveCreate,
     oauthDeviceDenyCreate,
     oauthDeviceLookupCreate,
+    organizationsProjectsCreate,
     organizationsProjectsList,
 } from '~/generated/core/api'
 import type { DeviceDecisionEnumApi, DeviceGrantDetailsApi } from '~/generated/core/api.schemas'
@@ -100,16 +104,20 @@ export interface oauthDeviceAuthorizeLogicValues {
     adjustableScopeRows: OAuthScopeRow[]
     allScopesRequired: boolean
     consentResourceScopes: string[]
+    createdProjects: DeviceProject[]
+    creatingProject: boolean
     decision: DeviceDecisionEnumApi | null
     decisionLoading: boolean
     deviceGrant: DeviceGrantDetailsApi | null
     deviceGrantLoading: boolean
     error: string | null
+    goingToLogin: boolean
     identityScopeDescriptions: string[]
     isStepUp: boolean
     keptScopes: string[]
     organizationId: string | null
     organizations: OrganizationBasicType[]
+    projectChoices: DeviceProject[]
     projectId: number | null
     projects: DeviceProject[]
     projectsError: string | null
@@ -121,6 +129,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     scopeGroups: OAuthScopeGroup[] | null
     scopeRows: OAuthScopeRow[]
     scopeSummary: string
+    showCreateProject: boolean
     userCode: string
 }
 
@@ -141,6 +150,12 @@ export interface oauthDeviceAuthorizeLogicActions {
         decision: DeviceDecisionEnumApi | null
         payload?: any
     }
+    createProject: (name: string) => {
+        name: string
+    }
+    createProjectDone: (project: DeviceProject | null) => {
+        project: DeviceProject | null
+    }
     deny: () => any
     denyFailure: (
         error: string,
@@ -155,6 +170,9 @@ export interface oauthDeviceAuthorizeLogicActions {
     ) => {
         decision: DeviceDecisionEnumApi | null
         payload?: any
+    }
+    goToLogin: () => {
+        value: true
     }
     loadProjects: (organizationId: string) => string
     loadProjectsFailure: (
@@ -206,8 +224,14 @@ export interface oauthDeviceAuthorizeLogicActions {
         level: ScopeAccessLevel
         scopeObjects: string[]
     }
+    setShowCreateProject: (show: boolean) => {
+        show: boolean
+    }
     setUserCode: (userCode: string) => {
         userCode: string
+    }
+    submitCode: () => {
+        value: true
     }
 }
 
@@ -215,6 +239,7 @@ export interface oauthDeviceAuthorizeLogicActions {
 export interface oauthDeviceAuthorizeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         organizations: (user: UserType | null) => OrganizationBasicType[]
+        projectChoices: (projects: DeviceProject[], createdProjects: DeviceProject[]) => DeviceProject[]
         isStepUp: (
             deviceGrant: DeviceGrantDetailsApi | null,
             projectId: number | null,
@@ -257,8 +282,14 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
     })),
     actions({
         setUserCode: (userCode: string) => ({ userCode }),
+        submitCode: true,
+        goToLogin: true,
         setOrganizationId: (organizationId: string | null) => ({ organizationId }),
         setProjectId: (projectId: number | null) => ({ projectId }),
+        setShowCreateProject: (show: boolean) => ({ show }),
+        createProject: (name: string) => ({ name }),
+        // Null when the project wasn't created, or was created in an organization the person has left.
+        createProjectDone: (project: DeviceProject | null) => ({ project }),
         setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
         setScopeGroupAccess: (scopeObjects: string[], level: ScopeAccessLevel) => ({ scopeObjects, level }),
     }),
@@ -283,12 +314,32 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
             },
         ],
         userCode: ['', { setUserCode: (_, { userCode }) => userCode.toUpperCase() }],
+        // Stays on until the page unloads, so the button can't send the person to login twice.
+        goingToLogin: [false, { goToLogin: () => true }],
         organizationId: [null as string | null, { setOrganizationId: (_, { organizationId }) => organizationId }],
         projectId: [
             null as number | null,
             {
                 setProjectId: (_, { projectId }) => projectId,
                 setOrganizationId: () => null,
+                createProjectDone: (state, { project }) => project?.id ?? state,
+            },
+        ],
+        showCreateProject: [
+            false,
+            {
+                setShowCreateProject: (_, { show }) => show,
+                setOrganizationId: () => false,
+                createProjectDone: (state, { project }) => (project ? false : state),
+            },
+        ],
+        creatingProject: [false, { createProject: () => true, createProjectDone: () => false }],
+        // Kept apart from the loaded list, so a list request that started before the project existed can't drop it.
+        createdProjects: [
+            [] as DeviceProject[],
+            {
+                createProjectDone: (state, { project }) => (project ? [...state, project] : state),
+                setOrganizationId: () => [],
             },
         ],
         projectsError: [
@@ -378,6 +429,13 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
     }),
     selectors({
         organizations: [(s) => [s.user], (user: UserType | null) => user?.organizations ?? []],
+        projectChoices: [
+            (s) => [s.projects, s.createdProjects],
+            (projects: DeviceProject[], createdProjects: DeviceProject[]): DeviceProject[] => [
+                ...projects,
+                ...createdProjects.filter((created) => !projects.some((project) => project.id === created.id)),
+            ],
+        ],
         isStepUp: [
             (s) => [s.deviceGrant, s.projectId, s.organizationId],
             // A login that adds nothing, such as logging in again for the same project, lists every scope.
@@ -476,9 +534,38 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        submitCode: () => {
+            if (values.user) {
+                actions.lookUpCode()
+            } else {
+                actions.goToLogin()
+            }
+        },
+        goToLogin: () => {
+            // A page load, not a client-side route change: the server sends the person to login with the
+            // code's app named, so the login, signup and verification screens show what they are connecting.
+            window.location.assign(combineUrl(urls.oauthDeviceAuthorize(), { code: values.userCode.trim() }).url)
+        },
         setOrganizationId: ({ organizationId }) => {
             if (organizationId) {
                 actions.loadProjects(organizationId)
+            }
+        },
+        createProject: async ({ name }) => {
+            const { organizationId } = values
+            if (!organizationId) {
+                actions.createProjectDone(null)
+                return
+            }
+            try {
+                const project = await organizationsProjectsCreate(organizationId, { name })
+                posthog.capture('oauth_project_created', { flow: 'device' })
+                actions.createProjectDone(
+                    values.organizationId === organizationId ? { id: project.id, name: project.name ?? name } : null
+                )
+            } catch (error) {
+                lemonToast.error(`Couldn't create the project. ${deviceErrorMessage(error)}`)
+                actions.createProjectDone(null)
             }
         },
         loadProjectsSuccess: ({ projects }) => {
@@ -493,7 +580,9 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
             const code = typeof searchParams.code === 'string' ? searchParams.code : ''
             if (code && code.toUpperCase() !== values.userCode) {
                 actions.setUserCode(code)
-                actions.lookUpCode()
+                if (values.user) {
+                    actions.lookUpCode()
+                }
             }
         },
     })),

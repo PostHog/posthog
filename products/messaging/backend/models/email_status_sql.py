@@ -46,12 +46,14 @@ EMAIL_STATUS_KAFKA_COLUMNS = """
 """.strip()
 
 # The queued row carries the recipient and the workflow, and the sent row the sending domain. Other rows
-# leave them empty.
+# leave them empty. A scheduled row carries the recipient and the time the send is due, which a reschedule
+# moves by writing a new scheduled row.
 EMAIL_STATUS_EVENTS_KAFKA_COLUMNS = f"""
     {EMAIL_STATUS_KAFKA_COLUMNS},
     recipient String,
     function_id String,
-    sending_domain LowCardinality(String)
+    sending_domain LowCardinality(String),
+    scheduled_at Nullable(DateTime64(6, 'UTC'))
 """.strip()
 
 
@@ -193,9 +195,22 @@ AS SELECT
     recipient,
     function_id,
     sending_domain,
+    scheduled_at,
     _timestamp,
     _offset,
     _partition
 FROM {KAFKA_EMAIL_STATUS_EVENTS_TABLE}
 """
 )
+
+
+# A Kafka table's columns are fixed when it is created, so adding one drops and recreates the table and its view.
+# The new table joins the same consumer group, so it resumes from the committed offsets.
+DROP_EMAIL_STATUS_EVENTS_MV_SQL = lambda: f"DROP TABLE IF EXISTS {EMAIL_STATUS_EVENTS_MV_TABLE}"
+DROP_KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {KAFKA_EMAIL_STATUS_EVENTS_TABLE}"
+
+_ADD_SCHEDULED_AT_SQL = "ADD COLUMN IF NOT EXISTS scheduled_at Nullable(DateTime64(6, 'UTC')) AFTER sending_domain"
+ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
+    f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_SCHEDULED_AT_SQL}"
+)
+ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"

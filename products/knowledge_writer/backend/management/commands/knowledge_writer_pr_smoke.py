@@ -1,7 +1,6 @@
 import time
 import base64
 import secrets
-import dataclasses
 from uuid import UUID
 
 from django.conf import settings
@@ -18,25 +17,29 @@ from posthog.utils import initialize_self_capture_api_token
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
-from ...adapters.registry import REGISTRY
+from ...adapters.command_tag import CommandTagAdapter
+from ...adapters.repo_merge import pull_request_dedupe_id
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
-from ...facade.enums import DocsRequestSource
-from ...feature_flags import AGENT_LAUNCH_FLAG
+from ...facade.enums import DocsChangeKind
+from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
 from ...logic import intake
 from ...logic.intake import pull_request_to_join
 from ...logic.launch import start_writer
 from ...logic.pull_requests import (
     LINK_BACK_START,
     docs_github,
-    docs_head_branch,
     open_writer_pull_requests,
+    reported_docs_branches,
     section_marker,
     source_repository_github,
 )
 from ...logic.records import (
+    HEAD_BRANCH_STATE_KEY,
+    PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     WriterPullRequest,
+    is_publication_claim_live,
     pull_request_json,
 )
 from ...logic.routing import route_request
@@ -47,6 +50,7 @@ SCRATCH_PAGE_NAME = "knowledge-writer-smoke-test.mdx"
 UNREACHABLE_PULL_REQUEST_FLOOR = 900_000_000
 GITHUB_FAILURES = (GitHubIntegrationError, GitHubRateLimitError)
 AGENT_POLL_INTERVAL_SECONDS = 15
+SCRATCH_PUBLISH_TIMEOUT_SECONDS = 300
 SMOKE_NOTE = "Knowledge writer smoke test."
 SMOKE_REQUESTER = "knowledge-writer-smoke-test"
 SmokeRequests = tuple[WriterPullRequest, bool, WriterPullRequest, bool]
@@ -87,6 +91,8 @@ class Command(BaseCommand):
                 "Set KNOWLEDGE_WRITER_TEAM_ID, KNOWLEDGE_WRITER_USER_ID and KNOWLEDGE_WRITER_DOCS_REPOSITORY "
                 "to this team and repository"
             )
+        if not is_team_flag_enabled(OPEN_PULL_REQUESTS_FLAG, team):
+            raise CommandError(f"Turn the {OPEN_PULL_REQUESTS_FLAG} flag on at 100% for team {team.id}")
         github = connected_github(team.id, repository, options["installation_id"])
         section: str = options["section"]
         stale = pull_request_to_join(list_writer_pull_requests(writer), section)
@@ -167,12 +173,8 @@ def push_scratch_branch(github: GitHubIntegration, repository: str, branch: str,
 def run_scratch_requests(
     github: GitHubIntegration, writer: WriterSettings, team: Team, section: str, smoke_id: str, branches: list[str]
 ) -> SmokeRequests:
-    for number in (1, 2):
-        branch = f"knowledge-writer-smoke-{smoke_id}-{number}"
-        branches.append(branch)
-        push_scratch_branch(github, writer.docs_repository, branch, section)
-    opened, first_joined = run_writer_request(writer, team, section, branches[0])
-    joined, second_joined = run_writer_request(writer, team, section, branches[1])
+    opened, first_joined = run_writer_request(github, writer, team, section, f"{smoke_id}-1", branches)
+    joined, second_joined = run_writer_request(github, writer, team, section, f"{smoke_id}-2", branches)
     return opened, first_joined, joined, second_joined
 
 
@@ -205,8 +207,6 @@ def merged_source(github: GitHubIntegration, source_url: str, requested_by_user_
     return DocsCommandRequest(
         repository=pull_request["repository"],
         pull_request_number=pull_request["number"],
-        pull_request_url=pull_request["url"],
-        head_sha=pull_request["head_sha"],
         note=SMOKE_NOTE,
         requested_by=SMOKE_REQUESTER,
         requested_by_user_id=requested_by_user_id,
@@ -218,8 +218,6 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
     return DocsCommandRequest(
         repository="PostHog/posthog",
         pull_request_number=source_number,
-        pull_request_url=f"https://github.com/PostHog/posthog/pull/{source_number}",
-        head_sha=secrets.token_hex(20),
         note=SMOKE_NOTE,
         requested_by=SMOKE_REQUESTER,
         requested_by_user_id=requested_by_user_id,
@@ -227,18 +225,32 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
 
 
 def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str) -> AdapterVerdict:
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(source)
-    return dataclasses.replace(verdict, request=smoke_request(verdict, section, smoke_suffix))
-
-
-def smoke_request(verdict: AdapterVerdict, section: str, smoke_suffix: str) -> DocsRequest:
-    if verdict.request is None:
-        raise CommandError(f"The command adapter asked for no docs: {verdict.reason}")
-    return dataclasses.replace(
-        verdict.request,
-        suggested_page_urls=(f"https://posthog.com/docs/{section}",),
-        dedupe_id=f"knowledge_writer:command_tag:smoke-{smoke_suffix}",
+    return AdapterVerdict(
+        source=CommandTagAdapter.source,
+        subject_id=pull_request_dedupe_id(source.repository, source.pull_request_number),
+        needs_docs=True,
+        reason="requested",
+        request=smoke_request(section, source, smoke_suffix),
     )
+
+
+def smoke_request(section: str, source: DocsCommandRequest, smoke_suffix: str) -> DocsRequest:
+    source_url = source_pull_request_url(source)
+    return DocsRequest(
+        source=CommandTagAdapter.source,
+        source_url=source_url,
+        evidence=f"Pull request {source_url}.",
+        change_kind=DocsChangeKind.UPDATE,
+        suggested_page_urls=(f"https://posthog.com/docs/{section}",),
+        trigger_instructions=source.note,
+        dedupe_id=f"knowledge_writer:command_tag:smoke-{smoke_suffix}",
+        requested_by=source.requested_by,
+        requested_by_user_id=source.requested_by_user_id,
+    )
+
+
+def source_pull_request_url(source: DocsCommandRequest) -> str:
+    return f"https://github.com/{source.repository}/pull/{source.pull_request_number}"
 
 
 def run_agent_request(
@@ -250,18 +262,20 @@ def run_agent_request(
             f"Intake ran in shadow mode: turn the {AGENT_LAUNCH_FLAG} flag on at 100% for team {team.id}"
         )
     if outcome.task_id is None or outcome.status not in ("started", "joined"):
-        raise CommandError(f"Intake answered {outcome.status} for {source.pull_request_url}")
+        raise CommandError(f"Intake answered {outcome.status} for {source_pull_request_url(source)}")
     pull_request = wait_for_pull_request(outcome.task_id, team.id, writer.docs_repository, deadline)
     return pull_request, outcome.status == "joined"
 
 
 def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, deadline: float) -> WriterPullRequest:
+    failure: object = None
     while time.monotonic() < deadline:
         stored = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY)
         if isinstance(stored, dict):
             return pull_request_json.validate_python(stored)
         failure = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY)
-        if isinstance(failure, str):
+        claim = tasks_facade.read_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY)
+        if isinstance(failure, str) and not is_publication_claim_live(claim):
             raise CommandError(f"Task {task_id} could not open its docs pull request: {failure}")
         for run_id in tasks_facade.list_task_run_ids(task_id, team_id):
             run = tasks_facade.get_task_run(run_id, team_id)
@@ -271,25 +285,35 @@ def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, dea
             if problem:
                 raise CommandError(f"Writer run {run_id} on task {task_id} {problem}")
         time.sleep(AGENT_POLL_INTERVAL_SECONDS)
-    raise CommandError(f"Timed out waiting for task {task_id} to record a pull request")
+    raise CommandError(f"Timed out waiting for task {task_id} to record a pull request; last failure: {failure}")
 
 
 def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
     if run.status in ("failed", "cancelled"):
         return f"ended {run.status}: {run.error_message}"
-    if run.status == "completed" and docs_head_branch(run.output, docs_repository) is None:
+    if run.status == "completed" and not reported_docs_branches(run.output, docs_repository):
         return "completed without pushing a docs branch"
     return None
 
 
-def run_writer_request(writer: WriterSettings, team: Team, section: str, branch: str) -> tuple[WriterPullRequest, bool]:
-    request = smoke_request(
-        REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source(writer.user_id)), section, branch
-    )
+def run_writer_request(
+    github: GitHubIntegration,
+    writer: WriterSettings,
+    team: Team,
+    section: str,
+    smoke_suffix: str,
+    branches: list[str],
+) -> tuple[WriterPullRequest, bool]:
+    request = smoke_request(section, unreachable_source(writer.user_id), smoke_suffix)
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)
-    pushed_branch = joining.head_branch if joining is not None else branch
+    head_branch = tasks_facade.read_task_state_entry(task_id, team.id, HEAD_BRANCH_STATE_KEY)
+    if not isinstance(head_branch, str):
+        raise CommandError(f"Task {task_id} was issued no docs branch")
+    if joining is None:
+        branches.append(head_branch)
+        push_scratch_branch(github, writer.docs_repository, head_branch, section)
     for run_id in tasks_facade.list_task_run_ids(task_id, team.id):
         tasks_facade.update_task_run(
             run_id,
@@ -297,13 +321,11 @@ def run_writer_request(writer: WriterSettings, team: Team, section: str, branch:
             team.id,
             validated_data={
                 "status": "completed",
-                "output": {"head_branches": [{"repository": writer.docs_repository, "branch": pushed_branch}]},
+                "output": {"head_branches": [{"repository": writer.docs_repository, "branch": head_branch}]},
             },
         )
-    stored = tasks_facade.read_task_state_entry(task_id, team.id, PULL_REQUEST_STATE_KEY)
-    if not isinstance(stored, dict):
-        raise CommandError(f"The finished run on {branch} recorded no pull request")
-    return pull_request_json.validate_python(stored), joining is not None
+    deadline = time.monotonic() + SCRATCH_PUBLISH_TIMEOUT_SECONDS
+    return wait_for_pull_request(task_id, team.id, writer.docs_repository, deadline), joining is not None
 
 
 def check_pull_request(

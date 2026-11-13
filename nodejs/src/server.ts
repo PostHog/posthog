@@ -27,7 +27,9 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronDeadLetterWorker } from './cdp/consumers/cdp-cyclotron-dead-letter-worker.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -50,13 +52,23 @@ import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-
 import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency-keys'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import {
+    CyclotronJobQueueRateLimitedPostgresV2,
+    sesRateLimitedQueueOptions,
+} from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
+import { SandboxEmailEvents } from './cdp/services/messaging/sandbox/sandbox-email-events'
+import { createSandboxEmailRuntime } from './cdp/services/messaging/sandbox/sandbox-email-runtime'
+import { sandboxEmailTestRouter } from './cdp/services/messaging/sandbox/sandbox-email-test-route'
+import { sandboxTestSendBucket } from './cdp/services/messaging/sandbox/sandbox-ses-bucket'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
+import { createCrashGuardSettings } from './cdp/services/poison-batch/crash-guard'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
-import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
+import { DEAD_LETTER_QUEUE } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
+import { PosthogJwtAudience } from './cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from './cdp/utils/scoped-service-jwt'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
@@ -107,6 +119,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailSandbox ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCohortMembershipTriggers ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
@@ -173,6 +186,7 @@ export class PluginServer implements NodeServer {
         }
 
         // Create shared job queue backends — each consumer gets the one(s) it needs
+        const crashGuardSettings = capabilities.cdpCyclotronWorker ? createCrashGuardSettings(this.config) : null
         const kafkaQueue = new CyclotronJobQueueKafka(
             this.config.KAFKA_CLIENT_RACK,
             this.config,
@@ -267,7 +281,11 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorker) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorker(this.config, cdpDeps!, kafkaQueue)
+                const deps = { ...cdpDeps!, crashGuardSettings }
+                const worker =
+                    this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND === DEAD_LETTER_QUEUE
+                        ? new CdpCyclotronDeadLetterWorker(this.config, deps, kafkaQueue)
+                        : new CdpCyclotronWorker(this.config, deps, kafkaQueue)
                 await worker.start()
                 return worker.service
             })
@@ -375,15 +393,46 @@ export class PluginServer implements NodeServer {
                 // whether rate limiting is on.
                 const sesValkey = createSesRateLimiterValkeyPool(this.config)
                 const queue = sesValkey
-                    ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
-                          limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
-                          key: '@posthog/ses/global',
-                          capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
-                          refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
-                          throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
-                      })
+                    ? new CyclotronJobQueueRateLimitedPostgresV2(
+                          this.config.CONSUMER_BATCH_SIZE,
+                          this.config,
+                          sesRateLimitedQueueOptions(this.config, sesValkey)
+                      )
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpCyclotronWorkerEmailSandbox) {
+            serviceLoaders.push(async () => {
+                const sandboxEmail = createSandboxEmailRuntime(this.config, {
+                    postgres: this.postgres!,
+                    teamManager: cdpDeps!.teamManager,
+                    pubSub: cdpDeps!.pubSub,
+                })
+                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerEmailSandbox(
+                    this.config,
+                    {
+                        ...cdpDeps!,
+                        frequencyCapValkey: createFrequencyCapValkeyPool(this.config, { exitOnRepeatedErrors: false }),
+                        sandboxEmail,
+                    },
+                    queue
+                )
+                this.lifecycle.expressApp.use(
+                    sandboxEmailTestRouter({
+                        jwt: new ScopedServiceJwt(
+                            PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST,
+                            this.config.WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET
+                        ),
+                        service: sandboxEmail?.service ?? null,
+                        events: sandboxEmail?.events ?? new SandboxEmailEvents(cdpDeps!.teamManager),
+                        sesBucket: sandboxTestSendBucket(this.config),
+                    })
+                )
                 await worker.start()
                 return worker.service
             })
@@ -442,11 +491,13 @@ export class PluginServer implements NodeServer {
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     pollDelayMs: 100,
+                    pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
                     heartbeatTimeoutMs: this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,
                     // Pages are processed serially, so a bigger dequeue batch adds no throughput —
                     // it only leaves queued peers un-heartbeated behind a slow audience fetch until
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
+                    boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,

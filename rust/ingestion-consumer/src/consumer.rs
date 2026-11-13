@@ -7,7 +7,7 @@ use common_kafka_consumer::{
 };
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
 use rdkafka::TopicPartitionList;
@@ -16,6 +16,7 @@ use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherCompletion, BatcherObserver, BatcherOutputs};
 use crate::charge_limit::ChargeLimit;
+use crate::committer::{CommitError, Committer};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, CommitOffset, DebugEventKind, DebugRecorder};
 use crate::discovery::DiscoveryMode;
@@ -49,6 +50,11 @@ fn commit_tick(commit_interval: Duration) -> Duration {
     }
 }
 
+const COMMIT_RETRY_WAIT: Duration = Duration::from_secs(1);
+/// The exit flush runs after the shutdown drain, inside
+/// [`crate::config::GRACEFUL_SHUTDOWN`].
+const EXIT_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
 pub struct IngestionConsumerOptions {
     pub batch_size: usize,
@@ -60,7 +66,7 @@ pub struct IngestionConsumerOptions {
     pub group_id: String,
     pub debug_recorder: Option<Arc<DebugRecorder>>,
     pub commit_interval: Duration,
-    pub revoke_drain_timeout: Option<Duration>,
+    pub revoke_drain_timeout: Duration,
     pub ledger: Arc<TopicOffsetLedger>,
     pub partition_budget: BudgetLimits,
 }
@@ -85,8 +91,9 @@ pub struct IngestionConsumer {
     debug_recorder: Option<Arc<DebugRecorder>>,
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     assignment_epoch: AssignmentEpoch,
-    revoke_drain_timeout: Option<Duration>,
+    revoke_drain_timeout: Duration,
     settlement: Arc<GroupSettlement>,
+    committer: Committer,
 }
 
 impl IngestionConsumer {
@@ -109,6 +116,7 @@ impl IngestionConsumer {
         ));
         let consumer = Arc::new(consumer);
         Self {
+            committer: Committer::start(Arc::clone(&consumer), COMMIT_RETRY_WAIT),
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             assignment_epoch: transport.assignment_epoch(),
@@ -190,6 +198,7 @@ impl IngestionConsumer {
         );
 
         Ok(Self {
+            committer: Committer::start(Arc::clone(&consumer), COMMIT_RETRY_WAIT),
             consumer,
             debug_recorder,
             topic_offset_ledger,
@@ -249,9 +258,7 @@ impl IngestionConsumer {
         };
         let poller = ContinuousPolling::new(parts, self.in_flight_limit);
         self.run(poller, outputs).await;
-        if let Err(err) = self.commit_all() {
-            warn!(error = %err, "Could not submit pending frontiers on exit");
-        }
+        self.commit_on_exit().await;
         info!("Consumer loop stopped");
     }
 
@@ -288,8 +295,7 @@ impl IngestionConsumer {
                 if let Err(failure) = self.carry_out(step, poller) {
                     match failure {
                         Stopped::Drained => {}
-                        Stopped::Commit(err) => self.fail_commit(err),
-                        Stopped::Batch(err) => self.fail_batch_processing(err),
+                        Stopped::Batch(err) => self.stop_on_batch_error(err),
                     }
                     return;
                 }
@@ -322,6 +328,7 @@ impl IngestionConsumer {
                 _ = &mut poll_deadline, if deadline.is_some() => Woke::Deadline,
                 _ = &mut drain_deadline, if drain_until.is_some() => Woke::DrainTimedOut,
                 _ = self.rebalance().wait_for_rebalance() => Woke::Rebalanced,
+                err = self.committer.stopped() => Woke::CommitterStopped(err),
                 received = self.consumer.recv(), if reading => Woke::Received(received),
             };
             // The rebalance callbacks run inside `recv`, also in a `recv` that
@@ -349,6 +356,10 @@ impl IngestionConsumer {
                 }
                 Woke::Error(Some(message)) => Some(anyhow::anyhow!(message)),
                 Woke::Error(None) => Some(anyhow::anyhow!("batcher error channel closed")),
+                Woke::CommitterStopped(err) => {
+                    self.stop_on_commit_error(err);
+                    return;
+                }
                 Woke::Tick => {
                     self.handle.report_healthy();
                     poller.on_ticked();
@@ -365,10 +376,10 @@ impl IngestionConsumer {
                     poller.on_received(&message, tokio::time::Instant::now());
                     None
                 }
-                Woke::Received(Err(err)) => self.recv_failed(err).err(),
+                Woke::Received(Err(err)) => self.on_recv_error(err).err(),
             };
             if let Some(err) = failure {
-                self.fail_batch_processing(err);
+                self.stop_on_batch_error(err);
                 return;
             }
         }
@@ -382,7 +393,10 @@ impl IngestionConsumer {
                 self.handle.report_healthy();
                 Ok(())
             }
-            Step::Commit(commit) => self.commit(commit).map_err(Stopped::Commit),
+            Step::Commit(commit) => {
+                self.submit_commit(commit);
+                Ok(())
+            }
             Step::Stop => Err(Stopped::Drained),
         }
     }
@@ -393,6 +407,7 @@ impl IngestionConsumer {
             match event {
                 Event::Assigned(assigned) => {
                     self.settlement.on_assigned(&assigned);
+                    self.committer.forget(&assigned);
                     self.assignment_epoch.bump();
                     poller.on_assigned(&assigned);
                 }
@@ -402,6 +417,7 @@ impl IngestionConsumer {
                     unassign,
                 } => {
                     self.settlement.on_revoked(&revoked);
+                    self.committer.forget(&revoked);
                     self.batcher.revoke(revoke, &batcher_partitions(&revoked));
                     poller.on_revoked(&revoked);
                     unassign.apply(&*self.consumer);
@@ -439,6 +455,7 @@ impl IngestionConsumer {
         };
         let committed = self.commit_drained(poller, &drained, timeout).await;
         self.settlement.on_revoked(&drained);
+        self.committer.forget(&drained);
         drop(unassign_on_drop);
         let elapsed = started.elapsed();
         counter!("ingestion_consumer_revoke_drains_total", "outcome" => outcome).increment(1);
@@ -458,20 +475,18 @@ impl IngestionConsumer {
         partitions: &[TopicPartition],
         timeout: Duration,
     ) -> anyhow::Result<()> {
-        let Some(commit) = poller.on_drain_finished(partitions) else {
-            return Ok(());
-        };
-        for topic_partition in &commit.resume {
-            self.resume_partition(topic_partition);
+        if let Some(commit) = poller.on_drain_finished(partitions) {
+            self.submit_commit(commit);
         }
-        if let Err(err) = self.commit_offsets_sync(&commit.offsets, timeout).await {
+        // A commit still in flight at the timeout can land after the unassign.
+        if !self.committer.flush(partitions, timeout).await {
             counter!("ingestion_consumer_revoke_commit_errors_total").increment(1);
-            warn!(error = %err, "Could not commit the revoked partitions before their release");
+            warn!("Could not commit the revoked partitions before their release");
         }
         Ok(())
     }
 
-    fn recv_failed(&self, err: KafkaError) -> anyhow::Result<()> {
+    fn on_recv_error(&self, err: KafkaError) -> anyhow::Result<()> {
         warn!(error = %err, "Kafka recv error");
         counter!("ingestion_consumer_kafka_errors_total").increment(1);
         // A fatal client error (such as UnreleasedInstanceId from a
@@ -483,55 +498,6 @@ impl IngestionConsumer {
             anyhow::bail!("fatal Kafka client error ({code:?}): {reason}");
         }
         Ok(())
-    }
-
-    /// Submit each partition's next-to-read offset to Kafka, asynchronously.
-    fn commit_offsets(&self, offsets: &HashMap<TopicPartition, Offset>) -> anyhow::Result<()> {
-        let tpl = self.commit_list(offsets)?;
-        self.consumer.commit(&tpl, CommitMode::Async)?;
-        self.record_commit(offsets);
-        Ok(())
-    }
-
-    /// A commit that takes longer than `timeout` can still land after the
-    /// unassign.
-    async fn commit_offsets_sync(
-        &self,
-        offsets: &HashMap<TopicPartition, Offset>,
-        timeout: Duration,
-    ) -> anyhow::Result<()> {
-        let tpl = self.commit_list(offsets)?;
-        let consumer = Arc::clone(&self.consumer);
-        let commit = tokio::task::spawn_blocking(move || consumer.commit(&tpl, CommitMode::Sync));
-        match tokio::time::timeout(timeout, commit).await {
-            Ok(joined) => joined??,
-            Err(_) => anyhow::bail!("no answer within {timeout:?}"),
-        }
-        self.record_commit(offsets);
-        Ok(())
-    }
-
-    fn commit_list(
-        &self,
-        offsets: &HashMap<TopicPartition, Offset>,
-    ) -> anyhow::Result<TopicPartitionList> {
-        let mut tpl = TopicPartitionList::new();
-        for (topic_partition, next_to_read) in offsets {
-            tpl.add_partition_offset(
-                &topic_partition.topic,
-                topic_partition.partition,
-                rdkafka::Offset::Offset(next_to_read.0),
-            )?;
-            let topic: Arc<str> = Arc::from(topic_partition.topic.as_str());
-            let partition: Arc<str> = Arc::from(topic_partition.partition.to_string());
-            gauge!(
-                "ingestion_consumer_committed_offset",
-                "topic" => topic,
-                "partition" => partition,
-            )
-            .set(next_to_read.0 as f64);
-        }
-        Ok(tpl)
     }
 
     fn record_commit(&self, offsets: &HashMap<TopicPartition, Offset>) {
@@ -644,22 +610,24 @@ impl IngestionConsumer {
         }
     }
 
-    fn commit_all(&self) -> anyhow::Result<()> {
-        match self.settlement.take_all() {
-            Some(commit) => self.commit(commit),
-            None => Ok(()),
+    async fn commit_on_exit(&self) {
+        if let Some(commit) = self.settlement.take_all() {
+            self.submit_commit(commit);
+        }
+        if !self.committer.flush_all(EXIT_FLUSH_TIMEOUT).await {
+            warn!("Could not commit the processed offsets before the close");
         }
     }
 
-    fn commit(&self, commit: Commit) -> anyhow::Result<()> {
-        self.commit_offsets(&commit.offsets)?;
+    fn submit_commit(&self, commit: Commit) {
+        self.record_commit(&commit.offsets);
+        self.committer.submit(&commit.offsets);
         for topic_partition in &commit.resume {
             self.resume_partition(topic_partition);
         }
-        Ok(())
     }
 
-    fn fail_batch_processing(&self, err: anyhow::Error) {
+    fn stop_on_batch_error(&self, err: anyhow::Error) {
         error!(error = %err, "Batch processing failed");
         counter!("ingestion_consumer_batch_errors_total").increment(1);
         record_if(&self.debug_recorder, || DebugEventKind::BatchFailed {
@@ -670,11 +638,10 @@ impl IngestionConsumer {
             .signal_failure(format!("Batch processing failed: {err:#}"));
     }
 
-    /// The Kafka client refused a commit. The commit is asynchronous, so this
-    /// is a client that cannot commit at all, not a broker verdict. Consuming
+    /// The Kafka client refused a commit, so it cannot commit at all. Consuming
     /// on would freeze the committed position while reporting healthy, so the
     /// process exits and restarts.
-    fn fail_commit(&self, err: anyhow::Error) {
+    fn stop_on_commit_error(&self, err: CommitError) {
         error!(error = %err, "Offset commit failed");
         counter!("ingestion_consumer_commit_errors_total").increment(1);
         record_if(&self.debug_recorder, || DebugEventKind::CommitFailed {
@@ -716,12 +683,12 @@ enum Woke<'a> {
     Deadline,
     DrainTimedOut,
     Rebalanced,
+    CommitterStopped(CommitError),
     Received(Result<BorrowedMessage<'a>, KafkaError>),
 }
 
 enum Stopped {
     Drained,
-    Commit(anyhow::Error),
     Batch(anyhow::Error),
 }
 

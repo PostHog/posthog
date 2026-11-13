@@ -61,6 +61,8 @@ from posthog.dags.events_backfill_to_duckling import (
     duckling_events_daily_backfill_sensor,
     duckling_events_full_backfill_sensor,
     duckling_persons_backfill_job,
+    duckling_persons_daily_backfill_sensor,
+    duckling_persons_full_backfill_sensor,
     export_events_to_duckling_s3,
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
@@ -77,6 +79,8 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresConnectionRefused,
+    DuckgresOrganizationUnavailable,
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
@@ -85,6 +89,8 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTeamMembership,
     ServiceCredentialConnect,
 )
+
+_DUCKGRES_REFUSAL = "this server requires connecting via <org-id>.dw.us.postwh.com"
 
 
 @pytest.fixture(autouse=True)
@@ -1090,6 +1096,78 @@ class TestDailyBackfillSensor:
         ]
 
 
+_PERSONS_SENSOR_NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
+
+
+class TestPersonsSensorRetryBackoff:
+    @parameterized.expand(
+        [
+            *(
+                (
+                    f"{sensor_name}_{case}",
+                    sensor,
+                    partition_key,
+                    interval,
+                    failures,
+                    age_intervals,
+                    _PERSONS_SENSOR_NOW,
+                    expected,
+                )
+                for sensor_name, sensor, partition_key, interval in [
+                    ("daily", duckling_persons_daily_backfill_sensor, "7_2026-06-30", 3600),
+                    ("full", duckling_persons_full_backfill_sensor, "7", 600),
+                ]
+                for case, failures, age_intervals, expected in [
+                    ("first_failure_waits_one_interval", 1, 0.9, False),
+                    ("first_failure_retries_after_one_interval", 1, 1.1, True),
+                    ("wait_doubles_with_each_failure", 6, 31.9, False),
+                ]
+            ),
+            (
+                "daily_last_tick_of_the_day_retries_during_the_backoff",
+                duckling_persons_daily_backfill_sensor,
+                "7_2026-06-30",
+                3600,
+                4,
+                5.3,
+                datetime(2026, 7, 1, 23, 30, 0, tzinfo=UTC),
+                True,
+            ),
+        ]
+    )
+    def test_failed_run_retries_after_a_backoff(
+        self, _name, sensor, partition_key, interval, failures, age_intervals, now, expected
+    ):
+        from dagster import DagsterInstance, DagsterRun, SensorResult, build_sensor_context
+
+        with DagsterInstance.ephemeral() as instance:
+            instance.add_dynamic_partitions("duckling_persons_backfill", [partition_key])
+            with time_machine.travel(now - timedelta(seconds=interval * age_intervals), tick=False):
+                for i in range(failures):
+                    run = instance.add_run(
+                        DagsterRun(
+                            job_name="duckling_persons_backfill_job",
+                            run_id=f"failed-{i}",
+                            tags={"dagster/partition": partition_key},
+                        )
+                    )
+                    instance.report_run_failed(run)
+            with (
+                time_machine.travel(now, tick=False),
+                patch(
+                    "posthog.dags.events_backfill_to_duckling.list_enabled_backfill_team_memberships",
+                    return_value=[MagicMock(team_id=7)],
+                ),
+                patch("posthog.dags.events_backfill_to_duckling.ManagedWarehouseBackfillPartition"),
+                patch("posthog.dags.events_backfill_to_duckling._repair_stale_running_statuses"),
+                patch("posthog.dags.events_backfill_to_duckling.record_backfill_outcome"),
+            ):
+                result = sensor(build_sensor_context(instance=instance))
+
+        assert isinstance(result, SensorResult)
+        assert [r.partition_key for r in result.run_requests or []] == ([partition_key] if expected else [])
+
+
 class TestGetClusterRetry:
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
@@ -1460,6 +1538,32 @@ class TestConnectDuckgres:
         # Swallowed: the connection is still returned, not dropped.
         result = _connect_duckgres(DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r"))
         assert result is conn
+
+    @parameterized.expand(
+        [
+            ("managed_host_without_organization", "org-1.dw.us.postwh.com", _DUCKGRES_REFUSAL, "no organization"),
+            ("host_not_managed", "10.0.0.5", _DUCKGRES_REFUSAL, "not a managed warehouse hostname"),
+            ("connect_timed_out", "org-1.dw.us.postwh.com", "connection timeout expired", None),
+        ]
+    )
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.make_duckgres_conninfo")
+    @patch("posthog.dags.events_backfill_to_duckling.psycopg.connect")
+    def test_retries_a_failed_connect_unless_duckgres_refuses_the_hostname(
+        self, _name, host, message, refusal, mock_connect, mock_conninfo, _sleep
+    ):
+        conn = MagicMock()
+        mock_conninfo.return_value = f"host={host} dbname=ducklake"
+        mock_connect.side_effect = [psycopg.OperationalError(f"connection failed: FATAL:  {message}"), conn]
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        if refusal is None:
+            assert _connect_duckgres(target) is conn
+        else:
+            with pytest.raises(DuckgresConnectionRefused, match=refusal) as raised:
+                _connect_duckgres(target)
+            assert isinstance(raised.value, DuckgresOrganizationUnavailable) == (host != "10.0.0.5")
+        assert mock_connect.call_count == (2 if refusal is None else 1)
 
 
 class TestDuckgresSessionRetry:
@@ -2777,18 +2881,26 @@ class TestBackfillThroughTrino:
         config: DucklingBackfillConfig,
         catalog: _FakeTrinoBackfillCatalog | None = None,
         org_on_flag: bool = True,
+        duckgres_refuses: bool = False,
+        duckgres_host: str = "org-1.dw.us.postwh.com",
     ):
         catalog = catalog or _FakeTrinoBackfillCatalog()
         cluster = MagicMock()
         cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(clickhouse)))
         context = MagicMock(partition_key=partition_key)
         context.run.run_id = "0123456789abcdef-run"
+        refusal = psycopg.OperationalError(f"connection failed: FATAL:  {_DUCKGRES_REFUSAL}")
         with (
             patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=self.TARGET),
             patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=org_on_flag),
             patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
             patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
-            patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
+            patch("posthog.dags.events_backfill_to_duckling._mint_backfill_service_credential", return_value=None),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.make_duckgres_conninfo",
+                return_value=f"host={duckgres_host} dbname=ducklake",
+            ),
+            patch("posthog.dags.events_backfill_to_duckling.psycopg.connect", side_effect=refusal) as duckgres_connect,
             patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
             patch("tenacity.nap.time.sleep"),
         ):
@@ -2796,7 +2908,7 @@ class TestBackfillThroughTrino:
             connect_catalog.side_effect = catalog.connect
             run(context, config)
             run(context, config)
-        duckgres.assert_not_called()
+        assert duckgres_connect.call_count == (2 if duckgres_refuses else 0)
         return catalog, connect_catalog
 
     @parameterized.expand(
@@ -2962,22 +3074,37 @@ class TestBackfillThroughTrino:
 
     @parameterized.expand(
         [
-            ("events", _run_duckling_events_backfill, "2_2026-06-17"),
-            ("persons", _run_duckling_persons_backfill, "2"),
+            ("events_opted_in", _run_duckling_events_backfill, "2_2026-06-17", True),
+            ("persons_opted_in", _run_duckling_persons_backfill, "2", True),
+            ("events_refused_by_duckgres", _run_duckling_events_backfill, "2_2026-06-17", False),
+            ("persons_refused_by_duckgres", _run_duckling_persons_backfill, "2", False),
         ]
     )
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
-    def test_opted_in_runs_register_through_trino_when_the_org_is_not_on_the_flag(self, _name, run, partition_key):
+    def test_runs_register_through_trino_when_the_org_is_not_on_the_flag(self, _name, run, partition_key, opted_in):
         catalog, connect_catalog = self._run(
             run,
             partition_key,
             _FakeExportClickHouse(files_per_export=1),
-            DucklingBackfillConfig(register_through_trino=True),
+            DucklingBackfillConfig(register_through_trino=opted_in),
             org_on_flag=False,
+            duckgres_refuses=not opted_in,
         )
 
         connect_catalog.assert_called_with("org-1", canary=False, team_id=2)
         assert catalog.registered
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_runs_fail_when_duckgres_refuses_a_hostname_that_is_not_managed(self):
+        with pytest.raises(DuckgresConnectionRefused, match="not a managed warehouse hostname"):
+            self._run(
+                _run_duckling_events_backfill,
+                "2_2026-06-17",
+                _FakeExportClickHouse(files_per_export=1),
+                DucklingBackfillConfig(),
+                org_on_flag=False,
+                duckgres_host="10.0.0.5",
+            )
 
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
     def test_dry_runs_neither_export_nor_open_the_catalog(self):

@@ -15,6 +15,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
     cdpApi: true,
+    cdpSesWebhooks: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
     cdpLegacyOnEvent: false, // most of the times not needed
@@ -136,6 +137,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerEmail: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_email_sandbox:
+            return {
+                cdpCyclotronWorkerEmailSandbox: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             // The consumer is gone. Boot with no capabilities so a pod that charts still
             // launches in this mode idles instead of crash-looping on an unknown mode.
@@ -217,7 +222,6 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
         case PluginServerMode.ai_research_v4_image_fetch:
         case PluginServerMode.ai_research_v4_image_fetch_retry:
-        case PluginServerMode.ai_research_v4_parquet_sink:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

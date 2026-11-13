@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 import { Suspense } from 'react'
 
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TabsContent } from 'lib/ui/quill'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
+import { NoTraceNotice } from './NoTraceNotice'
 import { TabSpinner } from './TabSpinner'
 
 // The trace view is large, and most cards never open this tab.
@@ -28,11 +28,7 @@ export function TraceTab({ eventId, traceId, spanId, timestamp }: TraceTabProps)
             {loading ? (
                 <TabSpinner />
             ) : !traceId ? (
-                <EmptyMessage
-                    title="No trace found"
-                    description="There is no trace ID on this exception. An exception links to its trace when it is captured inside a traced request."
-                    size="small"
-                />
+                <NoTraceNotice />
             ) : (
                 <Suspense fallback={<TabSpinner />}>
                     <TraceEmbed

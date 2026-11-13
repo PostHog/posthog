@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { TileId } from 'scenes/web-analytics/common'
 import { getNewInsightUrlFactory } from 'scenes/web-analytics/insightsUtils'
 
 import { useMocks } from '~/mocks/jest'
@@ -105,6 +106,8 @@ describe('marketingAnalyticsLogic', () => {
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
         tiles.mount()
+        expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+        expect(tiles.values.tiles.map(({ tileId }) => tileId)).not.toContain(TileId.MARKETING)
         await expectLogic(logic).toFinishAllListeners()
         const breakdown = tiles.values.campaignCostsBreakdown
         expect(breakdown).not.toBeNull()
@@ -671,6 +674,13 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 expect(logic.values.tileColumnSelection).toBe('reported_conversion')
             }
+            expect(tiles.values.tiles.map(({ tileId }) => tileId)).toContain(TileId.MARKETING)
+            // A sync reloads the schema, and the warehouse tables stay empty until it lands.
+            const settledChart = tiles.values.marketingChartTile.query
+            databaseTableListLogic.actions.loadDatabase({ force: true })
+            expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+            expect(tiles.values.marketingChartTile.query).toEqual(settledChart)
+            await expectLogic(databaseTableListLogic).toFinishAllListeners()
             logic.actions.setShowConversionGoals(false)
             const overview = tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery
             const table = tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery
@@ -1258,6 +1268,10 @@ describe('marketingAnalyticsLogic', () => {
                 entry_point: 'dashboard_customer_cards',
                 section: SetupSection.CONVERSION_GOALS,
             })
+            expect(posthog.capture).not.toHaveBeenCalledWith(
+                'marketing analytics dashboard tab selected',
+                expect.anything()
+            )
 
             await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
                 .toFinishAllListeners()
@@ -1273,6 +1287,37 @@ describe('marketingAnalyticsLogic', () => {
             unmountSettings()
         }
     )
+
+    it('reports a tab click with the Search tag visibility, but not a click on the open tab', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).not.toHaveBeenCalledWith(
+            'marketing analytics dashboard tab selected',
+            expect.anything()
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.DASHBOARD,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard tab selected', {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            previous_tab: MarketingAnalyticsTab.DASHBOARD,
+            search_new_tag_visible: true,
+        })
+    })
+
     it.each([
         ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],
         ['?date_from=-7d&date_to=&tab=setup&section=sources', { dateFrom: '-7d', dateTo: null }],

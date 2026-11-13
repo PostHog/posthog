@@ -45,7 +45,7 @@ class TogetherAISource(SimpleSource[TogetherAISourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Together AI",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Enter your Together AI API key to sync your fine-tuning jobs, batch inference jobs, files, dedicated endpoints, evaluations, and the model catalog into the PostHog Data warehouse.
+            caption="""Enter your Together AI API key to sync your fine-tuning jobs with their events and checkpoints, batch inference jobs, files, dedicated endpoints, evaluations, GPU clusters, the model catalog, and the inference instance types into the PostHog Data warehouse.
 
 You can find or create an API key in your [Together AI settings](https://api.together.xyz/settings/api-keys).""",
             iconPath="/static/services/together_ai.png",

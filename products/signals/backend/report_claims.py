@@ -160,21 +160,34 @@ def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution) -> b
     )
 
 
-def is_user_claim_of(claim: ReportClaim, user_id: int | None) -> bool:
-    """Whether a person holds the claim directly, not through an agent or an internal task."""
-    return claim.actor_kind == "user" and user_id is not None and claim.actor_user_id == user_id
+def is_claim_of_person(claim: ReportClaim, user_id: int | None) -> bool:
+    """Whether a person holds the claim, directly or through their agent, so it counts as theirs."""
+    return claim.actor_kind in ("user", "agent") and user_id is not None and claim.actor_user_id == user_id
 
 
-def is_user_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
-    """Whether the person holding the claim started the task, so the task works under their claim."""
-    if claim.actor_kind != "user":
+def is_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
+    """Whether the person who started the task holds the claim, so the task works under their claim."""
+    if claim.actor_kind not in ("user", "agent"):
         return False
     tasks = tasks_facade.get_tasks_by_ids([task_id], [claim.team_id])
-    return bool(tasks) and is_user_claim_of(claim, tasks[0].created_by_id)
+    return bool(tasks) and is_claim_of_person(claim, tasks[0].created_by_id)
 
 
 def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
-    """Whether the actor can resume the claim and add work to it. Only the owner can release it."""
-    return actor_owns_claim(claim, actor) or (
-        actor.task_id is not None and is_user_claim_of_task_creator(claim, actor.task_id)
+    """Whether the actor can resume the claim and add work to it. Only the owner can release it.
+
+    Requests reach this with a caller-supplied task id. A task inherits its creator's direct claim, and an
+    agent claim only when task creation already associated the task with it, which is a server-side fact.
+    """
+    if actor_owns_claim(claim, actor):
+        return True
+    if actor.task_id is None:
+        return False
+    if claim.actor_kind == "user":
+        return is_claim_of_task_creator(claim, actor.task_id)
+    return (
+        claim.actor_kind == "agent"
+        and SignalReportArtefact.objects.filter(
+            team_id=claim.team_id, type="task_run", task_id=actor.task_id, claim_id=claim.claim_id
+        ).exists()
     )

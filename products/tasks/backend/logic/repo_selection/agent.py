@@ -21,6 +21,14 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 from posthog.sync import database_sync_to_async
 
 from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
+from products.tasks.backend.logic.repo_selection.activity import (
+    ACTIVITY_PROMPT_GUIDE,
+    RepositoryFigures,
+    describe_figures,
+    load_candidate_figures,
+    order_by_activity,
+    same_tree_sources,
+)
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -192,10 +200,7 @@ def resolve_team_github_integration(
             for adapter in (
                 GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
             )
-            if not (
-                adapter.integration.repository_cache_updated_at is not None
-                and adapter.integration.repository_cache == []
-            )
+            if not adapter.repository_cache_confirmed_empty()
         ),
         None,
     )
@@ -377,6 +382,13 @@ def _visibility_label(private: bool | None) -> str:
     return "private" if private else "public"
 
 
+def _candidate_line(
+    number: int, repo: str, private: bool | None, figures: RepositoryFigures | None, same_files_as: str | None
+) -> str:
+    details = [_visibility_label(private), *describe_figures(figures, same_files_as)]
+    return f"{number}. `{repo}` ({'; '.join(details)})"
+
+
 def _candidate_visibility(github: GitHubIntegrationBase, repositories: list[str]) -> dict[str, bool | None]:
     """The `private` flag of each requested repository, including an ineligible source, from the light cache.
 
@@ -448,6 +460,7 @@ def _build_repo_selection_prompt(
     routing_rules: str | None = None,
     visibility: Mapping[str, bool | None] | None = None,
     source_repository: str | None = None,
+    figures: Mapping[str, RepositoryFigures] | None = None,
 ) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -472,6 +485,9 @@ def _build_repo_selection_prompt(
     `source_repository` is a candidate the request was filed against (e.g. a GitHub issue's
     repository). It is the default answer, not the only one: an issue filed in one repository
     often asks for a change in another, such as an SDK.
+
+    `figures` maps candidates to their stored size and activity figures (see `load_candidate_figures`).
+    The list is ordered by activity, and a candidate missing from it renders with its visibility only.
     """
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
@@ -483,8 +499,11 @@ def _build_repo_selection_prompt(
     schema.get("$defs", {}).pop("ReportResearchContext", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
+    figures = figures or {}
+    same_files_as = same_tree_sources(candidate_repos, figures)
     repo_list = "\n".join(
-        f"{i + 1}. `{repo}` ({_visibility_label(visibility.get(repo))})" for i, repo in enumerate(candidate_repos)
+        _candidate_line(i, repo, visibility.get(repo), figures.get(repo), same_files_as.get(repo))
+        for i, repo in enumerate(order_by_activity(candidate_repos, figures), start=1)
     )
 
     source_section = (
@@ -561,7 +580,9 @@ If no relevant private candidate exists, or the relevant candidate's visibility 
 
 {context_block}
 
-## Candidate repositories (lowercased; full_name format is `owner/repo`; visibility in parentheses)
+## Candidate repositories (lowercased; full_name format is `owner/repo`)
+
+{ACTIVITY_PROMPT_GUIDE}
 
 {repo_list}
 {source_section}{rules_section}{corrections_section}
@@ -617,7 +638,8 @@ that explicitly in `reason`.
 you MUST query the cache to disambiguate. Reasoning from prior knowledge — "this repo is more
 actively refactored," "this is the canonical one," "the other is a downstream mirror" — is **not
 acceptable evidence**. Only specific path matches or README/description content from the cache
-count. If you find yourself reaching for that kind of justification, run a query first.
+count, and so do the figures in the candidate list; prior knowledge still does not. If you find
+yourself reaching for that kind of justification, run a query first.
 
 **`gh` CLI as fallback.** When SQL alone is inconclusive (e.g. matching paths in two repos and
 you need to read the file to know which is the real subject), use
@@ -836,6 +858,9 @@ async def select_repository(
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     routing_rules = await database_sync_to_async(_routing_rules_block, thread_sensitive=False)(team_id, candidate_repos)
+    figures = await database_sync_to_async(load_candidate_figures, thread_sensitive=False)(
+        github, team_id, candidate_repos
+    )
     prompt = _build_repo_selection_prompt(
         context,
         candidate_repos,
@@ -843,6 +868,7 @@ async def select_repository(
         routing_rules=routing_rules,
         visibility=visibility,
         source_repository=_eligible_source_repository(source_repository, candidate_repos),
+        figures=figures,
     )
     runtime = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
     sandbox_context = CustomPromptSandboxContext(
@@ -914,7 +940,12 @@ async def select_repository(
             raise RepoSelectionRejectedError(result.repository, result.reason)
         logger.info(
             "repo selection completed",
-            extra={"repository": result.repository, "reason": result.reason, "candidates": len(candidate_repos)},
+            extra={
+                "repository": result.repository,
+                "reason": result.reason,
+                "candidates": len(candidate_repos),
+                "candidates_with_figures": len(figures),
+            },
         )
         return result
     finally:

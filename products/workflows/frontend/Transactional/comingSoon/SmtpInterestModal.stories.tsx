@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { comingSoonInterestLogic } from './comingSoonInterestLogic'
 import { SmtpInterestModal } from './SmtpInterestModal'
 import { SMTP_INTEREST_SURVEY } from './smtpInterestSurvey'
+import { useComingSoonInterestSurvey } from './useComingSoonInterestSurvey'
 
 const meta: Meta<typeof SmtpInterestModal> = {
     title: 'Scenes-App/Transactional/SMTP coming soon',
@@ -14,7 +15,7 @@ const meta: Meta<typeof SmtpInterestModal> = {
 export default meta
 
 function OpenedSmtpInterestModal(): JSX.Element {
-    const { registerInterest } = useActions(comingSoonInterestLogic(SMTP_INTEREST_SURVEY))
+    const { registerInterest } = useActions(comingSoonInterestLogic(useComingSoonInterestSurvey(SMTP_INTEREST_SURVEY)))
     useEffect(() => {
         registerInterest()
     }, [registerInterest])

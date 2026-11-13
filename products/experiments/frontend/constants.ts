@@ -18,7 +18,7 @@ export const MAX_LOOKBACK_DAYS = 30
 
 export const DEFAULT_MDE = 30
 
-// Mirrors EXPERIMENT_RECALCULATION_MAX_AGE_DAYS in posthog/temporal/experiments/activities.py
+// Mirrors DAILY_CALCULATION_DAYS in products/experiments/backend/facade/daily_calculation.py
 export const EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 export const CONCLUSION_DISPLAY_CONFIG: Record<

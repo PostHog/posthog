@@ -32,10 +32,27 @@ class DeliveryError(Exception):
     """A send the provider refused. The caller decides whether to retry."""
 
 
+class DeliveryAmbiguous(DeliveryError):
+    """The whole request was sent and no answer came back, so the provider may have posted it.
+
+    A refused connection or a DNS failure sent nothing, so it stays a plain `DeliveryError` and a
+    retry is safe. A provider without an idempotency key posts a second copy on a retry, so
+    dispatch records this send as delivered rather than repeating it.
+    """
+
+
 class DestinationMisconfigured(DeliveryError):
     """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
 
     The platform did its part, so its own reliability metrics count this apart from a failure.
+    """
+
+
+class DestinationRefused(DestinationMisconfigured):
+    """An HTTP destination rejected the request itself, so every retry and every later message fails the same way.
+
+    Only a 4xx answer the destination's owner can fix counts, and never 408 or 429, which a later
+    attempt can get past. A 4xx that rejects the body PostHog built is PostHog's fix, not the owner's.
     """
 
 

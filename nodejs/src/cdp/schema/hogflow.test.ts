@@ -42,6 +42,61 @@ describe('hogflow schema', () => {
         })
     })
 
+    describe('email_sandbox', () => {
+        const sandboxAction = (config: Record<string, unknown> = {}, value: Record<string, unknown> = {}) => ({
+            ...commonActionFields,
+            type: 'email_sandbox',
+            config: {
+                message_category_type: 'marketing',
+                inputs: {
+                    email: {
+                        templating: 'liquid',
+                        value: {
+                            to: { email: '{{ person.properties.email }}', name: '' },
+                            subject: 'Hello',
+                            preheader: '',
+                            text: 'Hello from our workflow.',
+                            html: '',
+                            design: {},
+                            ...value,
+                        },
+                    },
+                },
+                ...config,
+            },
+        })
+
+        it('accepts a sandbox email step', () => {
+            expect(HogFlowActionSchema.safeParse(sandboxAction())).toMatchObject({ success: true })
+        })
+
+        it.each([
+            ['from', { from: { integrationId: 1 } }, {}],
+            ['replyTo', { replyTo: 'reply@example.com' }, {}],
+            ['cc', { cc: [{ email: 'cc@example.com' }] }, {}],
+            ['bcc', { bcc: [{ email: 'bcc@example.com' }] }, {}],
+            ['an integration id in the config', {}, { integration_id: 1 }],
+            ['a template id in the config', {}, { template_id: 'template-email' }],
+        ])('rejects a step that names %s', (_name, value, config) => {
+            expect(HogFlowActionSchema.safeParse(sandboxAction(config, value))).toMatchObject({ success: false })
+        })
+    })
+
+    describe('wait_until_time_window', () => {
+        it.each([
+            [['monday'], true],
+            [[], false],
+        ])('day %j → valid=%p', (day, valid) => {
+            const result = HogFlowActionSchema.safeParse({
+                ...commonActionFields,
+                type: 'wait_until_time_window',
+                config: { timezone: 'UTC', day, time: 'any' },
+            })
+
+            expect(result.success).toBe(valid)
+        })
+    })
+
     describe('wait_until_condition events', () => {
         const baseConfig = {
             condition: { filters: {} },

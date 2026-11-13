@@ -250,6 +250,17 @@ class TestReadableFieldNames:
         non_retryable = ZohoCRMSource().get_non_retryable_errors()
         assert any(pattern.lower() in str(ctx.value).lower() for pattern in non_retryable)
 
+    def test_no_permission_error_matches_get_non_retryable_errors(self) -> None:
+        # Zoho answers this for a module the connected user's profile lacks access to, even
+        # when the module itself is enabled for the org (unlike INVALID_MODULE above).
+        body = {"code": "NO_PERMISSION", "message": "permission denied to access the module"}
+        with scripted_network(_script([_response(400, body)])):
+            with pytest.raises(ZohoCRMApiError) as ctx:
+                readable_field_names(_client(), "v8", "Products")
+
+        non_retryable = ZohoCRMSource().get_non_retryable_errors()
+        assert any(pattern.lower() in str(ctx.value).lower() for pattern in non_retryable)
+
 
 class TestGetRows:
     def test_incremental_sync_filters_and_sorts_on_the_cursor_field(self) -> None:

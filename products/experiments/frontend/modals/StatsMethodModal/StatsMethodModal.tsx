@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -9,11 +9,9 @@ import {
     MAX_SEQUENTIAL_TUNING_PARAMETER,
     SequentialSelection,
     getSequentialSelection,
-    quantileSequentialBlocks,
     resolveSequentialTuningParameter,
 } from 'scenes/experiments/ExperimentView/sequential'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
-import { experimentHasQuantileMetric } from 'scenes/experiments/utils'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import { ExperimentStatsMethod } from '~/types'
@@ -75,12 +73,6 @@ export function StatsMethodModal(): JSX.Element {
         DEFAULT_SEQUENTIAL_TUNING_PARAMETER
     )
 
-    const sequentialBlocks = quantileSequentialBlocks(
-        experimentHasQuantileMetric(experiment),
-        experiment.stats_config,
-        teamDefaultSequentialEnabled
-    )
-
     const updateSequentialSelection = (next: SequentialSelection): void => {
         const existingFrequentist = experiment.stats_config?.frequentist ?? {}
         if (next === 'default') {
@@ -137,7 +129,6 @@ export function StatsMethodModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         loading={experimentUpdateLoading}
-                        disabledReason={sequentialBlocks.save}
                         onClick={() =>
                             updateExperimentSettings({ stats_config: experiment.stats_config }, 'statsMethod')
                         }
@@ -188,23 +179,12 @@ export function StatsMethodModal(): JSX.Element {
                             {
                                 value: 'default',
                                 label: `Use team default (${teamDefaultSequentialEnabled ? 'Enabled' : 'Disabled'})`,
-                                disabledReason: sequentialBlocks.teamDefault,
                             },
-                            {
-                                value: 'enabled',
-                                label: 'Enabled',
-                                disabledReason: sequentialBlocks.enabling,
-                            },
+                            { value: 'enabled', label: 'Enabled' },
                             { value: 'disabled', label: 'Disabled' },
                         ]}
                         className="w-72"
                     />
-                    {sequentialBlocks.save && (
-                        <LemonBanner type="warning">
-                            This experiment has a percentile metric, and percentile metrics don't support sequential
-                            testing yet. Select Disabled to save.
-                        </LemonBanner>
-                    )}
                     <p className="text-xs text-secondary m-0">
                         Always-valid p-values that are robust to peeking. You can check the experiment as often as you
                         want without inflating the false positive rate, at the cost of slightly wider confidence

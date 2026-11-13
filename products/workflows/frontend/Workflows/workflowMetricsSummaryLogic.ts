@@ -29,6 +29,25 @@ import { workflowLogic } from './workflowLogic'
 // "View converted users" deep-links to the events explorer scoped to this workflow and date range.
 const CONVERSION_EVENT = '$workflows_conversion'
 
+// Earlier runs have no `conversion_by_start` row even when they converted, so a range that reaches back
+// past this keeps counting conversions by when they happened. Otherwise its rate would read near zero.
+export const CONVERSION_BY_START_RECORDED_SINCE = '2026-11-13T00:00:00Z'
+
+export function conversionRateQuery(
+    dateFrom: Dayjs,
+    dateTo: Dayjs
+): Pick<AppMetricsTotalsRequest, 'dateFrom' | 'dateTo' | 'metricName'> {
+    if (dateFrom.isBefore(dayjs.utc(CONVERSION_BY_START_RECORDED_SINCE))) {
+        return { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString(), metricName: ['conversion'] }
+    }
+    // `conversion_by_start` sits at the top of the UTC hour a run started, so both totals cover whole hours.
+    return {
+        dateFrom: dayjs.utc(dateFrom).startOf('hour').toISOString(),
+        dateTo: dayjs.utc(dateTo).add(1, 'hour').subtract(1, 'millisecond').startOf('hour').toISOString(),
+        metricName: ['conversion_by_start'],
+    }
+}
+
 // The run-level "succeeded" metric is emitted once per run that finishes successfully, with an
 // empty instance_id — for ANY terminal path, including early exits (e.g. exiting on conversion).
 // Filtering on it (rather than the exit node's succeeded) makes "Completed" count converted /
@@ -170,6 +189,7 @@ export type EmailMetricRow = {
     // untracked audience starts bouncing. A true tracked-deliveries denominator would need an untracked
     // counter emitted at delivery time in the SES webhook, keyed off `mail.tags['ses:configuration-set']`.
     trackedSends: number
+    removed: boolean
 }
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
@@ -526,8 +546,9 @@ export interface workflowMetricsSummaryLogicValues {
                     value: any
                 }
             >
-            message_category_id?: string | undefined
+            message_category_id?: string | null | undefined
             message_category_type?: 'marketing' | 'transactional' | undefined
+            skip_frequency_cap?: boolean | undefined
             template_id: 'template-email'
             template_uuid?: string | undefined
             tracking_enabled?: boolean | undefined
@@ -765,8 +786,9 @@ export interface workflowMetricsSummaryLogicMeta {
                         value: any
                     }
                 >
-                message_category_id?: string | undefined
+                message_category_id?: string | null | undefined
                 message_category_type?: 'marketing' | 'transactional' | undefined
+                skip_frequency_cap?: boolean | undefined
                 template_id: 'template-email'
                 template_uuid?: string | undefined
                 tracking_enabled?: boolean | undefined
@@ -909,8 +931,9 @@ export interface workflowMetricsSummaryLogicMeta {
                             value: any
                         }
                     >
-                    message_category_id?: string | undefined
+                    message_category_id?: string | null | undefined
                     message_category_type?: 'marketing' | 'transactional' | undefined
+                    skip_frequency_cap?: boolean | undefined
                     template_id: 'template-email'
                     template_uuid?: string | undefined
                     tracking_enabled?: boolean | undefined
@@ -1144,9 +1167,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSource: values.params.appSource,
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['metric_name'],
-                        dateFrom: dateRange.dateFrom.toISOString(),
-                        dateTo: dateRange.dateTo.toISOString(),
-                        metricName: ['conversion'],
+                        ...conversionRateQuery(dateRange.dateFrom, dateRange.dateTo),
                     }
                     // The two totals have no data dependency, so fetch them in parallel.
                     const [conversionResponse, startedResponse] = await Promise.all([
@@ -1610,33 +1631,52 @@ export function buildEmailMetricRows(
     emailActions: { id: string; name: string }[],
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
 ): EmailMetricRow[] {
-    return emailActions.map((action) => {
-        const totals = emailTotalsByActionId[action.id] || {}
-        const sent = totals.email_sent ?? 0
-        const bounced = totals.email_bounced ?? 0
-        const markedAsSpam = totals.email_blocked ?? 0
-        const untracked = totals.email_untracked ?? 0
-        return {
-            id: action.id,
-            email: action.name,
-            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
-            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
-            sent,
-            opened: totals.email_opened ?? 0,
-            linkClicked: totals.email_link_clicked ?? 0,
-            bounced,
-            bouncedHard: totals.email_bounced_hard ?? 0,
-            bouncedSoft: totals.email_bounced_transient ?? 0,
-            bouncedUnknown: totals.email_bounced_undetermined ?? 0,
-            bouncePrevented: totals.email_bounce_prevented ?? 0,
-            missingRecipient: totals.email_missing_recipient ?? 0,
-            frequencyCapped: totals.message_frequency_capped ?? 0,
-            markedAsSpam,
-            untracked,
-            trackedSends: Math.max(0, sent - untracked),
-        }
-    })
+    const currentRows = emailActions.map((action) =>
+        toEmailMetricRow(action.id, action.name, emailTotalsByActionId[action.id] || {}, false)
+    )
+    const currentIds = new Set(emailActions.map((action) => action.id))
+    const removedRows = Object.entries(emailTotalsByActionId)
+        .filter(([actionId, totals]) => !currentIds.has(actionId) && hasEmailOnlyTotals(totals))
+        .map(([actionId, totals]) => toEmailMetricRow(actionId, 'Removed email', totals, true))
+    return [...currentRows, ...removedRows]
+}
+
+// Push and SMS steps also record message_frequency_capped, so that metric alone does not mark a step as an email.
+function hasEmailOnlyTotals(totals: Partial<Record<EmailMetricName, number>>): boolean {
+    return Object.entries(totals).some(([metricName, total]) => metricName !== 'message_frequency_capped' && total > 0)
+}
+
+function toEmailMetricRow(
+    id: string,
+    email: string,
+    totals: Partial<Record<EmailMetricName, number>>,
+    removed: boolean
+): EmailMetricRow {
+    const sent = totals.email_sent ?? 0
+    const bounced = totals.email_bounced ?? 0
+    const markedAsSpam = totals.email_blocked ?? 0
+    const untracked = totals.email_untracked ?? 0
+    return {
+        id,
+        email,
+        // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+        // feedback-loop reports recipients send after delivery, so they are not subtracted here.
+        delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
+        sent,
+        opened: totals.email_opened ?? 0,
+        linkClicked: totals.email_link_clicked ?? 0,
+        bounced,
+        bouncedHard: totals.email_bounced_hard ?? 0,
+        bouncedSoft: totals.email_bounced_transient ?? 0,
+        bouncedUnknown: totals.email_bounced_undetermined ?? 0,
+        bouncePrevented: totals.email_bounce_prevented ?? 0,
+        missingRecipient: totals.email_missing_recipient ?? 0,
+        frequencyCapped: totals.message_frequency_capped ?? 0,
+        markedAsSpam,
+        untracked,
+        trackedSends: Math.max(0, sent - untracked),
+        removed,
+    }
 }
 
 export function buildPushMetricRows(

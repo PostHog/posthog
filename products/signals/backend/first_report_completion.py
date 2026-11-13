@@ -40,7 +40,9 @@ def first_report_completion_notifications_enabled(team: Team, user: User) -> boo
 def complete_first_report_investigation(team_id: int, run_id: str) -> dict[str, str | float | bool | None]:
     properties = first_report_outcome_properties(team_id, run_id)
     try:
-        run = SignalScoutRun.objects.for_team(team_id).select_related("team").get(id=run_id)
+        run = SignalScoutRun.objects.for_team(team_id).select_related("team").filter(id=run_id).first()
+        if run is None:
+            return properties
         onboarding = SignalTeamConfig.objects.filter(team_id=team_id).values_list("onboarding", flat=True).first() or {}
         activation = (
             SignalFirstReportNotification.objects.for_team(onboarding.get("first_report_activation_team_id", team_id))

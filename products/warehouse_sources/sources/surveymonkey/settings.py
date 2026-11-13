@@ -41,6 +41,9 @@ class SurveyMonkeyEndpointConfig:
     # Collector-scoped endpoints are reached through surveys -> collectors, and only email and SMS
     # collectors send messages. Such a chain carries no resume state.
     is_collector_fanout: bool = False
+    # Contact listings return only one status per request (default `active`), so they are read once
+    # per status in CONTACT_STATUSES.
+    is_contact_status_fanout: bool = False
 
 
 SURVEYMONKEY_ENDPOINTS: dict[str, SurveyMonkeyEndpointConfig] = {
@@ -122,10 +125,45 @@ SURVEYMONKEY_ENDPOINTS: dict[str, SurveyMonkeyEndpointConfig] = {
         page_size=None,
         primary_key=["collector_id", "message_id"],
     ),
+    "survey_rollups": SurveyMonkeyEndpointConfig(
+        name="survey_rollups",
+        path="/surveys/{survey_id}/rollups",
+        is_fanout=True,
+        # One row per question, carrying its answered/skipped and per-choice counts. Page- and
+        # question-level rollups are subsets of this, so they get no table of their own.
+        page_size=None,
+        primary_key=["survey_id", "id"],
+    ),
+    "collector_stats": SurveyMonkeyEndpointConfig(
+        name="collector_stats",
+        path="/collectors/{collector_id}/stats",
+        is_collector_fanout=True,
+        page_size=None,
+        primary_key=["collector_id"],
+    ),
+    "contacts": SurveyMonkeyEndpointConfig(
+        name="contacts",
+        # The bulk listing returns every contact field, including custom_fields.
+        path="/contacts/bulk",
+        is_contact_status_fanout=True,
+    ),
+    "contact_lists": SurveyMonkeyEndpointConfig(
+        name="contact_lists",
+        path="/contact_lists",
+    ),
+    "contact_list_contacts": SurveyMonkeyEndpointConfig(
+        name="contact_list_contacts",
+        path="/contact_lists/{contact_list_id}/contacts/bulk",
+        is_contact_status_fanout=True,
+        primary_key=["contact_list_id", "id"],
+    ),
 }
 
 # Collector types that send messages and so have messages and recipients.
 MESSAGING_COLLECTOR_TYPES = frozenset({"email", "sms"})
+
+# Every value the contact listings' `status` filter accepts.
+CONTACT_STATUSES = ("active", "optout", "bounced")
 
 ENDPOINTS = tuple(SURVEYMONKEY_ENDPOINTS.keys())
 

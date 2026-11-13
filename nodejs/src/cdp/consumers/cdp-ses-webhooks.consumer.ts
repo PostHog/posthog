@@ -7,14 +7,17 @@ import { logger, serializeError } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { sesQueuedNotificationsCounter } from '../services/messaging/email-tracking.service'
-import { SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/ses'
+import { SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/sns-envelope'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 type SkipReason = 'unparseable' | 'not_an_sns_envelope' | 'invalid_ses_event' | 'rejected'
 
-// Each notification records serially, so the default batch size could outrun the heartbeat health check.
-const SES_NOTIFICATIONS_PER_BATCH = 50
+// Below the default, so a batch records well within the 30s heartbeat health check.
+const SES_NOTIFICATIONS_PER_BATCH = 200
+
+// Safe in any order: every write is an atomic upsert, an atomic Redis script or a Kafka append.
+const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 // A notification that can never record is skipped, as SNS drops it after its last retry, so it cannot hold its
 // partition. Any other error fails the batch so Kafka redelivers it once the datastore recovers, which can count
@@ -33,17 +36,39 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        for (const message of messages) {
-            const skipReason = await this.record(message)
-            if (skipReason) {
-                logger.error('[CdpSesWebhooksConsumer] Skipping an SES notification that can never record', {
-                    topic: message.topic,
-                    partition: message.partition,
-                    offset: message.offset,
-                    reason: skipReason,
-                })
-                sesQueuedNotificationsCounter.inc({ stage: 'skipped' })
+        let next = 0
+        const errors: unknown[] = []
+        const recordNext = async (): Promise<void> => {
+            while (next < messages.length && errors.length === 0) {
+                const message = messages[next++]
+                try {
+                    const skipReason = await this.record(message)
+                    if (skipReason) {
+                        logger.error('[CdpSesWebhooksConsumer] Skipping an SES notification that can never record', {
+                            topic: message.topic,
+                            partition: message.partition,
+                            offset: message.offset,
+                            reason: skipReason,
+                        })
+                        sesQueuedNotificationsCounter.inc({ stage: 'skipped' })
+                    }
+                } catch (error) {
+                    errors.push(error)
+                }
             }
+        }
+        await Promise.all(Array.from({ length: SES_NOTIFICATIONS_IN_FLIGHT }, recordNext))
+        // Flush a failed batch too: its recorded opens already grew the unique-person counters, which a redelivery won't.
+        try {
+            await this.emailTrackingService.flush()
+        } catch (error) {
+            if (errors.length === 0) {
+                throw error
+            }
+            logger.error('[CdpSesWebhooksConsumer] Failed to flush a failed batch', { error: serializeError(error) })
+        }
+        if (errors.length > 0) {
+            throw errors[0]
         }
     }
 

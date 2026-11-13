@@ -17,13 +17,16 @@ const TABS: readonly { key: LiveBreakdownKind; label: string; empty: string }[] 
 ]
 
 interface LiveBreakdownCardProps {
+    /** The segments to offer, from `liveBreakdownKinds`. */
+    kinds: readonly LiveBreakdownKind[]
+    /** One of `kinds`. */
     kind: LiveBreakdownKind
     breakdown: LiveBreakdown | null
     onChange: (kind: LiveBreakdownKind) => void
 }
 
 /** The web's Devices, Browsers and Countries cards as one card with a switch, to keep the screen short. */
-export function LiveBreakdownCard({ kind, breakdown, onChange }: LiveBreakdownCardProps): ReactElement {
+export function LiveBreakdownCard({ kinds, kind, breakdown, onChange }: LiveBreakdownCardProps): ReactElement {
     const { colors, chartPalette } = useTheme()
     const styles = useStyles()
     const tab = TABS.find((entry) => entry.key === kind) ?? TABS[0]
@@ -77,7 +80,7 @@ export function LiveBreakdownCard({ kind, breakdown, onChange }: LiveBreakdownCa
         <LiveCard testID="live-breakdown">
             <SegmentedPill
                 height={40}
-                segments={TABS.map((entry) => ({
+                segments={TABS.filter((entry) => kinds.includes(entry.key)).map((entry) => ({
                     key: entry.key,
                     accessibilityLabel: entry.label,
                     accessibilityRole: 'tab',

@@ -13,6 +13,29 @@
         }
     }
 
+    // Tiles are always movable for editors, so the cell guides and the drop space only show mid-gesture.
+    .DashboardGridBackground {
+        display: none;
+    }
+
+    &.dashboard-layout-gesture {
+        .DashboardGridBackground {
+            display: block;
+        }
+
+        // Dragging is bounded to the grid's clientHeight, so padding (counted only under content-box)
+        // opens room below the last tile to drop it into a new row.
+        .dashboard-drop-space-end {
+            box-sizing: content-box;
+            padding-bottom: 40vh;
+        }
+
+        .dashboard-drop-space-between {
+            box-sizing: content-box;
+            padding-bottom: 6rem;
+        }
+    }
+
     // A drag shows its own preview under the tile, so the grid's stacked placeholder would be a second outline.
     // Toggling this class on the container restyles only what the selector's last part matches. Keep every rule
     // under it ending on a narrow class: a rule that reaches tile content restyles the whole grid at drag start and drop.
@@ -87,7 +110,7 @@
     }
 
     /* Preserve the tile border transition while spacing changes animate. */
-    &.dashboard-view-mode .react-grid-item {
+    &.dashboard-layout-static .react-grid-item {
         transition: var(--dashboard-tile-transition);
     }
 
@@ -103,11 +126,11 @@
         transition: none;
     }
 
-    &.dashboard-edit-mode .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
+    &.dashboard-layout-editable .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
         visibility: hidden;
     }
 
-    &.dashboard-edit-mode [data-attr='dashboard-edit-mode-from-card-edge'] {
+    &.dashboard-layout-editable [data-attr='dashboard-edit-mode-from-card-edge'] {
         display: none;
     }
 
@@ -168,6 +191,12 @@
         // CardMeta: insight + widget (dashboard_tile layout). Bodies: text/button tiles. Header: widget (simple layout).
         cursor: grab;
         user-select: none; // Prevent accidental text selection while dragging
+    }
+
+    // The grid's drag `cancel` skips these, so they keep text selection instead of acting as a handle.
+    :is(p, h4, .LemonMarkdown) {
+        cursor: auto;
+        user-select: text;
     }
 }
 
@@ -380,7 +409,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .react-grid-layout.dashboard-view-mode .react-grid-item,
+    .react-grid-layout.dashboard-layout-static .react-grid-item,
     .react-grid-layout .react-grid-item {
         transition: none;
     }

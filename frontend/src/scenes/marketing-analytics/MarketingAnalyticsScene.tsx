@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconComment, IconGear, IconSparkles } from '@posthog/icons'
-import { LemonBadge, LemonBanner, LemonButton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonTabs, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -34,6 +34,7 @@ import { SourceSetupPanel } from 'products/marketing_analytics/frontend/dashboar
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { RecommendationsSection } from 'products/marketing_analytics/frontend/recommendations/RecommendationsSection'
 import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
+import { searchTabLogic } from 'products/marketing_analytics/frontend/search/searchTabLogic'
 import { DashboardConversionRecommendations } from 'products/marketing_analytics/frontend/setup/DashboardConversionRecommendations'
 import { DashboardSetupPrompt } from 'products/marketing_analytics/frontend/setup/DashboardSetupPrompt'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -171,8 +172,8 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
             <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-2 mb-8 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
-                    {marketingTiles?.map((tile, i) => (
-                        <QueryTileItem key={i} tile={tile} />
+                    {marketingTiles?.map((tile) => (
+                        <QueryTileItem key={tile.tileId} tile={tile} />
                     ))}
                 </div>
             )}
@@ -192,15 +193,10 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab, hasSyncedMarketingSources, dataWarehouseSources, setupEnabled, setupWarningCount } =
         useValues(marketingAnalyticsLogic)
-    const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { setActiveTab, setSetupSection, reportTabSelected } = useActions(marketingAnalyticsLogic)
+    const { searchTabVisible: hasConnectedSearchSource, showNewTag: showSearchNewTag } = useValues(searchTabLogic)
     const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
-
-    const hasConnectedSearchSource =
-        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
-        !!dataWarehouseSources?.results.some((source) =>
-            ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
-        )
 
     const recommendations = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS] ? (
         <div className="mb-6">
@@ -249,7 +245,16 @@ const MarketingAnalyticsContent = (): JSX.Element => {
             ? [
                   {
                       key: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
-                      label: 'Search',
+                      label: (
+                          <span className="flex items-center gap-1.5">
+                              Search
+                              {showSearchNewTag && (
+                                  <LemonTag type="option" size="small">
+                                      New
+                                  </LemonTag>
+                              )}
+                          </span>
+                      ),
                       content: (
                           <>
                               <MarketingAnalyticsFilters tabs={<></>} searchOnly />
@@ -334,7 +339,10 @@ const MarketingAnalyticsContent = (): JSX.Element => {
         <>
             <LemonTabs
                 activeKey={selectedTab}
-                onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
+                onChange={(key) => {
+                    reportTabSelected(key as MarketingAnalyticsTab, selectedTab, showSearchNewTag)
+                    setActiveTab(key as MarketingAnalyticsTab)
+                }}
                 tabs={tabs.map(({ key, label }) => ({ key, label }))}
                 sceneInset
                 // The title section shares this column, so offset only the column gap to sit flush below it.

@@ -55,6 +55,7 @@ import {
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { DefinitionUsageSection } from './usage/DefinitionUsageSection'
 import { PropertyDefinitionUsage } from './usage/PropertyDefinitionUsage'
 import { propertyUsageEntry } from './usage/propertyUsageEntry'
 
@@ -141,8 +142,17 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     // The app renders scene components with raw route params, so decode the id like paramsToProps does
     const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        isEvent,
+        isProperty,
+        metrics,
+        metricsLoading,
+        metricsFailed,
+    } = useValues(logic)
     const { deleteDefinition, stopIngestingEvent } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const showUsageSection = useFeatureFlag('DEFINITION_USAGE_SECTION')
@@ -430,7 +440,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
-                {isEvent && (
+                {isEvent && !showUsageSection && (
                     <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
@@ -510,7 +520,16 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     </FlaggedFeature>
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
-                    <EventDefinitionInsights definition={definition} />
+                    {showUsageSection ? (
+                        <DefinitionUsageSection
+                            queryCount={metrics?.query_usage_30_day ?? null}
+                            queryCountLoading={metricsLoading}
+                            queryCountFailed={metricsFailed}
+                            insightsLogicProps={{ definitionType: 'event', name: definition.name }}
+                        />
+                    ) : (
+                        <EventDefinitionInsights definition={definition} />
+                    )}
                     <SceneDivider />
                     <EventDefinitionExperiments definition={definition} />
                     <SceneDivider />

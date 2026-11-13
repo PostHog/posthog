@@ -13,9 +13,15 @@ import type {
     AddSourcesResponseApi,
     ApplyMigrationItemApi,
     ApplyMigrationItemResponseApi,
+    CdcDisableResponseApi,
+    CdcEnableRequestApi,
     CdcEnableResponseApi,
+    CdcPrerequisitesRequestApi,
     CdcPrerequisitesResponseApi,
+    CdcResumeResponseApi,
     CdcStatusApi,
+    CdcUpdateSettingsRequestApi,
+    CdcUpdateSettingsResponseApi,
     CreateWebhookResponseApi,
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
@@ -42,14 +48,17 @@ import type {
     ExternalDataSourceCreateResponseApi,
     ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourceSyncStateApi,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
-    ExternalDataSourcesResumeCdcCreate200,
+    ExternalDataSourcesRetrieveParams,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
+    IncrementalFieldRecommendationsRequestApi,
+    IncrementalFieldRecommendationsResponseApi,
     IntegrationAccountsResponseApi,
     PaginatedExternalDataDestinationListApi,
     PaginatedExternalDataSchemaListApi,
@@ -60,6 +69,7 @@ import type {
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
+    PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     PatchedExternalDataSourceSerializersApi,
     SchemaDestinationsApi,
     SourceConfigMapResponseApi,
@@ -71,6 +81,7 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsRequestApi,
     UpdateWebhookInputsResponseApi,
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
@@ -715,8 +726,24 @@ export const externalDataSourcesCreate = async (
     })
 }
 
-export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
+export const getExternalDataSourcesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/`
 }
 
 /**
@@ -725,9 +752,10 @@ export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string)
 export const externalDataSourcesRetrieve = async (
     projectId: string,
     id: string,
+    params?: ExternalDataSourcesRetrieveParams,
     options?: RequestInit
 ): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesRetrieveUrl(projectId, id), {
+    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -877,14 +905,11 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<CreateWebhookResponseApi> => {
     return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -898,14 +923,11 @@ export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesDeleteWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<DeleteWebhookResponseApi> => {
     return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -969,14 +991,11 @@ export const getExternalDataSourcesDisableCdcCreateUrl = (projectId: string, id:
 export const externalDataSourcesDisableCdcCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDisableCdcCreateUrl(projectId, id), {
+): Promise<CdcDisableResponseApi> => {
+    return apiMutator<CdcDisableResponseApi>(getExternalDataSourcesDisableCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1001,14 +1020,14 @@ export const getExternalDataSourcesEnableCdcCreateUrl = (projectId: string, id: 
 export const externalDataSourcesEnableCdcCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    cdcEnableRequestApi?: CdcEnableRequestApi,
     options?: RequestInit
 ): Promise<CdcEnableResponseApi> => {
     return apiMutator<CdcEnableResponseApi>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
+        body: JSON.stringify(cdcEnableRequestApi),
     })
 }
 
@@ -1135,8 +1154,8 @@ export const externalDataSourcesResumeCdcCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<ExternalDataSourcesResumeCdcCreate200> => {
-    return apiMutator<ExternalDataSourcesResumeCdcCreate200>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
+): Promise<CdcResumeResponseApi> => {
+    return apiMutator<CdcResumeResponseApi>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -1152,15 +1171,18 @@ export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (pro
 export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializersApi?: NonReadonly<PatchedExternalDataSourceSerializersApi>,
+    patchedExternalDataSourceRevenueAnalyticsConfigApi?: PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-    })
+): Promise<ExternalDataSourceSerializersApi> => {
+    return apiMutator<ExternalDataSourceSerializersApi>(
+        getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceRevenueAnalyticsConfigApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {
@@ -1178,14 +1200,14 @@ export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: stri
 export const externalDataSourcesUpdateCdcSettingsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    cdcUpdateSettingsRequestApi?: CdcUpdateSettingsRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesUpdateCdcSettingsCreateUrl(projectId, id), {
+): Promise<CdcUpdateSettingsResponseApi> => {
+    return apiMutator<CdcUpdateSettingsResponseApi>(getExternalDataSourcesUpdateCdcSettingsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
+        body: JSON.stringify(cdcUpdateSettingsRequestApi),
     })
 }
 
@@ -1199,7 +1221,7 @@ export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: st
 export const externalDataSourcesUpdateWebhookInputsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    updateWebhookInputsRequestApi: UpdateWebhookInputsRequestApi,
     options?: RequestInit
 ): Promise<UpdateWebhookInputsResponseApi> => {
     return apiMutator<UpdateWebhookInputsResponseApi>(
@@ -1208,7 +1230,7 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
+            body: JSON.stringify(updateWebhookInputsRequestApi),
         }
     )
 }
@@ -1263,11 +1285,14 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
  */
 export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     projectId: string,
+    cdcPrerequisitesRequestApi: CdcPrerequisitesRequestApi,
     options?: RequestInit
 ): Promise<CdcPrerequisitesResponseApi> => {
     return apiMutator<CdcPrerequisitesResponseApi>(getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cdcPrerequisitesRequestApi),
     })
 }
 
@@ -1296,7 +1321,8 @@ export const getExternalDataSourcesConnectLinkRetrieveUrl = (
  * The link opens a minimal connect page rendering the source's full connection form — OAuth options
  * included — with no table selection and no source creation. The user authenticates in their browser,
  * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
- * credential id to data-warehouse-source-setup.
+ * credential id to data-warehouse-source-setup. To reconnect an existing source, the agent passes the
+ * id in the payload of a source update instead.
  */
 export const externalDataSourcesConnectLinkRetrieve = async (
     projectId: string,
@@ -1435,6 +1461,30 @@ export const externalDataSourcesExistsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getExternalDataSourcesIncrementalFieldRecommendationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/incremental_field_recommendations/`
+}
+
+/**
+ * Asks the decision model which incremental field to use for tables whose column names leave it open. Send the tables database_schema returned; the response holds only the tables the model picked a field for. Called after database_schema so the table list never waits for the model.
+ * @summary Recommend incremental fields with the decision model
+ */
+export const externalDataSourcesIncrementalFieldRecommendationsCreate = async (
+    projectId: string,
+    incrementalFieldRecommendationsRequestApi: IncrementalFieldRecommendationsRequestApi,
+    options?: RequestInit
+): Promise<IncrementalFieldRecommendationsResponseApi> => {
+    return apiMutator<IncrementalFieldRecommendationsResponseApi>(
+        getExternalDataSourcesIncrementalFieldRecommendationsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(incrementalFieldRecommendationsRequestApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesOauthAccountsRetrieveUrl = (
@@ -1609,6 +1659,25 @@ export const externalDataSourcesStoredCredentialsList = async (
     options?: RequestInit
 ): Promise<SourceCredentialApi[]> => {
     return apiMutator<SourceCredentialApi[]>(getExternalDataSourcesStoredCredentialsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesSyncStateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/sync_state/`
+}
+
+/**
+ * Return a fingerprint of the sync state the sources list shows.
+ *
+ * A client that polls the list can compare fingerprints and refetch the list only when it changed.
+ */
+export const externalDataSourcesSyncStateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceSyncStateApi> => {
+    return apiMutator<ExternalDataSourceSyncStateApi>(getExternalDataSourcesSyncStateRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

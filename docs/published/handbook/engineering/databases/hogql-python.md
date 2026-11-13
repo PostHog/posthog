@@ -150,7 +150,23 @@ Every `SharingQuery` carries a caller-validated context key. Compiler preparatio
 
 `SharingQuery.sharing_enabled` defaults to `False`. Compiler preparation populates it from `hogql-query-sharing`; the planner excludes disabled inputs from every sharing rule. Synthetic fixtures and syntax-only planning explicitly opt in without consulting a project flag. They do not execute against application tables.
 
-This path remains a local experimental comparison. It does not change dashboard loading, caching, cancellation, retries or error isolation. A shared execution failure propagates to the comparison; the future dashboard adapter must provide independent scheduling and guarded fallback.
+The standalone comparison propagates shared execution failures. It does not exercise dashboard caching, cancellation, or retries.
+
+### Experimental dashboard integration
+
+Authenticated dashboard refreshes can opt into shared execution behind `hogql-query-sharing`, checked by both the browser and backend. The flag is off by default. Public/shared dashboards, embedded placements, and refreshes outside 2–32 insight tiles keep the existing loading path.
+
+The dashboard sends one streaming request with its effective filters and variable overrides. Up to four workers use the existing insight serializer and query runner, preserving per-insight permissions, cache keys, refresh modes, and rate limits. Cached tiles return without entering the planner. Eligible SQL queries wait up to 50 ms for a compatible partner; unsupported queries execute immediately. Matching is opportunistic within that window, not a global optimization across every tile.
+
+The adapter supports the planner's same-aggregation top-N pairs and scalar `count()` / `count(column)` pairs. It removes positive pagination limits only from supported scalar counts, which always return one row. Paginated daily counts remain separate. Other insight types continue through their normal query runners.
+
+Each tile streams as soon as it completes. A failed or incomplete shared query falls back to the original queries independently, and one tile's query error does not fail its siblings. A broken stream retries only undelivered tiles through the existing refresh path. Disconnecting or starting another refresh cancels queued work and requests ClickHouse cancellation for that batch.
+
+Monitor `posthog_dashboard_sharing_executions_total` for separate executions, shared groups, and fallback groups. Sharing reduces duplicate work only when compatible, uncached queries meet during the matching window; it does not guarantee lower dashboard latency.
+
+With the flag enabled, expand **Query sharing debug** below the dashboard filters to inspect the latest refresh. It shows participating tiles, sharing rules, reasons for separate execution and fallback, and cache hits. Work totals count measured ClickHouse queries, rows read, and summed execution time once per executing worker, including measured lookups and failed attempts. On older ClickHouse protocols, time falls back to client round-trip time. A shared execution is counted once, not once per consumer. Bytes read, dashboard wall time, and savings against a separate-execution baseline are not measured.
+
+Diagnostics arrive progressively with tile results and stay in page memory, outside insight caches. Cancelled or interrupted refreshes show partial totals; normal-path retries and unfinished workers are not included. Refreshes outside the sharing batch size show why they used the normal path. The endpoint includes diagnostics only when requested with `debug=true`, limits execution details to 64 records per worker, and does not collect SQL text or query results in diagnostics. Sharing is within one dashboard refresh, not across dashboards.
 
 ## Pattern matching during query preparation
 
@@ -281,6 +297,8 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
+An equality or inequality between a Boolean constant and a String or untyped property compares with the string `'true'` or `'false'`, because ClickHouse cannot compare text with a Boolean.
+The legacy table does the same only for an equality on a key it keeps in a property-group map, and fails on the other forms.
 Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type, including the empty string and text that starts with `[` or `{`.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
 DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.

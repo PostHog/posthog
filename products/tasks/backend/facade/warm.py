@@ -7,7 +7,7 @@ dispatch. The boundary is function-shaped and returns DTOs, so callers do not
 instantiate internal service classes or receive ORM models.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from posthog.models.team import Team
@@ -17,6 +17,9 @@ from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmResult
 from products.tasks.backend.models import Task
+
+if TYPE_CHECKING:
+    from posthog.temporal.oauth import PosthogMcpScopes
 
 __all__ = [
     "enforce_warm_quota",
@@ -59,8 +62,11 @@ def warm_task_run(
     *,
     mode: str = "interactive",
     extra_state: dict[str, Any] | None = None,
+    posthog_mcp_scopes: "PosthogMcpScopes | None" = None,
 ) -> contracts.WarmRunDTO:
     """Idempotently ensure a task has a warm run and return the run handle as a DTO."""
     task = Task.objects.select_related("team").get(id=task_id, team_id=team_id)
     user = User.objects.get(pk=user_id)
-    return _warm_result_to_dto(SandboxWarmer(task, user=user).warm(mode=mode, extra_state=extra_state))
+    return _warm_result_to_dto(
+        SandboxWarmer(task, user=user).warm(mode=mode, extra_state=extra_state, posthog_mcp_scopes=posthog_mcp_scopes)
+    )

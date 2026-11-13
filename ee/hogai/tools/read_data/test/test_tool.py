@@ -1645,13 +1645,17 @@ class TestReadDataTool(BaseTest):
 
         tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
 
-        with patch.object(tool, "user_access_control") as mock_uac:
+        with (
+            patch.object(tool, "user_access_control") as mock_uac,
+            patch("ee.hogai.tools.read_data.tool.record_agent_insight_read") as mock_record,
+        ):
             mock_uac.check_access_level_for_object.return_value = True
 
             result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "allowed123", "execute": False})
 
             assert "Allowed Insight" in result
             mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
+            mock_record.assert_called_once_with(team=team, user_id=user.id, insight_id=mock_insight.id)
 
     async def test_read_insight_skips_object_check_for_state_source(self):
         team = MagicMock()
@@ -1671,11 +1675,15 @@ class TestReadDataTool(BaseTest):
 
         tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
 
-        with patch.object(tool, "user_access_control") as mock_uac:
+        with (
+            patch.object(tool, "user_access_control") as mock_uac,
+            patch("ee.hogai.tools.read_data.tool.record_agent_insight_read") as mock_record,
+        ):
             result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "state123", "execute": False})
 
             assert "State Insight" in result
             mock_uac.check_access_level_for_object.assert_not_called()
+            mock_record.assert_not_called()
 
     async def test_read_dashboard_denied_when_user_lacks_object_access(self):
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Secret Dashboard")

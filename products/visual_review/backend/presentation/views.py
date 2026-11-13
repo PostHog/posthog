@@ -238,6 +238,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             baseline_file_paths=body.baseline_file_paths,
             enable_pr_comments=body.enable_pr_comments,
             debt_digest_enabled=body.debt_digest_enabled,
+            auto_quarantine_mode=body.auto_quarantine_mode,
         )
 
         try:
