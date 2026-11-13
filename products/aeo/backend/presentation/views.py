@@ -43,6 +43,7 @@ from products.aeo.backend.facade.api import (
     list_brands,
     list_engine_settings,
     list_prompt_checks,
+    list_prompt_set_citations,
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
@@ -75,6 +76,7 @@ from products.aeo.backend.facade.contracts import (
     Prompt,
     PromptAuthor,
     PromptCheck,
+    PromptCitation,
     PromptDailyEngineStats,
     PromptEngineCheck,
     PromptEngineDomainShare,
@@ -1008,6 +1010,79 @@ class AEOBrandUpdateRequestSerializer(serializers.Serializer):
     )
 
 
+class AEOPromptCitationSerializer(AEOPromptCheckSerializer):
+    class Meta:
+        dataclass = PromptCitation
+        ref_name = "AEOPromptCitation"
+        extra_kwargs = {
+            **AEOPromptCheckSerializer.Meta.extra_kwargs,
+            "answer_text": {
+                "help_text": "The engine's answer as plain text, sanitized and truncated. Null unless the request set include_answer_text=true. "
+                + THIRD_PARTY_TEXT_HELP
+            },
+            "prompt_id": {"help_text": "Id of the prompt that ran. Open it with aeo_prompts/<id>/."},
+            "prompt_text": {"help_text": "The prompt's text as it ran, which can differ from its current version."},
+            "prompt_topic": {"help_text": "The prompt's topic when it ran. Empty when it had none."},
+            "mentioned": {"help_text": MENTIONED_HELP},
+        }
+
+
+class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
+    url = serializers.CharField(
+        required=False,
+        max_length=2048,
+        help_text="List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.",
+    )
+    domain = serializers.CharField(
+        required=False,
+        max_length=253,
+        help_text=(
+            "List the answers that cited a page on this domain or one of its subdomains, case ignored. Takes a host "
+            "from the overview's top_domains (docs.example.com) or a domain from the rankings (example.com)."
+        ),
+    )
+    search = serializers.CharField(
+        required=False,
+        max_length=1000,
+        help_text=(
+            "List the answers whose engine ran this web search. Case and repeated spaces are ignored, as in the "
+            "overview's top_searches."
+        ),
+    )
+    days = serializers.IntegerField(
+        required=False,
+        default=STATS_DAYS,
+        min_value=1,
+        max_value=MAX_OVERVIEW_DAYS,
+        help_text=f"Length of the window in days, ending today in the project's timezone. Default {STATS_DAYS}, at most {MAX_OVERVIEW_DAYS}.",
+    )
+    branded = serializers.ChoiceField(
+        choices=BrandedSegment.choices,
+        required=False,
+        default=BrandedSegment.ALL.value,
+        help_text=(
+            "Which answers to list, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) "
+            "or 'non_branded'. Pass the value the overview or rankings used so the list matches their counts. "
+            + BRANDED_PROMPT_HELP
+        ),
+    )
+    engine = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only list answers from this answer engine, for example 'claude-web-search'.",
+    )
+    include_answer_text = serializers.BooleanField(
+        default=False,
+        help_text="Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        given = [field for field in ("url", "domain", "search") if attrs.get(field)]
+        if len(given) != 1:
+            raise ValidationError("Pass exactly one of url, domain or search.")
+        return attrs
+
+
 class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -1041,6 +1116,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "versions",
         "overview",
         "rankings",
+        "citations",
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
@@ -1243,6 +1319,45 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             branded=BrandedSegment(request.validated_query_data["branded"]),
         )
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
+
+    @validated_request(
+        query_serializer=AEOPromptSetCitationsQuerySerializer,
+        operation_id="aeo_prompts_citations",
+        summary="List the answers behind a cited page, site or search",
+        description=(
+            "Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one "
+            f"domain, or ran one web search, over the last 'days' days (default {STATS_DAYS}) in the project's "
+            "timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the "
+            "prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches "
+            "it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview "
+            "or the rankings, with the same 'days' and 'branded' values."
+        ),
+        responses={
+            200: AEOPromptCitationSerializer(many=True),
+            400: OpenApiResponse(description="None, or more than one, of url, domain and search was given."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=AEOPromptChecksPagination)
+    def citations(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        paginator = cast(AEOPromptChecksPagination, self.paginator)
+        data = request.validated_query_data
+        citations, count = list_prompt_set_citations(
+            self.team_id,
+            timezone_name=self.team.timezone,
+            days=data["days"],
+            limit=paginator.get_limit(request) or DEFAULT_CHECKS_PAGE_SIZE,
+            offset=paginator.get_offset(request),
+            url=data.get("url"),
+            domain=data.get("domain"),
+            search=data.get("search"),
+            engine=data.get("engine"),
+            branded=BrandedSegment(data["branded"]),
+            include_answer_text=data["include_answer_text"],
+        )
+        paginator.set_count(count)
+        page = self.paginate_queryset(citations)
+        return self.get_paginated_response(AEOPromptCitationSerializer(page, many=True).data)
 
     @validated_request(
         operation_id="aeo_prompts_create_dashboard",
