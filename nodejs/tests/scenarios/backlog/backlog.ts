@@ -6,7 +6,7 @@ import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2/manager'
 import { CyclotronV2JobInit } from '~/cdp/services/cyclotron-v2/types'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import type { Backlog } from '../cards'
+import type { Backlog, Profile } from '../cards'
 import { durationMs } from '../duration'
 import { RESIDENT_TEAMS_FROM, withPostgres } from '../environment/stack'
 
@@ -14,15 +14,21 @@ export type ResidentRows = { teamId: number; status: string; rows: number }
 
 export type Footprint = { table: number; indexes: number; toast: number }
 
-export type BacklogManifest = { profile: string; seededAt: string; rows: ResidentRows[]; bytes: Footprint }
+export type BacklogManifest = {
+    profile: string
+    backlog: Backlog
+    seededAt: string
+    rows: ResidentRows[]
+    bytes: Footprint
+}
 
 export type QueueCount = { queue: string; target: number; live: number; withinTolerance: boolean }
 
 export type SeedResult = { queues: QueueCount[]; bytes: Footprint; manifest?: string }
 
 export type ResidentBacklog = {
-    profile: string
-    seeded?: { profile: string; rows: ResidentRows[] }
+    profile: Pick<Profile, 'name' | 'backlog'>
+    seeded?: Pick<BacklogManifest, 'profile' | 'backlog' | 'rows'>
     found: ResidentRows[]
 }
 
@@ -153,6 +159,7 @@ export async function seedBacklog(
     }
     const written: BacklogManifest = {
         profile,
+        backlog,
         seededAt: now.toISOString(),
         rows: await residentRows(cyclotronUrl),
         bytes,
@@ -168,14 +175,14 @@ export function readManifest(stateDir: string): BacklogManifest | undefined {
 }
 
 export async function residentBacklogOf(
-    profile: string,
+    profile: Pick<Profile, 'name' | 'backlog'>,
     stateDir: string,
     cyclotronUrl: string
 ): Promise<ResidentBacklog> {
     const manifest = readManifest(stateDir)
     return {
         profile,
-        seeded: manifest && { profile: manifest.profile, rows: manifest.rows },
+        seeded: manifest && { profile: manifest.profile, backlog: manifest.backlog, rows: manifest.rows },
         found: await residentRows(cyclotronUrl),
     }
 }

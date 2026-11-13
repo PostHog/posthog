@@ -7,6 +7,7 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { internalFetch } from '~/common/utils/request'
 
 import type { ResidentBacklog } from '../backlog/backlog'
+import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
@@ -367,8 +368,18 @@ describe('judge', () => {
     })
 
     const TEAM = 2_100_000_000
+    const BACKLOG: Backlog = {
+        teams: 1,
+        jobs: { hogflow: 4 },
+        stateBytes: { p50: 100, p90: 200, p99: 300 },
+        compressibility: 0.5,
+        parkFor: '10080m',
+        tolerance: 0,
+    }
+    const RESIDENT = { name: 'resident', backlog: BACKLOG }
     const seededFor = (profile: string, rows: ResidentBacklog['found']): ResidentBacklog['seeded'] => ({
         profile,
+        backlog: BACKLOG,
         rows,
     })
 
@@ -376,7 +387,7 @@ describe('judge', () => {
         [
             'every seeded row is still there',
             {
-                profile: 'resident',
+                profile: RESIDENT,
                 seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
                 found: [{ teamId: TEAM, status: 'available', rows: 4 }],
             },
@@ -385,7 +396,7 @@ describe('judge', () => {
         [
             'a row was lost',
             {
-                profile: 'resident',
+                profile: RESIDENT,
                 seeded: seededFor('resident', [
                     { teamId: TEAM, status: 'available', rows: 4 },
                     { teamId: TEAM + 1, status: 'available', rows: 4 },
@@ -400,7 +411,7 @@ describe('judge', () => {
         [
             'a parked row woke and completed',
             {
-                profile: 'resident',
+                profile: RESIDENT,
                 seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
                 found: [
                     { teamId: TEAM, status: 'available', rows: 3 },
@@ -412,7 +423,7 @@ describe('judge', () => {
         [
             'the backlog was seeded for another profile',
             {
-                profile: 'resident',
+                profile: RESIDENT,
                 seeded: seededFor('synthetic', [{ teamId: TEAM, status: 'available', rows: 4 }]),
                 found: [{ teamId: TEAM, status: 'available', rows: 4 }],
             },
@@ -423,8 +434,21 @@ describe('judge', () => {
             },
         ],
         [
+            'the profile changed its backlog since the seed',
+            {
+                profile: { name: 'resident', backlog: { ...BACKLOG, jobs: { hogflow: 8 } } },
+                seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
+                found: [{ teamId: TEAM, status: 'available', rows: 4 }],
+            },
+            {
+                passed: false,
+                violation:
+                    'the resident backlog was seeded from another backlog than profile resident holds; run seed-backlog with it again',
+            },
+        ],
+        [
             'no backlog was seeded',
-            { profile: 'resident', found: [] },
+            { profile: RESIDENT, found: [] },
             {
                 passed: false,
                 violation: 'no resident backlog was seeded; run seed-backlog with this profile first',
