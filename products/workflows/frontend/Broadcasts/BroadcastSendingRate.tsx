@@ -2,8 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-
+import { sendingRateSummary } from '../Workflows/emailSending'
 import { manageDisabledReason } from './broadcastLifecycle'
 import { broadcastSendingLogic } from './broadcastSendingLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
@@ -16,11 +15,7 @@ export function BroadcastSendingRate(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <span>
-                {sendingRate
-                    ? `At most ${humanFriendlyNumber(sendingRate.count)} emails per ${sendingRate.period}`
-                    : 'No limit'}
-            </span>
+            <span>{sendingRate ? sendingRateSummary(sendingRate) : 'No limit'}</span>
             {broadcast?.status !== 'archived' ? (
                 <LemonButton
                     size="xsmall"

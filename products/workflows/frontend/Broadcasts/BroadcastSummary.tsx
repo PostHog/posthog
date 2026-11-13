@@ -18,13 +18,13 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import type { HogFlowBatchJobApi, HogFlowConversionApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { EmailSendingPausedBanner } from '../Workflows/EmailSendingPausedBanner'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
-import { BroadcastEmailPausedBanner } from './BroadcastEmailPausedBanner'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { manageDisabledReason, sendErrorActions, summaryActions } from './broadcastLifecycle'
 import { BroadcastPerformance, BroadcastRunAudience } from './BroadcastPerformance'
@@ -371,7 +371,9 @@ export function BroadcastSummary(): JSX.Element {
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
-    useMountedLogic(broadcastSendingLogic(props))
+    const sendingLogic = broadcastSendingLogic(props)
+    const { emailSendingPause, resumingEmailSending } = useValues(sendingLogic)
+    const { resumeEmailSending } = useActions(sendingLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
@@ -472,7 +474,14 @@ export function BroadcastSummary(): JSX.Element {
             />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
-                <BroadcastEmailPausedBanner />
+                <EmailSendingPausedBanner
+                    pause={emailSendingPause}
+                    subject="broadcast"
+                    effect="Emails that haven't gone out yet are skipped."
+                    onResume={resumeEmailSending}
+                    resuming={resumingEmailSending}
+                    resumeDisabledReason={accessReason}
+                />
                 {broadcast?.status === 'draft' && accessReason ? (
                     <LemonBanner type="info">
                         You can view this draft but not edit it. Ask an admin for editor access to make changes.
