@@ -14,7 +14,14 @@ import requests
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 
-from ..backend.logic.docs_pages import DOCS_SOURCE_EXTENSIONS, page_segments
+from ..backend.logic.docs_pages import (
+    DOCS_SOURCE_EXTENSIONS,
+    INDEX_FILE_STEMS,
+    ROUTE_GROUP_SEGMENT_PATTERN,
+    docs_page_key,
+    page_segments,
+    without_docs_extension,
+)
 from ..backend.logic.pull_requests import MAX_PULL_REQUEST_PAGES, PULL_REQUESTS_PER_PAGE, writer_pull_request
 from ..backend.settings import DocsSource
 from .sources import (
@@ -302,19 +309,22 @@ def docs_source_path_by_suffix(tree_paths: list[str]) -> dict[str, str]:
 def merge_time_tree_pages(
     sitemap_pages: list[DocsPage], docs_tree_paths: list[str], docs_url_prefix: str
 ) -> list[DocsPage]:
-    content_root = docs_content_root(sitemap_pages)
-    if content_root is None:
-        return []
+    docs_folders = sorted(
+        {content_root.rstrip("/") for page in sitemap_pages if (content_root := page_content_root(page)) is not None},
+        key=len,
+        reverse=True,
+    )
     known_page_keys = {page.key for page in sitemap_pages}
     tree_pages: list[DocsPage] = []
     for path in docs_tree_paths:
-        source_page_path = "/".join(page_segments(path))
-        page_key = source_page_path.removeprefix(content_root)
-        if not path.endswith(DOCS_SOURCE_EXTENSIONS) or not source_page_path.startswith(content_root):
+        page_key = next(
+            (key for docs_folder in docs_folders if (key := docs_page_key(path, docs_folder)) is not None), None
+        )
+        if page_key is None:
             continue
         if any(segment.startswith(PARTIAL_SEGMENT_PREFIX) for segment in page_key.split("/")):
             continue
-        if not page_key or page_key in known_page_keys:
+        if page_key in known_page_keys:
             continue
         known_page_keys.add(page_key)
         version = major_version(page_key.split("/", 1)[0])
@@ -332,10 +342,21 @@ def docs_content_root(pages: list[DocsPage] | tuple[DocsPage, ...]) -> str | Non
 def page_content_root(page: DocsPage) -> str | None:
     if page.source_path is None or not page.key:
         return None
-    source_page_path = "/".join(page_segments(page.source_path))
-    if not source_page_path.endswith(f"/{page.key}"):
+    source_segments = [segment for segment in without_docs_extension(page.source_path).split("/") if segment]
+    if source_segments and source_segments[-1].lower() in INDEX_FILE_STEMS:
+        source_segments = source_segments[:-1]
+    key_segments = page.key.split("/")
+    root_length = len(source_segments)
+    matched_segments: list[str] = []
+    while root_length and len(matched_segments) < len(key_segments):
+        root_length -= 1
+        if not ROUTE_GROUP_SEGMENT_PATTERN.match(source_segments[root_length]):
+            matched_segments.insert(0, source_segments[root_length])
+    while root_length and ROUTE_GROUP_SEGMENT_PATTERN.match(source_segments[root_length - 1]):
+        root_length -= 1
+    if matched_segments != key_segments or not root_length:
         return None
-    return source_page_path.removesuffix(page.key)
+    return "/".join(source_segments[:root_length]) + "/"
 
 
 def docs_page(url: str, docs_url_prefix: str, source_path_by_suffix: Mapping[str, str]) -> DocsPage:

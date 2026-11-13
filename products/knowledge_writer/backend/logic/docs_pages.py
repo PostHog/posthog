@@ -22,8 +22,7 @@ def route_segments(page_path: str) -> list[str]:
 def docs_page_key(path: str, docs_folder: str) -> str | None:
     if not path.endswith(DOCS_SOURCE_EXTENSIONS) or not path.startswith(f"{docs_folder}/"):
         return None
-    folder_depth = len(docs_folder.split("/"))
-    page_key = "/".join(page_segments(path)[folder_depth:])
+    page_key = "/".join(route_segments(without_docs_extension(path.removeprefix(f"{docs_folder}/"))))
     return page_key or None
 
 
