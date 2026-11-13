@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
@@ -6,6 +7,11 @@ import { mentionRolesLogic } from './mentionRolesLogic'
 
 export const RichContentRoleMention = ({ id }: { id: string }): JSX.Element => {
     const { roles } = useValues(mentionRolesLogic)
+    const { ensureRolesLoaded } = useActions(mentionRolesLogic)
+
+    useEffect(() => {
+        ensureRolesLoaded()
+    }, [ensureRolesLoaded])
 
     const role = roles.find((role) => role.id === id)
 

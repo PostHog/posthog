@@ -1,7 +1,7 @@
 import { PluginKey } from '@tiptap/pm/state'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { IconPeople } from '@posthog/icons'
@@ -184,6 +184,11 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
 // Mounts mentionRolesLogic only where roles are offered, so a members-only editor never loads them.
 const MentionsWithRoles = forwardRef<MentionsRef, MentionsProps>(function MentionsWithRoles(props, ref) {
     const { roles } = useValues(mentionRolesLogic)
+    const { ensureRolesLoaded } = useActions(mentionRolesLogic)
+    // Each `@` opens the picker again, which retries a failed roles load.
+    useEffect(() => {
+        ensureRolesLoaded()
+    }, [ensureRolesLoaded])
     return <Mentions ref={ref} {...props} roles={roles} />
 })
 
