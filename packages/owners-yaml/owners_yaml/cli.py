@@ -390,7 +390,7 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
     unowned_count = 0
     sensitive_without_owners: list[str] = []
     for path in tracked:
-        resolution = resolver.resolve(path)
+        resolution = resolver.resolve(path, include_added=False)
         unowned_count += resolution.is_unowned
         # A consumer acts on `sensitive` through the owners of the path, so without owners the flag does nothing.
         if resolution.sensitive and not resolution.owners:

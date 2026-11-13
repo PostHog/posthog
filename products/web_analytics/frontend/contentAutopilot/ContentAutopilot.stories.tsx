@@ -20,7 +20,6 @@ import {
     contentAutopilotLogic,
 } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
-import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
     EXAMPLE_FAILED_PROPOSAL_LIST,
@@ -32,6 +31,7 @@ import {
     EXAMPLE_PROMPT_SET_OVERVIEW,
     EXAMPLE_PROMPT_SET_RANKINGS,
     EXAMPLE_PROMPT_TOPICS,
+    EXAMPLE_COMPETITOR_BRANDS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROMPT_CHECKS,
     EXAMPLE_PROMPT_VERSIONS,
@@ -93,6 +93,15 @@ const workspaceHandlers = ({
                 { ...EXAMPLE_KEYWORD_REPORT, keywords: keywords.length ? EXAMPLE_KEYWORD_REPORT.keywords : [] },
             ],
             '/api/projects/:team_id/aeo_keywords/modifiers/': () => [200, EXAMPLE_KEYWORD_MODIFIERS],
+            '/api/projects/:team_id/aeo_brands/': () => [
+                200,
+                {
+                    count: EXAMPLE_COMPETITOR_BRANDS.length,
+                    next: null,
+                    previous: null,
+                    results: EXAMPLE_COMPETITOR_BRANDS,
+                },
+            ],
             '/api/projects/:team_id/aeo_prompts/:id/': () => [200, EXAMPLE_PROMPTS[0]],
             '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
             '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],
@@ -130,7 +139,10 @@ const meta: Meta<typeof ContentAutopilot> = {
     component: ContentAutopilot,
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+        featureFlags: [
+            FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+            FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT_DRAFTING,
+        ],
         // The fixtures carry fixed dates and the UI shows them relative to now, so the clock is pinned near them.
         mockDate: '2026-09-30',
     },
@@ -156,11 +168,7 @@ Onboarding.decorators = [workspaceHandlers({ profiles: [] })]
 export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
 MultipleSites.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE] })]
 
-export const SiteSettings: StoryFn<typeof ContentAutopilotSetup> = () => (
-    <div className="p-6">
-        <ContentAutopilotSetup />
-    </div>
-)
+export const SiteSettings: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" />
 SiteSettings.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
 
 export const ReadyForReview: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
@@ -260,6 +268,14 @@ PromptsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opport
 export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
 OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+// Without the drafting flag there are no Opportunities or Drafts tabs, and no draft buttons.
+export const OverviewTabWithoutDrafting: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
+OverviewTabWithoutDrafting.decorators = OverviewTab.decorators
+OverviewTabWithoutDrafting.parameters = {
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+    testOptions: { snapshotBrowsers: [] },
+}
 
 export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
 RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]

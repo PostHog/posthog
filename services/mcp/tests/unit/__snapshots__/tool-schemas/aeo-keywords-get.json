@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The keyword id (a UUID), from `aeo-keywords-list`.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

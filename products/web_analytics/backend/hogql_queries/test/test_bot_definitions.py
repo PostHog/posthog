@@ -93,7 +93,7 @@ class TestBotDefinitionsDataStructure:
             ("bingbot", "Bingbot", "search_crawler", "Bot"),
             ("YisouSpider", "Yisou", "search_crawler", "Bot"),
             ("Qwantbot", "Qwant", "search_crawler", "Bot"),
-            ("YouBot", "You.com", "search_crawler", "Bot"),
+            ("YouBot", "You.com", "ai_search", "AI Agent"),
             ("DataForSeoBot", "DataForSeo", "search_crawler", "Bot"),
             ("Google-Adwords", "Google Adwords", "search_crawler", "Bot"),
             # SEO Tools

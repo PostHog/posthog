@@ -182,7 +182,7 @@ export interface HighlightMetricApi {
     value_format: HighlightValueFormatApi | null
     /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
     period_starts: string[]
-    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.
+    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, shown only when the person has no numbers of their own, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.
      *
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often

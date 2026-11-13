@@ -24,6 +24,7 @@ function cardCaption(metric: HighlightMetricApi): string {
 const SUGGESTIONS: Partial<Record<string, string>> = {
     experiment: 'You run this experiment',
     evaluation: 'You created this evaluation',
+    popular: 'Opened often in this project',
 }
 
 const OPEN_LABELS: Partial<Record<string, string>> = {

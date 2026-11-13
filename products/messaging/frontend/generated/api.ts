@@ -11,10 +11,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddOptOutRequestApi,
     AddSuppressionRequestApi,
+    AttachmentUploadsRequestApi,
+    AttachmentUploadsResponseApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    BulkAddSuppressionsRequestApi,
+    BulkAddSuppressionsResultApi,
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
+    CodeEmailApi,
+    CodeEmailSourceCandidatesApi,
     EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
@@ -32,6 +38,7 @@ import type {
     PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
     PaginatedOptOutsApi,
+    PatchedCodeEmailUpdateApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
@@ -76,6 +83,27 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+}
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreate = async (
+    projectId: string,
+    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadsResponseApi> => {
+    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(attachmentUploadsRequestApi),
+    })
+}
 
 export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/messaging/emails/${id}/`
@@ -781,6 +809,27 @@ export const messagingSuppressionsAddSuppressionCreate = async (
     })
 }
 
+export const getMessagingSuppressionsBulkAddSuppressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/bulk_add_suppressions/`
+}
+
+/**
+ * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const messagingSuppressionsBulkAddSuppressionsCreate = async (
+    projectId: string,
+    bulkAddSuppressionsRequestApi: BulkAddSuppressionsRequestApi,
+    options?: RequestInit
+): Promise<BulkAddSuppressionsResultApi> => {
+    return apiMutator<BulkAddSuppressionsResultApi>(getMessagingSuppressionsBulkAddSuppressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkAddSuppressionsRequestApi),
+    })
+}
+
 export const getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_suppressions/bulk_remove_suppressions/`
 }
@@ -1036,6 +1085,86 @@ export const messagingTemplatesSendCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendTransactionalEmailApi),
     })
+}
+
+export const getTransactionalCodeEmailsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/`
+}
+
+/**
+ * List the emails your code sends under a `template_key` that no template owns, newest first.
+ * @summary List emails sent from code
+ */
+export const transactionalCodeEmailsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CodeEmailApi[]> => {
+    return apiMutator<CodeEmailApi[]>(getTransactionalCodeEmailsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalCodeEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/`
+}
+
+/**
+ * @summary Get an email sent from code
+ */
+export const transactionalCodeEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CodeEmailApi> => {
+    return apiMutator<CodeEmailApi>(getTransactionalCodeEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalCodeEmailsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/`
+}
+
+/**
+ * Change the description, the tags or the linked source file. The content always comes from your code, so it can't change here.
+ * @summary Update an email sent from code
+ */
+export const transactionalCodeEmailsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCodeEmailUpdateApi?: PatchedCodeEmailUpdateApi,
+    options?: RequestInit
+): Promise<CodeEmailApi> => {
+    return apiMutator<CodeEmailApi>(getTransactionalCodeEmailsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCodeEmailUpdateApi),
+    })
+}
+
+export const getTransactionalCodeEmailsSourceCandidatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/source_candidates/`
+}
+
+/**
+ * Search the project's connected GitHub repositories for files that use this email's key, so you can pick one to link as its source file.
+ * @summary Find the file that sends an email from code
+ */
+export const transactionalCodeEmailsSourceCandidatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CodeEmailSourceCandidatesApi> => {
+    return apiMutator<CodeEmailSourceCandidatesApi>(
+        getTransactionalCodeEmailsSourceCandidatesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTransactionalEmailLogListUrl = (projectId: string, params?: TransactionalEmailLogListParams) => {

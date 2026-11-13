@@ -222,7 +222,7 @@ Existing backfills keep their stored windows; **Retry remaining** applies the bo
 
 Generation references get up to three lookup attempts.
 A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
-Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+Live references marked `awaiting_ingestion` wait 30 seconds after the first miss and 90 seconds after the second, and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.

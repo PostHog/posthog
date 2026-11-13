@@ -6,6 +6,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { QuillRecordingMoments } from 'products/replay_vision/frontend/components/QuillRecordingMoments'
 import { QuillRecordingObservationsEmptyState } from 'products/replay_vision/frontend/components/QuillRecordingObservationsEmptyState'
+import { QuillScannerPicker } from 'products/replay_vision/frontend/components/QuillScannerPicker'
 import { observationsDockLogic } from 'products/replay_vision/frontend/logics/observationsDockLogic'
 import { momentCount } from 'products/replay_vision/frontend/utils/recordingTimeline'
 import { recordingScanBlock } from 'products/replay_vision/frontend/utils/scanEligibility'
@@ -22,13 +23,12 @@ export function WatchPanelSectionsWithObservations({
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { observations, hasLoadedObservations, timeline } = useValues(observationsDockLogic({ sessionId }))
 
+    const scanBlock = recordingScanBlock(sessionPlayerMetaData)
+
     const content = !hasLoadedObservations ? (
         <Skeleton className="h-24 m-2" />
     ) : observations.length === 0 ? (
-        <QuillRecordingObservationsEmptyState
-            sessionId={sessionId}
-            scanBlock={recordingScanBlock(sessionPlayerMetaData)}
-        />
+        <QuillRecordingObservationsEmptyState sessionId={sessionId} scanBlock={scanBlock} />
     ) : (
         <div className="flex flex-col max-h-[60vh]">
             <QuillRecordingMoments key={sessionId} sessionId={sessionId} playerLogicProps={logicProps} />
@@ -38,7 +38,12 @@ export function WatchPanelSectionsWithObservations({
     return (
         <WatchPanelSections
             debug={debug}
-            observations={{ count: momentCount(timeline), hasObservations: observations.length > 0, content }}
+            observations={{
+                count: momentCount(timeline),
+                hasObservations: observations.length > 0,
+                content,
+                action: <QuillScannerPicker sessionId={sessionId} scanBlock={scanBlock} variant="outline" />,
+            }}
         />
     )
 }

@@ -9,16 +9,20 @@ tracked-session request logs).
 
 ## Endpoints
 
-| Schema          | Path                        | Scope  | Pagination              | Incremental     | Notes                                                 |
-| --------------- | --------------------------- | ------ | ----------------------- | --------------- | ----------------------------------------------------- |
-| `boards`        | `/members/me/boards`        | member | none (single request)   | full            |                                                       |
-| `organizations` | `/members/me/organizations` | member | none (single request)   | full            | Trello workspaces                                     |
-| `lists`         | `/boards/{id}/lists`        | board  | none (single request)   | full            | fan-out per board                                     |
-| `cards`         | `/boards/{id}/cards`        | board  | none (single request)   | full            | fan-out per board; open cards only by default         |
-| `checklists`    | `/boards/{id}/checklists`   | board  | none (single request)   | full            | fan-out per board                                     |
-| `labels`        | `/boards/{id}/labels`       | board  | none (single request)   | full            | fan-out per board                                     |
-| `members`       | `/boards/{id}/members`      | board  | none (single request)   | full            | board members; deduped across boards on `id`          |
-| `actions`       | `/boards/{id}/actions`      | board  | `before`/`since` cursor | **incremental** | newest-first; `since` is a genuine server-side filter |
+| Schema               | Path                                       | Scope  | Pagination              | Incremental     | Notes                                                                                  |
+| -------------------- | ------------------------------------------ | ------ | ----------------------- | --------------- | -------------------------------------------------------------------------------------- |
+| `boards`             | `/members/me/boards`                       | member | none (single request)   | full            |                                                                                        |
+| `organizations`      | `/members/me/organizations`                | member | none (single request)   | full            | Trello workspaces                                                                      |
+| `lists`              | `/boards/{id}/lists`                       | board  | none (single request)   | full            | fan-out per board                                                                      |
+| `cards`              | `/boards/{id}/cards`                       | board  | none (single request)   | full            | fan-out per board; open cards only by default                                          |
+| `checklists`         | `/boards/{id}/checklists`                  | board  | none (single request)   | full            | fan-out per board                                                                      |
+| `labels`             | `/boards/{id}/labels`                      | board  | none (single request)   | full            | fan-out per board                                                                      |
+| `members`            | `/boards/{id}/members`                     | board  | none (single request)   | full            | board members; deduped across boards on `id`                                           |
+| `actions`            | `/boards/{id}/actions`                     | board  | `before`/`since` cursor | **incremental** | newest-first; `since` is a genuine server-side filter                                  |
+| `custom_fields`      | `/boards/{id}/customFields`                | board  | none (single request)   | full            | definitions with list `options` inline (replaces `customFields/{id}/options`)          |
+| `custom_field_items` | `/boards/{id}/cards?customFieldItems=true` | board  | none (single request)   | full            | flattened from each card's `customFieldItems` (replaces `cards/{id}/customFieldItems`) |
+| `check_items`        | `/boards/{id}/checklists?checkItems=all`   | board  | none (single request)   | full            | flattened from each checklist's `checkItems` (replaces `checklists/{id}/checkItems`)   |
+| `board_memberships`  | `/boards/{id}/memberships`                 | board  | none (single request)   | full            | adds `board_id` from the parent board; key `(board_id, id)`                            |
 
 `boards` is fetched (id-only) before every board-scoped endpoint to drive the fan-out.
 
@@ -46,3 +50,7 @@ descending by `date`, so the source reports `sort_mode="desc"` and pages backwar
   given account, the sync still converges correctly because every fetched row is merged on its
   primary key. The known same-second pagination caveat (multiple objects created in the same
   second) is tolerated the same way.
+- `custom_fields`, `custom_field_items`, `check_items` and `board_memberships` follow the OpenAPI
+  spec and the custom fields guide. They were not verified against the live API (no test
+  credentials available). The nested tables read the arrays that Trello returns inline on board
+  cards and checklists, so they cost one request per board, not one per card or checklist.

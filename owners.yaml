@@ -34,6 +34,10 @@ teams:
         slack: '#team-mcp-analytics'
     platform-ux:
         slack: '#team-platform-ux'
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-ai-observability:
+        notifications:
+            stamphog: false
     team-data-stack:
         slack: '#group-data-stack'
     # PostHog Desktop's channel kept the name it was created under.
@@ -153,6 +157,7 @@ rules:
           - '/frontend/src/lib/api-orval-mutator.ts'
           - '/frontend/src/lib/api-ratchet-baseline.txt'
           - '/frontend/src/lib/api-stream.ts'
+          - '/frontend/src/lib/utils/createWorker.*'
           - '/posthog/management/commands/analyze_migration_risk.py'
           - '/posthog/migration_helpers/'
           - '/posthog/openapi/'
@@ -230,6 +235,7 @@ rules:
           - '/frontend/src/layout/panel-layout/ProjectTree/*.test.*'
           - '/frontend/src/layout/panel-layout/ProjectTree/menus/*.test.*'
           - '/frontend/src/layout/panel-layout/navbar/*.test.*'
+          - '/frontend/src/layout/today/TodayPreviewCardProvider.test.tsx'
           - '/frontend/src/lib/charts/*.test.*'
           - '/frontend/src/lib/forms/*.test.*'
           - '/frontend/src/lib/hooks/*.test.*'
@@ -302,6 +308,7 @@ rules:
     - match:
           - '/services/credentials-service/tests/integration/*.test.*'
           - '/services/credentials-service/tests/unit/*.test.*'
+          - '/frontend/src/lib/integrations/credentialAccountsLogic.test.ts'
       owners: team-warehouse-sources
     - match:
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/*.test.*'
