@@ -9,7 +9,7 @@ from django.db.models import TextChoices
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,7 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.file_system.constants import workflows_list_v2_enabled
-from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
+from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE, get_authenticator_scoped_team_ids
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import WorkflowViewConflict, WorkflowViewNotFound, WorkflowViewState
@@ -184,15 +184,22 @@ class WorkflowViewsFeatureFlagPermission(BasePermission):
 
 
 class ParentProjectAccessPermission(BasePermission):
-    # The membership check runs on the URL environment only. A child environment serves the parent's views,
-    # and the parent's workflow rules alone fall back to the default level for a member the parent project
-    # denies, so the caller also needs project access to the parent.
+    # The membership and credential checks run on the URL environment only. A child environment serves the
+    # parent's views, so the caller also needs project access to the parent, because the parent's workflow
+    # rules alone fall back to the default level for a member the parent project denies. A key scoped to some
+    # environments also needs the parent among them.
     message = "You don't have access to the project that holds these saved views."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         workflow_views = cast(WorkflowViewViewSet, view)
-        if workflow_views.team.parent_team_id is None:
+        parent_team_id = workflow_views.team.parent_team_id
+        if parent_team_id is None:
             return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and parent_team_id not in scoped_team_ids:
+            raise PermissionDenied(
+                "This API key doesn't cover the project that holds these saved views. Use a key scoped to it."
+            )
         return workflow_views.user_access_control.has_project_access
 
 
