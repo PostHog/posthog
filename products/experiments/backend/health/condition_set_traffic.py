@@ -40,6 +40,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
@@ -154,7 +155,13 @@ def query_condition_set_traffic(
     flag = experiment.feature_flag
     group_type_index = flag.aggregation_group_type_index
     flag_calls = FlagCalls.of(team)
-    test_accounts = get_test_accounts_filter(team, experiment.exposure_criteria)
+    # A cohort filter compiles to `person_id IN COHORT`. On flag_evaluations, `person_id` applies person merges, which
+    # joins every merge of the team into this scan. The scan counts the stored person, as the modifier below makes
+    # events do, so the filter reads the stored person too.
+    test_accounts = [
+        _ReadStoredPerson(flag_calls.person_id).visit(expr)
+        for expr in get_test_accounts_filter(team, experiment.exposure_criteria)
+    ]
     query = parse_select(
         """
         SELECT condition_set, count(), sum(calls), sum(remotely_evaluated_calls), countIf(assigned_outside)
@@ -240,6 +247,21 @@ def query_condition_set_traffic(
         people_assigned_outside=people_assigned_outside,
         filters_test_accounts=bool(test_accounts),
     )
+
+
+class _ReadStoredPerson(CloningVisitor):
+    def __init__(self, stored_person_id: ast.Expr):
+        super().__init__()
+        self._stored_person_id = stored_person_id
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if node.chain == ["person_id"]:
+            return clone_expr(self._stored_person_id)
+        return super().visit_field(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        # A subquery's `person_id` belongs to the table that the subquery reads.
+        return clone_expr(node)
 
 
 def _load_condition_set_traffic(

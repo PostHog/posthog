@@ -22,12 +22,15 @@ from parameterized import param, parameterized
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
+from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping, create_person
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import insert_static_cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.condition_set_traffic import (
@@ -682,6 +685,44 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
         )
 
         self.assertEqual((dict(traffic.people_by_set), traffic.filters_test_accounts), expected)
+
+    @parameterized.expand([("legacy_events", False), ("native_events", True)])
+    def test_a_cohort_filter_reads_the_person_that_the_scan_counts(
+        self, _name: str, team_reads_native_events: bool
+    ) -> None:
+        now = timezone.now()
+        staff = create_person(team=self.team, distinct_ids=["staff"])
+        customer = create_person(team=self.team, distinct_ids=["customer"])
+        merged_into = create_person(team=self.team, distinct_ids=["merged-into"])
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        insert_static_cohort([staff.uuid], cohort.pk, team_id=self.team.pk)
+        self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "operator": "not_in", "type": "cohort"}]
+        self.team.save()
+        experiment = _create_running_experiment(self.team, self.user, launched_at=now - timedelta(days=30))
+        experiment.exposure_criteria = {"filterTestAccounts": True}
+        experiment.save()
+        for distinct_id, person, reason in [
+            ("staff", staff, "Matched condition set 1"),
+            ("customer", customer, "Matched condition set 2"),
+        ]:
+            self._call_flag(
+                self.team,
+                distinct_id,
+                reason,
+                FLAG_VERSION,
+                now - timedelta(days=1),
+                store="flag_evaluations" if team_reads_native_events else "events",
+                person_id=person.uuid,
+            )
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version) VALUES",
+            [(self.team.pk, "staff", str(merged_into.uuid), 1)],
+        )
+        flush_persons_and_events()
+
+        traffic = self._scan(experiment, now, native_teams=[self.team] if team_reads_native_events else [])
+
+        self.assertEqual(dict(traffic.people_by_set), {2: 1})
 
     def _call_flag(
         self,
