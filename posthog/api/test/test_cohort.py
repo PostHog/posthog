@@ -9071,6 +9071,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             ("flag_on_event_criteria", _REALTIME_PAGEVIEW_LEAF, "flag", "feature flag"),
             ("active_workflow", _REALTIME_PAGEVIEW_LEAF, "workflow", "active workflow"),
             ("cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "parent", "include this cohort"),
+            ("static_cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "static_parent", None),
             # Flags read person criteria straight off the person, so this cohort's membership table has no reader.
             ("flag_on_person_criteria", _REALTIME_PERSON_LEAF, "flag", None),
         ]
@@ -9094,7 +9095,9 @@ class TestCohortRealtimeSwitch(APIBaseTest):
                 ],
             )
         else:
-            self._cohort(reference, enabled=True)
+            parent = self._cohort(reference, enabled=True)
+            if reader == "static_parent":
+                Cohort.objects.filter(id=parent.id).update(is_static=True)
 
         response = self._switch(cohort, False)
 
