@@ -1102,6 +1102,172 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    export interface AEOSetupConflict {
+      /** Why the request was refused. */
+      detail: string;
+      /** The setup job already running. Poll GET aeo_setup/<id>/ with it. */
+      job_id: string;
+    }
+
+    /**
+     * * `own_brand` - Own Brand
+     * * `app_urls` - App Urls
+     * * `recording_domains` - Recording Domains
+     * * `pageviews` - Pageviews
+     */
+    export type WebsiteSourceEnum = typeof WebsiteSourceEnum[keyof typeof WebsiteSourceEnum];
+
+
+    export const WebsiteSourceEnum = {
+      OwnBrand: 'own_brand',
+      AppUrls: 'app_urls',
+      RecordingDomains: 'recording_domains',
+      Pageviews: 'pageviews',
+    } as const;
+
+    export interface AEOWebsiteCandidate {
+      /** A registrable domain the project may be about, for example example.com. */
+      domain: string;
+      /** Where PostHog found it: own_brand (an own brand in the catalog), app_urls (the project's authorized URLs), recording_domains (the domains allowed to record sessions) or pageviews (hosts with pageviews in the last 7 days).
+       *
+       * * `own_brand` - Own Brand
+       * * `app_urls` - App Urls
+       * * `recording_domains` - Recording Domains
+       * * `pageviews` - Pageviews */
+      source: WebsiteSourceEnum;
+      /**
+         * Pageviews on the domain in the last 7 days. Null unless source is pageviews.
+         * @nullable
+         */
+      pageviews?: number | null;
+    }
+
+    export interface AEOSetupContext {
+      /** Up to 5 domains the project may be about, the most likely first. */
+      websites: AEOWebsiteCandidate[];
+      /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
+      engines: AEOEngineSetting[];
+      /** Domains already set as the project's own brands. */
+      own_domains: string[];
+      /** Active, unarchived prompts the project tracks. */
+      active_prompts: number;
+      /** Unarchived prompts that are turned off. No run checks them. */
+      paused_prompts: number;
+      /** Keywords in the project's keyword list. */
+      keywords: number;
+      /** Whether any citation check has been recorded for the project. */
+      has_checks: boolean;
+      /** Whether the organization approved AI data processing. Setup needs it. */
+      ai_data_processing_approved: boolean;
+      /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+      first_run_available: boolean;
+      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      prompt_target: number;
+      /** The window, in days, that pageview hosts among the websites cover. */
+      website_days: number;
+    }
+
+    /**
+     * * `brand` - Brand
+     * * `prompts` - Prompts
+     * * `keywords` - Keywords
+     * * `first_run` - First Run
+     */
+    export type SetupStepEnum = typeof SetupStepEnum[keyof typeof SetupStepEnum];
+
+
+    export const SetupStepEnum = {
+      Brand: 'brand',
+      Prompts: 'prompts',
+      Keywords: 'keywords',
+      FirstRun: 'first_run',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `done` - Done
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type SetupStepStatusEnum = typeof SetupStepStatusEnum[keyof typeof SetupStepStatusEnum];
+
+
+    export const SetupStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOSetupStep {
+      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+       *
+       * * `brand` - Brand
+       * * `prompts` - Prompts
+       * * `keywords` - Keywords
+       * * `first_run` - First Run */
+      step: SetupStepEnum;
+      /** pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `done` - Done
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: SetupStepStatusEnum;
+      /** How many brands, prompts or keywords the step added. */
+      added?: number;
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      detail?: string;
+    }
+
+    export interface AEOSetupJob {
+      /** The setup steps in the order they run. */
+      steps: AEOSetupStep[];
+      /** Job id. Poll GET aeo_setup/<id>/ with it. */
+      id: string;
+      /** pending while PostHog works, then completed or failed. A failed keywords step does not fail the job.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
+    }
+
+    export interface AEOSetupRequest {
+      /**
+         * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.
+         * @maxLength 200
+         */
+      domain?: string;
+      /**
+         * The brand name. Inferred from the site when empty.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      engines?: string[];
+      /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts. */
+      run_first_check?: boolean;
+      /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
+      only_first_run?: boolean;
+      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      activate_paused_prompts?: boolean;
+    }
+
     export interface AEOVisibilityDashboard {
       /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
       id: number;
@@ -3810,6 +3976,29 @@ export namespace Schemas {
       account_first_seen: string;
       /** Latest account activity across current distinct IDs, in UTC. */
       account_last_seen: string;
+    }
+
+    export interface PersonAccount {
+      /** Accessible account ID. */
+      id: string;
+      /** Account display name. */
+      name: string;
+    }
+
+    export interface AccountPersonMemberships {
+      /** Current person ID from the requested account. */
+      person_id: string;
+      /** Accessible accounts this person belongs to. */
+      accounts: PersonAccount[];
+    }
+
+    export interface AccountPersonMembershipsRequest {
+      /**
+         * Loaded person IDs to enrich, up to 500.
+         * @minItems 1
+         * @maxItems 500
+         */
+      person_ids: string[];
     }
 
     export interface PersonPropertyFilter {
@@ -9456,14 +9645,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -9518,6 +9710,7 @@ export namespace Schemas {
       name?: string | null;
       /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
       offset?: number | null;
+      /** The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. With `sendRawQuery`, no default limit applies and `hasMore` is not set. */
       query: string;
       response?: HogQLQueryResponse | null;
       /** Run the selected connection query directly without translating it through HogQL first */
@@ -9829,14 +10022,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -13869,6 +14065,15 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export interface AgentSource {
+      /** Distinct people whose agents ran the query, without scouts. */
+      people: number;
+      /** Agent sessions that ran the query, without scouts. */
+      sessions: number;
+      /** Query runs by agents, without scouts. */
+      runs: number;
+    }
+
     export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
 
 
@@ -13936,14 +14141,6 @@ export namespace Schemas {
       votes: string | null;
       url: string | null;
       created_at: string | null;
-    }
-
-    export interface AhrefsSearchOpportunitySignalExtra {
-      project_id: string | null;
-      issue_id: string | null;
-      issue_category: string | null;
-      issue_importance: string | null;
-      affected_urls: string | null;
     }
 
     /**
@@ -14778,13 +14975,112 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    /**
+     * * `discord` - discord
+     * * `teams` - teams
+     * * `webhook` - webhook
+     */
+    export type AlertCreateUrlDestinationTypeEnum = typeof AlertCreateUrlDestinationTypeEnum[keyof typeof AlertCreateUrlDestinationTypeEnum];
+
+
+    export const AlertCreateUrlDestinationTypeEnum = {
+      Discord: 'discord',
+      Teams: 'teams',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface AlertCreateUrlDestination {
+      /** Destination type: a Discord or Microsoft Teams channel, or any webhook.
+       *
+       * * `discord` - discord
+       * * `teams` - teams
+       * * `webhook` - webhook */
+      type: AlertCreateUrlDestinationTypeEnum;
+      /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
+      webhook_url: string;
+    }
+
     export interface AlertDeleteDestination {
       /**
-         * Destination IDs to delete, as returned when the destination was created.
-         * @minItems 1
+         * HogFunction IDs of the destination, as returned when it was created.
          * @maxItems 100
          */
+      hog_function_ids?: string[];
+      /**
+         * Destination IDs from the destinations list, to delete with their HogFunctions.
+         * @maxItems 100
+         */
+      destination_ids?: string[];
+    }
+
+    /**
+     * * `slack` - Slack
+     * * `discord` - Discord
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `pagerduty` - PagerDuty
+     * * `email` - Email
+     * * `in_app` - In-app notification
+     */
+    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
+
+
+    export const DestinationTypeEnum = {
+      Slack: 'slack',
+      Discord: 'discord',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+      Email: 'email',
+      InApp: 'in_app',
+    } as const;
+
+    export interface AlertDestinationListItem {
+      /**
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead.
+         * @nullable
+         */
+      id: string | null;
+      /** The HogFunctions that send for the destination. Empty once they are gone. */
       hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `discord` - Discord
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `pagerduty` - PagerDuty
+       * * `email` - Email
+       * * `in_app` - In-app notification */
+      type: DestinationTypeEnum;
+      /** Whether the destination sends. */
+      enabled: boolean;
+      /** Whether the destination's HogFunctions hear the firing event, which a test delivery sends. */
+      hears_firing: boolean;
+      /** Whether someone edited the destination's message, so it no longer sends the standard one. */
+      message_customized: boolean;
+      /** Slack workspace integration ID. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. */
+      slack_channel_id?: string;
+      /** Slack channel name, when it was saved. */
+      slack_channel_name?: string;
+      /** Webhook URL reduced to scheme and host. The path and query carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the incidents it opens.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** Region of the PagerDuty account.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     export interface AlertDestinationResponse {
@@ -20962,6 +21258,20 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface BeamerFeedbackSignalExtra {
+      status: string | null;
+      category: string | null;
+      votes_count: string | null;
+      comments_count: string | null;
+      date: string | null;
+      permalink: string | null;
+    }
+
+    export interface BeamerNpsFeedbackSignalExtra {
+      score: string | null;
+      date: string | null;
+    }
+
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
 
@@ -22180,15 +22490,6 @@ export namespace Schemas {
       TeamRetention: 'team_retention',
       ByteBudget: 'byte_budget',
     } as const;
-
-    export interface BingWebmasterToolsSearchOpportunitySignalExtra {
-      site_url: string | null;
-      issue_flag: string | null;
-      issue: string | null;
-      affected_urls: string | null;
-      example_url: string | null;
-      inbound_links: string | null;
-    }
 
     /**
      * * `email` - email
@@ -26392,6 +26693,12 @@ export namespace Schemas {
       proposed_status?: ProposedStatusEnum;
     }
 
+    export interface ChameleonFeedbackSignalExtra {
+      button_text: string | null;
+      survey_id: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `feature_flag` - Feature flag
      * * `experiment` - Experiment
@@ -27218,6 +27525,25 @@ export namespace Schemas {
       insight_id: number;
       /** When the explanation was first saved. */
       created_at: string;
+    }
+
+    export interface ChartSource {
+      /** Short ID of the saved chart, for a link to it. */
+      insight_short_id: string;
+      /** Name of the saved chart. */
+      insight_name: string;
+      /**
+         * The dashboard that ran the chart, if any.
+         * @nullable
+         */
+      dashboard_id: number | null;
+      /**
+         * Name of the dashboard, if any.
+         * @nullable
+         */
+      dashboard_name: string | null;
+      /** Distinct people whose visit ran the chart. Viewers count. */
+      people: number;
     }
 
     /**
@@ -37810,28 +38136,6 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
-    /**
-     * * `slack` - Slack
-     * * `discord` - Discord
-     * * `webhook` - Webhook
-     * * `teams` - Microsoft Teams
-     * * `pagerduty` - PagerDuty
-     * * `email` - Email
-     * * `in_app` - In-app notification
-     */
-    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
-
-
-    export const DestinationTypeEnum = {
-      Slack: 'slack',
-      Discord: 'discord',
-      Webhook: 'webhook',
-      Teams: 'teams',
-      Pagerduty: 'pagerduty',
-      Email: 'email',
-      InApp: 'in_app',
-    } as const;
-
     export interface DetectableEffectCheckpoint {
       /** The week mark, in whole weeks since launch. */
       weeks_since_launch: number;
@@ -38410,6 +38714,18 @@ export namespace Schemas {
       category_id: string | null;
       created_at: string | null;
     }
+
+    /**
+     * * `inbox` - Inbox
+     * * `slack` - Slack
+     */
+    export type DiscussionSourceEnum = typeof DiscussionSourceEnum[keyof typeof DiscussionSourceEnum];
+
+
+    export const DiscussionSourceEnum = {
+      Inbox: 'inbox',
+      Slack: 'slack',
+    } as const;
 
     /**
      * * `not_useful` - Not useful
@@ -39915,7 +40231,7 @@ export namespace Schemas {
          */
       filename: string;
       /**
-         * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+         * MIME type of the file, such as `application/pdf`, with any parameters, such as `text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.
          * @maxLength 78
          */
       content_type?: string;
@@ -42579,10 +42895,10 @@ export namespace Schemas {
      * * `correlation` - correlation
      * * `diagnostics` - diagnostics
      */
-    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
+    export type ErrorTrackingIssueEventsQueryRequestIncludeEnum = typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum];
 
 
-    export const IncludeEnum = {
+    export const ErrorTrackingIssueEventsQueryRequestIncludeEnum = {
       Exception: 'exception',
       Stacktrace: 'stacktrace',
       CodeVariables: 'code_variables',
@@ -42624,7 +42940,7 @@ export namespace Schemas {
          */
       offset?: number;
       /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-      include?: IncludeEnum[];
+      include?: ErrorTrackingIssueEventsQueryRequestIncludeEnum[];
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }
@@ -43726,6 +44042,287 @@ export namespace Schemas {
       sampling_rate: number;
     }
 
+    export interface EtsyReviewSignalExtra {
+      rating: string | null;
+      listing_id: string | null;
+      language: string | null;
+      created_timestamp: string | null;
+    }
+
+    /**
+     * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix.
+     */
+    export type EvalSuggestionDraft = { [key: string]: unknown };
+
+    /**
+     * * `new_hog` - New Hog eval
+     * * `new_llm_judge` - New LLM judge
+     * * `fix_eval` - Fix an evaluation
+     */
+    export type EvalSuggestionKindEnum = typeof EvalSuggestionKindEnum[keyof typeof EvalSuggestionKindEnum];
+
+
+    export const EvalSuggestionKindEnum = {
+      NewHog: 'new_hog',
+      NewLlmJudge: 'new_llm_judge',
+      FixEval: 'fix_eval',
+    } as const;
+
+    /**
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired
+     */
+    export type EvalSuggestionStatusEnum = typeof EvalSuggestionStatusEnum[keyof typeof EvalSuggestionStatusEnum];
+
+
+    export const EvalSuggestionStatusEnum = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+      Expired: 'expired',
+    } as const;
+
+    export interface EvalSuggestionFilter {
+      /** Event property the suggested evaluation filters on. */
+      key: string;
+      /** Values that match. Any of them matches. */
+      value: string[];
+      /** Property filter operator, such as 'exact'. */
+      operator: string;
+      /** Property filter type, such as 'event'. */
+      type: string;
+    }
+
+    export interface EvalSuggestionEvidence {
+      /** Trace that shows the problem. Open it to read the example. */
+      trace_id: string;
+      /** One line on what this trace shows. */
+      reason: string;
+    }
+
+    /**
+     * * `not_relevant` - Not relevant
+     * * `already_covered` - Already covered
+     * * `too_noisy` - Too noisy
+     * * `fixed_cause` - Fixed the cause
+     */
+    export type EvalSuggestionDismissReasonEnum = typeof EvalSuggestionDismissReasonEnum[keyof typeof EvalSuggestionDismissReasonEnum];
+
+
+    export const EvalSuggestionDismissReasonEnum = {
+      NotRelevant: 'not_relevant',
+      AlreadyCovered: 'already_covered',
+      TooNoisy: 'too_noisy',
+      FixedCause: 'fixed_cause',
+    } as const;
+
+    export interface EvalSuggestion {
+      /** Suggestion identifier. */
+      readonly id: string;
+      /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results.
+       *
+       * * `new_hog` - New Hog eval
+       * * `new_llm_judge` - New LLM judge
+       * * `fix_eval` - Fix an evaluation */
+      readonly kind: EvalSuggestionKindEnum;
+      /** proposed until someone accepts or dismisses it.
+       *
+       * * `proposed` - Proposed
+       * * `accepted` - Accepted
+       * * `dismissed` - Dismissed
+       * * `expired` - Expired */
+      readonly status: EvalSuggestionStatusEnum;
+      /** False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo that change. Always true for other kinds. */
+      readonly applies: boolean;
+      /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
+      readonly template_key: string;
+      /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
+      readonly headline: string;
+      /** What adding the evaluation does and what it costs, in one or two plain sentences. */
+      readonly outcome: string;
+      /** How the problem was measured or found, for people who want the detail. */
+      readonly reason: string;
+      /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. */
+      readonly draft: EvalSuggestionDraft;
+      /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
+      readonly filters: readonly EvalSuggestionFilter[];
+      /** Percentage (0-100) of matching units the evaluation runs on. */
+      readonly rollout_percentage: number;
+      /**
+         * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+         * @nullable
+         */
+      readonly measured_failure_rate: number | null;
+      /**
+         * Traces the failure rate was measured on. Null when there is no rate.
+         * @nullable
+         */
+      readonly sample_size: number | null;
+      /** Up to 5 example traces, each with a one-line reason. */
+      readonly evidence: readonly EvalSuggestionEvidence[];
+      /**
+         * Runs a week at the suggested rollout, for judges.
+         * @nullable
+         */
+      readonly estimated_weekly_runs: number | null;
+      /**
+         * Estimated weekly cost in USD on the project's own provider key, for judges. Null when unknown.
+         * @nullable
+         */
+      readonly estimated_weekly_cost_usd: number | null;
+      /** Model the weekly cost assumes, for LLM judges. Empty for Hog checks and fixes. */
+      readonly judge_model: string;
+      /**
+         * Evaluation that accepting this suggestion created.
+         * @nullable
+         */
+      readonly created_evaluation: string | null;
+      /**
+         * Evaluation a fix_eval suggestion repairs.
+         * @nullable
+         */
+      readonly target_evaluation: string | null;
+      /**
+         * Name of the evaluation a fix_eval suggestion repairs.
+         * @nullable
+         */
+      readonly target_evaluation_name: string | null;
+      /**
+         * Existing evaluation that may already cover this suggestion.
+         * @nullable
+         */
+      readonly similar_evaluation: string | null;
+      /**
+         * Name of an existing evaluation that may already cover this suggestion.
+         * @nullable
+         */
+      readonly similar_evaluation_name: string | null;
+      /** Reason given when the suggestion was dismissed, if any.
+       *
+       * * `not_relevant` - Not relevant
+       * * `already_covered` - Already covered
+       * * `too_noisy` - Too noisy
+       * * `fixed_cause` - Fixed the cause */
+      readonly dismiss_reason: EvalSuggestionDismissReasonEnum | null;
+      /** When the run that produced the suggestion published it. */
+      readonly created_at: string;
+    }
+
+    export interface EvalSuggestionAccept {
+      /** The accepted suggestion. */
+      suggestion: EvalSuggestion;
+      /** The evaluation the suggestion created, enabled. */
+      evaluation_id: string;
+      /**
+         * Backfill that runs the new evaluation on recent data. Null when recent data holds no matching unit.
+         * @nullable
+         */
+      backfill_id: string | null;
+      /**
+         * Units the backfill evaluates: at most 500 for a Hog check and 50 for a judge.
+         * @nullable
+         */
+      backfill_units: number | null;
+    }
+
+    export interface EvalSuggestionDismiss {
+      /** Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.
+       *
+       * * `not_relevant` - Not relevant
+       * * `already_covered` - Already covered
+       * * `too_noisy` - Too noisy
+       * * `fixed_cause` - Fixed the cause */
+      reason?: EvalSuggestionDismissReasonEnum | null;
+    }
+
+    /**
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session
+     */
+    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
+
+
+    export const EvaluationTargetEnum = {
+      Generation: 'generation',
+      Trace: 'trace',
+      Session: 'session',
+    } as const;
+
+    export interface EvalSuggestionEstimate {
+      /** What one unit is: a generation, a trace, or a session.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      target: EvaluationTargetEnum;
+      /** Units accept would evaluate on recent data. */
+      units: number;
+      /**
+         * Start of the recent window accept covers.
+         * @nullable
+         */
+      window_start: string | null;
+      /**
+         * End of the recent window accept covers.
+         * @nullable
+         */
+      window_end: string | null;
+      /**
+         * Model a judge runs on: the default for the project's active key. Null for Hog checks.
+         * @nullable
+         */
+      judge_model: string | null;
+      /**
+         * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    /**
+     * * `scheduled` - Scheduled
+     * * `first_visit` - First visit
+     * * `manual` - Manual
+     */
+    export type EvalSuggestionRunTriggerEnum = typeof EvalSuggestionRunTriggerEnum[keyof typeof EvalSuggestionRunTriggerEnum];
+
+
+    export const EvalSuggestionRunTriggerEnum = {
+      Scheduled: 'scheduled',
+      FirstVisit: 'first_visit',
+      Manual: 'manual',
+    } as const;
+
+    export interface EvalSuggestionRun {
+      /** Run identifier. */
+      readonly id: string;
+      /** scheduled (weekly), first_visit, or manual.
+       *
+       * * `scheduled` - Scheduled
+       * * `first_visit` - First visit
+       * * `manual` - Manual */
+      readonly trigger: EvalSuggestionRunTriggerEnum;
+      /** When the run started. */
+      readonly created_at: string;
+      /**
+         * When the run published its suggestions.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+    }
+
+    export interface EvalSuggestionList {
+      /** The latest completed run, which the suggestions come from. Null before the first one. */
+      run: EvalSuggestionRun | null;
+      /** True while a run for this project is in progress. */
+      pending: boolean;
+      /** Open suggestions of the latest run, best first. At most 3. */
+      results: EvalSuggestion[];
+    }
+
     /**
      * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
@@ -43973,20 +44570,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `generation` - Generation
-     * * `trace` - Trace
-     * * `session` - Session
-     */
-    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
-
-
-    export const EvaluationTargetEnum = {
-      Generation: 'generation',
-      Trace: 'trace',
-      Session: 'session',
-    } as const;
-
-    /**
      * * `openai` - Openai
      * * `anthropic` - Anthropic
      * * `gemini` - Gemini
@@ -44152,6 +44735,11 @@ export namespace Schemas {
       readonly conditions: readonly EvaluationBackfillCondition[];
       /** Whether units with an existing result are evaluated again. */
       readonly rerun_existing: boolean;
+      /**
+         * Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap.
+         * @nullable
+         */
+      readonly max_units: number | null;
       /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
       readonly total_count: number;
       /** Units the backfill has started an evaluation for so far. */
@@ -44415,6 +45003,33 @@ export namespace Schemas {
       reason?: string;
     }
 
+    /**
+     * * `slack` - Slack
+     * * `email` - Email
+     */
+    export type EvaluationReportRunDestinationTypeEnum = typeof EvaluationReportRunDestinationTypeEnum[keyof typeof EvaluationReportRunDestinationTypeEnum];
+
+
+    export const EvaluationReportRunDestinationTypeEnum = {
+      Slack: 'slack',
+      Email: 'email',
+    } as const;
+
+    export interface EvaluationReportDestination {
+      /** Destination kind: 'slack' or 'email'.
+       *
+       * * `slack` - Slack
+       * * `email` - Email */
+      type: EvaluationReportRunDestinationTypeEnum;
+      /** Slack channel name or email address. */
+      name: string;
+    }
+
+    export interface EvaluationReportGenerateResponse {
+      /** Server time of the request. The new report is the first run created after it. */
+      requested_at: string;
+    }
+
     export type EvaluationReportMetricsOutputConfigOptionsItem = {
       /**
          * Stable category key.
@@ -44557,7 +45172,7 @@ export namespace Schemas {
          */
       previous_result_rates?: EvaluationReportMetricsPreviousResultRates;
       /**
-         * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
+         * Pass percentage excluding N/A. Null when no results passed or failed.
          * @nullable
          */
       pass_rate?: number | null;
@@ -44650,6 +45265,8 @@ export namespace Schemas {
       readonly delivery_status: EvaluationReportRunDeliveryStatusEnum;
       /** Delivery error messages. Empty when all configured deliveries succeeded. */
       readonly delivery_errors: readonly string[];
+      /** Slack channels and email addresses this report was addressed to, including any that failed (see delivery_errors). Empty for reports sent before this was recorded. */
+      readonly delivery_destinations: readonly EvaluationReportDestination[];
       /** When this report run was created. */
       readonly created_at: string;
     }
@@ -47498,6 +48115,7 @@ export namespace Schemas {
       EditExposureCriteria: 'edit_exposure_criteria',
       AdjustDistribution: 'adjust_distribution',
       UseFirstSeenVariant: 'use_first_seen_variant',
+      MoveStartDate: 'move_start_date',
     } as const;
 
     export type ExperimentExposureHealthFindingCode = typeof ExperimentExposureHealthFindingCode[keyof typeof ExperimentExposureHealthFindingCode];
@@ -51166,6 +51784,13 @@ export namespace Schemas {
          */
       readonly table_id: string | null;
       should_sync?: boolean;
+      /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+      live_query_enabled?: boolean;
+      /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         * @nullable
+         */
+      readonly live_query_unavailable_reason: string | null;
       /** @nullable */
       readonly last_synced_at: string | null;
       /**
@@ -51346,6 +51971,8 @@ export namespace Schemas {
       id: string;
       /** Whether the schema should be queryable/synced. */
       should_sync?: boolean;
+      /** Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns. */
+      live_query_enabled?: boolean;
       /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
        *
        * * `full_refresh` - full_refresh
@@ -53130,6 +53757,11 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface FeaturebaseSurveysFeedbackSignalExtra {
+      survey_id: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `not_a_real_problem` - Not a real problem
      * * `already_known` - Already known
@@ -54118,6 +54750,13 @@ export namespace Schemas {
       status: string | null;
       tags: unknown[];
       created_at: string | null;
+    }
+
+    export interface G2ReviewSignalExtra {
+      star_rating: string | null;
+      product_name: string | null;
+      url: string | null;
+      submitted_at: string | null;
     }
 
     export interface GainsightPxFeedbackSignalExtra {
@@ -55391,6 +56030,12 @@ export namespace Schemas {
        *
        * * `degrade_visible` - Degrade visible */
       on_overflow?: OnOverflowEnum;
+    }
+
+    export interface GumroadReviewSignalExtra {
+      rating: string | null;
+      product_id: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -59644,6 +60289,8 @@ export namespace Schemas {
       nullMode?: MetricsNullMode | null;
       /** How scalar panels and legend calcs collapse a series to one number. */
       reduce?: MetricsReducer | null;
+      /** `stat` display only: whether a graph of the series shows under the value. */
+      statSparkline?: boolean | null;
       /** `stat` display only: which summary the headline value shows. */
       statSummary?: MetricsStatSummary | null;
       /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
@@ -60264,40 +60911,6 @@ export namespace Schemas {
       session_recording_id?: string | null;
       tags?: QueryLogTags | null;
       user_modified_filters?: RecordingsQueryUserModifiedFilters;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface TraceNeighborsQueryResponse {
-      /** Timestamp of the newer trace */
-      newerTimestamp?: string | null;
-      /** ID of the newer trace (chronologically after current) */
-      newerTraceId?: string | null;
-      /** Timestamp of the older trace */
-      olderTimestamp?: string | null;
-      /** ID of the older trace (chronologically before current) */
-      olderTraceId?: string | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface TraceNeighborsQuery {
-      dateRange?: DateRange | null;
-      filterSupportTraces?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      kind?: 'TraceNeighborsQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-      response?: TraceNeighborsQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** Timestamp of the current trace to find neighbors for */
-      timestamp: string;
-      /** ID of the current trace to find neighbors for */
-      traceId: string;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -61616,7 +62229,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -61642,7 +62255,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -62269,9 +62882,6 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
-     * * `bing_webmaster_tools` - Bing Webmaster Tools
-     * * `ahrefs` - Ahrefs
-     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -62338,6 +62948,18 @@ export namespace Schemas {
      * * `github_dependabot` - GitHub Dependabot
      * * `github_code_scanning` - GitHub code scanning
      * * `github_secret_scanning` - GitHub secret scanning
+     * * `beamer` - Beamer
+     * * `beamer_nps` - Beamer NPS
+     * * `chameleon` - Chameleon
+     * * `etsy` - Etsy
+     * * `featurebase_surveys` - Featurebase surveys
+     * * `g2` - G2
+     * * `gumroad` - Gumroad
+     * * `trustpilot_product_reviews` - Trustpilot product reviews
+     * * `uservoice_nps` - UserVoice NPS
+     * * `vitally_nps` - Vitally NPS
+     * * `woocommerce` - WooCommerce
+     * * `yotpo` - Yotpo
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -62395,9 +63017,6 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
-      BingWebmasterTools: 'bing_webmaster_tools',
-      Ahrefs: 'ahrefs',
-      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -62464,6 +63083,18 @@ export namespace Schemas {
       GithubDependabot: 'github_dependabot',
       GithubCodeScanning: 'github_code_scanning',
       GithubSecretScanning: 'github_secret_scanning',
+      Beamer: 'beamer',
+      BeamerNps: 'beamer_nps',
+      Chameleon: 'chameleon',
+      Etsy: 'etsy',
+      FeaturebaseSurveys: 'featurebase_surveys',
+      G2: 'g2',
+      Gumroad: 'gumroad',
+      TrustpilotProductReviews: 'trustpilot_product_reviews',
+      UservoiceNps: 'uservoice_nps',
+      VitallyNps: 'vitally_nps',
+      Woocommerce: 'woocommerce',
+      Yotpo: 'yotpo',
     } as const;
 
     /**
@@ -62571,9 +63202,6 @@ export namespace Schemas {
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
        * * `google_search_console` - Google Search Console
-       * * `bing_webmaster_tools` - Bing Webmaster Tools
-       * * `ahrefs` - Ahrefs
-       * * `semrush` - Semrush
        * * `pagerduty` - PagerDuty
        * * `opsgenie` - Opsgenie
        * * `incident_io` - incident.io
@@ -62639,7 +63267,19 @@ export namespace Schemas {
        * * `cursor` - Cursor
        * * `github_dependabot` - GitHub Dependabot
        * * `github_code_scanning` - GitHub code scanning
-       * * `github_secret_scanning` - GitHub secret scanning */
+       * * `github_secret_scanning` - GitHub secret scanning
+       * * `beamer` - Beamer
+       * * `beamer_nps` - Beamer NPS
+       * * `chameleon` - Chameleon
+       * * `etsy` - Etsy
+       * * `featurebase_surveys` - Featurebase surveys
+       * * `g2` - G2
+       * * `gumroad` - Gumroad
+       * * `trustpilot_product_reviews` - Trustpilot product reviews
+       * * `uservoice_nps` - UserVoice NPS
+       * * `vitally_nps` - Vitally NPS
+       * * `woocommerce` - WooCommerce
+       * * `yotpo` - Yotpo */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -64825,6 +65465,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `keyword` - Keyword
+     * * `semantic` - Semantic
+     * * `both` - Keyword and semantic
+     * * `context` - Surrounding context
+     */
+    export type SearchMatchEnum = typeof SearchMatchEnum[keyof typeof SearchMatchEnum];
+
+
+    export const SearchMatchEnum = {
+      Keyword: 'keyword',
+      Semantic: 'semantic',
+      Both: 'both',
+      Context: 'context',
+    } as const;
+
+    /**
      * One ranked chunk from a business knowledge search.
      *
      * Output-only — the rows come from the ``search_knowledge_for_team`` logic
@@ -64853,6 +65509,18 @@ export namespace Schemas {
       readonly is_generated: boolean;
       /** Fetched page URL. Empty for text and file sources. */
       readonly url: string;
+      /** Why this chunk is in the result. `both`: the chunk matched the query words and the query meaning, the strongest evidence. `semantic`: it matched the meaning only. `keyword`: it shares words with the query, which can be a weak match for a long question. `context`: it did not match; it is a neighbour of a matching chunk, returned so the match reads in context.
+       *
+       * * `keyword` - Keyword
+       * * `semantic` - Semantic
+       * * `both` - Keyword and semantic
+       * * `context` - Surrounding context */
+      readonly matched_by: SearchMatchEnum;
+      /**
+         * Semantic similarity between the query and this chunk, from 0 to 1, higher is closer. Null when the semantic index did not return this chunk.
+         * @nullable
+         */
+      readonly similarity: number | null;
     }
 
     /**
@@ -66900,6 +67568,11 @@ export namespace Schemas {
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
+      /**
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+         * @nullable
+         */
+      id: string | null;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -66913,6 +67586,8 @@ export namespace Schemas {
       message_customized: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
+      /** The Slack channel's name when the destination was added. Absent for older destinations. */
+      slack_channel_name?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
       /** PagerDuty integration key reduced to its last four characters. */
@@ -67078,11 +67753,13 @@ export namespace Schemas {
     }
 
     export interface LogsAlertDeleteDestination {
+      /** HogFunction IDs to delete as one atomic destination group. */
+      hog_function_ids?: string[];
       /**
-         * HogFunction IDs to delete as one atomic destination group.
-         * @minItems 1
+         * Destination IDs, from `destinations[].id`, to delete with their HogFunctions.
+         * @maxItems 100
          */
-      hog_function_ids: string[];
+      destination_ids?: string[];
     }
 
     export interface LogsAlertDestinationResponse {
@@ -67487,6 +68164,211 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute
+     */
+    export type LogsContextAnchorTypeEnum = typeof LogsContextAnchorTypeEnum[keyof typeof LogsContextAnchorTypeEnum];
+
+
+    export const LogsContextAnchorTypeEnum = {
+      Trace: 'trace',
+      Log: 'log',
+      Attribute: 'attribute',
+    } as const;
+
+    /**
+     * * `spans` - Spans
+     */
+    export type LogsContextIncludeEnum = typeof LogsContextIncludeEnum[keyof typeof LogsContextIncludeEnum];
+
+
+    export const LogsContextIncludeEnum = {
+      Spans: 'spans',
+    } as const;
+
+    export interface _LogsContextAttributeAnchor {
+      /** Log attribute key, e.g. "workflow_run_id". */
+      key: string;
+      /** Exact attribute value to follow. */
+      value: string;
+    }
+
+    export interface _LogsContextAnchor {
+      /** uuid of one log line. Needs `timestamp`. */
+      logUuid?: string;
+      /** ISO 8601 timestamp of the `logUuid` log line. */
+      timestamp?: string;
+      /** Trace id, 32 hex characters or base64. */
+      traceId?: string;
+      /** Follow every log with this attribute value. */
+      attribute?: _LogsContextAttributeAnchor;
+      /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+      around?: string;
+    }
+
+    /**
+     * * `trace` - trace
+     * * `debug` - debug
+     * * `info` - info
+     * * `warn` - warn
+     * * `error` - error
+     * * `fatal` - fatal
+     */
+    export type LogsSeverityLevelEnum = typeof LogsSeverityLevelEnum[keyof typeof LogsSeverityLevelEnum];
+
+
+    export const LogsSeverityLevelEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    export interface _LogsContextBody {
+      /** Exactly one anchor: a log line, a trace, or an attribute value. */
+      anchor: _LogsContextAnchor;
+      /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+      padding?: string;
+      /** Keep only these severities in the timeline. */
+      severityLevels?: LogsSeverityLevelEnum[];
+      /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+      serviceNames?: string[];
+      /** "spans" adds spans_summary for a trace anchor. */
+      include?: LogsContextIncludeEnum[];
+      /**
+         * Maximum timeline rows.
+         * @minimum 1
+         * @maximum 500
+         */
+      limit?: number;
+      /** `next_cursor` of a previous call with the same anchor. */
+      after?: string;
+    }
+
+    export interface LogsContextRequest {
+      /** The context query. */
+      query: _LogsContextBody;
+    }
+
+    export interface _LogsContextAnchorSummary {
+      /** The anchor kind.
+       *
+       * * `trace` - Trace
+       * * `log` - Log
+       * * `attribute` - Attribute */
+      type: LogsContextAnchorTypeEnum;
+      /**
+         * Trace id (hex) of the anchor, when there is one.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Reference time (UTC) that `t_offset_ms` counts from. */
+      timestamp: string;
+      /**
+         * Trace start or first matching log (UTC).
+         * @nullable
+         */
+      start: string | null;
+      /**
+         * Trace end or last matching log (UTC).
+         * @nullable
+         */
+      end: string | null;
+      /**
+         * end - start in milliseconds.
+         * @nullable
+         */
+      duration_ms: number | null;
+      /** Services of the anchor. */
+      services: string[];
+    }
+
+    export interface _LogsContextCorrelationKey {
+      /** Id-like attribute of the anchor log. */
+      key: string;
+      /** Its value on the anchor log. */
+      value: string;
+      /** Logs in the window, any service, with this value. */
+      log_count: number;
+    }
+
+    export interface _LogsContextTimelineRow {
+      /** Milliseconds from the anchor reference time. */
+      t_offset_ms: number;
+      /** Log timestamp (UTC). */
+      timestamp: string;
+      /** Service that emitted the line. */
+      service: string;
+      /** Severity of the line. */
+      severity: string;
+      /** Log body, cut to 300 characters. */
+      body: string;
+      /** k=v attributes that differ from the anchor log, without noise keys. */
+      attrs: string;
+      /** Log uuid, usable with `timestamp` as a log anchor. */
+      uuid: string;
+    }
+
+    export interface _LogsContextSpan {
+      /** Span id (hex). */
+      span_id: string;
+      /** Span name. */
+      name: string;
+      /** Service of the span. */
+      service: string;
+      /** Milliseconds from the trace start. */
+      start_offset_ms: number;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans. */
+      self_time_ms: number;
+      /** "error" or "ok". */
+      status: string;
+    }
+
+    export interface _LogsContextSpansSummary {
+      /** Spans read. */
+      span_count: number;
+      /** True when the trace has more spans than were read. */
+      truncated: boolean;
+      /** Services with spans in the trace. */
+      services: string[];
+      /** The root span, null when it never arrived. */
+      root: _LogsContextSpan | null;
+      /** Up to 10 spans with an error status. */
+      error_spans: _LogsContextSpan[];
+      /** The 5 longest spans. */
+      slowest: _LogsContextSpan[];
+    }
+
+    export interface LogsContextResponse {
+      /** Absolute UTC bounds the logs were read from. */
+      window: LogsAgentWindow;
+      /** The resolved anchor. */
+      anchor: _LogsContextAnchorSummary;
+      /** Id-like attributes of the anchor log, with counts. */
+      correlation_keys: _LogsContextCorrelationKey[];
+      /** Log lines, earliest first. */
+      timeline: _LogsContextTimelineRow[];
+      /** Set for a trace anchor with include ["spans"]. */
+      spans_summary: _LogsContextSpansSummary | null;
+      /** True when more rows exist past `limit`. */
+      truncated: boolean;
+      /**
+         * Pass as `after` for the next page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Prefilled follow-up calls. */
+      next: LogsAgentNextCall[];
+      /** Caveats about the window. */
+      notes: string[];
+    }
+
+    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -67748,26 +68630,6 @@ export namespace Schemas {
       dateRange?: _LogsNaturalLanguageDateRange;
     }
 
-    /**
-     * * `trace` - trace
-     * * `debug` - debug
-     * * `info` - info
-     * * `warn` - warn
-     * * `error` - error
-     * * `fatal` - fatal
-     */
-    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
-
-
-    export const SeverityLevelsEnum = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
     export interface _LogsNaturalLanguageCandidateFilter {
       /** Attribute key, or "message" for the log body text. */
       key: string;
@@ -67787,7 +68649,7 @@ export namespace Schemas {
       /** Date range of this reading. */
       dateRange: _LogsNaturalLanguageDateRange;
       /** Severity levels to keep. Empty means all levels. */
-      severityLevels: SeverityLevelsEnum[];
+      severityLevels: LogsSeverityLevelEnum[];
       /** Services to keep. Empty means all services. */
       serviceNames: string[];
       /** Attribute and message filters, combined with AND. */
@@ -70876,6 +71738,8 @@ export namespace Schemas {
     }
 
     export interface MessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id: string;
       /**
          * Human-readable template name shown in the library.
@@ -70918,6 +71782,14 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
       /** Whether the template has unpublished edits in `draft_content`. */
       readonly has_draft: boolean;
+    }
+
+    export interface MessageTemplatePlacement {
+      /**
+         * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+         * @nullable
+         */
+      path: string | null;
     }
 
     export interface MessagingError {
@@ -71039,6 +71911,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `points` - points
+     * * `summary` - summary
+     */
+    export type MetricQueryOutputEnum = typeof MetricQueryOutputEnum[keyof typeof MetricQueryOutputEnum];
+
+
+    export const MetricQueryOutputEnum = {
+      Points: 'points',
+      Summary: 'summary',
+    } as const;
+
+    /**
      * * `rate` - rate
      * * `increase` - increase
      */
@@ -71140,6 +72024,40 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered
+     */
+    export type UsageSectionEnum = typeof UsageSectionEnum[keyof typeof UsageSectionEnum];
+
+
+    export const UsageSectionEnum = {
+      MetricRuns: 'metric_runs',
+      Conversations: 'conversations',
+      AdjustedRuns: 'adjusted_runs',
+      Topics: 'topics',
+      TableSources: 'table_sources',
+      Uncovered: 'uncovered',
+    } as const;
+
+    export interface SectionFailure {
+      /** The payload section whose step failed.
+       *
+       * * `metric_runs` - Metric runs
+       * * `conversations` - Conversations
+       * * `adjusted_runs` - Adjusted runs
+       * * `topics` - Topics
+       * * `table_sources` - Table sources
+       * * `uncovered` - Uncovered */
+      section: UsageSectionEnum;
+      /** Why the scan step failed. */
+      reason: string;
+    }
+
     export interface MetricUsage {
       /** ID of the catalog metric. */
       metric_id: string;
@@ -71158,6 +72076,8 @@ export namespace Schemas {
       runs: MetricRunCounts | null;
       /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
       adjusted_runs: AdjustedRun[];
+      /** Failed sections that these numbers read, so a missing count is not a zero. */
+      failed_sections: SectionFailure[];
     }
 
     /**
@@ -81751,6 +82671,52 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     */
+    export type TaskStatusEnum = typeof TaskStatusEnum[keyof typeof TaskStatusEnum];
+
+
+    export const TaskStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Idle: 'idle',
+      Done: 'done',
+    } as const;
+
+    /**
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled
+     */
+    export type TaskStatusReasonEnum = typeof TaskStatusReasonEnum[keyof typeof TaskStatusReasonEnum];
+
+
+    export const TaskStatusReasonEnum = {
+      TurnClosed: 'turn_closed',
+      UserStopped: 'user_stopped',
+      ProvisionFailed: 'provision_failed',
+      UnexpectedFailure: 'unexpected_failure',
+      TimedOut: 'timed_out',
+      BudgetSpent: 'budget_spent',
+      CreditSpent: 'credit_spent',
+      AccessChanged: 'access_changed',
+      Finished: 'finished',
+      Closed: 'closed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -81833,6 +82799,32 @@ export namespace Schemas {
          * @nullable
          */
       repository_integration?: number | null;
+      /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `idle` - Idle
+       * * `done` - Done */
+      status?: TaskStatusEnum | null;
+      /** Why the task stopped. Set only when `status` is `idle` or `done`.
+       *
+       * * `turn_closed` - Turn closed
+       * * `user_stopped` - User stopped
+       * * `provision_failed` - Provision failed
+       * * `unexpected_failure` - Unexpected failure
+       * * `timed_out` - Timed out
+       * * `budget_spent` - Budget spent
+       * * `credit_spent` - Credit spent
+       * * `access_changed` - Access changed
+       * * `finished` - Finished
+       * * `closed` - Closed
+       * * `cancelled` - Cancelled */
+      status_reason?: TaskStatusReasonEnum | null;
+      /**
+         * Message shown next to `status_reason`, such as the error from a failed run.
+         * @nullable
+         */
+      status_detail?: string | null;
     }
 
     /**
@@ -81920,6 +82912,32 @@ export namespace Schemas {
          * @nullable
          */
       repository_integration?: number | null;
+      /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `idle` - Idle
+       * * `done` - Done */
+      status?: TaskStatusEnum | null;
+      /** Why the task stopped. Set only when `status` is `idle` or `done`.
+       *
+       * * `turn_closed` - Turn closed
+       * * `user_stopped` - User stopped
+       * * `provision_failed` - Provision failed
+       * * `unexpected_failure` - Unexpected failure
+       * * `timed_out` - Timed out
+       * * `budget_spent` - Budget spent
+       * * `credit_spent` - Credit spent
+       * * `access_changed` - Access changed
+       * * `finished` - Finished
+       * * `closed` - Closed
+       * * `cancelled` - Cancelled */
+      status_reason?: TaskStatusReasonEnum | null;
+      /**
+         * Message shown next to `status_reason`, such as the error from a failed run.
+         * @nullable
+         */
+      status_detail?: string | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -82047,6 +83065,27 @@ export namespace Schemas {
       updated_at: string;
       origin_product?: string;
       latest_run?: TaskRunSummary | null;
+      /** Where the task is now: queued, running, idle or done. Null on older tasks not filled in yet.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `idle` - Idle
+       * * `done` - Done */
+      status?: TaskStatusEnum | null;
+      /** Why the task stopped. Set only when `status` is `idle` or `done`.
+       *
+       * * `turn_closed` - Turn closed
+       * * `user_stopped` - User stopped
+       * * `provision_failed` - Provision failed
+       * * `unexpected_failure` - Unexpected failure
+       * * `timed_out` - Timed out
+       * * `budget_spent` - Budget spent
+       * * `credit_spent` - Credit spent
+       * * `access_changed` - Access changed
+       * * `finished` - Finished
+       * * `closed` - Closed
+       * * `cancelled` - Cancelled */
+      status_reason?: TaskStatusReasonEnum | null;
     }
 
     export interface PaginatedTaskSummaryDTOList {
@@ -82253,6 +83292,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly intercom_conversation_id: string | null;
+      /**
+         * Pylon issue id when the ticket was imported from Pylon. Null otherwise.
+         * @nullable
+         */
+      readonly pylon_issue_id: string | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -88044,6 +89088,13 @@ export namespace Schemas {
          */
       readonly table_id?: string | null;
       should_sync?: boolean;
+      /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+      live_query_enabled?: boolean;
+      /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         * @nullable
+         */
+      readonly live_query_unavailable_reason?: string | null;
       /** @nullable */
       readonly last_synced_at?: string | null;
       /**
@@ -90025,6 +91076,8 @@ export namespace Schemas {
     }
 
     export interface PatchedMessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id?: string;
       /**
          * Human-readable template name shown in the library.
@@ -100300,6 +101353,42 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface SurfaceSource {
+      /** The web app area that ran the query. Empty when it is unknown. */
+      product: string;
+      /** Distinct people who ran the query there. */
+      people: number;
+      /** Query runs from that area. */
+      runs: number;
+    }
+
+    export interface ProposedMetric {
+      /** Proposed metric name. */
+      name: string;
+      /** What the proposed metric counts. */
+      description: string;
+      /** Proposed HogQL definition. */
+      definition: string;
+      /** Recurring measures that this proposal merges. */
+      measures: number;
+      /** Distinct people across the measures, without scouts. */
+      people: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+      built: number;
+      /** The saved charts with the most people. */
+      charts: ChartSource[];
+      /** Saved charts that are not listed in charts. */
+      other_charts: number;
+      /** Web app areas that ran it outside a saved chart. */
+      surfaces: SurfaceSource[];
+      /** Agent use, or null when no agent ran it. */
+      agents: AgentSource | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
+    }
+
     /**
      * * `queued` - Waiting to start
      * * `running` - Importing
@@ -101056,6 +102145,77 @@ export namespace Schemas {
       failed_distinct_ids: string[];
     }
 
+    export interface PylonImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    export type PylonImportJobRegionEnum = typeof PylonImportJobRegionEnum[keyof typeof PylonImportJobRegionEnum];
+
+
+    export const PylonImportJobRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+    } as const;
+
+    export interface PylonImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /** Pylon region the API token belongs to: us or eu. */
+      readonly region: PylonImportJobRegionEnum | null;
+      /** Whether a stored Pylon API token exists for this job (the token is never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of issues discovered for import. */
+      readonly total_issues: number;
+      /** Number of issues processed so far. */
+      readonly processed_issues: number;
+      /** Number of issues imported as tickets. */
+      readonly imported_issues: number;
+      /** Number of issues skipped because they were already imported. */
+      readonly skipped_issues: number;
+      /** Number of issues that failed to import. */
+      readonly failed_issues: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface PylonImportStart {
+      /**
+         * Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.
+         * @maxLength 500
+         */
+      api_token: string;
+      /**
+         * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
+    }
+
     export interface PylonTicketSignalExtra {
       number: string | null;
       state: string | null;
@@ -101501,7 +102661,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -101688,14 +102848,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -102671,14 +103834,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -103762,21 +104928,6 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative86 {
-      /** Timestamp of the newer trace */
-      newerTimestamp?: string | null;
-      /** ID of the newer trace (chronologically after current) */
-      newerTraceId?: string | null;
-      /** Timestamp of the older trace */
-      olderTimestamp?: string | null;
-      /** ID of the older trace (chronologically before current) */
-      olderTraceId?: string | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface QueryResponseAlternative87 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103800,7 +104951,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative87 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103824,7 +104975,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative89 {
+    export interface QueryResponseAlternative88 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103848,7 +104999,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative90 {
+    export interface QueryResponseAlternative89 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103880,7 +105031,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative91 {
+    export interface QueryResponseAlternative90 {
       columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
       customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -103913,7 +105064,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative92 {
+    export interface QueryResponseAlternative91 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103937,7 +105088,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative93 {
+    export interface QueryResponseAlternative92 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103961,7 +105112,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative94 {
+    export interface QueryResponseAlternative93 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103985,7 +105136,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative95 {
+    export interface QueryResponseAlternative94 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104009,7 +105160,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative96 {
+    export interface QueryResponseAlternative95 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104033,7 +105184,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative97 {
+    export interface QueryResponseAlternative96 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104062,9 +105213,9 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export type QueryResponseAlternative98ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative97ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative98 {
+    export interface QueryResponseAlternative97 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104077,7 +105228,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative98ResultsItem[];
+      results: QueryResponseAlternative97ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -104088,7 +105239,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative99 {
+    export interface QueryResponseAlternative98 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104112,7 +105263,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative100 {
+    export interface QueryResponseAlternative99 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104136,7 +105287,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative101 {
+    export interface QueryResponseAlternative100 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104160,7 +105311,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative102 {
+    export interface QueryResponseAlternative101 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether another page of individual model identifiers is available. */
@@ -104186,7 +105337,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative103 {
+    export interface QueryResponseAlternative102 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104210,7 +105361,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative104 {
+    export interface QueryResponseAlternative103 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104234,7 +105385,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative105 {
+    export interface QueryResponseAlternative104 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104258,7 +105409,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative106 {
+    export interface QueryResponseAlternative105 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104282,7 +105433,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative107 {
+    export interface QueryResponseAlternative106 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104307,7 +105458,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative108 {
+    export interface QueryResponseAlternative107 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104331,7 +105482,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative109 {
+    export interface QueryResponseAlternative108 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104361,7 +105512,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative110 {
+    export interface QueryResponseAlternative109 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104385,7 +105536,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative111 {
+    export interface QueryResponseAlternative110 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104409,7 +105560,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative112 {
+    export interface QueryResponseAlternative111 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104433,7 +105584,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative113 {
+    export interface QueryResponseAlternative112 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104457,7 +105608,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative114 {
+    export interface QueryResponseAlternative113 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104481,7 +105632,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative115 {
+    export interface QueryResponseAlternative114 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104505,7 +105656,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative116 {
+    export interface QueryResponseAlternative115 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104529,7 +105680,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative117 {
+    export interface QueryResponseAlternative116 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether more reports exist past this page. */
@@ -104558,9 +105709,9 @@ export namespace Schemas {
     /**
      * Keyed by MCPDashboardSection, in the order the query asked for them.
      */
-    export type QueryResponseAlternative118Results = {[key: string]: MCPDashboardSectionResult};
+    export type QueryResponseAlternative117Results = {[key: string]: MCPDashboardSectionResult};
 
-    export interface QueryResponseAlternative118 {
+    export interface QueryResponseAlternative117 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104574,7 +105725,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /** Keyed by MCPDashboardSection, in the order the query asked for them. */
-      results: QueryResponseAlternative118Results;
+      results: QueryResponseAlternative117Results;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -104585,7 +105736,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative119 {
+    export interface QueryResponseAlternative118 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104609,7 +105760,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | QueryResponseAlternative39 | unknown | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112 | QueryResponseAlternative113 | QueryResponseAlternative114 | QueryResponseAlternative115 | QueryResponseAlternative116 | QueryResponseAlternative117 | QueryResponseAlternative118 | QueryResponseAlternative119;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | QueryResponseAlternative39 | unknown | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112 | QueryResponseAlternative113 | QueryResponseAlternative114 | QueryResponseAlternative115 | QueryResponseAlternative116 | QueryResponseAlternative117 | QueryResponseAlternative118;
 
     export interface QueryScanResponse {
       analysis?: QueryScanAnalysis | null;
@@ -104620,11 +105771,11 @@ export namespace Schemas {
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {
@@ -105913,9 +107064,6 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
-     * * `bing_webmaster_tools` - bing_webmaster_tools
-     * * `ahrefs` - ahrefs
-     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io
@@ -105982,6 +107130,18 @@ export namespace Schemas {
      * * `github_dependabot` - github_dependabot
      * * `github_code_scanning` - github_code_scanning
      * * `github_secret_scanning` - github_secret_scanning
+     * * `beamer` - beamer
+     * * `beamer_nps` - beamer_nps
+     * * `chameleon` - chameleon
+     * * `etsy` - etsy
+     * * `featurebase_surveys` - featurebase_surveys
+     * * `g2` - g2
+     * * `gumroad` - gumroad
+     * * `trustpilot_product_reviews` - trustpilot_product_reviews
+     * * `uservoice_nps` - uservoice_nps
+     * * `vitally_nps` - vitally_nps
+     * * `woocommerce` - woocommerce
+     * * `yotpo` - yotpo
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -106039,9 +107199,6 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
-      BingWebmasterTools: 'bing_webmaster_tools',
-      Ahrefs: 'ahrefs',
-      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -106108,6 +107265,18 @@ export namespace Schemas {
       GithubDependabot: 'github_dependabot',
       GithubCodeScanning: 'github_code_scanning',
       GithubSecretScanning: 'github_secret_scanning',
+      Beamer: 'beamer',
+      BeamerNps: 'beamer_nps',
+      Chameleon: 'chameleon',
+      Etsy: 'etsy',
+      FeaturebaseSurveys: 'featurebase_surveys',
+      G2: 'g2',
+      Gumroad: 'gumroad',
+      TrustpilotProductReviews: 'trustpilot_product_reviews',
+      UservoiceNps: 'uservoice_nps',
+      VitallyNps: 'vitally_nps',
+      Woocommerce: 'woocommerce',
+      Yotpo: 'yotpo',
     } as const;
 
     /**
@@ -106347,14 +107516,6 @@ export namespace Schemas {
       created_time: string | null;
     }
 
-    export interface SemrushSearchOpportunitySignalExtra {
-      project_id: string | null;
-      issue_id: string | null;
-      affected_pages: string | null;
-      example_url: string | null;
-      audit_snapshot_id: string | null;
-    }
-
     export interface VitallyConversationSignalExtra {
       external_url: string | null;
       created_at: string | null;
@@ -106446,7 +107607,41 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export interface UservoiceNpsFeedbackSignalExtra {
+      rating: string | null;
+      created_at: string | null;
+    }
+
+    export interface VitallyNpsFeedbackSignalExtra {
+      score: string | null;
+      nps_type: string | null;
+      created_at: string | null;
+    }
+
+    export interface TrustpilotProductReviewsReviewSignalExtra {
+      stars: string | null;
+      language: string | null;
+      state: string | null;
+      product_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface WoocommerceReviewSignalExtra {
+      rating: string | null;
+      status: string | null;
+      verified: string | null;
+      product_id: string | null;
+      date_created_gmt: string | null;
+    }
+
+    export interface YotpoReviewSignalExtra {
+      score: string | null;
+      sku: string | null;
+      deleted: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106516,9 +107711,6 @@ export namespace Schemas {
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
        * * `google_search_console` - google_search_console
-       * * `bing_webmaster_tools` - bing_webmaster_tools
-       * * `ahrefs` - ahrefs
-       * * `semrush` - semrush
        * * `pagerduty` - pagerduty
        * * `opsgenie` - opsgenie
        * * `incident_io` - incident_io
@@ -106584,7 +107776,19 @@ export namespace Schemas {
        * * `cursor` - cursor
        * * `github_dependabot` - github_dependabot
        * * `github_code_scanning` - github_code_scanning
-       * * `github_secret_scanning` - github_secret_scanning */
+       * * `github_secret_scanning` - github_secret_scanning
+       * * `beamer` - beamer
+       * * `beamer_nps` - beamer_nps
+       * * `chameleon` - chameleon
+       * * `etsy` - etsy
+       * * `featurebase_surveys` - featurebase_surveys
+       * * `g2` - g2
+       * * `gumroad` - gumroad
+       * * `trustpilot_product_reviews` - trustpilot_product_reviews
+       * * `uservoice_nps` - uservoice_nps
+       * * `vitally_nps` - vitally_nps
+       * * `woocommerce` - woocommerce
+       * * `yotpo` - yotpo */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -110713,6 +111917,11 @@ export namespace Schemas {
        * * `authored` - Authored
        * * `edited` - Edited */
       involvement: ReportInvolvementEnum;
+      /** `inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.
+       *
+       * * `inbox` - Inbox
+       * * `slack` - Slack */
+      source: DiscussionSourceEnum;
       /** The discussion task. */
       task_id: string;
       /** When the discussion started. */
@@ -110725,10 +111934,15 @@ export namespace Schemas {
          */
       status: string | null;
       /**
-         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
+         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
          * @nullable
          */
       task_summary: string | null;
+      /**
+         * For a `slack` discussion, the message that started it, in the person's own words. Null when that person may not steer scouts on this project, or started a later Slack discussion on the same report. Always null for an `inbox` discussion, because a scout note carried its question.
+         * @nullable
+         */
+      question: string | null;
     }
 
     /**
@@ -117824,6 +119038,16 @@ export namespace Schemas {
          * @nullable
          */
       scheduled_at?: string | null;
+      /**
+         * Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.
+         * @nullable
+         */
+      warm_submission_id?: string | null;
+      /**
+         * Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.
+         * @nullable
+         */
+      warm_run_id?: string | null;
       /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
       start_run?: boolean;
       /**
@@ -117947,6 +119171,32 @@ export namespace Schemas {
          * @nullable
          */
       repository_integration?: number | null;
+      /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `idle` - Idle
+       * * `done` - Done */
+      status?: TaskStatusEnum | null;
+      /** Why the task stopped. Set only when `status` is `idle` or `done`.
+       *
+       * * `turn_closed` - Turn closed
+       * * `user_stopped` - User stopped
+       * * `provision_failed` - Provision failed
+       * * `unexpected_failure` - Unexpected failure
+       * * `timed_out` - Timed out
+       * * `budget_spent` - Budget spent
+       * * `credit_spent` - Credit spent
+       * * `access_changed` - Access changed
+       * * `finished` - Finished
+       * * `closed` - Closed
+       * * `cancelled` - Cancelled */
+      status_reason?: TaskStatusReasonEnum | null;
+      /**
+         * Message shown next to `status_reason`, such as the error from a failed run.
+         * @nullable
+         */
+      status_detail?: string | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -118736,6 +119986,8 @@ export namespace Schemas {
     export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
 
     export interface TaskRunErrorResponse {
+      /** Message ID to reuse as the JSON-RPC id when retrying delivery */
+      id?: unknown;
       /** Human-readable validation error */
       detail?: string;
       /** Human-readable error message */
@@ -119160,6 +120412,32 @@ export namespace Schemas {
          * @nullable
          */
       repository_integration?: number | null;
+      /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `idle` - Idle
+       * * `done` - Done */
+      status?: TaskStatusEnum | null;
+      /** Why the task stopped. Set only when `status` is `idle` or `done`.
+       *
+       * * `turn_closed` - Turn closed
+       * * `user_stopped` - User stopped
+       * * `provision_failed` - Provision failed
+       * * `unexpected_failure` - Unexpected failure
+       * * `timed_out` - Timed out
+       * * `budget_spent` - Budget spent
+       * * `credit_spent` - Credit spent
+       * * `access_changed` - Access changed
+       * * `finished` - Finished
+       * * `closed` - Closed
+       * * `cancelled` - Cancelled */
+      status_reason?: TaskStatusReasonEnum | null;
+      /**
+         * Message shown next to `status_reason`, such as the error from a failed run.
+         * @nullable
+         */
+      status_detail?: string | null;
       /** Error returned when the run could not start. */
       run_error?: string;
       /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -121799,10 +123077,12 @@ export namespace Schemas {
          * @nullable
          */
       matched_metric_id: string | null;
-      /** Distinct people who ran the measure, without scouts. */
+      /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
       distinct_people: number;
-      /** Query runs of the measure, without scouts. */
-      runs: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+      built: number;
       /** One query that computes the measure. */
       sample_sql: string;
       /**
@@ -121815,6 +123095,13 @@ export namespace Schemas {
          * @nullable
          */
       draft_description: string | null;
+      /**
+         * Proposed HogQL definition, when one was drafted.
+         * @nullable
+         */
+      draft_definition: string | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
     }
 
     export interface UnquarantineQuery {
@@ -122106,6 +123393,13 @@ export namespace Schemas {
          * @nullable
          */
       uncovered: UncoveredGroup[] | null;
+      /**
+         * Proposed metrics with their sources. Null until drafted.
+         * @nullable
+         */
+      proposed_metrics: ProposedMetric[] | null;
+      /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+      failed_sections: SectionFailure[];
     }
 
     export interface UsageSnapshot {
@@ -123391,6 +124685,8 @@ export namespace Schemas {
       task_id: string;
       /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
       run_id: string;
+      /** The server can negotiate the final permission mode before activating an explicitly targeted warm run. */
+      permission_mode_mutable?: boolean;
     }
 
     /**
@@ -125785,7 +127081,7 @@ export namespace Schemas {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -125813,7 +127109,7 @@ export namespace Schemas {
          */
       targetBuckets?: number;
       /** Filter by log severity levels. Applied before bucketing. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. Applied before bucketing. */
       serviceNames?: string[];
       /** Full-text search across log bodies. Applied before bucketing. */
@@ -125863,7 +127159,7 @@ export namespace Schemas {
       /** Date range. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels (ignored when faceting on severity_text). */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names (ignored when faceting on service_name). */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -125904,7 +127200,7 @@ export namespace Schemas {
       /** Date range to aggregate over. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before grouping. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict grouping to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before grouping. */
@@ -126050,7 +127346,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -126067,7 +127363,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -126233,7 +127529,7 @@ export namespace Schemas {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Order results by timestamp.
@@ -126361,7 +127657,7 @@ export namespace Schemas {
       /** Date range for the services aggregation. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict the aggregation to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126461,7 +127757,7 @@ export namespace Schemas {
       /** Date range for the sparkline. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126608,8 +127904,38 @@ export namespace Schemas {
     export interface _MetricSeries {
       /** Label values identifying this series. Empty for an ungrouped query. */
       labels: _MetricSeriesLabels;
-      /** Time-bucketed points, ordered by time ascending. */
-      points: _MetricQueryPoint[];
+      /** Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output. */
+      points?: _MetricQueryPoint[];
+      /**
+         * Instant queries only: the series' value at 'time'.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.
+         * @nullable
+         */
+      time?: string | null;
+      /**
+         * Summary output only: the last non-null value.
+         * @nullable
+         */
+      last?: number | null;
+      /**
+         * Summary output only: the smallest non-null value.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Summary output only: the largest non-null value.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Summary output only: the mean of the non-null values.
+         * @nullable
+         */
+      avg?: number | null;
       /**
          * Metric the series was computed from. Null for formula results.
          * @nullable
@@ -126673,6 +127999,11 @@ export namespace Schemas {
          * @nullable
          */
       onset_time: string | null;
+      /**
+         * Start of the last bucket when it ends after anomalyTo or now, so it holds only part of its samples. It stays in series but is left out of every statistic, the onset and the movers. Null when every bucket is complete.
+         * @nullable
+         */
+      partial_bucket_time?: string | null;
       /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
       top_movers: _MetricAnomalyDimension[];
       /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
@@ -126995,6 +128326,15 @@ export namespace Schemas {
          * @nullable
          */
       limit?: number | null;
+      /** Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'. */
+      instant?: boolean;
+      /** Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant. */
+      time?: string;
+      /** 'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.
+       *
+       * * `points` - points
+       * * `summary` - summary */
+      output?: MetricQueryOutputEnum;
     }
 
     export interface _MetricQueryCount {
@@ -127025,6 +128365,8 @@ export namespace Schemas {
       omitted_empty_series?: number;
       /** Number of series left out by 'limit'. Set only when it left some out. */
       omitted_by_limit?: number;
+      /** Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it. */
+      url_params?: string;
     }
 
     export interface _MetricSamplesBody {
@@ -127531,6 +128873,111 @@ export namespace Schemas {
       events?: _SpanEvent[];
     }
 
+    /**
+     * Span count per service, largest first (top 10).
+     */
+    export type _TraceSummaryServices = {[key: string]: number};
+
+    export interface _TraceSummarySpan {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+    }
+
+    export interface _TraceSummaryPathEntry {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /** Nesting depth below the root, which is 0. */
+      depth: number;
+      /** Present when consecutive same-named siblings were collapsed into this entry; durations are summed. */
+      count?: number;
+    }
+
+    export interface _TraceSummaryRepeated {
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the spans. Omitted when it is the root span's service. */
+      service?: string;
+      /** How many spans in the trace have this service and name. */
+      count: number;
+      /** Summed duration of those spans, in milliseconds. */
+      total_ms: number;
+      /** Longest of those spans, in milliseconds. */
+      max_ms: number;
+    }
+
+    export interface _TraceSummaryError {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /**
+         * The exception message, or the error attribute the span carries. Null when the span records none.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface _TraceSummary {
+      /** The trace ID. */
+      trace_id?: string;
+      /** When the earliest span started (ISO 8601). */
+      start?: string;
+      /** First span start to last span end, in milliseconds. */
+      duration_ms?: number;
+      /** Spans summarized. */
+      span_count: number;
+      /** Distinct services in the trace. */
+      service_count?: number;
+      /** Spans with error status. */
+      error_count?: number;
+      /** True when the trace has more spans than were summarized, so counts are lower bounds. */
+      truncated: boolean;
+      /** The trace's root span. */
+      root?: _TraceSummarySpan;
+      /** Span count per service, largest first (top 10). */
+      services?: _TraceSummaryServices;
+      /** Spans with the most self time, largest first. Self time on a parent is uninstrumented work. */
+      top_self_time?: _TraceSummarySpan[];
+      /** The spans the trace's end time waits on, in start order, walking back from the root's end. Spans that ran in parallel and finished earlier are left out. */
+      critical_path?: _TraceSummaryPathEntry[];
+      /** Spans on the critical path left out because each took under 1% of the root's duration. */
+      critical_path_omitted?: number;
+      /** True when the critical path was cut at summaryLimit entries (at most 20). */
+      critical_path_truncated?: boolean;
+      /** Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern. */
+      repeated_spans?: _TraceSummaryRepeated[];
+      /** Error spans, earliest first. */
+      errors?: _TraceSummaryError[];
+    }
+
     export interface _TracingAggregationQueryBody {
       /** Date range for the primary window. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -128031,11 +129478,21 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span/service/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`. */
+      summary?: boolean;
+      /**
+         * With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.
+         * @minimum 1
+         * @maximum 50
+         */
+      summaryLimit?: number;
     }
 
     export interface _TracingTraceResponse {
-      /** Spans in the trace, earliest first. */
+      /** Spans in the trace, earliest first. Empty when `summary` is requested. */
       results: _TraceSpan[];
+      /** The trace digest, present when `summary` is true. */
+      summary?: _TraceSummary;
       /** Whether a further page of spans exists. */
       hasMore: boolean;
       /**
@@ -143612,6 +145069,16 @@ export namespace Schemas {
      * @minLength 1
      */
     status?: TasksListStatus;
+    /**
+     * Filter tasks by their own status: queued, running, idle or done.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     * @minLength 1
+     */
+    task_status?: TasksListTaskStatus;
     };
 
     export type TasksListArchived = typeof TasksListArchived[keyof typeof TasksListArchived];
@@ -143778,6 +145245,16 @@ export namespace Schemas {
       Completed: 'completed',
       Failed: 'failed',
       Cancelled: 'cancelled',
+    } as const;
+
+    export type TasksListTaskStatus = typeof TasksListTaskStatus[keyof typeof TasksListTaskStatus];
+
+
+    export const TasksListTaskStatus = {
+      Queued: 'queued',
+      Running: 'running',
+      Idle: 'idle',
+      Done: 'done',
     } as const;
 
     export type TasksCommentsListParams = {
