@@ -23,7 +23,6 @@ from products.alerts_platform.backend.facade.api import (
     native_configuration_ids_by_source_config,
     native_configuration_matches,
     owned_copies_by_legacy_id,
-    owned_copy_keys,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -172,20 +171,12 @@ def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
 
 
 def native_insight_alert_matches(
-    team_id: int, *, search: str | None, copies_of: Collection[UUID] = ()
+    team_id: int, *, search: str | None, owned_copies: bool = False
 ) -> tuple[NativeConfigurationMatch, ...]:
-    """Every insight alert with no insight row, and the copies of the alerts in `copies_of`, or with
-    `search` the ones whose name matches it."""
+    """Every insight alert with no insight row, and with `owned_copies` the copies the platform owns,
+    or with `search` the ones whose name matches it."""
     return native_configuration_matches(
-        team_id=team_id, source_kind=SourceKind.INSIGHT, search=search, copies_of=copies_of
-    )
-
-
-def moved_insight_alert_ids(team_id: int) -> frozenset[UUID]:
-    """The team's insight alerts the platform owns, from one read of their copies, for a reader that
-    splits rows from copies on it."""
-    return frozenset(
-        key.legacy_configuration_id for key in owned_copy_keys(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        team_id=team_id, source_kind=SourceKind.INSIGHT, search=search, owned_copies=owned_copies
     )
 
 

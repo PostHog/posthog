@@ -274,15 +274,14 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: SourceKind, search: str | None = None, copies_of: Collection[UUID] = ()
+    *, team_id: int, source_kind: SourceKind, search: str | None = None, owned_copies: bool = False
 ) -> tuple[NativeConfigurationMatch, ...]:
     """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
-    them on beside its own rows. With `copies_of`, also the copies of those source rows whoever owns
-    them, so a source lists an alert the platform owns from its copy's settings. With `search`, only
-    the ones whose name matches it, exact and similar alike: the source keeps only the exact tier when
-    any row of either kind is exact."""
+    them on beside its own rows. With `owned_copies`, also the copies the platform owns, so a source
+    lists such an alert from its copy's settings. With `search`, only the ones whose name matches it,
+    exact and similar alike: the source keeps only the exact tier when any row of either kind is exact."""
     return platform_reads.native_configuration_matches(
-        team_id=team_id, source_kind=source_kind.value, search=search, copies_of=copies_of
+        team_id=team_id, source_kind=source_kind.value, search=search, owned_copies=owned_copies
     )
 
 
@@ -297,13 +296,9 @@ def enabled_native_configurations(
     firing_at: datetime | None = None,
     errored_at: datetime | None = None,
     owned_copies: bool = False,
-    copies_of: Collection[UUID] | None = None,
-    natives: bool = True,
 ) -> tuple[EnabledNativeConfiguration, ...]:
     """The enabled alerts of a kind with no source row in these teams, and with `owned_copies` also the
-    copies the platform owns, newest first. With `copies_of`, also the copies of those source rows,
-    whoever owns them now: a source that split its alerts on one read of `owned_copy_keys` lists each
-    alert once, even across a handover. Without `natives`, only copies. With
+    copies the platform owns, newest first. With
     `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
     `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
     the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds. With
@@ -318,8 +313,6 @@ def enabled_native_configurations(
         firing_at=firing_at,
         errored_at=errored_at,
         owned_copies=owned_copies,
-        copies_of=copies_of,
-        natives=natives,
     )
 
 

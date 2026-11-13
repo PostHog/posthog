@@ -232,14 +232,14 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: str, search: str | None = None, copies_of: Collection[UUID] = ()
+    *, team_id: int, source_kind: str, search: str | None = None, owned_copies: bool = False
 ) -> tuple[NativeConfigurationMatch, ...]:
-    """Every configuration of a kind with no source row, and the copies of the source rows in
-    `copies_of` whoever owns them, or with `search` only the ones whose name matches it, both tiers
-    included. A source decides the tiers across its own rows and these."""
+    """Every configuration of a kind with no source row, and with `owned_copies` also the copies the
+    platform owns, or with `search` only the ones whose name matches it, both tiers included. A source
+    decides the tiers across its own rows and these."""
     wanted = Q(legacy_configuration_id__isnull=True)
-    if copies_of:
-        wanted |= Q(legacy_configuration_id__in=list(copies_of))
+    if owned_copies:
+        wanted |= Q(owner=PlatformAlertOwner.PLATFORM)
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(wanted, source_kind=source_kind)
     columns = ("id", "created_at", "created_by_id", "source_config", "legacy_configuration_id")
     if not search:
@@ -285,27 +285,19 @@ def enabled_native_configurations(
     firing_at: datetime | None = None,
     errored_at: datetime | None = None,
     owned_copies: bool = False,
-    copies_of: Collection[UUID] | None = None,
-    natives: bool = True,
 ) -> tuple[EnabledNativeConfiguration, ...]:
     """The enabled configurations of a kind with no source row in these teams, and with `owned_copies`
-    also the copies the platform owns, newest first. With `copies_of`, also the copies of those source
-    rows, whoever owns them now, so a caller that split its alerts on one earlier read of the owner
-    lists each alert once. Without `natives`, only copies. With
+    also the copies the platform owns, newest first. With
     `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
     `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
     the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds. With
     `errored_at`, only the ones a reader sees errored then: the last check failed, and no mute holds."""
     if not team_ids or (source_config_key is not None and not values):
         return ()
-    wanted = Q(legacy_configuration_id__isnull=True) if natives else Q(pk__in=[])
-    if owned_copies:
-        wanted |= Q(owner=PlatformAlertOwner.PLATFORM)
-    if copies_of:
-        wanted |= Q(legacy_configuration_id__in=list(copies_of))
     # The caller names the teams, as a source's readers of its own rows across teams do.
+    native = Q(legacy_configuration_id__isnull=True)
     rows = PlatformAlertConfiguration.objects.unscoped().filter(
-        wanted,
+        native | Q(owner=PlatformAlertOwner.PLATFORM) if owned_copies else native,
         team_id__in=list(team_ids),
         source_kind=source_kind,
         enabled=True,

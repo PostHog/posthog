@@ -1,7 +1,7 @@
 import copy
 import json
 import uuid
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
@@ -144,7 +144,6 @@ from products.alerts.backend.facade.platform import (
     moved_alert_fired_checks,
     moved_alert_settings,
     moved_alert_statuses,
-    moved_insight_alert_ids,
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
@@ -185,6 +184,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PagerDutySeverity,
     PlatformAlertCreateRefused,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
@@ -2239,11 +2239,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return None
         return alert
 
-    def _platform_matches(self, *, search: str | None, moved: Collection[uuid.UUID]) -> list[NativeConfigurationMatch]:
-        """The insight alerts with no insight row, and the copies of the `moved` alerts, that pass the
+    def _platform_matches(self, *, search: str | None) -> list[NativeConfigurationMatch]:
+        """The insight alerts with no insight row, and the copies the platform owns, that pass the
         list's filters and read gates on the platform's values, as `safely_get_queryset` and
         `_filtered_rows` apply them to rows."""
-        matches = native_insight_alert_matches(self.team_id, search=search, copies_of=moved)
+        matches = native_insight_alert_matches(self.team_id, search=search, owned_copies=True)
         if not matches:
             return []
         filters = self.request.query_params
@@ -2303,9 +2303,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # An alert with no insight row has no row in the queryset, so the two are merged and paged
         # here, on the sort keys alone, and only the page's alerts are loaded. An alert the platform
         # owns is filtered and sorted on its copy, because its row's settings stop at the move.
-        moved = moved_insight_alert_ids(self.team_id)
         gated = self.get_queryset()
-        rows = self._filtered_rows(super().filter_queryset(gated)).exclude(id__in=list(moved))
+        rows = self._filtered_rows(super().filter_queryset(gated)).exclude(owner=PlatformAlertOwner.PLATFORM)
         searched = "_is_exact" in rows.query.annotations
         keys = [
             _ListKey(rank=score, created_at=created_at, id=alert_id, is_exact=bool(is_exact), native=False)
@@ -2322,9 +2321,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 is_exact=bool(match.is_exact),
                 native=match.legacy_configuration_id is None,
             )
-            for match in self._platform_matches(
-                search=request.query_params.get("search") if searched else None, moved=moved
-            )
+            for match in self._platform_matches(search=request.query_params.get("search") if searched else None)
         ]
         if searched and any(key.is_exact for key in keys):
             # "Exact matches only, unless there are none", decided over both kinds together.

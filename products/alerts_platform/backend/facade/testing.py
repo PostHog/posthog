@@ -25,7 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceCorrespondence,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
@@ -234,14 +234,6 @@ def set_enabled(configuration_id: UUID, enabled: bool) -> None:
     """
     # nosemgrep: idor-lookup-without-team, platform-alert-state-direct-mutation — test door, see the docstring
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(enabled=enabled)
-
-
-def set_owner(configuration_id: UUID, owner: PlatformAlertOwner) -> None:
-    """Store a configuration's owner apart from its source row's, as a reader sees the two when a
-    handover commits between its read of the rows and its read of the copies. The caller holds the
-    team scope."""
-    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
-    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(owner=owner)
 
 
 def record_check(

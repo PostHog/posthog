@@ -1496,39 +1496,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert reads[reader]() is expected
 
-    @parameterized.expand(
-        [
-            (f"{reader}_{side}", reader, side)
-            for reader in ("enabled", "firing", "watched")
-            for side in ("row_handed_back", "copy_handed_back")
-        ]
-    )
-    def test_todays_lists_show_an_alert_once_while_its_row_and_copy_disagree_on_the_owner(
-        self, _name: str, reader: str, side: str
-    ) -> None:
-        AlertConfiguration.objects.filter(id=self.alert.id).update(
-            enabled=True, state=AlertState.FIRING, created_by=self.user
-        )
-        with team_scope(self.team.id):
-            platform_testing.set_created_by(self.copy_id, self.user.id)
-            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self.now)
-            if side == "row_handed_back":
-                AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.SOURCE)
-            else:
-                platform_testing.set_owner(self.copy_id, PlatformAlertOwner.SOURCE)
-        reads: dict[str, Callable[[], list[Any]]] = {
-            "enabled": lambda: [alert.id for alert in list_enabled_alerts(self.team, self.user, limit=10)],
-            "firing": lambda: [
-                alert.id
-                for alert in list_firing_alerts_created_by(
-                    self.team, self.user, include_metrics_insights=True, limit=10
-                )
-            ],
-            "watched": lambda: insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10),
-        }
-
-        assert reads[reader]() == ([self.alert.insight.short_id] if reader == "watched" else [self.alert.id])
-
     @parameterized.expand([("copy_on", True), ("copy_off", False)])
     def test_a_subscriber_watches_a_moved_alert_behind_newer_alerts(self, _name: str, copy_on: bool) -> None:
         subscriber = User.objects.create_and_join(self.organization, "subscriber@example.com", None)
