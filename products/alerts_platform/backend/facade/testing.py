@@ -213,6 +213,13 @@ def forget_source_row(configuration_id: UUID) -> None:
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(legacy_configuration_id=None)
 
 
+def set_created_by(configuration_id: UUID, created_by_id: int | None) -> None:
+    """Store a configuration's creator, as a backfill of a copy's creator leaves it. The caller holds the
+    team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(created_by_id=created_by_id)
+
+
 def set_enabled(configuration_id: UUID, enabled: bool) -> None:
     """Switch a configuration on or off, as a broken check the platform owns leaves it.
 

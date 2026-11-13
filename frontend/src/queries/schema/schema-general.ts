@@ -5621,6 +5621,9 @@ export interface MetricsDisplaySettings {
      * @default latest
      * @deprecated Use `reduce`. */
     statSummary?: MetricsStatSummary
+    /** `stat` display only: whether a graph of the series shows under the value.
+     * @default true */
+    statSparkline?: boolean
     /** How scalar panels and legend calcs collapse a series to one number.
      * @default last */
     reduce?: MetricsReducer
