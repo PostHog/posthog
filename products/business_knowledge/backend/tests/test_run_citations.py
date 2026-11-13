@@ -36,6 +36,7 @@ class TestRunCitations(BaseTest):
                 confidence=0.8,
             )
         record_run_citations(team_id=self.team.id, run_id="run-2", ticket_id=ticket_id, citations=citations)
+        record_run_citations(team_id=self.team.id, run_id="r" * 500, ticket_id=ticket_id, citations=citations)
 
         assert sorted(
             (row.run_id, row.chunk_id, row.document_id, row.source_id, row.persist_as, row.confidence)

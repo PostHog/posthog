@@ -235,6 +235,8 @@ class ClarifyInput:
     unknowns: list[str] = field(default_factory=list)
     citations: list[str] = field(default_factory=list)
     confidence: float = 0.0
+    # The workflow run that produced this note. Empty on histories recorded before the field existed.
+    run_id: str = ""
 
 
 @dataclass(frozen=False)

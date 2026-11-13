@@ -1,14 +1,11 @@
 """Records which knowledge a support investigation run cited."""
 
-from datetime import datetime
 from uuid import UUID
-
-from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from .models import KnowledgeChunk, KnowledgeRunCitation
-from .models.knowledge_run_citation import PERSIST_AS_MAX_LENGTH
+from .models.knowledge_run_citation import PERSIST_AS_MAX_LENGTH, RUN_ID_MAX_LENGTH
 
 
 def _chunk_ids(citations: list[str]) -> list[UUID]:
@@ -34,18 +31,17 @@ def record_run_citations(
     citations: list[str],
     persist_as: str = "",
     confidence: float | None = None,
-    cited_at: datetime | None = None,
 ) -> int:
     """Store one row per knowledge chunk the run cited. Returns how many chunks it cited.
 
     Recording the same run twice adds nothing, so a retried caller is safe.
     """
     chunk_ids = _chunk_ids(citations)
-    if not run_id or not chunk_ids:
+    # A real run id fits the column. A longer one would fail the insert, so it is not recorded.
+    if not run_id or len(run_id) > RUN_ID_MAX_LENGTH or not chunk_ids:
         return 0
     canonical_team_id = resolve_effective_team_id(team_id)
     chunks = KnowledgeChunk.objects.for_team(canonical_team_id, canonical=True).filter(id__in=chunk_ids)
-    created_at = cited_at or timezone.now()
     rows = [
         KnowledgeRunCitation(
             team_id=canonical_team_id,
@@ -56,7 +52,6 @@ def record_run_citations(
             source_id=source_id,
             persist_as=persist_as[:PERSIST_AS_MAX_LENGTH],
             confidence=confidence,
-            created_at=created_at,
         )
         for chunk_id, document_id, source_id in chunks.values_list("id", "document_id", "source_id")
     ]

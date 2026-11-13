@@ -1,8 +1,10 @@
 from uuid import UUID
 
-from django.db import migrations
+from django.db import migrations, transaction
 
 NOTE_BATCH_SIZE = 500
+RUN_ID_MAX_LENGTH = 128
+PERSIST_AS_MAX_LENGTH = 16
 
 
 def _chunk_ids(citations: object) -> list[UUID]:
@@ -27,11 +29,26 @@ def _ticket_id(item_id: object) -> UUID | None:
         return None
 
 
-def backfill_run_citations(apps, schema_editor):
-    """Record the knowledge each existing AI note cited, one batch of notes at a time.
+# The comments API stores the context a client sends, so every value read from a note
+# is untrusted. A value the column cannot hold would fail the insert and the migration.
+def _run_id(context: dict, note_pk: object) -> str:
+    """A note written before run ids were stored stands for the one run that wrote it."""
+    run_id = context.get("run_id")
+    if isinstance(run_id, str) and 0 < len(run_id) <= RUN_ID_MAX_LENGTH:
+        return run_id
+    return f"note:{note_pk}"
 
-    A note written before run ids were stored stands for the one run that wrote it.
-    The unique constraint makes a second pass add nothing.
+
+def _confidence(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value) if 0 <= value <= 1 else None
+
+
+def backfill_run_citations(apps, schema_editor):
+    """Record the knowledge each existing AI note cited, one batch of notes per transaction.
+
+    The unique constraint makes a second pass add nothing, so a retry after a failure is safe.
     """
     Comment = apps.get_model("posthog", "Comment")
     Team = apps.get_model("posthog", "Team")
@@ -47,57 +64,62 @@ def backfill_run_citations(apps, schema_editor):
     )
     last_pk = None
     while True:
-        page = notes if last_pk is None else notes.filter(pk__gt=last_pk)
-        batch = list(page[:NOTE_BATCH_SIZE])
-        if not batch:
-            return
-        last_pk = batch[-1]["pk"]
+        with transaction.atomic(using=db_alias):
+            page = notes if last_pk is None else notes.filter(pk__gt=last_pk)
+            # A ticket purge deletes the ticket's notes and then its citation rows. Holding the
+            # note rows makes the purge wait for this batch, so it also deletes the rows written here.
+            batch = list(page.select_for_update()[:NOTE_BATCH_SIZE])
+            if not batch:
+                return
+            last_pk = batch[-1]["pk"]
 
-        cited = {note["pk"]: _chunk_ids((note["item_context"] or {}).get("citations")) for note in batch}
-        # Knowledge rows live under the parent team, and a ticket can live in a child environment.
-        parent_by_team = dict(
-            Team._base_manager.using(db_alias)
-            .filter(id__in={note["team_id"] for note in batch})
-            .values_list("id", "parent_team_id")
-        )
-        chunks = {
-            chunk["id"]: chunk
-            for chunk in KnowledgeChunk._base_manager.using(db_alias)
-            .filter(id__in={chunk_id for chunk_ids in cited.values() for chunk_id in chunk_ids})
-            .values("id", "team_id", "document_id", "source_id")
-        }
+            cited = {note["pk"]: _chunk_ids((note["item_context"] or {}).get("citations")) for note in batch}
+            # Knowledge rows live under the parent team, and a ticket can live in a child environment.
+            parent_by_team = dict(
+                Team._base_manager.using(db_alias)
+                .filter(id__in={note["team_id"] for note in batch})
+                .values_list("id", "parent_team_id")
+            )
+            chunks = {
+                chunk["id"]: chunk
+                for chunk in KnowledgeChunk._base_manager.using(db_alias)
+                .filter(id__in={chunk_id for chunk_ids in cited.values() for chunk_id in chunk_ids})
+                .values("id", "team_id", "document_id", "source_id")
+            }
 
-        rows = []
-        for note in batch:
-            ticket_id = _ticket_id(note["item_id"])
-            if ticket_id is None:
-                continue
-            context = note["item_context"] or {}
-            knowledge_team_id = parent_by_team.get(note["team_id"]) or note["team_id"]
-            confidence = context.get("confidence")
-            for chunk_id in cited[note["pk"]]:
-                chunk = chunks.get(chunk_id)
-                # A note must not record a chunk that belongs to another team.
-                if chunk is None or chunk["team_id"] != knowledge_team_id:
+            rows = []
+            for note in batch:
+                ticket_id = _ticket_id(note["item_id"])
+                if ticket_id is None:
                     continue
-                rows.append(
-                    KnowledgeRunCitation(
-                        team_id=knowledge_team_id,
-                        run_id=str(context.get("run_id") or f"note:{note['pk']}"),
-                        ticket_id=ticket_id,
-                        chunk_id=chunk_id,
-                        document_id=chunk["document_id"],
-                        source_id=chunk["source_id"],
-                        persist_as=str(context.get("persist_as") or "")[:16],
-                        confidence=float(confidence) if isinstance(confidence, int | float) else None,
-                        created_at=note["created_at"],
+                context = note["item_context"] or {}
+                knowledge_team_id = parent_by_team.get(note["team_id"]) or note["team_id"]
+                for chunk_id in cited[note["pk"]]:
+                    chunk = chunks.get(chunk_id)
+                    # A note must not record a chunk that belongs to another team.
+                    if chunk is None or chunk["team_id"] != knowledge_team_id:
+                        continue
+                    rows.append(
+                        KnowledgeRunCitation(
+                            team_id=knowledge_team_id,
+                            run_id=_run_id(context, note["pk"]),
+                            ticket_id=ticket_id,
+                            chunk_id=chunk_id,
+                            document_id=chunk["document_id"],
+                            source_id=chunk["source_id"],
+                            persist_as=str(context.get("persist_as") or "")[:PERSIST_AS_MAX_LENGTH],
+                            confidence=_confidence(context.get("confidence")),
+                            created_at=note["created_at"],
+                        )
                     )
-                )
-        if rows:
-            KnowledgeRunCitation._base_manager.using(db_alias).bulk_create(rows, ignore_conflicts=True)
+            if rows:
+                KnowledgeRunCitation._base_manager.using(db_alias).bulk_create(rows, ignore_conflicts=True)
 
 
 class Migration(migrations.Migration):
+    # Non-atomic so each batch commits alone and no transaction spans the whole scan.
+    atomic = False
+
     dependencies = [
         ("business_knowledge", "0028_knowledge_run_citation"),
     ]

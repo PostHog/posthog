@@ -25,13 +25,13 @@ class TestBackfillRunCitationsMigration(BaseTest):
         with team_scope(team.id, canonical=True):
             return KnowledgeChunk.objects.get(source_id=source.id)
 
-    def _note(self, *, author_type: str, citations: list[str], ticket_id: str) -> Comment:
+    def _note(self, *, author_type: str, citations: list[str], ticket_id: str, **context: object) -> Comment:
         return Comment.objects.create(
             team_id=self.team.id,
             scope="conversations_ticket",
             item_id=ticket_id,
             content="Refunds take five days.",
-            item_context={"author_type": author_type, "citations": citations, "confidence": 0.7},
+            item_context={"author_type": author_type, "citations": citations, "confidence": 0.7, **context},
         )
 
     def test_backfill_records_only_ai_notes_and_only_the_teams_own_chunks(self) -> None:
@@ -44,6 +44,8 @@ class TestBackfillRunCitationsMigration(BaseTest):
             author_type="AI",
             citations=[str(chunk.id), str(foreign_chunk.id), "https://example.com/docs/refunds"],
             ticket_id=str(ticket_id),
+            # The comments API stores client-written context, so the backfill must survive a bad value.
+            run_id="r" * 500,
         )
         Comment.objects.filter(id=ai_note.id).update(created_at=written_at)
         self._note(author_type="support", citations=[str(chunk.id)], ticket_id=str(ticket_id))

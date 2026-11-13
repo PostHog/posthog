@@ -483,6 +483,7 @@ class SupportReplyWorkflow:
                                             unknowns=list(draft_output.unknowns),
                                             citations=list(draft_output.citations),
                                             confidence=validate_output.confidence,
+                                            run_id=wf_info.run_id,
                                         ),
                                         start_to_close_timeout=timedelta(minutes=1),
                                         retry_policy=RetryPolicy(maximum_attempts=3),

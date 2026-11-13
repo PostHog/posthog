@@ -32,7 +32,6 @@ def record_run_citations(
     citations: list[str],
     persist_as: str = "",
     confidence: float | None = None,
-    cited_at: datetime | None = None,
 ) -> int:
     """Record the knowledge chunks one support investigation run cited. Returns how many it cited.
 
@@ -45,7 +44,6 @@ def record_run_citations(
         citations=citations,
         persist_as=persist_as,
         confidence=confidence,
-        cited_at=cited_at,
     )
 
 

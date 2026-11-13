@@ -105,6 +105,7 @@ VALIDATE_MODULE = f"{ACTIVITIES}.validate"
 REVIEW_REPLY_MODULE = f"{ACTIVITIES}.review_reply"
 CLARIFY_MODULE = f"{ACTIVITIES}.clarify"
 PERSIST_REPLY_MODULE = f"{ACTIVITIES}.persist_reply"
+RUN_CITATIONS_MODULE = "products.conversations.backend.temporal.ai_reply.run_citations"
 PERSIST_KNOWLEDGE_GAP_MODULE = f"{ACTIVITIES}.persist_knowledge_gap"
 RECORD_TRIAGE_MODULE = f"{ACTIVITIES}.record_triage"
 PIPELINE_MODULE = "products.conversations.backend.temporal.pipeline"
@@ -1396,8 +1397,14 @@ class TestPersistReplyActivity:
         assert comment.item_context["persist_as"] == "reply"
         assert "investigation_summary" not in comment.item_context
 
-    @parameterized.expand([("recorded", False), ("recording_fails", True)])
-    def test_run_citations_never_block_the_note(self, _name, recording_fails):
+    @parameterized.expand(
+        [
+            ("reply_recorded", "reply", False),
+            ("clarification_recorded", "clarification", False),
+            ("recording_fails", "reply", True),
+        ]
+    )
+    def test_run_citations_never_block_the_note(self, _name, note_kind, recording_fails):
         from posthog.models.comment import Comment
         from posthog.models.organization import Organization
         from posthog.models.scoping import team_scope
@@ -1418,27 +1425,41 @@ class TestPersistReplyActivity:
         )
         with team_scope(team.id, canonical=True):
             chunk = KnowledgeChunk.objects.get(source_id=source.id)
-        persist_input = PersistReplyInput(
-            team_id=team.id,
-            ticket_id=str(ticket.id),
-            reply="Refunds take five days.",
-            citations=[str(chunk.id)],
-            confidence=0.85,
-            run_id="run-1",
-        )
 
         with ExitStack() as stack:
             if recording_fails:
                 stack.enter_context(
-                    patch(f"{PERSIST_REPLY_MODULE}.record_run_citations", side_effect=RuntimeError("boom"))
+                    patch(f"{RUN_CITATIONS_MODULE}.record_run_citations", side_effect=RuntimeError("boom"))
                 )
-            _persist_reply_sync(persist_input)
+            if note_kind == "clarification":
+                _clarify_sync(
+                    ClarifyInput(
+                        team_id=team.id,
+                        ticket_id=str(ticket.id),
+                        ticket_type="how_to",
+                        clarifying_questions=["Which plan are you on?"],
+                        citations=[str(chunk.id)],
+                        confidence=0.85,
+                        run_id="run-1",
+                    )
+                )
+            else:
+                _persist_reply_sync(
+                    PersistReplyInput(
+                        team_id=team.id,
+                        ticket_id=str(ticket.id),
+                        reply="Refunds take five days.",
+                        citations=[str(chunk.id)],
+                        confidence=0.85,
+                        run_id="run-1",
+                    )
+                )
 
         comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
         assert comment.item_context["run_id"] == "run-1"
         with team_scope(team.id, canonical=True):
-            cited = list(KnowledgeRunCitation.objects.values_list("run_id", "ticket_id", "source_id"))
-        assert cited == ([] if recording_fails else [("run-1", ticket.id, source.id)])
+            cited = list(KnowledgeRunCitation.objects.values_list("run_id", "ticket_id", "source_id", "persist_as"))
+        assert cited == ([] if recording_fails else [("run-1", ticket.id, source.id, note_kind)])
 
     def test_findings_note_does_not_present_reply_as_answer(self):
         from posthog.models.comment import Comment
