@@ -521,5 +521,28 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.currentSchedule?.id).toBe('schedule-1')
             expect(logic.values.pendingSchedule).toBe(false)
         })
+
+        it('asks for no schedules while the workflow is still unsaved', async () => {
+            const scheduleRequests: string[] = []
+            const notFound = (req: any): [number, Record<string, string>] => {
+                scheduleRequests.push(req.params.id as string)
+                return [404, { detail: 'Not found.' }]
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/:id/schedules/': notFound,
+                    '/api/environments/:team_id/hog_flows/:id/schedules/': notFound,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+            })
+            logic.unmount()
+            logic = workflowLogic({ id: 'new' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+
+            expect(scheduleRequests).toEqual([])
+            expect(logic.values.schedules).toEqual([])
+        })
     })
 })
