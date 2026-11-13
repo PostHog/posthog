@@ -55,12 +55,16 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
+import { getPersonForDeleteColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
+import { isDataTableNode } from '~/queries/schema/node-guards'
+import { DataTableNode, VisualizationNode } from '~/queries/schema/schema-general'
 import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
@@ -85,7 +89,7 @@ import {
 } from './cohortUtils'
 import { openDeleteCohortDialog } from './DeleteCohortDialog'
 import { PersonSelectList } from './PersonSelectList'
-import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -159,14 +163,25 @@ export interface CohortEditProps {
 export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const logicProps = { id }
 
-    const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
+    const renderRemovePersonFromCohortButton = ({
+        record,
+        query,
+    }: {
+        record: unknown
+        query: DataTableNode | VisualizationNode
+    }): JSX.Element => {
         if (!Array.isArray(record)) {
             console.error('Expected record to be an array for person.$delete column')
             return <></>
         }
-        const personRecord = record[0] as PersonDisplayNameType
+        const person = isDataTableNode(query) ? getPersonForDeleteColumn(record, query) : null
+        if (!person?.id) {
+            return <></>
+        }
+        // Only the person_display_name column carries a display name, so the other person columns build one
+        const displayName = 'display_name' in person ? String(person.display_name) : asDisplay(person)
 
-        return <RemovePersonFromCohortButton person={personRecord} />
+        return <RemovePersonFromCohortButton person={{ id: person.id, display_name: displayName }} />
     }
 
     const logic = cohortEditLogic(logicProps)
