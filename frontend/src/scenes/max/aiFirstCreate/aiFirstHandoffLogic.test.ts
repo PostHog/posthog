@@ -1,5 +1,9 @@
+import '@testing-library/jest-dom'
+
+import { act, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -70,6 +74,137 @@ describe('aiFirstHandoffLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it('hands off a new stream while the previous stream is still preparing', async () => {
+        let finishFirst: () => void = () => {}
+        let startedFirst: () => void = () => {}
+        const firstStarted = new Promise<void>((resolve) => {
+            startedFirst = resolve
+        })
+        const firstPending = new Promise<void>((resolve) => {
+            finishFirst = resolve
+        })
+        logic.unmount()
+        logic = aiFirstHandoffLogic({
+            ...handoff(),
+            prepareCreated: async (id) => {
+                if (id === 'first-created') {
+                    startedFirst()
+                    await firstPending
+                }
+            },
+        })
+        logic.mount()
+        const outputEvent = (streamKey: string, id: string): ToolStreamEvent =>
+            createEvent({
+                streamKey,
+                invocation: {
+                    ...createEvent({}).invocation,
+                    output: {
+                        content: [{ type: 'text', text: 'Created' }],
+                        _meta: { 'com.posthog.mcp/app_data': { id } },
+                    },
+                },
+            })
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' })
+        toolStreamEventsLogic.actions.emitToolEvent(outputEvent('draft-1', 'first-created'))
+        await firstStarted
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-2' })
+        try {
+            await expectLogic(logic, () =>
+                toolStreamEventsLogic.actions.emitToolEvent(outputEvent('draft-2', CREATED_ID))
+            ).toDispatchActions(['openSidePanel'])
+            expect(router.values.location.pathname).toContain(CREATED_ID)
+        } finally {
+            finishFirst()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+    })
+
+    it('hands off a second create in the same stream while the first move later fails', async () => {
+        let failFirst: (error: Error) => void = () => {}
+        let startedFirst: () => void = () => {}
+        const firstStarted = new Promise<void>((resolve) => {
+            startedFirst = resolve
+        })
+        const firstPending = new Promise<void>((_, reject) => {
+            failFirst = reject
+        })
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+        logic.unmount()
+        logic = aiFirstHandoffLogic({
+            ...handoff(),
+            prepareCreated: async (id) => {
+                if (id === 'first-created') {
+                    startedFirst()
+                    await firstPending
+                }
+            },
+        })
+        logic.mount()
+        const outputEvent = (id: string): ToolStreamEvent =>
+            createEvent({
+                toolCallId: id,
+                invocation: {
+                    ...createEvent({}).invocation,
+                    output: {
+                        content: [{ type: 'text', text: 'Created' }],
+                        _meta: { 'com.posthog.mcp/app_data': { id } },
+                    },
+                },
+            })
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' })
+        toolStreamEventsLogic.actions.emitToolEvent(outputEvent('first-created'))
+        await firstStarted
+        toolStreamEventsLogic.actions.emitToolEvent(outputEvent(CREATED_ID))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        const destinationBeforeFirstFails = router.values.location.pathname
+        await act(async () => {
+            failFirst(new Error('Move failed'))
+            await expectLogic(logic).toFinishAllListeners()
+        })
+        expect(destinationBeforeFirstFails).toContain(CREATED_ID)
+        expect(screen.queryByText('Your thing was created, but it could not be opened.')).toBeNull()
+    })
+
+    it('keeps the composer after a failed move and opens the created page when the same create completes again', async () => {
+        let moveFails = true
+        logic.unmount()
+        logic = aiFirstHandoffLogic({
+            ...handoff(),
+            prepareCreated: async () => {
+                if (moveFails) {
+                    moveFails = false
+                    throw new Error('Move failed')
+                }
+            },
+        })
+        logic.mount()
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' })
+        const event = createEvent({
+            invocation: {
+                ...createEvent({}).invocation,
+                output: {
+                    content: [{ type: 'text', text: 'Created' }],
+                    _meta: { 'com.posthog.mcp/app_data': { id: CREATED_ID } },
+                },
+            },
+        })
+        await act(async () => {
+            await expectLogic(logic, () => toolStreamEventsLogic.actions.emitToolEvent(event)).toFinishAllListeners()
+        })
+        expect(await screen.findByText('Your thing was created, but it could not be opened.')).toBeInTheDocument()
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/things/new')
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+        expect(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).values.activeCreation?.streamKey).toEqual('draft-1')
+
+        await expectLogic(logic, () => toolStreamEventsLogic.actions.emitToolEvent(event)).toFinishAllListeners()
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/things/${CREATED_ID}`)
+        expect(sidePanelStateLogic.values).toMatchObject({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
     })
 
     // Otherwise the composer and the side panel show the same empty chat side by side.
@@ -153,18 +288,28 @@ describe('aiFirstHandoffLogic', () => {
         toast.mockRestore()
     })
 
-    // The panel logic outlives this page, so the lookup's continuation must not route from a page left behind.
-    it('does not route once the page is left during the lookup', async () => {
+    // The panel logic outlives this page, so a step's continuation must not route from a page left behind.
+    it.each(['lookup', 'preparation'] as const)('does not route once the page is left during the %s', async (step) => {
         const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
         const panel = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
         panel.mount()
-        let resolveFinder: (id: string | null) => void = () => {}
-        findCreatedId.mockImplementation(() => new Promise((resolve) => (resolveFinder = resolve)))
+        let finishStep: () => void = () => {}
+        const stepPending = new Promise<void>((resolve) => (finishStep = resolve))
+        if (step === 'lookup') {
+            findCreatedId.mockImplementation(async () => {
+                await stepPending
+                return CREATED_ID
+            })
+        } else {
+            logic.unmount()
+            logic = aiFirstHandoffLogic({ ...handoff(), prepareCreated: () => stepPending })
+            logic.mount()
+        }
 
         toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
         await flush()
         logic.unmount()
-        resolveFinder(CREATED_ID)
+        finishStep()
         await flush()
 
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)

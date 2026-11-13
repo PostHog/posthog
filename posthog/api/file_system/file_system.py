@@ -14,6 +14,7 @@ from django.db import connection, transaction
 from django.db.models import (
     Case,
     CharField,
+    Count,
     Exists,
     F,
     Func,
@@ -173,6 +174,26 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
+    path = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Only the file or folder at this exact path.",
+    )
+
+
+class FileSystemFolderCountsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False, allow_blank=True, help_text="Picks the files counted, as in the list."
+    )
+
+
+class FileSystemFolderCountSerializer(serializers.Serializer):
+    folder = serializers.CharField(allow_blank=True, help_text="Folder path. An empty string is the project root.")
+    count = serializers.IntegerField(help_text="Files directly in this folder, not counting folders or shortcuts.")
+
+
+class FileSystemFolderCountsSerializer(serializers.Serializer):
+    results = FileSystemFolderCountSerializer(many=True, help_text="Each folder that directly holds a counted file.")
 
 
 class FileSystemDeleteQuerySerializer(serializers.Serializer):
@@ -517,6 +538,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "unfiled",
         "count",
         "count_by_path",
+        "folder_counts",
     ]
     scope_object_write_actions = [
         "create",
@@ -928,7 +950,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
-        if self.action in ("list", "retrieve"):
+        if self.action in ("list", "retrieve", "folder_counts"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
         depth_param = self.request.query_params.get("depth")
@@ -1845,6 +1867,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "matched_with_typos": matched_with_typos,
             }
         )
+
+    @validated_request(
+        query_serializer=FileSystemFolderCountsQuerySerializer,
+        responses={200: OpenApiResponse(response=FileSystemFolderCountsSerializer)},
+        summary="Count files per folder",
+        description="Counts the files directly in each folder, so a view can tell which folders hold files without listing them.",
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def folder_counts(self, request: Request, **kwargs: object) -> Response:
+        files = self.get_queryset().exclude(type="folder").exclude(shortcut=True).order_by()
+        # Whole segments up to the last unescaped separator, read from the start so `\\/` and `\/` split as split_path does.
+        parents = Func(F("path"), Value(r"^(?:(?:\\.|[^/\\])*/)*"), function="substring", output_field=CharField())
+        folder = Func(parents, Value("/$"), Value(""), function="regexp_replace", output_field=CharField())
+        counts = files.annotate(folder=folder).values_list("folder").annotate(count=Count("id"))
+        return Response({"results": [{"folder": path, "count": count} for path, count in sorted(counts)]})
 
     @action(methods=["POST"], detail=True)
     def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:

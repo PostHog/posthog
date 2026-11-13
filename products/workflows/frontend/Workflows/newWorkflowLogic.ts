@@ -16,7 +16,12 @@ import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
+import { newWorkflowFolder, newWorkflowFolderParam } from './newWorkflowFolder'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+
+function newWorkflowFolderParams(listFolder: string | null, projectBrowser: boolean): Record<string, string> {
+    return projectBrowser ? newWorkflowFolderParam(newWorkflowFolder() ?? listFolder) : {}
+}
 
 /** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */
 export function urlForNewWorkflowComposer(): string {
@@ -41,6 +46,8 @@ export interface newWorkflowLogicValues {
     sceneIntegrationEnabled: boolean // sceneAgentPanelLogic
     aiComposerAvailable: boolean
     aiFirstNewEnabled: boolean
+    composerFolder: string | null
+    listFolder: string | null
     newWorkflowModalVisible: boolean
 }
 
@@ -58,6 +65,9 @@ export interface newWorkflowLogicActions {
     openEditorFromAiComposer: () => {
         value: true
     }
+    setListFolder: (folder: string | null) => {
+        folder: string | null
+    }
     showNewWorkflowModal: () => {
         value: true
     }
@@ -70,6 +80,14 @@ export interface newWorkflowLogicActions {
 export interface newWorkflowLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         aiFirstNewEnabled: (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean) => boolean
+        composerFolder: (
+            featureFlags: FeatureFlagsSet,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => string | null
         aiComposerAvailable: (
             featureFlags: FeatureFlagsSet,
             sceneIntegrationEnabled: boolean,
@@ -109,6 +127,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         openEditorFromAiComposer: true,
         createWorkflowFromTemplate: (template: HogFlowTemplate) => ({ template }),
         createEmptyWorkflow: true,
+        setListFolder: (folder: string | null) => ({ folder }),
     }),
     reducers({
         newWorkflowModalVisible: [
@@ -118,6 +137,12 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 hideNewWorkflowModal: () => false,
             },
         ],
+        listFolder: [
+            null as string | null,
+            {
+                setListFolder: (_, { folder }) => folder,
+            },
+        ],
     }),
     selectors({
         // Same gate as the scene integration. Only the `test` variant, or a plain boolean rollout, qualifies.
@@ -125,6 +150,12 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             (s) => [s.featureFlags, s.sceneIntegrationEnabled],
             (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean): boolean =>
                 sceneIntegrationEnabled && isAiFirstVariant(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW, featureFlags),
+        ],
+        // The project folder the composer's draft is created in, while the project browser is on.
+        composerFolder: [
+            (s) => [s.featureFlags, s.location],
+            (featureFlags: FeatureFlagsSet, location: { search: string }): string | null =>
+                featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] ? newWorkflowFolder(location.search) : null,
         ],
         // Deep links with a starting point stay on the editor. Checked here so the scene never reads the flag early.
         aiComposerAvailable: [
@@ -154,7 +185,13 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW)
             }
             if (values.aiFirstNewEnabled) {
-                router.actions.push(urls.workflowNew(), { [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE })
+                router.actions.push(urls.workflowNew(), {
+                    ...newWorkflowFolderParams(
+                        values.listFolder,
+                        !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
+                    ),
+                    [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE,
+                })
             } else {
                 actions.showNewWorkflowModal()
             }
@@ -163,15 +200,26 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             actions.showNewWorkflowModal()
         },
         createWorkflowFromTemplate: ({ template }) => {
+            const folderParams = newWorkflowFolderParams(
+                values.listFolder,
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
+            )
             actions.hideNewWorkflowModal()
-            router.actions.push(urls.workflowNew(), { templateId: template.id })
+            router.actions.push(urls.workflowNew(), {
+                ...folderParams,
+                templateId: template.id,
+            })
         },
         createEmptyWorkflow: () => {
-            actions.hideNewWorkflowModal()
-            router.actions.push(
-                urls.workflowNew(),
-                values.aiFirstNewEnabled ? { [EDITOR_MODE_PARAM]: EDITOR_MODE_VALUE } : {}
+            const folderParams = newWorkflowFolderParams(
+                values.listFolder,
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
             )
+            actions.hideNewWorkflowModal()
+            router.actions.push(urls.workflowNew(), {
+                ...folderParams,
+                ...(values.aiFirstNewEnabled ? { [EDITOR_MODE_PARAM]: EDITOR_MODE_VALUE } : {}),
+            })
         },
     })),
     urlToAction(({ actions }) => ({

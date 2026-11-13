@@ -222,8 +222,9 @@ function filterNamedBy(draft: FacetDraft, { facets, value, countValuesIn }: Sugg
         return null
     }
     const facet = findFacet(facets, draft.facetKey)!
-    const typed = draft.partial.toLowerCase()
-    const namesOf = (v: string): string[] => [v.toLowerCase(), formatFacetValue(facet, v).toLowerCase()]
+    const comparable = (text: string): string => (facet.caseSensitive ? text : text.toLowerCase())
+    const typed = comparable(draft.partial)
+    const namesOf = (v: string): string[] => [comparable(v), comparable(formatFacetValue(facet, v))]
     const valuesFor = (scope: FacetSearchValue): string[] => countValuesIn(scope)(facet.key).map(({ value: v }) => v)
     const named = valuesFor({ filters: value.filters, text: draft.rest }).filter((v) => namesOf(v).includes(typed))
     // Values the other pills hide still count, so a pill change never decides what the typing meant.
@@ -545,7 +546,10 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                 // Typing a value keeps its scope, so each keystroke reuses the counts instead of walking every item.
                 const counters = new Map<string, (facetKey: string) => FacetValueCount[]>()
                 return (scope) => {
-                    const key = JSON.stringify([scope.filters.map(facetFilterKey), scope.text.trim()])
+                    const key = JSON.stringify([
+                        scope.filters.map((filter) => facetFilterKey(filter, facets)),
+                        scope.text.trim(),
+                    ])
                     let counter = counters.get(key)
                     if (!counter) {
                         counter = createFacetCounter(items, scope, facets, matchesText)
@@ -698,9 +702,9 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             }
         },
         removeFilter: ({ filter }) => {
-            const removed = facetFilterKey(filter)
+            const removed = facetFilterKey(filter, props.facets)
             props.onChange({
-                filters: props.value.filters.filter((f) => facetFilterKey(f) !== removed),
+                filters: props.value.filters.filter((f) => facetFilterKey(f, props.facets) !== removed),
                 text: props.value.text,
             })
             reportFilterChange(props.id, 'removed', filter, 'remove button')

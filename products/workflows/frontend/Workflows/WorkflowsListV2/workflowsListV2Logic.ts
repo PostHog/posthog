@@ -100,6 +100,11 @@ const LEGACY_PARAMS = [...LEGACY_FILTER_PARAMS, 'page']
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])
 
+/** A view that adds its own facet to the list, such as the folders view's `in:`, keeps that facet's pills in the URL. */
+export function addListQueryFacet(facet: FacetDefinition<WorkflowListRow>): void {
+    QUERY_FACETS.push(facet)
+}
+
 function withRequestDeadline<T>(
     controller: AbortController,
     request: (signal: AbortSignal) => Promise<T>,

@@ -880,6 +880,59 @@ class TestFileSystemAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["count"], 1, data["results"])
 
+        for path, expected in [("SomeFolder/File1", ["SomeFolder/File1"]), ("somefolder/FILE1", [])]:
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": path})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual([obj["path"] for obj in response.json()["results"]], expected)
+
+        # Folder names are checked with this lookup on every create and rename, so its count and its page compare
+        # the raw path that the (team, surface, path) index holds.
+        with CaptureQueriesContext(connection) as captured:
+            self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "SomeFolder/File1", "limit": "2"})
+        lookups = [query["sql"] for query in captured.captured_queries if "SomeFolder/File1" in query["sql"]]
+        self.assertEqual(len(lookups), 2, lookups)
+        for sql in lookups:
+            self.assertIn(""""posthog_filesystem"."path" = 'SomeFolder/File1'""", sql)
+
+    def test_folder_counts_counts_the_files_directly_in_each_folder(self) -> None:
+        for path, file_type, shortcut in [
+            ("Reports", "folder", False),
+            ("Reports/Overview", "insight", False),
+            ("Reports/Notes", "notebook", False),
+            ("Reports/Pinned", "insight", True),
+            ("Reports/Weekly", "folder", False),
+            ("Reports/Weekly/Signups", "insight", False),
+            ("Reports/Weekly/Welcome", "hog_flow", False),
+            ("Q3\\/Q4/Plan", "notebook", False),
+            ("Ops\\\\/Runbook", "notebook", False),
+            ("Ideas\\//Draft", "notebook", False),
+            ("Plans/Q1\\/Q2", "notebook", False),
+            ("Root insight", "insight", False),
+        ]:
+            FileSystem.objects.create(
+                team=self.team, path=path, type=file_type, shortcut=shortcut, depth=1, created_by=self.user
+            )
+
+        with self.assertNumQueries(6):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/folder_counts/",
+                {"search": "-type:hog_flow -type:message_template"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            response.json()["results"],
+            [
+                {"folder": "", "count": 1},
+                {"folder": "Ideas\\/", "count": 1},
+                {"folder": "Ops\\\\", "count": 1},
+                {"folder": "Plans", "count": 1},
+                {"folder": "Q3\\/Q4", "count": 1},
+                {"folder": "Reports", "count": 2},
+                {"folder": "Reports/Weekly", "count": 1},
+            ],
+        )
+
     def test_list_by_parent_and_depth(self):
         """
         If ?parent=SomeFolder and ?depth=2, we only want items that start with 'SomeFolder/'
