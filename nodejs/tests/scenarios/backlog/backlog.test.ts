@@ -1,10 +1,10 @@
+import { execFile } from 'child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 import { deflateSync } from 'zlib'
 
-import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2/manager'
 import { defaultConfig } from '~/common/config/config'
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -150,28 +150,54 @@ describe('seed-backlog', () => {
         expect(existsSync(manifestPath())).toBe(false)
     })
 
-    it('holds no more than a batch of state in memory when the first batch goes out', async () => {
-        const held: number[] = []
-        const insert = CyclotronV2Manager.prototype.bulkCreateJobs
-        jest.spyOn(CyclotronV2Manager.prototype, 'bulkCreateJobs').mockImplementation(function (
-            this: CyclotronV2Manager,
-            ...args
-        ) {
-            held.push(process.memoryUsage().arrayBuffers)
-            return insert.apply(this, args)
-        })
-        const before = process.memoryUsage().arrayBuffers
+    it('seeds a backlog many times larger than a batch without holding it in memory', async () => {
+        const peakRss = async (jobCount: number): Promise<number> => {
+            const profile = path.join(cacheHome, `profile-${jobCount}.yaml`)
+            const peaks = path.join(cacheHome, `peaks-${jobCount}`)
+            const preload = path.join(cacheHome, 'peak.cjs')
+            writeFileSync(
+                preload,
+                `process.on('exit', () => require('fs').appendFileSync(${JSON.stringify(peaks)}, process.resourceUsage().maxRSS + '\\n'))`
+            )
+            writeFileSync(
+                profile,
+                stringify({
+                    name: 'resident',
+                    settings: {},
+                    backlog: {
+                        ...BACKLOG,
+                        jobs: { hogflow: jobCount },
+                        stateBytes: { p50: 100_000, p90: 100_000, p99: 100_000 },
+                        compressibility: 1,
+                    },
+                })
+            )
+            const code = await new Promise<number | string>((resolve) =>
+                execFile(
+                    path.join(__dirname, '..', '..', '..', 'node_modules', '.bin', 'tsx'),
+                    [path.join(__dirname, '..', 'main.ts'), 'seed-backlog', '--profile', profile],
+                    {
+                        timeout: 60_000,
+                        env: {
+                            ...process.env,
+                            NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --max-old-space-size=256 --require ${preload}`,
+                            XDG_CACHE_HOME: cacheHome,
+                            CYCLOTRON_NODE_DATABASE_URL: jobs.url,
+                        },
+                    },
+                    (error) => resolve(error ? (error.code ?? String(error.signal)) : 0)
+                )
+            )
+            expect(code).toBe(EXIT_CODE.passed)
+            return Math.max(...readFileSync(peaks, 'utf8').trim().split('\n').map(Number)) * 1024
+        }
 
-        expect(
-            await seed({
-                ...BACKLOG,
-                jobs: { hogflow: 1000 },
-                stateBytes: { p50: 100_000, p90: 100_000, p99: 100_000 },
-                compressibility: 1,
-            })
-        ).toBe(EXIT_CODE.passed)
-        expect(held[0] - before).toBeLessThan(32 * 1024 * 1024)
-    })
+        const small = await peakRss(1)
+        const large = await peakRss(4000)
+
+        expect(await query('SELECT count(*)::int AS rows FROM cyclotron_jobs')).toEqual([{ rows: 4000 }])
+        expect(large - small).toBeLessThan(256 * 1024 * 1024)
+    }, 120_000)
 
     it('reaches only the tables its scratch schema copies', async () => {
         await expect(query('SELECT 1 FROM _sqlx_migrations LIMIT 1')).rejects.toThrow('does not exist')

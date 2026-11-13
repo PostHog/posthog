@@ -938,17 +938,19 @@ describe('runner through seed, drive and judge', () => {
         }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
     }, 30_000)
 
-    it.each<[string, Parameters<typeof environmentOf>[0], boolean, object]>([
+    it.each<[string, Parameters<typeof environmentOf>[0], boolean, string, object]>([
         [
             'passes when the roles finish every job of the run beside the resident backlog',
             'all',
             false,
+            'passed',
             { passed: true, observed: 0 },
         ],
         [
             'fails when a resident job seeded before the run is gone after it',
-            'none',
+            'all',
             true,
+            'failed',
             {
                 passed: false,
                 violation: `team ${RESIDENT_TEAMS_FROM + 1} available: expected 2 rows, found 1`,
@@ -956,7 +958,7 @@ describe('runner through seed, drive and judge', () => {
         ],
     ])(
         'resident_backlog_intact %s',
-        async (_story, delivering, loseOne, expected) => {
+        async (_story, delivering, loseOne, status, expected) => {
             const seeded = await seedBacklog(
                 {
                     teams: 2,
@@ -987,9 +989,10 @@ describe('runner through seed, drive and judge', () => {
             )
             results.push(result)
 
-            expect(result.invariants).toEqual([
-                expect.objectContaining({ name: 'resident_backlog_intact', ...expected }),
-            ])
+            expect(result).toMatchObject({
+                status,
+                invariants: [expect.objectContaining({ name: 'resident_backlog_intact', ...expected })],
+            })
         },
         30_000
     )
