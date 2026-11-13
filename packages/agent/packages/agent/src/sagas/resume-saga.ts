@@ -5,6 +5,7 @@ import {
   type NativeGoalState,
   POSTHOG_NOTIFICATIONS,
 } from "../acp-extensions";
+import { injectedReferenceKeys } from "../context-selection/reference-keys";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { StoredNotification } from "../types";
 import type { Logger } from "../utils/logger";
@@ -36,6 +37,7 @@ export interface ResumeOutput {
   logEntryCount: number;
   sessionId: string | null;
   nativeGoal?: NativeGoalState | null;
+  injectedReferences: string[];
 }
 
 export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
@@ -76,6 +78,10 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
     const nativeGoal = await this.readOnlyStep("find_native_goal", () =>
       Promise.resolve(this.findNativeGoal(entries)),
     );
+    const injectedReferences = await this.readOnlyStep(
+      "find_injected_references",
+      () => Promise.resolve(this.findInjectedReferences(entries)),
+    );
 
     this.log.info("Resume state rebuilt", {
       turns: conversation.length,
@@ -89,6 +95,7 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
       logEntryCount: entries.length,
       sessionId,
       nativeGoal,
+      injectedReferences,
     };
   }
 
@@ -99,7 +106,31 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
       logEntryCount: 0,
       sessionId: null,
       nativeGoal: undefined,
+      injectedReferences: [],
     };
+  }
+
+  private findInjectedReferences(entries: StoredNotification[]): string[] {
+    let keys = new Set<string>();
+    for (const entry of entries) {
+      const method = entry.notification?.method;
+      if (
+        isNotification(method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED) ||
+        isNotification(method, POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY)
+      ) {
+        keys = new Set();
+        continue;
+      }
+      if (method !== "session/prompt") continue;
+      const prompt = (entry.notification?.params as { prompt?: unknown })
+        ?.prompt;
+      if (!Array.isArray(prompt)) continue;
+      for (const block of prompt as ContentBlock[]) {
+        if (block.type !== "text") continue;
+        for (const key of injectedReferenceKeys(block.text)) keys.add(key);
+      }
+    }
+    return [...keys];
   }
 
   private findNativeGoal(
