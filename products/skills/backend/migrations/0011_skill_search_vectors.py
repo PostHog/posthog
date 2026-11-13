@@ -11,6 +11,10 @@ from django.db import migrations
 # to_tsvector raises program_limit_exceeded when the vector passes 1MB, which text of mostly unique
 # tokens (hashes, base64, minified code) can reach below the 1MB body and file limits. The function
 # indexes only the leading 100,000 characters of such text, so that the write still succeeds.
+#
+# Search reads file contents only for Markdown files, so the file trigger leaves the vector NULL for
+# other files. Its condition must match markdown_file_query in api/skill_search.py. The trigger also
+# fires on path and content_type, so that a file that changes type gains or loses its vector.
 SQL = """
 -- migration-analyzer: safe reason=updates no rows; UPDATE appears only in the trigger event lists (BEFORE INSERT OR UPDATE OF ...)
 CREATE OR REPLACE FUNCTION llm_skill_search_vector(source text) RETURNS tsvector
@@ -33,7 +37,10 @@ $$;
 CREATE OR REPLACE FUNCTION llm_skill_file_set_search_vector() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    NEW.search_vector := llm_skill_search_vector(NEW.content);
+    NEW.search_vector := CASE
+        WHEN NEW.path ILIKE '%.md' OR NEW.content_type ILIKE '%markdown%'
+        THEN llm_skill_search_vector(NEW.content)
+    END;
     RETURN NEW;
 END
 $$;
@@ -48,7 +55,7 @@ CREATE TRIGGER llm_skill_search_vector
 
 DROP TRIGGER IF EXISTS llm_skill_file_search_vector ON llm_analytics_llmskillfile;
 CREATE TRIGGER llm_skill_file_search_vector
-    BEFORE INSERT OR UPDATE OF content ON llm_analytics_llmskillfile
+    BEFORE INSERT OR UPDATE OF content, path, content_type ON llm_analytics_llmskillfile
     FOR EACH ROW EXECUTE FUNCTION llm_skill_file_set_search_vector();
 """
 

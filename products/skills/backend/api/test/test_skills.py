@@ -752,9 +752,21 @@ class TestLLMSkillAPI(APIBaseTest):
                     path="references/guide.md",
                     content="Studied cohorts.",
                     content_type="text/markdown",
-                )
+                ),
+                LLMSkillFile(
+                    skill=file_skill, path="scripts/run.py", content="print('cohorts')", content_type="text/x-python"
+                ),
             ]
         )
+
+        def indexed_paths() -> list[str]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT path FROM llm_analytics_llmskillfile WHERE skill_id = %s AND search_vector IS NOT NULL "
+                    "ORDER BY path",
+                    [file_skill.id],
+                )
+                return [row[0] for row in cursor.fetchall()]
 
         def search(query: str) -> list[tuple[str, list[str]]]:
             response = self.client.get(self._url(f"search?query={query}"))
@@ -766,12 +778,13 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert search("running") == [("body-words", ["Run a query."])]
         assert search("studies") == [("file-words", ["Studied cohorts."])]
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT count(*) FROM llm_analytics_llmskillfile WHERE skill_id = %s AND search_vector IS NULL",
-                [file_skill.id],
-            )
-            assert cursor.fetchone() == (0,)
+        assert indexed_paths() == ["references/guide.md"]
+
+        LLMSkillFile.objects.filter(skill=file_skill, path="scripts/run.py").update(path="scripts/run.md")
+        LLMSkillFile.objects.filter(skill=file_skill, path="references/guide.md").update(content_type="text/plain")
+        assert indexed_paths() == ["references/guide.md", "scripts/run.md"]
+        LLMSkillFile.objects.filter(skill=file_skill, path="references/guide.md").update(path="references/guide.txt")
+        assert indexed_paths() == ["scripts/run.md"]
 
         LLMSkill.objects.filter(pk=body_skill.pk).update(body="# Guide\nNothing relevant.")
 

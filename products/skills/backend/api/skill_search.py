@@ -379,5 +379,7 @@ def _content_search_match(content: str, query: str, *, matched_field: str, path:
     }
 
 
+# The file search_vector trigger in migrations/0011_skill_search_vectors uses the same condition.
+# Changing this one needs a migration that replaces llm_skill_file_set_search_vector.
 def markdown_file_query() -> Q:
     return Q(path__iendswith=".md") | Q(content_type__icontains="markdown")

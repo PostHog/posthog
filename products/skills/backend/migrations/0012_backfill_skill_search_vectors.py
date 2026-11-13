@@ -15,7 +15,8 @@ def backfill(apps, schema_editor):
         )
         skill_ids = [row[0] for row in cursor.fetchall()]
         cursor.execute(
-            "SELECT id FROM llm_analytics_llmskillfile WHERE skill_id = ANY(%s) ORDER BY id",
+            "SELECT id FROM llm_analytics_llmskillfile WHERE skill_id = ANY(%s) "
+            "AND (path ILIKE '%%.md' OR content_type ILIKE '%%markdown%%') ORDER BY id",
             [skill_ids],
         )
         file_ids = [row[0] for row in cursor.fetchall()]
