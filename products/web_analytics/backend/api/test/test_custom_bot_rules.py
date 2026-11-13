@@ -31,14 +31,15 @@ class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a list of ranges", {"patterns": ["192.0.2.0/24", "198.51.100.10-198.51.100.40"]}),
-            ("a single range sent as pattern", {"pattern": "192.0.2.0/24"}),
+            ("a list of ranges", {"patterns": ["192.0.2.0/24", "198.51.100.10-198.51.100.40"]}, {}),
+            ("a single range sent as pattern", {"pattern": "192.0.2.0/24"}, {}),
+            ("a list next to a blank pattern", {"patterns": ["192.0.2.0/24"]}, {"pattern": ""}),
         ]
     )
-    def test_create_list_and_delete_round_trip(self, _name: str, ranges: dict) -> None:
+    def test_create_list_and_delete_round_trip(self, _name: str, ranges: dict, extra: dict) -> None:
         create = self.client.post(
             self._url(),
-            {"name": "Office scraper", "items": [{"key": "$ip", "matcher": "cidr", **ranges}]},
+            {"name": "Office scraper", "items": [{"key": "$ip", "matcher": "cidr", **extra, **ranges}]},
         )
         assert create.status_code == status.HTTP_201_CREATED, create.json()
         rule_id = create.json()["id"]

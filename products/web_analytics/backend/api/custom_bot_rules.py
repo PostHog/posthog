@@ -45,6 +45,7 @@ class WebAnalyticsBotConditionSerializer(serializers.Serializer):
     )
     pattern = serializers.CharField(
         required=False,
+        allow_blank=True,
         help_text="Value matched against the property named by `key`. Required for every matcher except 'cidr'.",
     )
     patterns = serializers.ListField(
