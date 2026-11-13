@@ -1,10 +1,14 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use k8s_awareness::PeerTracker;
+use tracing::{info, warn};
 
 use crate::aperture;
 use crate::routing::{Candidate, RoutingStrategy};
 use crate::worker_registry::{WorkerId, WorkerRegistry};
+
+const PEER_INDEX_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The routable workers for one action.
 #[derive(Clone, Debug, Default)]
@@ -59,6 +63,24 @@ impl WorkerPoolSource {
         aperture::ring_slice(ring, healthy, peers.self_index, peers.peer_count(), *width)
     }
 
+    pub async fn wait_for_peer_index(&self, timeout: Duration) {
+        let Some((tracker, _)) = self.active_aperture() else {
+            return;
+        };
+        info!("Waiting for this consumer's index among its peers");
+        let started = Instant::now();
+        let known = peer_index_known_within(tracker, timeout).await;
+        let waited_ms = started.elapsed().as_millis() as u64;
+        if known {
+            info!(waited_ms, "Peer index known");
+        } else {
+            warn!(
+                waited_ms,
+                "No peer index before the timeout; requests go to the whole worker pool until the index is known"
+            );
+        }
+    }
+
     pub fn pool(&self) -> WorkerPool {
         let healthy = self.registry.healthy_workers();
         let candidates = self
@@ -93,4 +115,59 @@ impl WorkerPoolSource {
 
 fn uniform(workers: impl Iterator<Item = WorkerId>) -> Vec<Candidate> {
     workers.map(Candidate::uniform).collect()
+}
+
+async fn peer_index_known_within(tracker: &PeerTracker, timeout: Duration) -> bool {
+    let index_known = async {
+        while tracker.snapshot().self_index.is_none() {
+            tokio::time::sleep(PEER_INDEX_POLL_INTERVAL).await;
+        }
+    };
+    tokio::time::timeout(timeout, index_known).await.is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::net::IpAddr;
+
+    use super::*;
+
+    const SELF_IP: &str = "10.0.0.2";
+    const PEER_IP: &str = "10.0.0.1";
+    const TIMEOUT: Duration = Duration::from_secs(30);
+
+    fn ready_peers(ips: &[&str]) -> HashSet<IpAddr> {
+        ips.iter().map(|ip| ip.parse().unwrap()).collect()
+    }
+
+    fn tracker_without_self() -> Arc<PeerTracker> {
+        let tracker = PeerTracker::new(SELF_IP.parse().unwrap());
+        tracker.set_peers(&ready_peers(&[PEER_IP]));
+        tracker
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_wait_ends_when_this_pod_becomes_a_ready_peer() {
+        let tracker = tracker_without_self();
+        let wait = tokio::spawn({
+            let tracker = Arc::clone(&tracker);
+            async move { peer_index_known_within(&tracker, TIMEOUT).await }
+        });
+
+        tokio::time::sleep(TIMEOUT / 2).await;
+        assert!(!wait.is_finished(), "this pod is not a ready peer yet");
+
+        tracker.set_peers(&ready_peers(&[PEER_IP, SELF_IP]));
+        assert!(wait.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_wait_gives_up_at_the_timeout() {
+        let tracker = tracker_without_self();
+
+        let waited = tokio::time::timeout(TIMEOUT * 2, peer_index_known_within(&tracker, TIMEOUT));
+
+        assert!(matches!(waited.await, Ok(false)));
+    }
 }

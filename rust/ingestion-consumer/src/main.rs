@@ -523,8 +523,7 @@ async fn async_main(config: Config) -> Result<()> {
     });
 
     // For dynamic discovery, wait for the first workers before consuming so the
-    // first batch has somewhere to route. Readiness stays 503 until the consumer
-    // starts; the server above keeps the probes answering during the wait.
+    // first batch has somewhere to route. The server above answers the probes.
     if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
         info!("Waiting for the first workers from EndpointSlice discovery");
         while registry.worker_count() == 0 {
@@ -535,6 +534,17 @@ async fn async_main(config: Config) -> Result<()> {
                 }
                 _ = tokio::time::sleep(Duration::from_millis(250)) => {}
             }
+        }
+    }
+
+    // The readiness probe already passes, so the pod can become a ready peer during this wait.
+    let aperture_wait = Duration::from_millis(config.aperture_wait_timeout_ms);
+    if !aperture_wait.is_zero() {
+        tokio::select! {
+            _ = consumer_handle.shutdown_recv() => {
+                info!("Shutdown received while waiting for the peer index");
+            }
+            _ = pool_source.wait_for_peer_index(aperture_wait) => {}
         }
     }
 

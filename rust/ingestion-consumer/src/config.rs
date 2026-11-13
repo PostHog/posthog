@@ -392,6 +392,11 @@ pub struct Config {
     #[envconfig(from = "POD_IP")]
     pub pod_ip: Option<String>,
 
+    /// Startup waits this long (milliseconds) for this pod's index among its peers, because
+    /// without one aperture routing uses the whole worker pool. 0 (default) does not wait.
+    #[envconfig(from = "INGESTION_APERTURE_WAIT_TIMEOUT_MS", default = "0")]
+    pub aperture_wait_timeout_ms: u64,
+
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
     #[envconfig(default = "5000")]
