@@ -2,7 +2,7 @@
 Redis caching for Conversations widget polling endpoints.
 
 Caches responses to reduce database load from frequent polling.
-Short TTLs ensure stale data expires quickly without explicit invalidation.
+Short TTLs bound how long stale data can live when explicit invalidation misses.
 """
 
 import json
@@ -15,6 +15,7 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.caching.cache_version import bump_cache_version, read_cache_version
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
@@ -39,18 +40,35 @@ def _make_cache_key(prefix: str, *args: str) -> str:
 
 # Widget Messages Cache
 # Caches both initial load (after=None) and polling (after=timestamp).
-# When polling, 'after' stays constant until a new message arrives,
-# so cache hits are common. Stale data expires via short TTL.
+# When polling, 'after' stays constant until a new message arrives, so cache hits are common.
+# Every key carries a per-ticket version. A new message bumps the version, so the next poll
+# misses the cache instead of returning a stale "no new messages" response until the TTL ends.
+
+# Longer than MESSAGES_CACHE_TTL, so a version outlives the entries keyed on it.
+MESSAGES_VERSION_TTL = 24 * 3600
 
 
-def get_messages_cache_key(team_id: int, ticket_id: str, after: str | None = None) -> str:
+def _messages_version_key(team_id: int, ticket_id: str) -> str:
+    return _make_cache_key("messages_version", str(team_id), ticket_id)
+
+
+def get_messages_cache_version(team_id: int, ticket_id: str) -> int:
+    """Read once per request and use for both the get and the set.
+
+    A message that commits during the database read bumps the version, so the stale response
+    lands on a key no later poll reads.
+    """
+    return read_cache_version(_messages_version_key(team_id, ticket_id), MESSAGES_VERSION_TTL)
+
+
+def get_messages_cache_key(team_id: int, ticket_id: str, version: int, after: str | None = None) -> str:
     """Cache key for widget messages endpoint."""
-    return _make_cache_key("messages", str(team_id), ticket_id, after or "initial")
+    return _make_cache_key("messages", str(team_id), ticket_id, str(version), after or "initial")
 
 
-def get_cached_messages(team_id: int, ticket_id: str, after: str | None = None) -> dict | None:
+def get_cached_messages(team_id: int, ticket_id: str, version: int, after: str | None = None) -> dict | None:
     """Get cached messages response."""
-    key = get_messages_cache_key(team_id, ticket_id, after)
+    key = get_messages_cache_key(team_id, ticket_id, version, after)
     try:
         return cache.get(key)
     except Exception:
@@ -58,9 +76,11 @@ def get_cached_messages(team_id: int, ticket_id: str, after: str | None = None) 
         return None
 
 
-def set_cached_messages(team_id: int, ticket_id: str, response_data: dict, after: str | None = None) -> None:
+def set_cached_messages(
+    team_id: int, ticket_id: str, version: int, response_data: dict, after: str | None = None
+) -> None:
     """Cache messages response."""
-    key = get_messages_cache_key(team_id, ticket_id, after)
+    key = get_messages_cache_key(team_id, ticket_id, version, after)
     try:
         cache.set(key, response_data, timeout=MESSAGES_CACHE_TTL)
     except Exception:
@@ -193,12 +213,8 @@ def invalidate_unread_count_cache(team_id: int) -> None:
 
 
 def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
-    """Invalidate the initial-load messages cache entry for a ticket (after=None). Polling entries (after=<ts>) expire via TTL."""
-    key = get_messages_cache_key(team_id, ticket_id, None)
-    try:
-        cache.delete(key)
-    except Exception:
-        logger.warning("conversations_cache_delete_error", key=key)
+    """Bump the ticket's messages cache version so the initial load and every poll cursor miss."""
+    bump_cache_version(_messages_version_key(team_id, ticket_id), MESSAGES_VERSION_TTL)
 
 
 def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:
