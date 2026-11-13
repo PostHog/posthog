@@ -6,6 +6,8 @@ import { HogFunctionType } from '../types'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
 import { overrideHeaders } from './override-headers'
 
+const MIN_SECRET_BYTES = 24
+
 export type ResolvedHmacSha256Secret = { ok: true; secret: string } | { ok: false; error: string }
 
 export type SignHmacSha256RequestArgs = {
@@ -25,6 +27,15 @@ export function resolveHmacSha256Secret(
         return {
             ok: false,
             error: `HMAC-SHA256 signing failed: input ${params.secret_input} not found on hog function or not a string. Refusing to send an unsigned request.`,
+        }
+    }
+
+    const secretBytes = Buffer.byteLength(secret, 'utf8')
+
+    if (secretBytes < MIN_SECRET_BYTES) {
+        return {
+            ok: false,
+            error: `HMAC-SHA256 signing failed: the signing secret is ${secretBytes} bytes, but it needs at least ${MIN_SECRET_BYTES}. Check that the whole secret was pasted, or generate a longer one.`,
         }
     }
 
