@@ -1,16 +1,21 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { EVERY_SCOUT, reportNoteTargetOptions, reportNotesLogic } from '../../logics/reportNotesLogic'
 import { scoutNoteWriteDisabledReason } from '../../logics/scoutNotesLogic'
 import { SignalReport } from '../../types'
 import { reportNoteMaxChars } from '../../utils/reportNotes'
 import { ScoutNoteComposer } from '../config/scouts/ScoutNoteComposer'
-import { ReportNoteEditor } from './ReportNoteEditor'
+
+// The mention editor is TipTap, a heavy chunk, so it loads only when someone opens the note box.
+const ReportNoteEditor = lazyWithRetry(() =>
+    import('./ReportNoteEditor').then((module) => ({ default: module.ReportNoteEditor }))
+)
 
 /**
  * The open composer. It mounts the notes logic, so a report that nobody writes a note on never loads
@@ -48,12 +53,14 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
     return (
         <div className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-2">
             {mentionsEnabled ? (
-                <ReportNoteEditor
-                    maxLength={maxLength}
-                    placeholder="e.g. @someone can you check this before Friday?"
-                    onChange={setText}
-                    onPressCmdEnter={() => void submit()}
-                />
+                <Suspense fallback={<LemonSkeleton className="h-16 w-full" />}>
+                    <ReportNoteEditor
+                        maxLength={maxLength}
+                        placeholder="e.g. @someone can you check this before Friday?"
+                        onChange={setText}
+                        onPressCmdEnter={() => void submit()}
+                    />
+                </Suspense>
             ) : (
                 <ScoutNoteComposer
                     maxLength={maxLength}
