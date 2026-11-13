@@ -1334,6 +1334,112 @@ describe('EmailService', () => {
                 )
             })
         })
+
+        describe('team sending budget', () => {
+            let limiter: RateLimiterService
+
+            beforeEach(() => {
+                limiter = createRateLimiter('team-email-budget-test')
+            })
+
+            const budgetedService = (mode: 'shadow' | 'enforce', dailyCap: number): EmailService =>
+                createService(
+                    { teamEmailCapMode: mode, teamEmailTierDailyCaps: [dailyCap] },
+                    { teamEmailRateLimiter: limiter, workflowEmailRateLimiter: limiter }
+                )
+
+            it('shadow mode charges its sends to the budget that enforce mode reads', async () => {
+                await budgetedService('shadow', 3).executeSendEmail(invocation)
+
+                expect(await sendsLeftInTheTeamBudget(budgetedService('enforce', 3))).toBe(2)
+            })
+
+            it('shadow mode sends past an empty budget', async () => {
+                await sendsLeftInTheTeamBudget(budgetedService('enforce', 2))
+
+                const result = await budgetedService('shadow', 2).executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
+            })
+
+            it.each([
+                { name: 'charges every to, cc and bcc copy', dailyCap: 4, left: 1 },
+                { name: 'charges the whole budget, and sends, when the copies outnumber it', dailyCap: 2, left: 0 },
+            ])('$name', async ({ dailyCap, left }) => {
+                invocation.queueParameters = createEmailParams({ cc: 'cc@example.com', bcc: 'bcc@example.com' })
+                const sender = budgetedService('enforce', dailyCap)
+
+                const result = await sender.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
+                expect(await sendsLeftInTheTeamBudget(sender)).toBe(left)
+            })
+
+            const setSuspendedAt = async (suspendedAt: 'now()' | 'NULL'): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', ${suspendedAt}, 'testing the budget')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = ${suspendedAt}`,
+                    [team.id],
+                    'test-set-email-sending-suspension'
+                )
+            }
+
+            it.each<{ gate: string; hold: () => Promise<void> | void; release: () => Promise<void> | void }>([
+                {
+                    gate: 'team suspension',
+                    hold: () => setSuspendedAt('now()'),
+                    release: () => setSuspendedAt('NULL'),
+                },
+                {
+                    gate: 'workflow pause',
+                    hold: () => {
+                        invocation.hogFunction.metadata!.email_sending_paused_at = '2026-01-01T00:00:00Z'
+                    },
+                    release: () => {
+                        delete invocation.hogFunction.metadata!.email_sending_paused_at
+                    },
+                },
+                {
+                    gate: 'suppression list',
+                    hold: () =>
+                        new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()).recordHardBounces(
+                            team.id,
+                            ['test@example.com']
+                        ),
+                    release: () => {
+                        invocation.queueParameters = createEmailParams({
+                            to: { email: 'deliverable@example.com', name: 'Deliverable' },
+                        })
+                    },
+                },
+            ])(
+                'a send the $gate skips spends neither the workflow pacing nor the team budget',
+                async ({ hold, release }) => {
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    await hold()
+
+                    const skipped = await budgetedService('enforce', 2).executeSendEmail(invocation)
+                    await release()
+                    const sender = budgetedService('enforce', 2)
+                    const sent = await sender.executeSendEmail(invocation)
+
+                    expect(skipped.finished).toBe(true)
+                    expect(skipped.metrics.map((metric) => metric.metric_name)).not.toContain('email_sent')
+                    expect(sent.error).toBeUndefined()
+                    expect(sent.finished).toBe(true)
+                    expect(ses.sent).toHaveLength(1)
+                    expect(await sendsLeftInTheTeamBudget(sender)).toBe(1)
+                }
+            )
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction

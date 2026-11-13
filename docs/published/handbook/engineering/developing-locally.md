@@ -507,8 +507,6 @@ This allows you to easily confirm that emails are being sent and formatted corre
 
 Emails sent via SMTP are stored in HTML files in `posthog/templates/*/*.html`. They use Django Template Language (DTL).
 
-Workflow SES tests use the pinned `aws-ses-v2-local` compose service at `http://127.0.0.1:4566`, which also exposes its inbox at `/store`. With the rest of the dev stack running, start this optional service with `docker compose -f docker-compose.dev.yml up ses -d --wait` and run `hogli test nodejs/src/cdp/services/messaging/email.service.ses.test.ts`.
-
 ## Extra: Integrating with slack
 
 You can connect to a real slack workspace in your local development setup by adding the required slack environment variables to your `.env` file.
