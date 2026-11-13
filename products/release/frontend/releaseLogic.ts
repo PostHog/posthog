@@ -160,8 +160,9 @@ interface ReleaseLogicActions {
     updateRelease: (
         id: string,
         changes: PatchedUpdateReleaseApi,
-        successMessage?: string
-    ) => { id: string; changes: PatchedUpdateReleaseApi; successMessage?: string }
+        successMessage?: string,
+        usageEvent?: ReleaseUsageEvent
+    ) => { id: string; changes: PatchedUpdateReleaseApi; successMessage?: string; usageEvent?: ReleaseUsageEvent }
     linkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     unlinkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     linkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
@@ -182,6 +183,11 @@ interface ReleaseLogicActions {
 }
 
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
+
+export interface ReleaseUsageEvent {
+    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked'
+    properties: Record<string, string | number>
+}
 
 const PAGE_SIZE = 500
 const RELOAD_WINDOW_MS = 2000
@@ -309,10 +315,16 @@ export const releaseLogic = kea<releaseLogicType>([
         closeSchedule: true,
         createRelease: (name: string, description: string) => ({ name, description }),
         createReleaseDone: true,
-        updateRelease: (id: string, changes: PatchedUpdateReleaseApi, successMessage?: string) => ({
+        updateRelease: (
+            id: string,
+            changes: PatchedUpdateReleaseApi,
+            successMessage?: string,
+            usageEvent?: ReleaseUsageEvent
+        ) => ({
             id,
             changes,
             successMessage,
+            usageEvent,
         }),
         linkFlag: (id: string, flagId: number) => ({ id, flagId }),
         unlinkFlag: (id: string, flagId: number) => ({ id, flagId }),
@@ -837,7 +849,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 actions.createReleaseDone()
             }
         },
-        updateRelease: async ({ id, changes, successMessage }) => {
+        updateRelease: async ({ id, changes, successMessage, usageEvent }) => {
             actions.setReleaseLocally({ id, changes })
             cache.pendingSaves = (cache.pendingSaves ?? 0) + 1
             cache.pendingById = { ...cache.pendingById, [id]: (cache.pendingById?.[id] ?? 0) + 1 }
@@ -845,6 +857,9 @@ export const releaseLogic = kea<releaseLogicType>([
             cache.saving = previous.then(async () => {
                 try {
                     const saved = await releasesPartialUpdate(String(values.currentProjectId), id, changes)
+                    if (usageEvent) {
+                        posthog.capture(usageEvent.event, usageEvent.properties)
+                    }
                     if (cache.pendingById[id] === 1) {
                         actions.setReleaseLocally({
                             id,
@@ -898,31 +913,33 @@ export const releaseLogic = kea<releaseLogicType>([
         linkFlag: ({ id, flagId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release && !release.feature_flag_ids.includes(flagId)) {
-                posthog.capture('release item linked', { release_id: id, kind: 'flag' })
                 actions.updateRelease(
                     id,
                     { feature_flag_ids: [...release.feature_flag_ids, flagId] },
-                    'Flag linked to the release'
+                    'Flag linked to the release',
+                    { event: 'release item linked', properties: { release_id: id, kind: 'flag' } }
                 )
             }
         },
         unlinkFlag: ({ id, flagId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release) {
-                posthog.capture('release item unlinked', { release_id: id, kind: 'flag' })
-                actions.updateRelease(id, {
-                    feature_flag_ids: release.feature_flag_ids.filter((item) => item !== flagId),
-                })
+                actions.updateRelease(
+                    id,
+                    { feature_flag_ids: release.feature_flag_ids.filter((item) => item !== flagId) },
+                    undefined,
+                    { event: 'release item unlinked', properties: { release_id: id, kind: 'flag' } }
+                )
             }
         },
         linkBroadcast: ({ id, broadcastId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release && !release.broadcast_ids.includes(broadcastId)) {
-                posthog.capture('release item linked', { release_id: id, kind: 'broadcast' })
                 actions.updateRelease(
                     id,
                     { broadcast_ids: [...release.broadcast_ids, broadcastId] },
-                    'Broadcast linked to the release'
+                    'Broadcast linked to the release',
+                    { event: 'release item linked', properties: { release_id: id, kind: 'broadcast' } }
                 )
             }
         },
@@ -960,23 +977,25 @@ export const releaseLogic = kea<releaseLogicType>([
             const room = Math.max(MAX_LINKED_BROADCASTS - release.broadcast_ids.length, 0)
             const missing = started.filter((flowId) => !release.broadcast_ids.includes(flowId)).slice(0, room)
             if (missing.length) {
-                posthog.capture('release broadcasts auto linked', { release_id: id, count: missing.length })
                 actions.updateRelease(
                     id,
                     { broadcast_ids: [...release.broadcast_ids, ...missing] },
                     missing.length === 1
                         ? 'Linked the broadcast you started here'
-                        : 'Linked the broadcasts you started here'
+                        : 'Linked the broadcasts you started here',
+                    { event: 'release broadcasts auto linked', properties: { release_id: id, count: missing.length } }
                 )
             }
         },
         unlinkBroadcast: ({ id, broadcastId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release) {
-                posthog.capture('release item unlinked', { release_id: id, kind: 'broadcast' })
-                actions.updateRelease(id, {
-                    broadcast_ids: release.broadcast_ids.filter((item) => item !== broadcastId),
-                })
+                actions.updateRelease(
+                    id,
+                    { broadcast_ids: release.broadcast_ids.filter((item) => item !== broadcastId) },
+                    undefined,
+                    { event: 'release item unlinked', properties: { release_id: id, kind: 'broadcast' } }
+                )
             }
         },
         addLink: ({ id, candidate }) => {

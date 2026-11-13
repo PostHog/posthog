@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -74,10 +75,14 @@ describe('releaseLogic', () => {
                 ['b3', 2],
             ],
             ['b1', 'b2'],
+            true,
+            [['release broadcasts auto linked', { release_id: 'r1', count: 1 }]],
         ],
-        ['changes nothing when every broadcast is already linked', [['b1', 1]], null],
-        ['ignores broadcasts someone else pointed at the release', [['b3', 2]], null],
-    ])('%s', async (_name, started, expected) => {
+        ['changes nothing when every broadcast is already linked', [['b1', 1]], null, true, []],
+        ['ignores broadcasts someone else pointed at the release', [['b3', 2]], null, true, []],
+        ['counts no auto link when the save fails', [['b2', 1]], ['b1', 'b2'], false, []],
+    ])('%s', async (_name, started, expected, saves, events) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         userLogic.mount()
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, id: 1 })
         const release = {
@@ -94,7 +99,12 @@ describe('releaseLogic', () => {
             results: (started as [string, number][]).map(([id, creator]) => ({ id, created_by: { id: creator } })),
         } as never)
         mockedPartialUpdate.mockReset()
-        mockedPartialUpdate.mockImplementation(async (_project, _id, changes) => ({ ...release, ...changes }) as never)
+        mockedPartialUpdate.mockImplementation(async (_project, _id, changes) => {
+            if (!saves) {
+                throw new Error('offline')
+            }
+            return { ...release, ...changes } as never
+        })
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
         const logic = releaseLogic()
         logic.mount()
@@ -114,5 +124,7 @@ describe('releaseLogic', () => {
         } else {
             expect(mockedPartialUpdate).not.toHaveBeenCalled()
         }
+        expect(capture.mock.calls.filter(([event]) => event === 'release broadcasts auto linked')).toEqual(events)
+        capture.mockRestore()
     })
 })
