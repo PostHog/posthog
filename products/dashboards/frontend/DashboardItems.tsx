@@ -848,6 +848,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     tileGroupMoveOptions={commonTileProps.tileGroupMoveOptions}
                     onMoveToTileGroup={commonTileProps.moveToTileGroup}
                     onDuplicate={tileActions.duplicate}
+                    onUpdateDisplayOptions={tileActions.updateDisplayOptions}
+                    displayOptionsSaving={tileDisplayOptionsSavingIds.includes(tile.id)}
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}
