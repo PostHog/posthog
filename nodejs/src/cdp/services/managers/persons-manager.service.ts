@@ -1,10 +1,20 @@
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { Counter } from 'prom-client'
+
+import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { TeamManager, isValidTeamId } from '~/common/utils/team-manager'
 
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
+
+const CALLER_TAG = 'cdp/hogflow-person-enrichment'
+
+const consistentReadsCounter = new Counter({
+    name: 'cdp_person_consistent_reads_total',
+    help: 'Person lookups that asked the personhog leader for properties, by why they asked and what it answered',
+    labelNames: ['reason', 'outcome'],
+})
 
 export type PersonGetArgs = {
     teamId: number
@@ -23,6 +33,8 @@ const fromValidKeys = (keys: string[]): PersonGetArgs[] =>
 
 export type PersonManagerPerson = {
     id: string
+    // The bigint row id, where `id` is the uuid.
+    int_id: string
     properties: Record<string, any>
     team_id: number
     // Populated by fetchPersonsByPersonIds when the person has at least one distinct_id
@@ -40,7 +52,8 @@ export class PersonsManagerService {
     constructor(
         private teamManager: TeamManager,
         private personRepository: PersonReadRepository,
-        private siteUrl: string
+        private siteUrl: string,
+        private consistentPersonReader?: ConsistentPersonReader
     ) {
         this.lazyLoaderByPersonId = new LazyLoader({
             name: 'person_manager_lookup_by_person_id',
@@ -85,12 +98,44 @@ export class PersonsManagerService {
             return null
         }
 
+        await this.refreshPropertiesFromLeader(dbPerson, options?.forceFresh ?? false)
+
         return {
             id: dbPerson.id,
             properties: dbPerson.properties,
             name: getPersonDisplayName(team, id, dbPerson.properties),
             url: `${this.siteUrl}/project/${teamId}/person/${encodeURIComponent(id)}`,
             distinct_id: dbPerson.distinct_id,
+        }
+    }
+
+    /** A new person is an empty stub on the replica until the writer applies its first properties. */
+    private async refreshPropertiesFromLeader(person: PersonManagerPerson, forceFresh: boolean): Promise<void> {
+        const isStub = Object.keys(person.properties).length === 0
+        if (!this.consistentPersonReader || (!forceFresh && !isStub)) {
+            return
+        }
+
+        const reason = forceFresh ? 'force_fresh' : 'stub'
+        try {
+            const consistent = await this.consistentPersonReader.fetchPersonById(
+                person.team_id,
+                person.int_id,
+                CALLER_TAG
+            )
+            consistentReadsCounter.inc({ reason, outcome: consistent ? 'found' : 'not_found' })
+            if (consistent) {
+                // `person` is the cached entry, so a later lookup does not go back to older properties.
+                person.properties = consistent.properties
+            }
+        } catch (error) {
+            // A failed consistent read must not fail the lookup.
+            consistentReadsCounter.inc({ reason, outcome: 'error' })
+            logger.warn('[PersonManager]', 'Consistent person read failed, using the replica properties', {
+                teamId: person.team_id,
+                personId: person.id,
+                error: String(error),
+            })
         }
     }
 
@@ -103,7 +148,7 @@ export class PersonsManagerService {
 
         const personRows = await this.personRepository.fetchPersonsByDistinctIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id })),
-            'cdp/hogflow-person-enrichment'
+            CALLER_TAG
         )
 
         // Map results back to the original keys
@@ -114,6 +159,7 @@ export class PersonsManagerService {
 
             result[key] = {
                 id: row.uuid,
+                int_id: row.id,
                 properties: row.properties,
                 team_id: row.team_id,
                 distinct_id: row.distinct_id,
@@ -130,7 +176,7 @@ export class PersonsManagerService {
 
         const personRows = await this.personRepository.fetchPersonsByPersonIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, personId: id })),
-            'cdp/hogflow-person-enrichment'
+            CALLER_TAG
         )
 
         // Fetch one distinct_id per person so callers that need to identify the user
@@ -149,7 +195,7 @@ export class PersonsManagerService {
                     teamId,
                     intIds,
                     { limitPerPerson: 1 },
-                    'cdp/hogflow-person-enrichment'
+                    CALLER_TAG
                 )
                 return { teamId, map }
             })
@@ -172,6 +218,7 @@ export class PersonsManagerService {
 
             result[key] = {
                 id: row.uuid,
+                int_id: row.id,
                 properties: row.properties,
                 team_id: row.team_id,
                 distinct_id: distinctIdByTeamAndIntId.get(`${row.team_id}:${row.id}`),

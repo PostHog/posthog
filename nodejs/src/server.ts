@@ -8,7 +8,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
@@ -166,6 +166,7 @@ export class PluginServer implements NodeServer {
                   cdpProducerRegistry: this.cdpProducerRegistry!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
+                  consistentPersonReader: cdpServices!.consistentPersonReader,
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
@@ -586,6 +587,7 @@ export class PluginServer implements NodeServer {
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
         personRepository: PersonReadRepository
+        consistentPersonReader: ConsistentPersonReader | undefined
         groupRepository: GroupReadRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
@@ -614,6 +616,7 @@ export class PluginServer implements NodeServer {
         return {
             geoipService,
             personRepository,
+            consistentPersonReader: this.config.CDP_PERSON_CONSISTENT_READS_ENABLED ? personRepository : undefined,
             groupRepository,
             encryptedFields,
             integrationManager,

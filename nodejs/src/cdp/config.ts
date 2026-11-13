@@ -79,6 +79,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    // Needs PERSONHOG_ADDR to point at a leader-mode router.
+    CDP_PERSON_CONSISTENT_READS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
     SES_SANDBOX_CONFIGURATION_SET: string
     SES_SANDBOX_TENANT_NAME: string
@@ -402,6 +404,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        CDP_PERSON_CONSISTENT_READS_ENABLED: false,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         SES_SANDBOX_CONFIGURATION_SET: '',
         SES_SANDBOX_TENANT_NAME: '',

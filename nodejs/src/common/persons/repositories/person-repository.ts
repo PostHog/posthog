@@ -118,6 +118,12 @@ export interface PersonReadRepository {
     ): Promise<Record<string, string[]>>
 }
 
+/** A read that reflects every acknowledged write, which a PersonReadRepository read can lag. */
+export interface ConsistentPersonReader {
+    /** `personId` is the bigint row id, not the uuid. */
+    fetchPersonById(teamId: TeamId, personId: string, callerTag?: string): Promise<InternalPerson | null>
+}
+
 /**
  * Full person repository with read and write operations. Used by the
  * ingestion pipeline which creates, updates, merges, and deletes persons.
