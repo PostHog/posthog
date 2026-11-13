@@ -11,7 +11,6 @@ import {
 } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -19,7 +18,6 @@ import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSecondaryActions } from '~/layout/scenes/components/SceneTitleSecondaryActions'
-import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
@@ -55,7 +53,6 @@ export function QuillInsightPageHeaderActions({
     const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
     const { query, queryChanged } = useValues(insightDataLogic(insightProps))
     const { cancelChanges } = useActions(insightDataLogic(insightProps))
-    const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const shareItems = useInsightShareItems(insight)
     const { push } = useActions(router)
 
@@ -161,11 +158,6 @@ export function QuillInsightPageHeaderActions({
                                 typeof overrideWarning.tooltip === 'function'
                                     ? overrideWarning.tooltip()
                                     : overrideWarning.tooltip
-                            }
-                            disabledReason={
-                                isBIVisualizationNode(query) && !biEnabled
-                                    ? 'Business intelligence is not enabled for this project'
-                                    : undefined
                             }
                             data-attr="insight-edit-button"
                         >

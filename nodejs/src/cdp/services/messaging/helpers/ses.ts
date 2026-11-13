@@ -13,6 +13,9 @@ import { unquoteMailbox } from './suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 import { sentTransactionalEmailIdentity } from './transactional-email-identity'
 
+// Below the default, so a batch records well within the 30s heartbeat health check.
+export const SES_NOTIFICATIONS_PER_BATCH = 200
+
 // 5.1.1 (unknown user) and 5.1.10 (null MX). The diagnostic match is anchored after the reply code, because its
 // free text can quote sender-chosen values such as a domain named 5.1.1.example.com.
 const ADDRESS_DOES_NOT_EXIST_STATUS = /^5\.1\.(1|10)$/

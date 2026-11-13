@@ -5350,12 +5350,23 @@ class TestPrinter(BaseTest):
                 "SELECT event FROM events WHERE event IN (SELECT instance_id FROM batch_export_log_entries WHERE level = 'ERROR')",
                 "globalIn(",
             ),
+            (
+                "in_flag_evaluations_subquery",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
+                "globalIn(",
+            ),
+            (
+                "not_in_flag_evaluations_subquery",
+                "SELECT distinct_id FROM posthog.flag_evaluations WHERE distinct_id NOT IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
+                "globalNotIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
         # A per-shard re-executed IN-subquery over a sharded table costs shard-count times
         # the subquery; GLOBAL IN builds the set once and ships it.
-        printed = self._select(select)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            printed = self._select(select)
         assert expected in printed, f"expected {expected} in:\n{printed}"
 
     @parameterized.expand(

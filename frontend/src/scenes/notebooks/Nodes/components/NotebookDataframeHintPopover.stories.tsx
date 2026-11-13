@@ -1,8 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useEffect, useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { notebookDataframeHintLogic } from './notebookDataframeHintLogic'
 import { NotebookDataframeHintPopover } from './NotebookDataframeHintPopover'
 
@@ -43,7 +41,6 @@ const meta: Meta<typeof NotebookDataframeHintPopover> = {
     title: 'Scenes-App/Notebooks/Dataframe hint',
     component: NotebookDataframeHintPopover,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
         testOptions: { waitForLoadersToDisappear: false },
     },
 }

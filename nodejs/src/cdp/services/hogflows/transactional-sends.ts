@@ -20,13 +20,14 @@ import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messag
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import type { CodeSendSender, SandboxCodeSendRefusal } from '../messaging/sandbox/sandbox-code-send'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
-import { IdempotencyKeys } from './idempotency-keys'
+import { FingerprintWithPreviousShape, IdempotencyKeys, SenderKind, storedFingerprint } from './idempotency-keys'
 import {
     AcceptedSend,
     TransactionalEmailRequest,
@@ -42,20 +43,31 @@ const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 
+const latestDueAtOf = (messageId: string): Date => new Date(uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS)
+
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables, message_category }: TransactionalEmailRequest,
     send: AcceptedSend | undefined,
     scheduledAt: Date | null
-): string => {
+): string | FingerprintWithPreviousShape => {
     const request: unknown[] = [hogFlowId, to, distinct_id, variables, ...(message_category ? [message_category] : [])]
-    if (send) {
-        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send))
+    const schedule: unknown[] = scheduledAt ? [SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString()] : []
+    if (!send) {
+        return IdempotencyKeys.fingerprint([...request, ...schedule])
     }
-    if (scheduledAt) {
-        request.push(SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString())
+    const { from, ...rest } = send
+    const withSender = (sender: CallerChosenSender | undefined): string =>
+        IdempotencyKeys.fingerprint([
+            ...request,
+            ACCEPTED_SEND_FINGERPRINT_MARKER,
+            { ...rest, from: sender },
+            ...schedule,
+        ])
+    return {
+        current: withSender(senderTheCallerChose(from)),
+        previousShape: withSender(senderBeforeSandboxSends(from)),
     }
-    return IdempotencyKeys.fingerprint(request)
 }
 
 const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void => {
@@ -67,15 +79,10 @@ const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void =>
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 
-const withSenderTheCallerChose = ({
-    from,
-    ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
-    ...send,
-    from: senderTheCallerChose(from),
-})
+const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined =>
+    from?.email || from?.name ? { email: from.email, name: from.name } : undefined
 
-const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
+const senderBeforeSandboxSends = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
     if (!from) {
         return undefined
     }
@@ -112,6 +119,7 @@ export type TransactionalSendsDeps = {
     recipientPreferences: RecipientPreferencesService
     quotaLimiting: QuotaLimiting
     attachmentUploads: AttachmentUploads
+    refuseSandboxSend: (teamId: number, recipient: string) => Promise<SandboxCodeSendRefusal | null>
 }
 
 export type SendFiles = {
@@ -130,6 +138,7 @@ export type TransactionalSendResult =
           invocationId: string
           scheduledAt: string | null
           replyFields: Record<string, number>
+          senderKind?: SenderKind
       }
     | { outcome: TransactionalSendRefusal }
     | { refused: SendRefusal | { status: 400; body: Extract<FilesWorkflowShape, { refused: unknown }>['refused'] } }
@@ -142,8 +151,10 @@ export class TransactionalSends {
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
         stages: TransactionalEmailStageTimer,
-        files: SendFiles
+        files: SendFiles,
+        sender: CodeSendSender = { kind: 'own' }
     ): Promise<TransactionalSendResult> {
+        const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
         const { to, idempotency_key: idempotencyKey, send, message_category: category } = request
         const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
@@ -151,7 +162,7 @@ export class TransactionalSends {
         const priorityClass: EmailQueuePriorityClass = marketingStep ? 'bulk' : 'fast'
 
         stages.start('build')
-        const invocation = this.buildInvocation(team, hogFlow, request, send, priorityClass)
+        const invocation = this.buildInvocation(team, hogFlow, request, send, priorityClass, senderKind)
         const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         const releaseKey = async (): Promise<void> => {
             if (idempotencyKey) {
@@ -169,6 +180,7 @@ export class TransactionalSends {
                         invocationId: reservation.invocationId,
                         scheduledAt: reservation.scheduledAt ?? null,
                         replyFields: { ...NO_ATTACHMENTS, ...reservation.replayFields },
+                        senderKind: reservation.senderKind,
                     }
                 case 'in_flight':
                     return { outcome: 'idempotency_key_in_flight' }
@@ -178,6 +190,10 @@ export class TransactionalSends {
                     return { outcome: 'idempotency_unavailable' }
             }
         }
+        if (sender.kind === 'refused') {
+            await releaseKey()
+            return { outcome: sender.refusal }
+        }
         const tooFarAhead =
             requestedAt !== null &&
             requestedAt.getTime() > uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS
@@ -186,7 +202,6 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
-        const latestDueAt = new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
         const statusAt = new Date()
         const { shape } = files
         if (shape && 'refused' in shape) {
@@ -203,7 +218,8 @@ export class TransactionalSends {
                       team.id,
                       hogFlow,
                       transactionalEmailRecipients(request),
-                      marketingStep && (marketingStep.config.message_category_id || '$all')
+                      marketingStep && (marketingStep.config.message_category_id || '$all'),
+                      senderKind
                   )))
             if (refusal) {
                 await releaseKey()
@@ -221,7 +237,7 @@ export class TransactionalSends {
                     })),
                     (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
                     files.deadline,
-                    latestDueAt
+                    latestDueAtOf(invocation.id)
                 )
                 if ('refused' in accepted) {
                     await releaseKey()
@@ -235,6 +251,15 @@ export class TransactionalSends {
             }
             stages.start('queue_insert')
             invocation.state.statusAt = statusAt.toISOString()
+            if (idempotencyKey) {
+                invocation.state.idempotencyKey = {
+                    hash: IdempotencyKeys.hash(idempotencyKey),
+                    ...storedFingerprint(fingerprint),
+                    ...(senderKind ? { senderKind } : {}),
+                    replayFields: attachmentTotals,
+                    ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
+                }
+            }
             this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
             try {
                 await this.deps.queue.queueInvocations([invocation])
@@ -256,7 +281,8 @@ export class TransactionalSends {
                 invocation.id,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                scheduledAt ? latestDueAt : undefined
+                scheduledAt ? latestDueAtOf(invocation.id) : undefined,
+                senderKind
             )
         }
         stages.start('metrics_flush')
@@ -278,6 +304,7 @@ export class TransactionalSends {
             invocationId: invocation.id,
             scheduledAt: scheduledAt?.toISOString() ?? null,
             replyFields: attachmentTotals,
+            senderKind,
         }
     }
 
@@ -286,7 +313,8 @@ export class TransactionalSends {
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
         send: AcceptedSend | undefined,
-        priorityClass: EmailQueuePriorityClass
+        priorityClass: EmailQueuePriorityClass,
+        senderKind: SenderKind | undefined
     ) {
         const { to, distinct_id: distinctId, variables, message_category: category } = request
         const event: HogFunctionInvocationGlobals['event'] = {
@@ -323,6 +351,9 @@ export class TransactionalSends {
         if (category) {
             invocation.state.messageCategory = category
         }
+        if (senderKind) {
+            invocation.state.senderKind = senderKind
+        }
         // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
         // worker counts it instead.
         invocation.state.triggerMetricPending = true
@@ -340,10 +371,17 @@ export class TransactionalSends {
         teamId: number,
         hogFlow: HogFlow,
         recipients: string[],
-        marketingCategoryId: string | undefined
+        marketingCategoryId: string | undefined,
+        senderKind: SenderKind | undefined
     ): Promise<TransactionalSendRefusal | null> {
         if (hogFlow.status !== 'active') {
             return 'not_sendable'
+        }
+        if (senderKind === 'email_sandbox') {
+            const sandboxRefusal = await this.deps.refuseSandboxSend(teamId, recipients[0])
+            if (sandboxRefusal) {
+                return sandboxRefusal
+            }
         }
         // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
@@ -396,6 +434,7 @@ export class TransactionalSends {
 
 export type ScheduledTransactionalSendsDeps = {
     jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    idempotencyKeys: Pick<IdempotencyKeys, 'replayUntilDayAfter'>
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
@@ -405,7 +444,7 @@ export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'cl
 
 export type ScheduledSendRescheduleResult =
     | { outcome: 'rescheduled'; scheduledAt: string }
-    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' | 'idempotency_unavailable' }
 
 export class ScheduledTransactionalSends {
     constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
@@ -434,7 +473,7 @@ export class ScheduledTransactionalSends {
             return { outcome: 'not_found' }
         }
         const now = new Date()
-        if (requestedAt > now && requestedAt.getTime() > uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS) {
+        if (requestedAt > now && requestedAt > latestDueAtOf(messageId)) {
             return { outcome: 'invalid_scheduled_at' }
         }
         const scheduledAt = requestedAt > now ? requestedAt : now
@@ -443,6 +482,10 @@ export class ScheduledTransactionalSends {
             return { outcome: result.outcome }
         }
         const job = v2JobToInvocation(result.job)
+        const idempotencyKey = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKey
+        const keyKept =
+            !idempotencyKey ||
+            (await this.deps.idempotencyKeys.replayUntilDayAfter(teamId, job.id, idempotencyKey, latestDueAtOf(job.id)))
         writeStatus(this.deps.emailStatus, {
             teamId,
             messageId,
@@ -452,6 +495,9 @@ export class ScheduledTransactionalSends {
             scheduledAt,
             statusAt: result.rescheduledAt,
         })
+        if (!keyKept) {
+            return { outcome: 'idempotency_unavailable' }
+        }
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 

@@ -179,7 +179,7 @@ export const isTransactionalEmailSend = (invocation: CyclotronJobInvocationHogFu
 export const isMarketingApiSend = (invocation: CyclotronJobInvocationHogFunction): boolean =>
     isTransactionalEmailSend(invocation) && invocation.state.messageCategory?.type === 'marketing'
 
-const isTransactionalEmailRun = (invocation: CyclotronJobInvocation): boolean =>
+export const isTransactionalEmailRun = (invocation: CyclotronJobInvocation): boolean =>
     'hogFlow' in invocation && invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
 
 // A dequeued job has no `hogFlow` yet, so only its state says which event triggered it.

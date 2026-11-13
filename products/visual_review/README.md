@@ -4,6 +4,7 @@ Visual regression testing that keeps baselines in git.
 
 CI captures screenshots, the backend diffs them against committed baselines, developers review and approve changes in a web UI, and a bot commits the updated baselines back to the PR.
 No external baseline service — the repo is the source of truth.
+A repo can instead keep its baselines in a ledger in the database, where an approval commits nothing; see [Baselines in the database](#baselines-in-the-database).
 
 ## The idea
 
@@ -274,6 +275,88 @@ Final job: `vr run complete --run-id <id>`
 
 The backend is the source of truth for baselines — it fetches the `.snapshots.yml` from GitHub at `complete_run` time. The CLI no longer sends baseline hashes; it only sends snapshot identifiers and content hashes.
 
+## Baselines in the database
+
+A repo keeps its approved baselines in one of two places, chosen by `Repo.baseline_mode`:
+
+| Mode     | What decides a run                  | What an approval does                                     |
+| -------- | ----------------------------------- | --------------------------------------------------------- |
+| `yaml`   | The baseline file in git            | Commits the updated file to the PR branch                 |
+| `shadow` | The baseline file in git            | Commits the file, and also records the approval in the DB |
+| `ledger` | The baseline ledger in the database | Records the approval. No commit                           |
+
+`yaml` is the default, and the rest of this README describes it.
+`shadow` exists to check the ledger against the file before a repo switches. It changes no run result, no finalize and no commit status: the ledger side only records and compares, and a failure there is logged.
+
+### The ledger
+
+The ledger is an append-only list of baseline changes per repo and run type.
+Each entry belongs to a position on the default branch: position 0 is the commit the ledger was seeded at, and every later first-parent commit gets the next number.
+The ledger at a position holds, per identifier, the newest entry at or below that position.
+An entry with an empty hash removes the identifier.
+
+Three tables hold it:
+
+- `BaselineCommit` maps a default-branch commit to its position.
+- `BaselineEntry` is one change of one identifier's baseline at a position.
+- `BaselineApproval` is one approved change of one identifier in one pull request. It outlives the run it was made on.
+
+### What a run compares against
+
+A run compares against the ledger at the merge-base of its commit and the default branch, with the approvals its commit contains laid over it.
+An approval is contained when the run belongs to the approval's pull request, when the run's commit includes the commit the approval was made or last reproduced on, or when it includes the newest run commit of the approval's pull request.
+So a pull request keeps its approvals across pushes, a stacked pull request sees its parent's approvals, and a merge-queue run sees the approvals of every pull request it tests.
+
+Per snapshot, the ledger's hash wins when the render matches it.
+The approved hash is used only when the render does not match the ledger.
+An approval stops applying when the ledger's hash for its identifier is no longer the one the reviewer compared against.
+The snapshot then shows as changed against the new baseline and needs a new approval.
+Two approvals from unrelated pull requests with different hashes for one identifier in one run are a conflict, and neither applies.
+
+Each run stores what it compared against in `metadata["baseline"]`: the mode it ran in, the merge-base, its position, the approvals it used, and any conflict.
+
+### How an approval reaches the default branch
+
+When the pull request merges, its approvals land as ledger entries at the position of the merge commit.
+An approval lands only when both of these hold:
+
+- The ledger's hash for the identifier is still the one the reviewer compared against. If another pull request changed it first, the approval is `conflicted`.
+- The last merge-queue run that contained the pull request reproduced the approved picture. If that run rendered the old baseline, the approval is `voided`. A flaky render that somebody approved never becomes the baseline this way.
+
+A quarantined story skips the second check, because bulk approval already skips quarantined snapshots and an approval by identifier is how its entry keeps up.
+A pull request that merged with no merge-queue run lands its own approval only when one of its runs made or reproduced it at the merged commit. Otherwise the approval is `voided`: the pull request may no longer render that picture.
+
+The service learns of merges by reading the default branch's commits from GitHub.
+A push to the default branch starts that read at once, through the PostHog GitHub App's `push` webhook. Nothing from the push itself goes into the ledger.
+A task every five minutes reads it too, for a push that arrives late or not at all, and so does a `ledger`-mode run that needs a commit the ledger does not know yet.
+When GitHub still shows the merged pull request as open, its commit waits, and the push asks GitHub again three times within about a minute before the five-minute task takes over.
+Once an hour it also checks every open approval against its pull request: a merged one lands, a closed one is marked `abandoned`.
+
+### When the ledger and the default branch disagree
+
+A `voided` or `conflicted` approval, a direct push, or a revert can leave the default branch rendering a picture the ledger does not hold.
+Full runs then report that snapshot as changed, and the merge queue stops on it.
+Fix it the same way as a wrong baseline in `yaml` mode: open a pull request that renders the story, approve the snapshot, and merge.
+A revert pull request needs an approval for the pictures it restores.
+
+### Operating it
+
+`./manage.py visual_review_baseline_ledger <subcommand> --repo owner/name`
+
+- `seed` starts the ledger at the default branch head from the verified baseline files. `--commit` picks another commit by its full SHA, `--run-type` limits it to some run types (the others start empty), and `--replace` starts an existing ledger again.
+- `seed --from-ledger` starts a new position 0 at the default branch head from the ledger's current state. Use it after the default branch was rewritten, or when the ledger fell too far behind.
+- `mode` prints the mode. `mode --set shadow|ledger|yaml` switches it. `shadow` and `ledger` need a seeded ledger.
+- `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
+- `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
+- `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, and commits that still wait for GitHub to show their pull request as merged.
+
+### Limits
+
+- Baselines are kept apart per run type, as the baseline files are. The commit positions and the mode are per repo, so every run type of a repo switches mode together.
+- The ledger follows the default branch only. A pull request that targets another branch still compares at its merge-base with the default branch.
+- The second landing check needs a merge queue that renders every snapshot before the merge, as an observe run. A repo without one lands an approval only when a run of the pull request saw it at the merged commit.
+- A merge queue that tests pull requests in parallel lanes does not test the exact tree that lands. Two pull requests in different lanes can change the same story; the second approval is then `conflicted`.
+
 ## CLI
 
 The `vr` CLI (`cli/`) is a TypeScript tool that bridges CI and the backend. It's deliberately capture-agnostic: it works with any tool that produces PNGs (Storybook, Playwright, Cypress, etc.).
@@ -346,6 +429,7 @@ This is how a quarantined story's entry keeps up with the story.
 The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.
 It is also how a story gets an entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
 The procedure is: open a PR that renders the story, approve the `changed` or `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool), finalize the run so the entry is committed to the PR branch, then merge the PR.
+In `ledger` mode finalize records the approval instead, and the entry lands in the ledger when the PR merges.
 A PR renders only the stories its diff affects, so a story the PR does not touch needs the full matrix: add the `run-ci-frontend` label before the push that should render it.
 The label only widens a Storybook run that happens anyway, so the PR must also change a path the Storybook workflow watches.
 
