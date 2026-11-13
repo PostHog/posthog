@@ -1075,6 +1075,20 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
+    @parameterized.expand(
+        [
+            ("all_stylesheets_loaded", [], {"text_color": "#123456"}),
+            ("a_stylesheet_failed", ["https://example.com/site.css"], None),
+        ]
+    )
+    def test_site_style_is_empty_when_a_stylesheet_failed(
+        self, _name: str, failed_stylesheets: list[str], expected: dict | None
+    ) -> None:
+        page = MagicMock()
+        page.evaluate.return_value = {"text_color": "#123456"}
+
+        assert image_exporter._read_site_style(page, failed_stylesheets) == expected
+
     def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
         # The player can mount rrweb inside its own frame document. A selector wait or a document query
         # never looks inside a frame, so the export would time out, or measure the page without the player.

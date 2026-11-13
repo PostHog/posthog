@@ -145385,6 +145385,22 @@ export namespace Schemas {
      * @minLength 1
      */
     device: SurveysSiteSnapshotRetrieveDevice;
+    /**
+     * URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. Empty means every page. Leave out to use the saved targeting.
+     */
+    url?: string;
+    /**
+     * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
+     *
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * @minLength 1
+     */
+    url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType;
     };
 
     export type SurveysSiteSnapshotRetrieveDevice = typeof SurveysSiteSnapshotRetrieveDevice[keyof typeof SurveysSiteSnapshotRetrieveDevice];
@@ -145393,6 +145409,18 @@ export namespace Schemas {
     export const SurveysSiteSnapshotRetrieveDevice = {
       Desktop: 'desktop',
       Mobile: 'mobile',
+    } as const;
+
+    export type SurveysSiteSnapshotRetrieveUrlMatchType = typeof SurveysSiteSnapshotRetrieveUrlMatchType[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType];
+
+
+    export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
     } as const;
 
     export type SurveysStatsRetrieveParams = {

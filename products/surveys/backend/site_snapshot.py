@@ -8,8 +8,6 @@ from django.core.cache import cache
 from django.db import models
 from django.utils import timezone
 
-from posthog.schema import SurveyMatchType
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -32,7 +30,7 @@ from products.exports.backend.facade.api import (
     create_export_asset_async,
     is_export_failure_final,
 )
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import Survey, SurveyMatchType
 
 SNAPSHOT_WINDOW = timedelta(days=7)
 LONGEST_RECORDING = timedelta(days=1)
@@ -68,6 +66,7 @@ DEVICE_VIEWPORTS: dict[SnapshotDevice, ViewportWidths] = {
     SnapshotDevice.DESKTOP: ViewportWidths(min_width=1024, max_width=MAX_EXPORT_WIDTH),
     SnapshotDevice.MOBILE: ViewportWidths(min_width=1, max_width=767),
 }
+
 
 URL_MATCH_TEMPLATES: dict[SurveyMatchType, str] = {
     SurveyMatchType.REGEX: "match({url}, {value})",
@@ -109,19 +108,32 @@ class SiteSnapshot:
 UNAVAILABLE = SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
 
 
-def _url_condition(survey: Survey, url_field: ast.Expr) -> ast.Expr:
-    conditions = survey.conditions or {}
-    url = conditions.get("url")
-    if not url:
+@frozen
+class UrlTarget:
+    """The pages a survey shows on. An empty url means every page."""
+
+    url: str
+    match_type: SurveyMatchType
+
+    @classmethod
+    def of(cls, survey: Survey) -> "UrlTarget":
+        conditions = survey.conditions or {}
+        return cls(
+            url=conditions.get("url") or "",
+            match_type=SurveyMatchType(conditions.get("urlMatchType") or SurveyMatchType.ICONTAINS),
+        )
+
+
+def _url_condition(target: UrlTarget, url_field: ast.Expr) -> ast.Expr:
+    if not target.url:
         return ast.Constant(value=True)
-    match_type = SurveyMatchType(conditions.get("urlMatchType") or SurveyMatchType.ICONTAINS)
     return parse_expr(
-        URL_MATCH_TEMPLATES[match_type],
-        placeholders={"url": url_field, "value": ast.Constant(value=url)},
+        URL_MATCH_TEMPLATES[target.match_type],
+        placeholders={"url": url_field, "value": ast.Constant(value=target.url)},
     )
 
 
-def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> SnapshotMoment | None:
+def find_snapshot_moment(team: Team, target: UrlTarget, device: SnapshotDevice) -> SnapshotMoment | None:
     pageviews_since = timezone.now() - SNAPSHOT_WINDOW
     viewport = DEVICE_VIEWPORTS[device]
 
@@ -134,7 +146,7 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
                 "min_width": ast.Constant(value=viewport.min_width),
                 "max_width": ast.Constant(value=viewport.max_width),
                 "max_height": ast.Constant(value=MAX_EXPORT_HEIGHT),
-                "url_condition": _url_condition(survey, parse_expr(url)),
+                "url_condition": _url_condition(target, parse_expr(url)),
             },
         )
 
@@ -262,14 +274,13 @@ def _recording_was_deleted(team: Team, session_id: str) -> bool:
     return bool(response.results and response.results[0][0])
 
 
-def _snapshot_key(survey: Survey, device: SnapshotDevice) -> str:
+def _snapshot_key(survey: Survey, target: UrlTarget, device: SnapshotDevice) -> str:
     # The key is stored on the export, which recording viewers can read, so it hides the survey and its targeting.
-    conditions = survey.conditions or {}
     targeting = {
         "survey_id": str(survey.id),
         "device": device.value,
-        "url": conditions.get("url") or "",
-        "url_match_type": conditions.get("urlMatchType") or "",
+        "url": target.url,
+        "url_match_type": target.match_type.value,
     }
     return hashlib.sha256(json.dumps(targeting, sort_keys=True).encode()).hexdigest()
 
@@ -339,12 +350,16 @@ def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
     )
 
 
-def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: User) -> SiteSnapshot:
+def get_site_snapshot(
+    team: Team, survey: Survey, device: SnapshotDevice, user: User, target: UrlTarget | None = None
+) -> SiteSnapshot:
+    """`target` overrides the survey's saved URL targeting, for an editor with unsaved changes."""
     user_access_control = UserAccessControl(user, team)
     if not team.session_recording_opt_in or not _may_see_page_urls(user, team):
         return UNAVAILABLE
 
-    key = _snapshot_key(survey, device)
+    target = target or UrlTarget.of(survey)
+    key = _snapshot_key(survey, target, device)
     cached = (
         ExportedAsset.objects.filter(
             team_id=team.id,
@@ -371,21 +386,21 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
     if not cache.add(render_claim_key, True, timeout=RENDER_CLAIM_TTL.total_seconds()):
         return SiteSnapshot(status=SnapshotStatus.RENDERING)
     try:
-        return _start_snapshot(team, survey, device, user, user_access_control, key, no_snapshot_key)
+        return _start_snapshot(team, target, device, user, user_access_control, key, no_snapshot_key)
     finally:
         cache.delete(render_claim_key)
 
 
 def _start_snapshot(
     team: Team,
-    survey: Survey,
+    target: UrlTarget,
     device: SnapshotDevice,
     user: User,
     user_access_control: UserAccessControl,
     key: str,
     no_snapshot_key: str,
 ) -> SiteSnapshot:
-    moment = find_snapshot_moment(team, survey, device)
+    moment = find_snapshot_moment(team, target, device)
     if moment is None:
         cache.set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
         return UNAVAILABLE

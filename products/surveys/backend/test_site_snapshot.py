@@ -28,6 +28,7 @@ from products.surveys.backend.site_snapshot import (
     SiteStyle,
     SnapshotDevice,
     SnapshotStatus,
+    UrlTarget,
     find_snapshot_moment,
     get_site_snapshot,
 )
@@ -143,7 +144,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
     def test_picks_the_newest_matching_page_with_a_replay(
         self, _name: str, conditions: dict[str, Any] | None, expected_url: str | None
     ) -> None:
-        moment = find_snapshot_moment(self.team, self._survey(conditions), SnapshotDevice.DESKTOP)
+        moment = find_snapshot_moment(self.team, UrlTarget.of(self._survey(conditions)), SnapshotDevice.DESKTOP)
 
         assert (moment.page_url if moment else None) == expected_url
 
@@ -156,7 +157,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
     def test_filters_by_viewport_and_offsets_into_the_replay(
         self, device: SnapshotDevice, expected_session: str, expected_url: str
     ) -> None:
-        moment = find_snapshot_moment(self.team, self._survey(None), device)
+        moment = find_snapshot_moment(self.team, UrlTarget.of(self._survey(None)), device)
 
         assert moment is not None
         assert (moment.session_id, moment.page_url) == (expected_session, expected_url)
@@ -270,6 +271,27 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
 
         assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+
+    @parameterized.expand(
+        [
+            ("saved_targeting", "", PRICING),
+            ("unsaved_targeting", "&url=docs", DOCS),
+            ("unsaved_targeting_with_match_type", "&url=/docs/.%2B&url_match_type=regex", DOCS),
+            ("unsaved_targeting_of_every_page", "&url=", DOCS),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_uses_the_editor_url_targeting_when_given(
+        self, _name: str, query: str, expected_url: str, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey({"url": "pricing"})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/site_snapshot/?device=desktop{query}"
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["page_url"] == expected_url
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_a_changed_url_condition_renders_a_new_snapshot(self, _async_connect: AsyncMock) -> None:

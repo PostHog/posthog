@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from products.surveys.backend.site_snapshot import DEVICE_VIEWPORTS, SnapshotDevice, SnapshotStatus
+from products.surveys.backend.models import SurveyMatchType
+from products.surveys.backend.site_snapshot import DEVICE_VIEWPORTS, SnapshotDevice, SnapshotStatus, UrlTarget
 
 
 class SiteSnapshotQuerySerializer(serializers.Serializer):
@@ -11,6 +12,19 @@ class SiteSnapshotQuerySerializer(serializers.Serializer):
             f"{DEVICE_VIEWPORTS[SnapshotDevice.DESKTOP].min_width}px wide, mobile one at most "
             f"{DEVICE_VIEWPORTS[SnapshotDevice.MOBILE].max_width}px wide."
         ),
+    )
+    url = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. "
+            "Empty means every page. Leave out to use the saved targeting."
+        ),
+    )
+    url_match_type = serializers.ChoiceField(
+        choices=SurveyMatchType.choices,
+        required=False,
+        help_text="How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.",
     )
 
 
@@ -54,4 +68,13 @@ class SiteSnapshotSerializer(serializers.Serializer):
             "Colors read from the snapshot's page, to suggest a survey appearance that matches the site. "
             "Null until the snapshot is ready, or when the page's colors could not be read."
         ),
+    )
+
+
+def url_target_of_query(query: dict) -> UrlTarget | None:
+    if "url" not in query:
+        return None
+    return UrlTarget(
+        url=query["url"],
+        match_type=SurveyMatchType(query.get("url_match_type") or SurveyMatchType.ICONTAINS),
     )

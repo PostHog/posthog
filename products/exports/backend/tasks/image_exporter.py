@@ -14,6 +14,8 @@ import posthoganalytics
 from playwright.sync_api import (
     Error as PlaywrightError,
     Page,
+    Request,
+    Response,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
@@ -124,11 +126,16 @@ READ_SITE_STYLE_JS = f"""
         const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
         return (lighter + 0.05) / (darker + 0.05);
     }};
-    const CANVAS = 'white';
+    // Where nothing paints a background, the canvas color shows, and it follows the page's color scheme.
+    const probe = doc.createElement('div');
+    probe.style.backgroundColor = 'Canvas';
+    doc.documentElement.appendChild(probe);
+    const canvasColor = view.getComputedStyle(probe).backgroundColor;
+    probe.remove();
     const surfaceByElement = new Map();
     const surfaceBehind = (element) => {{
         const unresolved = [];
-        let surface = CANVAS;
+        let surface = canvasColor;
         for (; element; element = element.parentElement) {{
             if (surfaceByElement.has(element)) {{
                 surface = surfaceByElement.get(element);
@@ -150,10 +157,6 @@ READ_SITE_STYLE_JS = f"""
     const center = !hit || hit === doc.documentElement ? doc.body : hit;
     const background = surfaceBehind(center);
     const text = view.getComputedStyle(center).color;
-    // A stylesheet the replay could not fetch leaves browser defaults, and a cross-origin sheet hides whether it loaded.
-    if (background === CANVAS && hex(text) === '#000000') {{
-        return null;
-    }}
     let button = null;
     let buttonWeight = 0;
     for (const element of doc.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"]')) {{
@@ -161,6 +164,15 @@ READ_SITE_STYLE_JS = f"""
         const area = rect.width * rect.height;
         const onScreen = rect.bottom > 0 && rect.top < view.innerHeight && rect.right > 0 && rect.left < view.innerWidth;
         if (!area || rect.height > {MAX_BUTTON_HEIGHT_PIXELS} || !onScreen) {{
+            continue;
+        }}
+        // Skip buttons a visitor cannot see: hidden by an ancestor's opacity, clipped, or covered by something else.
+        const onTop = doc.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        if (
+            !element.checkVisibility({{ opacityProperty: true, visibilityProperty: true }}) ||
+            !onTop ||
+            !(element === onTop || element.contains(onTop))
+        ) {{
             continue;
         }}
         // Some design systems paint a button on an inner element that fills it.
@@ -171,7 +183,7 @@ READ_SITE_STYLE_JS = f"""
         }});
         const style = painted && view.getComputedStyle(painted);
         const weight = style ? area * (contrast(style.backgroundColor, surfaceBehind(element.parentElement)) - 1) : 0;
-        if (style?.visibility !== 'hidden' && weight > buttonWeight) {{
+        if (weight > buttonWeight) {{
             button = style;
             buttonWeight = weight;
         }}
@@ -581,6 +593,7 @@ def _screenshot_asset_browserless(
                 viewport={"width": screenshot_width, "height": screenshot_height},
             )
             page = context.new_page()
+            failed_stylesheets = _watch_failed_stylesheets(page) if read_site_style else []
             posthoganalytics.tag("url_to_render", url_to_render)
 
             try:
@@ -628,7 +641,7 @@ def _screenshot_asset_browserless(
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
             page.screenshot(path=image_path)
-            return _read_site_style(page) if read_site_style else None
+            return _read_site_style(page, failed_stylesheets) if read_site_style else None
         except BrowserlessUnavailable:
             raise
         except PlaywrightTimeoutError:
@@ -656,10 +669,31 @@ def _screenshot_asset_browserless(
                 pass
 
 
-def _read_site_style(page: Page) -> Optional[dict]:
+def _watch_failed_stylesheets(page: Page) -> list[str]:
+    failed: list[str] = []
+
+    def on_request_failed(request: Request) -> None:
+        if request.resource_type == "stylesheet":
+            failed.append(request.url)
+
+    def on_response(response: Response) -> None:
+        if response.request.resource_type == "stylesheet" and not response.ok:
+            failed.append(response.url)
+
+    page.on("requestfailed", on_request_failed)
+    page.on("response", on_response)
+    return failed
+
+
+def _read_site_style(page: Page, failed_stylesheets: list[str]) -> Optional[dict]:
+    if failed_stylesheets:
+        # Without its stylesheets the replayed page shows browser defaults, not the site's colors.
+        return None
     try:
         return page.evaluate(f"() => {{ {READ_SITE_STYLE_JS} }}")
     except PlaywrightError as e:
+        if page.is_closed() or _is_browserless_connection_error(e):
+            raise
         capture_exception(e)
         return None
 
