@@ -27,6 +27,7 @@ from products.alerts_platform.backend.facade.contracts import (
     HeldDeliveryAddress,
     NativeConfigurationMatch,
     NewAlertDestination,
+    OwnedCopyKey,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
@@ -255,15 +256,11 @@ def native_configuration_keys(
     )
 
 
-def owned_copy_keys(
-    *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
-) -> tuple[tuple[datetime, UUID], ...]:
-    """`(created_at, source row id)` of every copy of a kind the platform owns, newest first, for a
-    source that lists those alerts from the platform. A copy carries its source row's `created_at`.
-    With `created_by_uuid`, only the ones that user created."""
-    return platform_reads.owned_copy_keys(
-        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
-    )
+def owned_copy_keys(*, team_id: int, source_kind: SourceKind) -> tuple[OwnedCopyKey, ...]:
+    """Every copy of a kind the platform owns, newest first, for a source that lists those alerts
+    from the platform. A copy carries its source row's `created_at` and creator. A caller that needs
+    a subset filters this one read, so a handover between two reads cannot drop an alert."""
+    return platform_reads.owned_copy_keys(team_id=team_id, source_kind=source_kind.value)
 
 
 def owned_copies(

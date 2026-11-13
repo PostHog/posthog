@@ -184,7 +184,9 @@ def native_insight_alert_matches(
 def moved_insight_alert_ids(team_id: int) -> frozenset[UUID]:
     """The team's insight alerts the platform owns, from one read of their copies, for a reader that
     splits rows from copies on it."""
-    return frozenset(alert_id for _, alert_id in owned_copy_keys(team_id=team_id, source_kind=SourceKind.INSIGHT))
+    return frozenset(
+        key.legacy_configuration_id for key in owned_copy_keys(team_id=team_id, source_kind=SourceKind.INSIGHT)
+    )
 
 
 def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:

@@ -1103,6 +1103,15 @@ class NativeConfigurationMatch:
 
 
 @frozen
+class OwnedCopyKey:
+    """One copy the platform owns, with what a source sorts and filters it on beside its own rows."""
+
+    created_at: datetime
+    legacy_configuration_id: UUID
+    created_by_id: int | None
+
+
+@frozen
 class EnabledNativeConfiguration:
     """One enabled alert of a kind with no source row, or a copy the platform owns, with what a source's own readers of its
     enabled alerts need, such as the insight an insight alert watches."""

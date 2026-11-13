@@ -22,7 +22,12 @@ from products.alerts_platform.backend.facade.api import (
     owned_copy_keys,
     update_configuration,
 )
-from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationView, SourceKind
+from products.alerts_platform.backend.facade.contracts import (
+    Grouping,
+    OwnedCopyKey,
+    PlatformAlertConfigurationView,
+    SourceKind,
+)
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_ownership import platform_change_of, platform_edit_of
 
@@ -51,10 +56,9 @@ def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[Platf
     return tuple(view for view in page.configurations if view.legacy_configuration_id is None)
 
 
-def owned_copy_alert_keys(team_id: int, *, created_by_uuid: UUID | None = None) -> tuple[tuple[datetime, UUID], ...]:
-    """`(created_at, id)` of each of the team's logs alerts that keep a logs row and that the platform
-    owns. With `created_by_uuid`, only the ones that user created, as the platform records it."""
-    return owned_copy_keys(team_id=team_id, source_kind=SourceKind.LOGS, created_by_uuid=created_by_uuid)
+def owned_copy_alert_keys(team_id: int) -> tuple[OwnedCopyKey, ...]:
+    """The team's logs alerts that keep a logs row and that the platform owns, newest first."""
+    return owned_copy_keys(team_id=team_id, source_kind=SourceKind.LOGS)
 
 
 def owned_copy_views(team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, PlatformAlertConfigurationView]:
