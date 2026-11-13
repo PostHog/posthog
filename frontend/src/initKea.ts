@@ -435,11 +435,12 @@ export function initKea({
                     !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
                     !isSelfHandledValidationError
                 ) {
-                    // The request id joins the exception to the backend logs of the request that failed.
-                    posthog.captureException(
-                        error,
-                        error instanceof ApiError && error.requestId ? { http_request_id: error.requestId } : undefined
-                    )
+                    if (error instanceof ApiError && error.requestId) {
+                        // The request id joins the exception to the backend logs of the request that failed.
+                        posthog.captureException(error, { http_request_id: error.requestId })
+                    } else {
+                        posthog.captureException(error)
+                    }
                 }
             },
         }),
