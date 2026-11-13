@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.tasks.backend.logic.services.custom_image_refresh import refresh_stale_sandbox_custom_images
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.temporal.build_image.activities import MarkImageBuildFailedInput, mark_image_build_failed
@@ -103,3 +105,8 @@ class TestCustomImageRefresh(APIBaseTest):
         mock_reference.return_value = "ghcr.io/posthog/posthog-sandbox-vm@sha256:next"
         assert refresh_stale_sandbox_custom_images() == 1
         assert mock_execute.call_count == 2
+        assert list(
+            ActivityLog.objects.filter(scope="SandboxCustomImage", item_id=str(stale.id)).values_list(
+                "activity", flat=True
+            )
+        ) == ["created"]
