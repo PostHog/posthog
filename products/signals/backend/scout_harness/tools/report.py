@@ -66,7 +66,8 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct
+from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -1363,6 +1364,11 @@ def _replay_result(existing: ExistingScoutReport) -> EmitReportResult:
     )
 
 
+def _replay_existing_report(*, team: Team, author: ReportAuthor, existing: ExistingScoutReport) -> EmitReportResult:
+    _emit_report_ready_event(team_id=team.id, report_id=existing.report_id, created_by_id=author.user_id)
+    return _replay_result(existing)
+
+
 def _emit_result(persisted_report_id: str, judgement: ScoutReportJudgement) -> EmitReportResult:
     return EmitReportResult(
         report_id=persisted_report_id,
@@ -1727,6 +1733,11 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
         )
     except Exception:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
+
+
+def _emit_report_ready_event(*, team_id: int, report_id: str, created_by_id: int | None) -> None:
+    source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
+    emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[source_product])
 
 
 # Telemetry caps for the report content carried on the lifecycle events. The signal channel surfaces a
@@ -2356,7 +2367,11 @@ async def emit_report(
             team_id=team.id, idempotency_key=emit_key
         )
     if existing is not None:
-        return await finish(_replay_result(existing))
+        return await finish(
+            await database_sync_to_async(_replay_existing_report, thread_sensitive=False)(
+                team=team, author=author, existing=existing
+            )
+        )
 
     # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
     # safety judge so an unresolvable reviewer fails fast rather than after paying for the LLM call.
@@ -2484,6 +2499,9 @@ async def emit_report(
                     delivery_id=persisted.report_id,
                 )
             await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+            await database_sync_to_async(_emit_report_ready_event, thread_sensitive=False)(
+                team_id=team.id, report_id=persisted.report_id, created_by_id=author.user_id
+            )
         return await finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -2575,7 +2593,7 @@ def emit_report_sync(
     else:
         existing = find_scout_report_by_idempotency_key(team_id=team.id, idempotency_key=emit_key)
     if existing is not None:
-        return finish(_replay_result(existing))
+        return finish(_replay_existing_report(team=team, author=author, existing=existing))
 
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
 
@@ -2691,6 +2709,7 @@ def emit_report_sync(
                     delivery_id=persisted.report_id,
                 )
             async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+            _emit_report_ready_event(team_id=team.id, report_id=persisted.report_id, created_by_id=author.user_id)
         return finish(_emit_result(persisted.report_id, judgement))
 
 

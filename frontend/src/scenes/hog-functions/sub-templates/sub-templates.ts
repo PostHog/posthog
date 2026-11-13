@@ -172,6 +172,8 @@ const PA_ALERT_MASKING_TTL_SECONDS = 30 * 60
 // triggered it, and the replay list has the rest.
 const PA_RAGECLICK_MASKING_HASH = 'rageclick'
 
+const INBOX_REPORT_MASKING_TTL_SECONDS = 24 * 60 * 60
+
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
     Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type' | 'context_id'> &
@@ -338,6 +340,14 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'replay-vision-requests',
         filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
+    },
+    'inbox-report-ready': {
+        sub_template_id: 'inbox-report-ready',
+        type: 'internal_destination',
+        context_id: 'inbox-reports',
+        filters: { source: 'internal-events', events: [{ id: '$inbox_report_ready', type: 'events' }] },
+        masking: { hash: '{event.properties.report_id}', ttl: INBOX_REPORT_MASKING_TTL_SECONDS, threshold: null },
+        flag: FEATURE_FLAGS.INBOX_REPORT_DESTINATIONS,
     },
 }
 
@@ -1902,6 +1912,61 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'inbox-report-ready': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['inbox-report-ready'],
+            template_id: 'template-webhook',
+            name: 'HTTP webhook when an Inbox report is ready',
+            description: 'Send a webhook when a new report reaches your Inbox',
+            inputs: {
+                body: {
+                    value: {
+                        report_id: '{event.properties.report_id}',
+                        title: '{event.properties.title}',
+                        summary: '{event.properties.summary}',
+                        priority: '{event.properties.priority}',
+                        source_products: '{event.properties.source_products}',
+                        report_url: '{event.properties.report_url}',
+                    },
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['inbox-report-ready'],
+            template_id: 'template-slack',
+            name: 'Post to Slack when an Inbox report is ready',
+            description: 'Post to a Slack channel when a new report reaches your Inbox',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                verbatim: true,
+                                text: `New Inbox report: *{${slackEscapeExpr('event.properties.title')}}*`,
+                            },
+                        },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{event.properties.report_url}',
+                                    text: { text: 'View report', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                    ],
+                },
+                text: { value: `New Inbox report: {${slackEscapeExpr('event.properties.title')}}` },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1954,6 +2019,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'replay-vision-alerts'
         case '$replay_vision_request_completed':
             return 'replay-vision-requests'
+        case '$inbox_report_ready':
+            return 'inbox-reports'
         default:
             return 'standard'
     }

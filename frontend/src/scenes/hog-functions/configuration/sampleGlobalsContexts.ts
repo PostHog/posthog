@@ -33,6 +33,19 @@ function sampleHealthCheckKind(filters?: CyclotronJobFiltersType | null): string
     return typeof kind === 'string' && kind ? kind : 'test'
 }
 
+export const INBOX_REPORT_READY_EVENT = '$inbox_report_ready'
+
+export function sampleInboxReportProperties(projectUrl: string): Record<string, any> {
+    return {
+        report_id: '00000000-0000-0000-0000-000000000000',
+        title: 'Checkout errors rose after the latest release',
+        summary: 'This is an example report from PostHog',
+        priority: 'P2',
+        source_products: ['scout'],
+        report_url: `${projectUrl}/inbox`,
+    }
+}
+
 /**
  * Per-context overrides for the "load sample globals" flow in the hog function test panel.
  * Contexts without an entry load the last event matching the configured filters.
@@ -86,6 +99,14 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
                 remediation: null,
                 payload: {},
             },
+        },
+    }),
+    'inbox-reports': async (exampleGlobals) => ({
+        ...exampleGlobals,
+        event: {
+            ...exampleGlobals.event,
+            event: INBOX_REPORT_READY_EVENT,
+            properties: sampleInboxReportProperties(exampleGlobals.project.url),
         },
     }),
 }

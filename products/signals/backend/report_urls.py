@@ -25,6 +25,7 @@ class ReportLinkSource(StrEnum):
     SUPPORT = "support"
     TASK = "task"
     TODAY = "today"
+    DESTINATION = "destination"
 
 
 class ReportLinkAction(StrEnum):

@@ -32,6 +32,10 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
+from products.signals.backend.test.inbox_report_events_recorder import (
+    inbox_report_ready_events,
+    recorded_internal_events,
+)
 from products.signals.backend.trial.funding import TrialFunding
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
@@ -208,6 +212,21 @@ class TestCustomAgentLogArtefacts(BaseTest):
         assert json.loads(row.content) == {"note": "hello", "author": None}
         assert row.task_id is None
         assert row.created_by_id is None
+
+    def test_create_report_reaches_inbox_report_destinations(self):
+        with recorded_internal_events() as (sent, _):
+            persisted = create_custom_agent_ready_report(
+                team_id=self.team.id,
+                final_report=self._final_report(),
+                repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+                task_id=None,
+                agent_identifier=("billing", "anomaly_scan"),
+                registered_artefacts=[],
+            )
+
+        assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(sent)] == [
+            (str(persisted.report_id), ["billing"])
+        ]
 
     def test_create_report_routes_registered_status_artefacts_latest_wins(self):
         # A registered status artefact appends a new version on top of the one the final report

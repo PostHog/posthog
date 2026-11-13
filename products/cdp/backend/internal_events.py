@@ -24,6 +24,25 @@ _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 
 
 WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
+INBOX_REPORT_READY_EVENT = "$inbox_report_ready"
+
+READ_GATED_INTERNAL_EVENT_SCOPES: dict[str, str] = {INBOX_REPORT_READY_EVENT: "inbox"}
+
+
+def read_gated_internal_events(filters: object) -> set[str]:
+    events = filters.get("events") if isinstance(filters, dict) else None
+    if not isinstance(events, list):
+        return set()
+    return {
+        event["id"]
+        for event in events
+        if isinstance(event, dict) and event.get("id") in READ_GATED_INTERNAL_EVENT_SCOPES
+    }
+
+
+def read_gated_internal_event_scopes(filters: object) -> set[str]:
+    return {READ_GATED_INTERNAL_EVENT_SCOPES[event] for event in read_gated_internal_events(filters)}
+
 
 # Internal events that only the product which emits them may consume. A user-created
 # destination cannot subscribe to one, because its properties carry that product's data and

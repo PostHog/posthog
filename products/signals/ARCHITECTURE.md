@@ -175,6 +175,15 @@ Defined in `backend/temporal/summary.py`.
    - If **immediately actionable** → `mark_report_ready_activity`
 8. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
 9. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
+10. When the report settles as `ready` after the implementation buffer, `emit_inbox_report_ready_activity` writes one `$inbox_report_ready` internal event, so the project's real-time destinations receive it (`backend/inbox_report_events.py`).
+    The scout and custom-agent producers write the same event when they file a ready report.
+    The layers of a research plan are born ready with their plan and run no workflow of their own, so the plan's event carries one event per layer with it.
+    A claim on the report (`ready_event_emitted_at`) keeps a re-settle from sending it again, and `reconcile_inbox_report_ready_events` re-sends every 10 minutes a claim the broker never confirmed, with the same event uuid.
+    Delivery is at least once, so receivers dedupe on `report_id`.
+    The `inbox-report-destinations` flag gates sending and re-sending per project. While the flag cannot be evaluated, a report is claimed but not sent, and the sweep sends it once the flag answers. An instance that opts out of PostHog's own analytics never sends. A report the Inbox hides, because its scout turned the Inbox destination off, is never sent.
+    A destination on this event needs viewer access to Tasks, plus `inbox:read` (or the legacy `task:read`) for an API key, to create, edit, test, rerun, or read its logs. It cannot drop the event from its trigger.
+    Known limit: SQL over `log_entries` and `hog_invocation_results` is not gated by the destination's trigger. Report content lands there only when someone who passed this gate makes it: by turning on the webhook's debug input, printing it from custom code, or pointing the webhook at an endpoint that echoes it back in an error.
+    Gated with `workflow.patched("signals-inbox-report-ready-event")`.
 
 On any unhandled exception, the workflow marks the report `failed` and re-raises.
 

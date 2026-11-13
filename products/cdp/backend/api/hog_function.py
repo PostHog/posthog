@@ -53,6 +53,7 @@ from products.cdp.backend.internal_events import (
     generic_api_editable_alert_scope,
     is_managed_alert_internal_event,
     is_reserved_internal_event,
+    read_gated_internal_events,
 )
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -87,10 +88,12 @@ from products.cdp.backend.validation import (
     MappingsSerializer,
     added_duplicate_input_keys,
     compile_hog,
+    dropped_read_gated_trigger,
     exposes_secret_dictionary_keys,
     generate_template_bytecode,
     masked_dictionary_secret,
     masked_secret_input_keys,
+    read_gated_access_denial,
     require_viewer_access_to_added_actions,
     reserved_functions_used,
 )
@@ -309,6 +312,16 @@ def draft_changed_fields(hog_function: HogFunction) -> list[str]:
     if "inputs" not in changed and any(live_secrets.get(key) != value for key, value in staged_secrets.items()):
         changed.append("inputs")
     return sorted(changed)
+
+
+READ_GATED_TRIGGER_CHANGED_MESSAGE = (
+    "This destination's trigger changed while you were editing it. Reload it and try again."
+)
+
+
+def _read_gated_triggers(hog_function: HogFunction) -> set[str]:
+    draft_filters = hog_function.draft.get("filters") if isinstance(hog_function.draft, dict) else None
+    return read_gated_internal_events(hog_function.filters) | read_gated_internal_events(draft_filters)
 
 
 class StaleHogFunctionUpdateError(exceptions.APIException):
@@ -784,6 +797,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
             )
 
+        read_gated_denial = read_gated_access_denial(
+            self.context.get("request"),
+            getattr(self.context.get("view"), "user_access_control", None),
+            proposed_filters,
+        )
+        if read_gated_denial:
+            raise serializers.ValidationError({"filters": read_gated_denial})
+        dropped_trigger = dropped_read_gated_trigger(current_filters, proposed_filters)
+        if dropped_trigger:
+            raise serializers.ValidationError({"filters": dropped_trigger})
+
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
         # Existing functions keep working (and can be updated/disabled) if the flag is
@@ -1210,6 +1234,29 @@ class HogFunctionViewSet(
             cast(APIScopeObject, alert_scope), required_level="editor"
         ):
             raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+        read_gated_denial = self._stored_read_gated_denial(request)
+        if read_gated_denial:
+            raise PermissionDenied(read_gated_denial)
+
+    def _stored_read_gated_denial(self, request: Request) -> Optional[str]:
+        hog_function_id = self.kwargs.get("pk")
+        if not hog_function_id or self.action not in [*self.scope_object_write_actions, "logs"]:
+            return None
+        try:
+            stored = (
+                HogFunction.objects.filter(team_id=self.team_id, id=str(hog_function_id))
+                .values_list("filters", "draft")
+                .first()
+            )
+        except (ValueError, DjangoValidationError):
+            stored = None
+        if stored is None:
+            return None
+        filters, draft = stored
+        draft_filters = draft.get("filters") if isinstance(draft, dict) else None
+        return read_gated_access_denial(request, self.user_access_control, filters) or read_gated_access_denial(
+            request, self.user_access_control, draft_filters
+        )
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # A managed alert destination is also gated by the owning product's write scope, so a
@@ -1736,6 +1783,8 @@ class HogFunctionViewSet(
                 guard_timestamp = locked.draft_updated_at
             if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleHogFunctionUpdateError()
+            if locked is not None and _read_gated_triggers(locked) != _read_gated_triggers(serializer.instance):
+                raise StaleHogFunctionUpdateError(READ_GATED_TRIGGER_CHANGED_MESSAGE)
             if route_to_draft:
                 assert locked is not None
                 # Preserved before the metadata save clears validated_data below.

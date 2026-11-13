@@ -129,6 +129,7 @@ from products.signals.backend.facade.tasks import (
     enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
+    reconcile_inbox_report_ready_events,
     reconcile_report_inbox_state_cache,
     recover_incomplete_spend,
     refresh_signal_repository_activity,
@@ -425,6 +426,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         recover_incomplete_spend.s(),
         name="recover signals spend",
+        expires_seconds=10 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        reconcile_inbox_report_ready_events.s(),
+        name="resend signals inbox report ready events",
         expires_seconds=10 * 60,
     )
 

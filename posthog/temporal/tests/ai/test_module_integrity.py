@@ -171,6 +171,7 @@ class TestSignalsProductModuleIntegrity:
             "implementation_buffer_seconds_activity",
             "report_is_candidate_activity",
             "publish_report_completed_activity",
+            "emit_inbox_report_ready_activity",
             "report_has_assigned_signals_activity",
             "revert_report_to_candidate_activity",
             "delete_team_reports_activity",

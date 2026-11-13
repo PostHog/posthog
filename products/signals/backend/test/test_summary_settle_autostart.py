@@ -1,6 +1,7 @@
 import uuid
 import random
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -11,6 +12,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from kombu.exceptions import OperationalError as KombuOperationalError
 from temporalio import activity, workflow
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.exceptions import ApplicationError
@@ -20,9 +22,10 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
-from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.tasks import retry_inbox_report_ready_event
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
 from products.signals.backend.temporal.inbox_notification import (
@@ -33,6 +36,7 @@ from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInp
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
     CheckReportQuotaGateInput,
+    EmitInboxReportReadyInput,
     ImplementationBufferInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
@@ -40,10 +44,17 @@ from products.signals.backend.temporal.summary import (
     PublishReportCompletedInput,
     ReportIsCandidateInput,
     SignalReportSummaryWorkflow,
+    emit_inbox_report_ready_activity,
     implementation_buffer_seconds_activity,
+    mark_report_ready_activity,
     maybe_autostart_implementation_activity,
+    report_is_candidate_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.test.inbox_report_events_recorder import (
+    inbox_report_ready_events,
+    recorded_internal_events,
+)
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
 # The settle branch starts the inbox-notification child on VIDEO_EXPORT_TASK_QUEUE; run the worker
@@ -148,6 +159,7 @@ class _Recorder:
         self.work_owners: list[str | None] = []
         self.candidate_checks = 0
         self.ready_result: bool | None = False
+        self.real_ready_transition = False
         self.publications = 0
         # Auto-starts completed by the time the notification child made its first state check. The
         # child only waits for the implementation PR if the task already exists then, so a 0 here
@@ -183,8 +195,16 @@ class _StubInboxNotificationWorkflow:
 
 
 async def _run_summary_workflow(
-    recorder: _Recorder, *, requested_user_id: int | None = None, requested_after_run_count: int | None = None
+    recorder: _Recorder,
+    *,
+    requested_user_id: int | None = None,
+    requested_after_run_count: int | None = None,
+    team_id: int = 1,
+    report_id: str | None = None,
+    emit_ready: Callable[[EmitInboxReportReadyInput], Awaitable[None]] | None = None,
 ) -> None:
+    workflow_report_id = report_id or str(uuid.uuid4())
+
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
         # Simulate the limit being crossed during the first pass. Any further stage or
@@ -203,7 +223,10 @@ async def _run_summary_workflow(
 
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
-        return None
+        if recorder.real_ready_transition:
+            await SignalReport.objects.filter(id=workflow_report_id, status=SignalReport.Status.CANDIDATE).aupdate(
+                status=SignalReport.Status.IN_PROGRESS
+            )
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
@@ -224,7 +247,7 @@ async def _run_summary_workflow(
         recorder.work_owners.append(input.signal_id)
         recorder.researches += 1
         return RunAgenticReportOutput(
-            title="t",
+            title=f"Research {recorder.researches}",
             summary="s",
             choice=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
             priority=Priority.P1,
@@ -236,6 +259,8 @@ async def _run_summary_workflow(
     @activity.defn(name="mark_report_ready_activity")
     async def fake_mark_ready(input: MarkReportReadyInput) -> bool | None:
         # No new signals arrived during the run itself; the buffer is what catches late signals.
+        if recorder.real_ready_transition:
+            recorder.ready_result = await mark_report_ready_activity(input)
         return recorder.ready_result
 
     @activity.defn(name="publish_report_completed_activity")
@@ -252,11 +277,15 @@ async def _run_summary_workflow(
 
     @activity.defn(name="implementation_buffer_seconds_activity")
     async def fake_buffer(input: ImplementationBufferInput) -> int:
+        if recorder.real_ready_transition and recorder.candidate_on_first_check and recorder.researches == 1:
+            await SignalReport.objects.filter(id=workflow_report_id).aupdate(status=SignalReport.Status.CANDIDATE)
         return recorder.buffer_seconds
 
     @activity.defn(name="report_is_candidate_activity")
     async def fake_candidate(input: ReportIsCandidateInput) -> bool:
         recorder.candidate_checks += 1
+        if recorder.real_ready_transition:
+            return await report_is_candidate_activity(input)
         return recorder.candidate_on_first_check and recorder.candidate_checks == 1
 
     @activity.defn(name="maybe_autostart_implementation_activity")
@@ -264,11 +293,13 @@ async def _run_summary_workflow(
         recorder.autostarts += 1
         recorder.autostart_inputs.append(input)
 
+    @activity.defn(name="emit_inbox_report_ready_activity")
+    async def fake_emit_ready(input: EmitInboxReportReadyInput) -> None:
+        return None
+
     @activity.defn(name="record_notification_check_activity")
     async def fake_notification_check(input: InboxNotificationInput) -> None:
         recorder.autostarts_at_notification.append(recorder.autostarts)
-
-    report_id = str(uuid.uuid4())
 
     async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
         async with Worker(
@@ -292,6 +323,7 @@ async def _run_summary_workflow(
                 fake_candidate,
                 fake_autostart,
                 fake_notification_check,
+                emit_ready or fake_emit_ready,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -299,8 +331,8 @@ async def _run_summary_workflow(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
                     SignalReportSummaryWorkflowInputs(
-                        team_id=1,
-                        report_id=report_id,
+                        team_id=team_id,
+                        report_id=workflow_report_id,
                         requested_implementation_user_id=requested_user_id,
                         requested_after_run_count=requested_after_run_count,
                     ),
@@ -314,7 +346,7 @@ async def _run_summary_workflow(
             if recorder.ready_result is not None:
                 await asyncio.wait_for(
                     env.client.get_workflow_handle(
-                        SignalReportInboxNotificationWorkflow.workflow_id_for(1, report_id)
+                        SignalReportInboxNotificationWorkflow.workflow_id_for(team_id, workflow_report_id)
                     ).result(),
                     timeout=30,
                 )
@@ -341,6 +373,52 @@ async def test_no_buffer_autostarts_immediately_at_settle():
     assert recorder.autostarts == 1
     # The task exists before the notification looks, so its card can wait for the PR.
     assert recorder.autostarts_at_notification == [1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "status_at_start,buffer_seconds,signal_during_buffer,expected_titles",
+    [
+        (SignalReport.Status.CANDIDATE, 0, False, ["Research 1"]),
+        (SignalReport.Status.CANDIDATE, 120, True, ["Research 2"]),
+        (SignalReport.Status.SUPPRESSED, 0, False, []),
+    ],
+    ids=["settled", "re-researched_during_buffer", "suppressed_during_research"],
+)
+async def test_only_the_settled_summary_reaches_destinations(
+    ateam, status_at_start, buffer_seconds, signal_during_buffer, expected_titles
+):
+    report = await SignalReport.objects.acreate(
+        team=ateam, status=status_at_start, title="Before research", summary="Summary"
+    )
+    recorder = _Recorder(buffer_seconds=buffer_seconds, candidate_on_first_check=signal_during_buffer)
+    recorder.real_ready_transition = True
+
+    with recorded_internal_events() as (sent, _):
+        await _run_summary_workflow(
+            recorder, team_id=ateam.id, report_id=str(report.id), emit_ready=emit_inbox_report_ready_activity
+        )
+
+    assert [
+        (event["report_id"], event["title"], event["source_products"]) for event in inbox_report_ready_events(sent)
+    ] == [(str(report.id), title, ["error_tracking"]) for title in expected_titles]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_a_ready_event_that_is_neither_sent_nor_queued_fails_for_temporal_to_retry(ateam):
+    with (
+        recorded_internal_events() as (sent, _),
+        patch.object(retry_inbox_report_ready_event, "apply_async", side_effect=KombuOperationalError("broker down")),
+        pytest.raises(RuntimeError),
+    ):
+        await ActivityEnvironment().run(
+            emit_inbox_report_ready_activity,
+            EmitInboxReportReadyInput(team_id=ateam.id, report_id="not-a-report-id", source_products=["scout"]),
+        )
+
+    assert sent == []
 
 
 @pytest.mark.asyncio

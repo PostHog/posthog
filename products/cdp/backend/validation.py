@@ -3,7 +3,7 @@ import json
 import logging
 import contextlib
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db import models
 
@@ -24,6 +24,8 @@ from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
+from posthog.scopes import APIScopeObject
 
 from products.actions.backend.facade.api import get_actions
 from products.cdp.backend.filters import (
@@ -38,6 +40,7 @@ from products.cdp.backend.filters import (
     filter_action_ids,
     filter_cohort_ids,
 )
+from products.cdp.backend.internal_events import read_gated_internal_event_scopes, read_gated_internal_events
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
@@ -1365,6 +1368,48 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
             f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
             "Remove them from the filters, or ask for access."
         )
+
+
+def read_gated_access_denial(request: Any, user_access_control: Any, filters: Any) -> str | None:
+    scopes = sorted(read_gated_internal_event_scopes(filters))
+    if not scopes or request is None:
+        return None
+    held_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    lacking_scopes = (
+        []
+        if held_scopes is None or "*" in held_scopes
+        else scopes_missing_after_legacy_fallback(request, None, held_scopes, [f"{scope}:read" for scope in scopes])
+    )
+    user = getattr(request, "user", None)
+    denied_resources = (
+        [
+            scope
+            for scope in scopes
+            if not user_access_control.check_access_level_for_resource(cast(APIScopeObject, scope), "viewer")
+        ]
+        if isinstance(user, User) and user_access_control is not None
+        else []
+    )
+    if not lacking_scopes and not denied_resources:
+        return None
+    resources = ", ".join(READ_GATED_RESOURCE_NAMES.get(scope, scope) for scope in scopes)
+    return (
+        f"This destination's trigger needs viewer access to {resources}. "
+        f"If you use an API key, it also needs the {', '.join(f'{scope}:read' for scope in scopes)} scope."
+    )
+
+
+READ_GATED_RESOURCE_NAMES = {"inbox": "Tasks"}
+
+
+def dropped_read_gated_trigger(current_filters: Any, proposed_filters: Any) -> str | None:
+    dropped = sorted(read_gated_internal_events(current_filters) - read_gated_internal_events(proposed_filters))
+    if not dropped:
+        return None
+    return (
+        f"This destination's trigger has to keep {', '.join(dropped)}, because its logs and past runs hold "
+        "what that event delivered. Create a new destination for a different trigger."
+    )
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):

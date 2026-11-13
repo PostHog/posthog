@@ -16,6 +16,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
+from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -136,5 +137,7 @@ def create_custom_agent_ready_report(
             user_uuids=[entry.user_uuid for entry in reviewers.root if entry.user_uuid and not entry.github_login],
             source="custom_agent",
         )
+
+    emit_inbox_report_ready_event(team_id=team_id, report_id=str(report.id), source_products=[agent_identifier[0]])
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)

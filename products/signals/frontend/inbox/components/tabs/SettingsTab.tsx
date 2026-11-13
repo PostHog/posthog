@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { AgentSteeringSection } from '../config/AgentSteeringSection'
+import { DestinationsSection } from '../config/DestinationsSection'
 import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -43,6 +44,7 @@ export function SettingsTab(): JSX.Element {
             >
                 <SlackNotificationsSection />
             </SettingsSection>
+            <DestinationsSection />
             {(showBillingUsage || usageEnabled) && (
                 <SettingsSection
                     title="Usage"

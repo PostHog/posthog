@@ -20,6 +20,7 @@ describe('sub-templates', () => {
         ['$billing_alert_firing', 'billing-alerts'],
         ['$replay_vision_alert_match', 'replay-vision-alerts'],
         ['$replay_vision_request_completed', 'replay-vision-requests'],
+        ['$inbox_report_ready', 'inbox-reports'],
         ['$pageview', 'standard'],
         [undefined, 'standard'],
     ])('reads %s as the %s context', (event, expected) => {
@@ -52,11 +53,16 @@ describe('sub-templates', () => {
 
     // A placeholder the sample event leaves empty renders an empty Slack block. Slack then rejects
     // the whole test message.
-    it.each(['health-check-firing', 'health-check-resolved'] as const)(
+    it.each([
+        ['health-check-firing', 'health-alerts'],
+        ['health-check-resolved', 'health-alerts'],
+        ['inbox-report-ready', 'inbox-reports'],
+    ] as const)(
         'gives the %s templates a sample value for every event property they read',
-        async (subTemplateId) => {
-            const sample = await SAMPLE_GLOBALS_CONTEXTS['health-alerts']!({
+        async (subTemplateId, contextId) => {
+            const sample = await SAMPLE_GLOBALS_CONTEXTS[contextId]!({
                 event: { properties: {} },
+                project: { id: 1, name: 'Example', url: 'https://app.example.com/project/1' },
             } as CyclotronJobInvocationGlobals)
             const inputs = JSON.stringify(HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].map((template) => template.inputs))
             const readProperties = new Set([...inputs.matchAll(/event\.properties\.(\w+)/g)].map((match) => match[1]))
@@ -67,6 +73,15 @@ describe('sub-templates', () => {
             }
         }
     )
+
+    it('gives the inbox report sample the event its templates trigger on', async () => {
+        const sample = await SAMPLE_GLOBALS_CONTEXTS['inbox-reports']!({
+            event: { event: '$pageview', properties: {} },
+            project: { id: 1, name: 'Example', url: 'https://app.example.com/project/1' },
+        } as CyclotronJobInvocationGlobals)
+
+        expect(HOG_FUNCTION_SUB_TEMPLATES['inbox-report-ready'][0].filters?.events?.[0].id).toBe(sample.event.event)
+    })
 
     // An alert scoped to some kinds skips a sample event of any other kind, so its test sends nothing.
     it.each([

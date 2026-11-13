@@ -61,6 +61,10 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
+from products.signals.backend.test.inbox_report_events_recorder import (
+    inbox_report_ready_events,
+    recorded_internal_events,
+)
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -259,7 +263,12 @@ class TestScoutReportAPI(APIBaseTest):
         # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
         run = _make_run(self.team, skill_name="signals-scout-first-report" if first_report else "signals-scout-general")
         LLMSkill.objects.filter(team=self.team, name="signals-scout-general").update(name=run.skill_name)
-        with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+        with (
+            _safe_judge() as judge,
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
+            recorded_internal_events() as (sent, _),
+        ):
             first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
             if close_gate:
                 SignalSourceConfig.objects.filter(team=self.team, source_product="signals_scout").update(enabled=False)
@@ -276,6 +285,27 @@ class TestScoutReportAPI(APIBaseTest):
         assert autostart.call_args.kwargs["implementation_spend_kind"] == "scout_triggered_implementation"
         event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         assert event.kwargs["properties"]["outcome"] == "idempotent_replay"
+        assert [event["report_id"] for event in inbox_report_ready_events(sent)] == [first["report_id"]]
+
+    def test_emit_report_retry_sends_the_ready_event_the_first_emit_lost(self) -> None:
+        run = _make_run(self.team)
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            recorded_internal_events() as (sent, _),
+        ):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            SignalReport.objects.filter(id=first["report_id"]).update(
+                ready_event_emitted_at=None, ready_event_delivered_at=None, ready_event_source_products=None
+            )
+            sent.clear()
+            retry = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        assert retry["report_id"] == first["report_id"]
+        assert retry["idempotent_replay"] is True
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        assert SignalReport.objects.get(id=first["report_id"]).ready_event_delivered_at is not None
+        assert [event["report_id"] for event in inbox_report_ready_events(sent)] == [first["report_id"]]
 
     def test_emit_report_key_covers_a_retry_that_rewords_the_report(self) -> None:
         # Without a key the content is the key, so a scout that rewrites its summary on the retry would
@@ -3579,6 +3609,7 @@ class TestUserReportCreateAPI(APIBaseTest):
                 "products.signals.backend.auto_start.maybe_autostart_implementation_task", new=AsyncMock()
             ) as start_task,
             patch("products.signals.backend.implementation_dispatch.ImplementationDispatcher.trigger") as dispatch,
+            recorded_internal_events() as (sent, _),
         ):
             response = self.client.post(self._url(), payload, format="json")
             assert response.status_code == status.HTTP_201_CREATED, response.content
@@ -3592,6 +3623,7 @@ class TestUserReportCreateAPI(APIBaseTest):
         report = SignalReport.objects.get(id=report_id)
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
+        assert [event["source_products"] for event in inbox_report_ready_events(sent)] == [["user_authored"]]
 
     def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:
         payload = self._payload(
