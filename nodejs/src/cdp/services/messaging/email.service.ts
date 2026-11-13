@@ -69,7 +69,7 @@ import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './he
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
-import { RecipientPreferencesService } from './recipient-preferences.service'
+import { PreferenceLookupError, RecipientPreferencesService } from './recipient-preferences.service'
 import {
     PreferencesTokenSource,
     RecipientTokensService,
@@ -1105,7 +1105,7 @@ export class EmailService {
                     'warn',
                     `${error.message}; retry ${retries} of ${MAX_ATTACHMENT_LOAD_RETRIES} in ${Math.round(retryDelayMs / 1000)}s`
                 )
-            } else if (error instanceof SuppressionLookupError && !isTest) {
+            } else if ((error instanceof SuppressionLookupError || error instanceof PreferenceLookupError) && !isTest) {
                 // A test send runs in process and cannot wait for a retry, so it fails in the branch below.
                 const attempt = (invocation.queueMetadata?.suppressionLookupAttempts ?? 0) + 1
                 const retryAfterMs = suppressionRetryDelayMs(attempt)
@@ -1116,7 +1116,7 @@ export class EmailService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
                 addLog(
                     'warn',
-                    `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+                    `${error.message}, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
                 )
             } else {
                 const attachmentFailure = describeAttachmentFailure(error, attachmentLoadRetries(invocation) + 1)
@@ -1782,7 +1782,9 @@ export class EmailService {
         }
         const identifier = unquoteMailbox(to)
         this.recipientsManager.markForRefresh({ teamId: invocation.teamId, identifier })
-        return await this.recipientPreferences.isOptedOut(invocation.teamId, identifier, category.id)
+        return await this.recipientPreferences.isOptedOut(invocation.teamId, identifier, category.id, {
+            failOpen: false,
+        })
     }
 
     private checkedMarketingParams(

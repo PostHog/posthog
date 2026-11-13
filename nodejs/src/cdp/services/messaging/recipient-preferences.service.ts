@@ -253,7 +253,12 @@ export class RecipientPreferencesService {
         return this.isOptedOut(invocation.teamId, identifier, categoryId)
     }
 
-    public async isOptedOut(teamId: number, identifier: string, categoryId: string): Promise<boolean> {
+    public async isOptedOut(
+        teamId: number,
+        identifier: string,
+        categoryId: string,
+        { failOpen = true }: { failOpen?: boolean } = {}
+    ): Promise<boolean> {
         try {
             const recipient = await this.recipientsManager.get({ teamId, identifier })
 
@@ -278,7 +283,17 @@ export class RecipientPreferencesService {
             return messageCategoryPreference === 'OPTED_OUT' || allMarketingPreferences === 'OPTED_OUT'
         } catch (error) {
             logger.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
+            if (!failOpen) {
+                throw new PreferenceLookupError()
+            }
             return false
         }
+    }
+}
+
+export class PreferenceLookupError extends Error {
+    constructor() {
+        super("Could not check the recipient's preferences")
+        this.name = 'PreferenceLookupError'
     }
 }
