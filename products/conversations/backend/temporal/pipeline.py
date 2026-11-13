@@ -231,6 +231,7 @@ class SupportReplyWorkflow:
             persist_input = replace(
                 persist_input,
                 require_awaiting_clarification=input.clarification_round >= 1,
+                run_id=wf_info.run_id,
             )
             raw = await workflow.execute_activity(
                 support_persist_reply_activity,
@@ -497,6 +498,7 @@ class SupportReplyWorkflow:
                                             unknowns=list(draft_output.unknowns),
                                             citations=list(draft_output.citations),
                                             confidence=validate_output.confidence,
+                                            run_id=wf_info.run_id,
                                         ),
                                         start_to_close_timeout=timedelta(minutes=1),
                                         retry_policy=RetryPolicy(maximum_attempts=3),
