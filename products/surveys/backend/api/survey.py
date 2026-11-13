@@ -12,7 +12,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.http.request import split_domain_port
 from django.shortcuts import render
 from django.utils.text import slugify
@@ -4136,11 +4136,28 @@ def _survey_not_available_response(request: HttpRequest) -> HttpResponse:
     )
 
 
-def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
+# Firefox's tracking protection blocks posthog.com on the sandboxed survey page, so cloud links live on a domain it doesn't list.
+_SURVEY_DOMAIN_FOR_APP_HOST = {"us.posthog.com": "posthogsurveys.com", "eu.posthog.com": "eu.posthogsurveys.com"}
+# US serves the bare domain, so a survey US doesn't have can only be in EU.
+_SURVEY_DOMAIN_FOR_MISSING_SURVEY = {"posthogsurveys.com": "eu.posthogsurveys.com"}
+
+
+def _request_domain(request: HttpRequest) -> str:
     # get_host() prefers X-Forwarded-Host, which a client can set. The managed proxy keeps the visitor's Host header.
     domain, _ = split_domain_port(request.META.get("HTTP_HOST", ""))
+    return domain
+
+
+def _redirect_to_survey_domain(request: HttpRequest, domain: str, survey_id: str) -> HttpResponse:
+    query = request.META.get("QUERY_STRING")
+    return HttpResponseRedirect(f"https://{domain}/{survey_id}" + (f"?{query}" if query else ""))
+
+
+def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
     return (
-        ProxyRecord.objects.filter(domain__iexact=domain).exclude(organization_id=survey.team.organization_id).exists()
+        ProxyRecord.objects.filter(domain__iexact=_request_domain(request))
+        .exclude(organization_id=survey.team.organization_id)
+        .exists()
     )
 
 
@@ -4164,12 +4181,18 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
             status=400,
         )
 
+    domain = _request_domain(request)
+    if survey_domain := _SURVEY_DOMAIN_FOR_APP_HOST.get(domain):
+        return _redirect_to_survey_domain(request, survey_domain, survey_id)
+
     # Database query with minimal fields and timeout protection
     try:
         # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
         is_another_organizations_proxy_domain = _is_another_organizations_proxy_domain(request, survey)
     except Survey.DoesNotExist:
+        if survey_domain := _SURVEY_DOMAIN_FOR_MISSING_SURVEY.get(domain):
+            return _redirect_to_survey_domain(request, survey_domain, survey_id)
         logger.info("survey_page_not_found", survey_id=survey_id)
         return _survey_not_available_response(request)
     except Exception as e:

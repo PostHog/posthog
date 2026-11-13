@@ -420,6 +420,40 @@ class TestExternalSurveys(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("us_app_host", "us.posthog.com", True, "?q0=5", 302, "https://posthogsurveys.com/{id}?q0=5"),
+            ("eu_app_host", "eu.posthog.com", True, "", 302, "https://eu.posthogsurveys.com/{id}"),
+            ("us_app_host_missing_survey", "us.posthog.com", False, "", 302, "https://posthogsurveys.com/{id}"),
+            ("survey_domain", "posthogsurveys.com", True, "?q0=5", 200, None),
+            (
+                "survey_domain_missing_survey",
+                "posthogsurveys.com",
+                False,
+                "?q0=5",
+                302,
+                "https://eu.posthogsurveys.com/{id}?q0=5",
+            ),
+            ("eu_survey_domain_missing_survey", "eu.posthogsurveys.com", False, "", 404, None),
+            ("us_survey_domain_missing_survey", "us.posthogsurveys.com", False, "", 404, None),
+        ]
+    )
+    def test_cloud_survey_links_live_on_posthogsurveys_domain(
+        self,
+        _name: str,
+        host: str,
+        survey_exists: bool,
+        query: str,
+        expected_status: int,
+        expected_location: str | None,
+    ) -> None:
+        survey_id = self.create_external_survey().id if survey_exists else uuid.uuid4()
+
+        response = self.client.get(f"/external_surveys/{survey_id}/{query}", HTTP_HOST=host)
+
+        assert response.status_code == expected_status
+        assert response.get("Location") == (expected_location and expected_location.format(id=survey_id))
+
+    @parameterized.expand(
+        [
             ("own_proxy_domain", OWN_PROXY_DOMAIN, {}, {}, 200, "Quarterly feedback"),
             ("unregistered_host", "surveys.self-run-proxy.example.com", {}, {}, 200, "Quarterly feedback"),
             ("other_org_proxy_domain", OTHER_PROXY_DOMAIN, {}, {}, 404, "Survey not available"),
