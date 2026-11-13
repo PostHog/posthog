@@ -30,7 +30,7 @@ export interface LemonCheckboxProps {
     'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
-    /** Removes input semantics when an ancestor owns the interaction. */
+    /** Removes input semantics, and the label association, when an ancestor owns the interaction. */
     decorative?: boolean
 }
 
@@ -128,8 +128,11 @@ export function LemonCheckbox({
                     tabIndex={decorative ? -1 : undefined}
                     aria-hidden={decorative || undefined}
                 />
+                {/* A decorative box keeps no label association, because a click on an associated
+                    label also dispatches a click on the input. A clickable ancestor then gets two
+                    clicks from one user click, and a toggle on that ancestor cancels itself. */}
                 <label
-                    htmlFor={id}
+                    htmlFor={decorative ? undefined : id}
                     /* eslint-disable-next-line react/forbid-dom-props */
                     style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}
                     className={labelClassName}
