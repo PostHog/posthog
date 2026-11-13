@@ -550,12 +550,22 @@ class TestMailgunContacts(ClickhouseTestMixin, BaseTest):
     def test_list_members_become_people_once_and_subscribed_ones_fill_their_list(self) -> None:
         _create_person(team=self.team, distinct_ids=["user-stays"], properties={"email": "stays@example.com"})
         flush_persons_and_events()
+        # The same member on a second list, spelled differently, with names the import must not write.
+        self.mailgun.data["us"]["members"]["acme@acme.example.com"].append(
+            {
+                "address": "STAYS@example.com",
+                "name": "",
+                "vars": {"plan": "pro", "id": "victim-id", " $initial_referrer": "https://example.com/"},
+                "subscribed": True,
+            }
+        )
 
         run = runs.start_run(
             self.team.id, "mailgun", ["contacts", "new_people"], FULL_KEY, self.user.id, {"region": "both"}
         )
-        for step in run.steps:
-            runs.run_step(self.team.id, run.id, step, attempt=1)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
 
@@ -566,8 +576,14 @@ class TestMailgunContacts(ClickhouseTestMixin, BaseTest):
                 ["Left@example.com", "left-too@example.com", "user-stays", "sub-left@example.com"],
             ),
             ("fill Developers (from Mailgun)", ["user-stays"]),
+            ("fill Acme ñews (from Mailgun)", ["user-stays"]),
         ]
-        assert self.people.properties["user-stays"] == {"email": "stays@example.com", "age": "26", "name": "Stays"}
+        assert self.people.properties["user-stays"] == {
+            "email": "stays@example.com",
+            "age": "26",
+            "name": "Stays",
+            "plan": "pro",
+        }
         assert self.people.properties["Left@example.com"] == {"email": "Left@example.com", "age": "31", "name": "Left"}
         assert run.progress["contacts"]["counts"] == {
             "people": 4,
@@ -580,7 +596,7 @@ class TestMailgunContacts(ClickhouseTestMixin, BaseTest):
             "Mailgun list members": "created",
             "Developers (from Mailgun)": "created",
             "empty@mg.example.com (from Mailgun)": "skipped",
-            "Acme ñews (from Mailgun)": "skipped",
+            "Acme ñews (from Mailgun)": "created",
         }
 
 
