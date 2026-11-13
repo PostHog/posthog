@@ -381,6 +381,10 @@ class QueryRun:
     def elapsed_ms(self) -> float:
         return round((perf_counter() - self.start_time) * 1000, 2)
 
+    @property
+    def is_warming(self) -> bool:
+        return self.trigger is not None and self.trigger.startswith(WARMING_TRIGGER_PREFIX)
+
     def event_properties(self, modifiers: HogQLQueryModifiers) -> dict[str, Any]:
         return {
             "query_hash": self.query_identity.query_hash,
@@ -2741,6 +2745,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             access_method=get_query_tag_value("access_method"),
                         ),
                     )
+                    if not query_run.is_warming:
+                        cache_manager.record_read()
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
                         # The forced dispatch skips the result cache, but not the breaker: the
@@ -2902,9 +2908,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # which can take the field off the response.
         cached_query_scan = getattr(results, "query_scan", None)
         if isinstance(results, self.cached_response_type):
-            if (
-                not query_run.trigger or not query_run.trigger.startswith(WARMING_TRIGGER_PREFIX)
-            ) and results.query_metadata:
+            if not query_run.is_warming and results.query_metadata:
                 log_event_usage_from_query_metadata(
                     results.query_metadata,
                     team_id=self.team.id,
@@ -3082,7 +3086,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
-                if not query_run.trigger or not query_run.trigger.startswith(WARMING_TRIGGER_PREFIX):
+                if not query_run.is_warming:
                     log_event_usage_from_query_metadata(
                         query_metadata,
                         team_id=self.team.id,
