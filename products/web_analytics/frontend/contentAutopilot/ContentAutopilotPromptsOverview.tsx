@@ -203,7 +203,11 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                         }
                     />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-sources-tile">
-                        <ContentAutopilotCitedSitesTable domains={overview.top_domains} />
+                        <ContentAutopilotCitedSitesTable
+                            domains={overview.top_domains}
+                            days={OVERVIEW_DAYS}
+                            branded={overview.branded}
+                        />
                     </div>
                 </PagePerformanceCard>
                 <PagePerformanceCard className="min-w-0">
@@ -214,6 +218,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
                         <ContentAutopilotPromptsSearchTable
                             rows={overview.top_searches}
+                            branded={overview.branded}
                             onOpenPrompt={openOverviewSearchPrompt}
                         />
                     </div>
