@@ -1524,17 +1524,8 @@ class ClickHousePrinter(BasePrinter):
         # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
         # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
         if any(not key for key in keys):
-            if node.access_type == "sub_object":
-                # getSubcolumn's path parser reads a backslash-escaped backtick, not SQL's doubled backtick.
-                escaped_keys = (key.replace("\\", "\\\\").replace("`", "\\`") for key in keys)
-                subcolumns = [f"^`{key}`" for key in escaped_keys]
-            else:
-                subcolumns = [".".join(keys)]
-            for subcolumn in subcolumns:
-                expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
-            return expr
+            return f"getSubcolumn({expr}, {self.context.add_value('.'.join(keys))})"
 
-        for index, key in enumerate(keys):
-            separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
-            expr = f"{expr}{separator}{escape_clickhouse_json_path(key)}"
+        for key in keys:
+            expr = f"{expr}.{escape_clickhouse_json_path(key)}"
         return expr

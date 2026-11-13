@@ -1049,7 +1049,6 @@ class JsonSubcolumnAccess(Expr):
 
     expr: Expr
     keys: list[str]
-    access_type: Literal["path", "sub_object"] = "path"
 
 
 @dataclass(kw_only=True, slots=True)

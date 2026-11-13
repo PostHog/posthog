@@ -26,6 +26,7 @@ from clickhouse_driver import Client
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
+from posthog.hogql.printer.events_json_document import json_document_sql, stored_document_sql
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -1267,6 +1268,19 @@ def _drop_keys_expr(source: str, keys_param: str) -> str:
     return f"if(empty({source}), {source}, JSONDropKeysPool(if(empty({source}), '{{}}', {source}), %({keys_param})s))"
 
 
+def _json_drop_keys_expr(column: str, keys: list[str], keys_param: str) -> str:
+    """A native JSON column without `keys`, as text that the cast turns back into the column.
+
+    A key at the top level is dropped from the serialized column. A key inside an object is out of reach there,
+    because the column stores the object as a string of its JSON text. For such a key the column is rebuilt with its
+    objects and arrays, the keys are dropped, and the top-level objects and arrays go back to strings.
+    """
+    if not any("." in key for key in keys):
+        return _drop_keys_expr(f"toJSONString({column})", keys_param)
+    dropped = _drop_keys_expr(json_document_sql(column), keys_param)
+    return stored_document_sql(dropped, object_key="$feature_flags" if column == "properties" else None)
+
+
 @frozen
 class _CleanedSelect:
     """How the copy reads cleaned rows out of the source table."""
@@ -1313,12 +1327,18 @@ def _cleaned_select_list(
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and
     # let the cast below turn the cleaned string back into the JSON column type.
     if deletion_request.properties:
-        source = "toJSONString(properties)" if target.json_schema else "properties"
-        replacements["properties"] = _drop_keys_expr(source, "keys")
+        replacements["properties"] = (
+            _json_drop_keys_expr("properties", deletion_request.properties, "keys")
+            if target.json_schema
+            else _drop_keys_expr("properties", "keys")
+        )
         params["keys"] = deletion_request.properties
     if deletion_request.person_properties:
-        source = "toJSONString(person_properties)" if target.json_schema else "person_properties"
-        replacements["person_properties"] = _drop_keys_expr(source, "person_keys")
+        replacements["person_properties"] = (
+            _json_drop_keys_expr("person_properties", deletion_request.person_properties, "person_keys")
+            if target.json_schema
+            else _drop_keys_expr("person_properties", "person_keys")
+        )
         params["person_keys"] = deletion_request.person_properties
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
