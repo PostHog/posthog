@@ -42,6 +42,7 @@ export interface FakeRuntimeOptions {
         headers: Headers
     ) => { status: number; body: unknown; headers?: Record<string, string> }
     telemetryToken?: string
+    sendTelemetryInBackground?: (body: string) => Promise<boolean>
     // The MCP tool catalog `hog api` loads, or a function that builds it from the catalog hog downloaded.
     // Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary | ((options: ApiToolLibraryOptions) => ApiToolLibrary)
@@ -261,6 +262,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         prompts: fakePrompts([...(options.answers ?? [])]),
         secrets: memorySecrets(keychain),
         telemetryToken: options.telemetryToken,
+        sendTelemetryInBackground: options.sendTelemetryInBackground,
         skipTlsVerification: () => {
             tls.verify = false
         },
