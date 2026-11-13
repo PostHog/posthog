@@ -42,6 +42,7 @@ const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
 const MINUTE_MS = 60_000
 const SECRET_LISTING_LAG_MS = 5 * MINUTE_MS
 const BACKUP = 'AWS::RDS::DBClusterAutomatedBackup'
+const SNAPSHOT = 'AWS::RDS::DBClusterSnapshot'
 const TAKES_MS: Record<string, number> = {
     CREATE_IN_PROGRESS: MINUTE_MS / 4,
     UPDATE_IN_PROGRESS: 10 * MINUTE_MS,
@@ -351,6 +352,20 @@ export class FakeCloud implements Aws {
             stack.status = 'DELETE_FAILED'
         } else if (stack.status === 'DELETE_IN_PROGRESS') {
             this.removeResources(stack, ({ type }) => !(this.options.outlives ?? []).includes(type))
+            if ((this.options.outlives ?? []).includes(SNAPSHOT)) {
+                this.resources.push(
+                    ...stack.resources
+                        .filter(({ type }) => type === 'AWS::RDS::DBCluster')
+                        .map((cluster) => ({
+                            logicalId: `${cluster.logicalId}Snapshot`,
+                            type: SNAPSHOT,
+                            id: `${cluster.id}-final`,
+                            arn: `arn:aws:rds:us-east-1:${this.account}:cluster-snapshot:${cluster.id}-final`,
+                            state: 'available',
+                            clusterId: cluster.id,
+                        }))
+                )
+            }
             if ((this.options.outlives ?? []).includes(BACKUP)) {
                 this.resources.push(
                     ...stack.resources
@@ -536,8 +551,21 @@ export class FakeCloud implements Aws {
                         },
                     ],
                 }
-            case 'rds describe-db-cluster-snapshots':
-                return { DBClusterSnapshots: [] }
+            case 'rds describe-db-cluster-snapshots': {
+                const kept = this.resources.filter(({ type, state }) => type === SNAPSHOT && state !== 'gone')
+                if (flags.has('db-cluster-snapshot-identifier')) {
+                    const snapshot = kept.find(({ id }) => id === flags.get('db-cluster-snapshot-identifier'))
+                    if (!snapshot) {
+                        throw serviceError(operation, 'DBClusterSnapshotNotFoundFault', 'The snapshot was not found')
+                    }
+                    return { DBClusterSnapshots: [{ Status: snapshot.state }] }
+                }
+                return {
+                    DBClusterSnapshots: kept
+                        .filter(({ clusterId }) => clusterId === flags.get('db-cluster-identifier'))
+                        .map(({ id }) => ({ DBClusterSnapshotIdentifier: id })),
+                }
+            }
             case 'rds describe-db-cluster-automated-backups': {
                 const retained = this.resources.filter(({ type, state }) => type === BACKUP && state !== 'gone')
                 if (flags.has('filters')) {

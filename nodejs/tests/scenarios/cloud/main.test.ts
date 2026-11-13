@@ -740,15 +740,21 @@ describe('cloud controller', () => {
         expect(cloud.billable()).toEqual([])
     })
 
-    it('tears down when interrupted while the reader is added', async () => {
+    it.each<[string, (interruptAt: (status: string) => () => void) => void]>([
+        ['while the reader is added', (interruptAt) => (onSleep = interruptAt('UPDATE_IN_PROGRESS'))],
+        [
+            'as the reader update reports complete',
+            (interruptAt) => cloud.beforeCall('describe-stacks', interruptAt('UPDATE_COMPLETE')),
+        ],
+    ])('tears down and exits invalid when interrupted %s', async (_, arrange) => {
         const { controller } = prepare()
         let interrupted = false
-        onSleep = () => {
-            if (!interrupted && [...cloud.stacks.values()].some(({ status }) => status === 'UPDATE_IN_PROGRESS')) {
+        arrange((status) => () => {
+            if (!interrupted && [...cloud.stacks.values()].some((stack) => stack.status === status)) {
                 interrupted = true
                 interrupt?.()
             }
-        }
+        })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
@@ -875,6 +881,7 @@ describe('cloud controller', () => {
             () => undefined,
         ],
         ['AWS::RDS::DBClusterAutomatedBackup', '', () => undefined, () => undefined],
+        ['AWS::RDS::DBClusterSnapshot', '', () => undefined, () => undefined],
         [
             'AWS::RDS::DBClusterAutomatedBackup',
             ', even when the run cannot read the live cluster',

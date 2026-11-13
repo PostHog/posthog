@@ -33,8 +33,8 @@ export async function settledStatus(
     signal?: AbortSignal
 ): Promise<string | undefined> {
     for (;;) {
-        signal?.throwIfAborted()
         const status = await stackStatus(controller, stackName)
+        signal?.throwIfAborted()
         if (status === undefined || SETTLED.test(status) || controller.now().getTime() >= until) {
             return status
         }
