@@ -42,7 +42,6 @@ def _recipes() -> dict[str, str]:
     recipes = {}
     for name, body in zip(sections[::2], sections[1::2]):
         (query,) = SQL_FENCE.findall(body)
-        # execute-sql cuts rows silently at its default limit, so every recipe sets the tool's maximum
         assert query.rstrip().endswith("LIMIT 500"), f"{name} must end with LIMIT 500"
         recipes[name] = query
     return recipes
@@ -261,7 +260,6 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
 
 class TestEmailStepsRecipe(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_email_steps_lists_only_the_email_steps_of_one_workflow(self) -> None:
-        # ClickHouse reads system.hog_flows from Postgres over its own connection, so it sees only committed rows.
         def email(step_id: str, name: str) -> dict[str, Any]:
             return {"id": step_id, "name": name, "type": "function_email"}
 
