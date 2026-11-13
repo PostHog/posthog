@@ -12,6 +12,7 @@ import {
     SuppressionLookupError,
     emailSuppressionConfigFromEnv,
 } from './email-suppression.service'
+import { SES_NOTIFICATIONS_PER_BATCH } from './helpers/ses'
 
 interface SuppressionRow {
     identifier: string
@@ -60,19 +61,31 @@ describe('EmailSuppressionService', () => {
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
         })
 
-        it.each([
-            ['below threshold — 2 consecutive bounces stay unsuppressed', 2, false],
-            ['at threshold — the 3rd consecutive bounce flips suppressed', 3, true],
-        ] as const)('%s', async (_label, bounces, expectedSuppressed) => {
+        const batch = Array.from({ length: SES_NOTIFICATIONS_PER_BATCH }, (_, i) => `event-${i}`)
+
+        it.each<[string, (string | undefined)[], number, boolean]>([
+            ['below threshold — 2 consecutive bounces stay unsuppressed', ['a', 'b'], 2, false],
+            ['at threshold — the 3rd consecutive bounce flips suppressed', ['a', 'b', 'c'], 3, true],
+            ['a redelivered bounce counts once', ['a', 'b', 'b', 'b'], 2, false],
+            ['a replayed batch counts each bounce once', ['a', 'b', 'a', 'b'], 2, false],
+            ['bounces without an event id each count', [undefined, undefined, undefined], 3, true],
+            ['a replayed full batch counts each bounce once', [...batch, ...batch], SES_NOTIFICATIONS_PER_BATCH, true],
+            [
+                'a bounce older than the last batch of ids counts again',
+                [...batch, 'event-new', batch[0]],
+                SES_NOTIFICATIONS_PER_BATCH + 2,
+                true,
+            ],
+        ])('%s', async (_label, eventIds, expectedCount, expectedSuppressed) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             const email = 'flaky@example.com'
-            for (let i = 0; i < bounces; i++) {
-                await svc.recordTransientBounces(team.id, [email], 'temp')
+            for (const eventId of eventIds) {
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId })
             }
             expect(await readRow(email)).toMatchObject({
                 identifier: email,
                 source: 'BOUNCE',
-                transient_bounce_count: bounces,
+                transient_bounce_count: expectedCount,
                 suppressed: expectedSuppressed,
                 deleted: false,
             })
@@ -228,6 +241,85 @@ describe('EmailSuppressionService', () => {
                 transient_bounce_count: 0,
                 deleted: false,
             })
+        })
+
+        const unstorable = ['nul\u0000@example.com', `${'x'.repeat(520)}@example.com`]
+
+        it.each<
+            [string, (svc: EmailSuppressionService, email: string) => Promise<void>, (email: string) => Promise<void>]
+        >([
+            [
+                'a hard bounce',
+                (svc, email) => svc.recordHardBounces(team.id, [email, ...unstorable]),
+                async (email) => expect(await readRow(email)).toMatchObject({ suppressed: true }),
+            ],
+            [
+                'a soft bounce',
+                (svc, email) => svc.recordTransientBounces(team.id, [email, ...unstorable], 'temp'),
+                async (email) => expect(await readRow(email)).toMatchObject({ transient_bounce_count: 1 }),
+            ],
+            [
+                'a complaint',
+                (svc, email) => svc.recordComplaints(team.id, [email, ...unstorable], 'abuse'),
+                async (email) => expect(await readRow(email)).toMatchObject({ source: 'COMPLAINT', suppressed: true }),
+            ],
+            [
+                'a delivery',
+                async (svc, email) => {
+                    await svc.recordTransientBounces(team.id, [email], 'temp')
+                    await svc.recordDeliveries(
+                        team.id,
+                        [email, ...unstorable],
+                        new Date(Date.now() + 60_000).toISOString()
+                    )
+                },
+                async (email) => expect(await readRow(email)).toMatchObject({ transient_bounce_count: 0 }),
+            ],
+            [
+                'a global hard bounce',
+                (svc, email) => svc.recordGlobalHardBounces([email, ...unstorable]),
+                async (email) => {
+                    const enforcing = new EmailSuppressionService(hub.postgres, {
+                        ...emailSuppressionConfigFromEnv(),
+                        globalHardBounceEnforce: true,
+                    })
+                    expect(await enforcing.isSuppressed(team.id, email, { transactional: true })).toBe(true)
+                },
+            ],
+        ])('records the other addresses of %s that names one Postgres cannot store', async (_label, record, check) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = `deliverable-sibling-${team.id}@example.com`
+
+            await record(svc, email)
+
+            await check(email)
+        })
+
+        it.each<[string, (svc: EmailSuppressionService, email: string) => Promise<void>, boolean]>([
+            [
+                'a hard bounce diagnostic',
+                (svc, email) => svc.recordHardBounces(team.id, [email], 'smtp; 550\u0000 user unknown'),
+                true,
+            ],
+            [
+                'a soft bounce diagnostic',
+                (svc, email) => svc.recordTransientBounces(team.id, [email], 'smtp; 421\u0000 try later'),
+                false,
+            ],
+            [
+                'a soft bounce event id',
+                (svc, email) =>
+                    svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'event\u0000id' }),
+                false,
+            ],
+            ['a complaint feedback type', (svc, email) => svc.recordComplaints(team.id, [email], 'abuse\u0000'), true],
+        ])('records the address of a notice with a NUL byte in %s', async (_label, record, expectedSuppressed) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'nul-text@example.com'
+
+            await record(svc, email)
+
+            expect(await readRow(email)).toMatchObject({ identifier: email, suppressed: expectedSuppressed })
         })
 
         it('escalates an unsuppressed BOUNCE counter to suppressed when a hard bounce lands', async () => {

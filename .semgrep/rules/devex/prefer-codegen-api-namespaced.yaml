@@ -75,8 +75,6 @@ rules:
       pattern-either:
           - pattern: api.aiObservability.$METHOD(...)
           - pattern: api.aiObservability.$MEMBER.$METHOD(...)
-          - pattern: api.evaluationRuns.$METHOD(...)
-          - pattern: api.evaluationRuns.$MEMBER.$METHOD(...)
       paths:
           include:
               - '/products/ai_observability/frontend/'

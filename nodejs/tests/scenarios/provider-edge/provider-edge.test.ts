@@ -326,6 +326,11 @@ describe('provider edge', () => {
         ['a fault no card can name', { name: 'ses.status', params: { status: 500 }, dose: { count: 1 } }, 'name'],
         ['a fault without a dose', { name: 'ses.reject', params: { type: 'rejected' } }, 'dose'],
         ['a share above one', { name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 2 } }, 'dose'],
+        [
+            'a destination status that is not a final answer',
+            { name: 'dest.status', params: { code: 100 }, dose: { count: 1 } },
+            'params.code',
+        ],
     ])('refuses %s and names the field', async (_name, fault, field) => {
         const { status, json } = await call<{ problems: string[] }>('POST', '/_faults', fault)
 

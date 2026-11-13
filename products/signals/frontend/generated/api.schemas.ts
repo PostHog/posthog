@@ -1139,6 +1139,18 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `github_dependabot` - GitHub Dependabot
  * * `github_code_scanning` - GitHub code scanning
  * * `github_secret_scanning` - GitHub secret scanning
+ * * `beamer` - Beamer
+ * * `beamer_nps` - Beamer NPS
+ * * `chameleon` - Chameleon
+ * * `etsy` - Etsy
+ * * `featurebase_surveys` - Featurebase surveys
+ * * `g2` - G2
+ * * `gumroad` - Gumroad
+ * * `trustpilot_product_reviews` - Trustpilot product reviews
+ * * `uservoice_nps` - UserVoice NPS
+ * * `vitally_nps` - Vitally NPS
+ * * `woocommerce` - WooCommerce
+ * * `yotpo` - Yotpo
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1261,6 +1273,18 @@ export const SignalSourceProductEnumApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
 } as const
 
 /**
@@ -1433,7 +1457,19 @@ export interface InboxOnboardingSourceApi {
      * * `cursor` - Cursor
      * * `github_dependabot` - GitHub Dependabot
      * * `github_code_scanning` - GitHub code scanning
-     * * `github_secret_scanning` - GitHub secret scanning */
+     * * `github_secret_scanning` - GitHub secret scanning
+     * * `beamer` - Beamer
+     * * `beamer_nps` - Beamer NPS
+     * * `chameleon` - Chameleon
+     * * `etsy` - Etsy
+     * * `featurebase_surveys` - Featurebase surveys
+     * * `g2` - G2
+     * * `gumroad` - Gumroad
+     * * `trustpilot_product_reviews` - Trustpilot product reviews
+     * * `uservoice_nps` - UserVoice NPS
+     * * `vitally_nps` - Vitally NPS
+     * * `woocommerce` - WooCommerce
+     * * `yotpo` - Yotpo */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4340,6 +4376,18 @@ export interface SignalReportLeaveReviewersApi {
  * * `github_dependabot` - github_dependabot
  * * `github_code_scanning` - github_code_scanning
  * * `github_secret_scanning` - github_secret_scanning
+ * * `beamer` - beamer
+ * * `beamer_nps` - beamer_nps
+ * * `chameleon` - chameleon
+ * * `etsy` - etsy
+ * * `featurebase_surveys` - featurebase_surveys
+ * * `g2` - g2
+ * * `gumroad` - gumroad
+ * * `trustpilot_product_reviews` - trustpilot_product_reviews
+ * * `uservoice_nps` - uservoice_nps
+ * * `vitally_nps` - vitally_nps
+ * * `woocommerce` - woocommerce
+ * * `yotpo` - yotpo
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4462,6 +4510,18 @@ export const SignalSourceProductApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
 } as const
 
 /**
@@ -5605,6 +5665,85 @@ export interface OkendoReviewSignalExtraApi {
     date_created: string | null
 }
 
+export interface BeamerFeedbackSignalExtraApi {
+    status: string | null
+    category: string | null
+    votes_count: string | null
+    comments_count: string | null
+    date: string | null
+    permalink: string | null
+}
+
+export interface BeamerNpsFeedbackSignalExtraApi {
+    score: string | null
+    date: string | null
+}
+
+export interface ChameleonFeedbackSignalExtraApi {
+    button_text: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface FeaturebaseSurveysFeedbackSignalExtraApi {
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface UservoiceNpsFeedbackSignalExtraApi {
+    rating: string | null
+    created_at: string | null
+}
+
+export interface VitallyNpsFeedbackSignalExtraApi {
+    score: string | null
+    nps_type: string | null
+    created_at: string | null
+}
+
+export interface EtsyReviewSignalExtraApi {
+    rating: string | null
+    listing_id: string | null
+    language: string | null
+    created_timestamp: string | null
+}
+
+export interface G2ReviewSignalExtraApi {
+    star_rating: string | null
+    product_name: string | null
+    url: string | null
+    submitted_at: string | null
+}
+
+export interface GumroadReviewSignalExtraApi {
+    rating: string | null
+    product_id: string | null
+    created_at: string | null
+}
+
+export interface TrustpilotProductReviewsReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    state: string | null
+    product_name: string | null
+    created_at: string | null
+}
+
+export interface WoocommerceReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    verified: string | null
+    product_id: string | null
+    date_created_gmt: string | null
+}
+
+export interface YotpoReviewSignalExtraApi {
+    score: string | null
+    sku: string | null
+    deleted: string | null
+    created_at: string | null
+}
+
 export interface AwsSecurityHubScannerFindingSignalExtraApi {
     severity_label: string | null
     compliance_status: string | null
@@ -5793,6 +5932,18 @@ export type SignalExtraApi =
     | GainsightPxFeedbackSignalExtraApi
     | TrustpilotReviewSignalExtraApi
     | OkendoReviewSignalExtraApi
+    | BeamerFeedbackSignalExtraApi
+    | BeamerNpsFeedbackSignalExtraApi
+    | ChameleonFeedbackSignalExtraApi
+    | FeaturebaseSurveysFeedbackSignalExtraApi
+    | UservoiceNpsFeedbackSignalExtraApi
+    | VitallyNpsFeedbackSignalExtraApi
+    | EtsyReviewSignalExtraApi
+    | G2ReviewSignalExtraApi
+    | GumroadReviewSignalExtraApi
+    | TrustpilotProductReviewsReviewSignalExtraApi
+    | WoocommerceReviewSignalExtraApi
+    | YotpoReviewSignalExtraApi
     | AwsSecurityHubScannerFindingSignalExtraApi
     | AwsGuarddutyScannerFindingSignalExtraApi
     | AwsInspectorScannerFindingSignalExtraApi
@@ -5963,7 +6114,19 @@ export interface SignalNodeApi {
      * * `cursor` - cursor
      * * `github_dependabot` - github_dependabot
      * * `github_code_scanning` - github_code_scanning
-     * * `github_secret_scanning` - github_secret_scanning */
+     * * `github_secret_scanning` - github_secret_scanning
+     * * `beamer` - beamer
+     * * `beamer_nps` - beamer_nps
+     * * `chameleon` - chameleon
+     * * `etsy` - etsy
+     * * `featurebase_surveys` - featurebase_surveys
+     * * `g2` - g2
+     * * `gumroad` - gumroad
+     * * `trustpilot_product_reviews` - trustpilot_product_reviews
+     * * `uservoice_nps` - uservoice_nps
+     * * `vitally_nps` - vitally_nps
+     * * `woocommerce` - woocommerce
+     * * `yotpo` - yotpo */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -10025,6 +10188,17 @@ export const ReportInvolvementEnumApi = {
 } as const
 
 /**
+ * * `inbox` - Inbox
+ * * `slack` - Slack
+ */
+export type DiscussionSourceEnumApi = (typeof DiscussionSourceEnumApi)[keyof typeof DiscussionSourceEnumApi]
+
+export const DiscussionSourceEnumApi = {
+    Inbox: 'inbox',
+    Slack: 'slack',
+} as const
+
+/**
  * One discussion a person opened on a report your scout emitted or edited.
  */
 export interface ScoutReportDiscussionApi {
@@ -10037,6 +10211,11 @@ export interface ScoutReportDiscussionApi {
      * * `authored` - Authored
      * * `edited` - Edited */
     involvement: ReportInvolvementEnumApi
+    /** `inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.
+     *
+     * * `inbox` - Inbox
+     * * `slack` - Slack */
+    source: DiscussionSourceEnumApi
     /** The discussion task. */
     task_id: string
     /** When the discussion started. */
@@ -10049,10 +10228,15 @@ export interface ScoutReportDiscussionApi {
      */
     status: string | null
     /**
-     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
+     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
      * @nullable
      */
     task_summary: string | null
+    /**
+     * For a `slack` discussion, the message that started it, in the person's own words. Null when that person may not steer scouts on this project, or started a later Slack discussion on the same report. Always null for an `inbox` discussion, because a scout note carried its question.
+     * @nullable
+     */
+    question: string | null
 }
 
 /**
