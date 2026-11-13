@@ -131,6 +131,17 @@ Workflow summaries are visible only to the task owner or its authorized sandbox 
 Shared workflow stream events always set `task_summary` to `null`.
 Other task streams include the effective summary.
 
+## Task status
+
+Task details, paginated task lists, and task summaries include `status` and `status_reason`.
+`status` is `queued`, `running`, `idle`, or `done`.
+It is `null` on a task created before the field existed, until the status backfill reaches it.
+`status_reason` says why an idle or done task stopped, for example `turn_closed`, `user_stopped`, or `unexpected_failure`.
+Task details and task lists also include `status_detail`, the message from a failed run.
+It is `null` for a caller who cannot read the latest run's analytics context.
+`?task_status=` filters the task list on the task's own status.
+`?status=` still filters on the status of the task's most recent run.
+
 ## MCP tools
 
 - `tasks-create` creates an idle task. It does not accept run-start inputs.

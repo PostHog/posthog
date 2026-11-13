@@ -5,6 +5,7 @@ from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.github.installations import SCOPE_DB_ALIAS, installation_id, installation_team_ids
 from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
@@ -20,10 +21,7 @@ from products.signals.backend.facade.github import (
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
-from products.tasks.backend.metrics import (
-    observe_github_webhook_task_lookup_shadow,
-    observe_github_webhook_task_run_lookup,
-)
+from products.tasks.backend.metrics import observe_github_webhook_task_lookup, observe_github_webhook_task_run_lookup
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import (
     canonical_github_pull_request_url,
@@ -75,15 +73,30 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
         return None
 
-    task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids)
-    _shadow_task_lookup(task_run, leg, pr_url=pr_url, branch=branch, repository=repository, team_ids=team_ids)
+    match = find_task_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
+    task_id = match.task_id if match is not None else None
+    task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids, task_id=task_id)
+    if task_run is None and match is not None and match.by_verified_pr_url:
+        task_run, leg = _live_or_newest_run(match.task_id, team_ids=team_ids), "task_columns"
+    by_task_columns = task_run is not None and match is not None
+    if task_run is None and match is not None:
+        task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids, task_id=None)
+    observe_github_webhook_task_lookup(leg=leg, by_task_columns=by_task_columns)
     return task_run
 
 
-def find_task_id_by_pull_request(
+@frozen
+class TaskPullRequestMatch:
+    task_id: UUID
+    by_verified_pr_url: bool
+
+
+def find_task_by_pull_request(
     pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int]
-) -> UUID | None:
-    tasks = Task.objects.filter(team_id__in=team_ids).exclude(origin_product=Task.OriginProduct.REVIEW_HOG)
+) -> TaskPullRequestMatch | None:
+    tasks = Task.objects.filter(team_id__in=team_ids, deleted=False).exclude(
+        origin_product=Task.OriginProduct.REVIEW_HOG
+    )
     if pr_url:
         canonical_url = canonical_github_pull_request_url(pr_url)
         urls = list(dict.fromkeys([pr_url, *([canonical_url] if canonical_url else [])]))
@@ -91,51 +104,43 @@ def find_task_id_by_pull_request(
             tasks.filter(pr_urls__overlap=urls).order_by("-created_at", "-id").values_list("id", flat=True).first()
         )
         if task_id is not None:
-            return task_id
+            return TaskPullRequestMatch(task_id=task_id, by_verified_pr_url=True)
     if branch and repository:
         normalized = repository.lower()
-        return (
+        task_id = (
             tasks.filter(Q(repositories__contains=[normalized]) | Q(repository__iexact=normalized))
-            .filter(head_branch=branch, deleted=False)
+            .filter(head_branch=branch)
             .order_by("-created_at", "-id")
             .values_list("id", flat=True)
             .first()
         )
+        if task_id is not None:
+            return TaskPullRequestMatch(task_id=task_id, by_verified_pr_url=False)
     return None
 
 
-def _shadow_task_lookup(
-    task_run: TaskRun | None,
-    leg: str,
-    *,
-    pr_url: str | None,
-    branch: str | None,
-    repository: str | None,
-    team_ids: list[int],
-) -> None:
-    try:
-        with transaction.atomic():
-            task_id = find_task_id_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
-    except Exception:
-        logger.warning("github_webhook_task_lookup_shadow_failed", exc_info=True)
-        return
-    run_task_id = task_run.task_id if task_run is not None else None
-    if run_task_id == task_id:
-        outcome = "match"
-    elif run_task_id is None:
-        outcome = "task_only"
-    elif task_id is None:
-        outcome = "run_only"
-    else:
-        outcome = "different"
-    observe_github_webhook_task_lookup_shadow(leg=leg, outcome=outcome)
+def _live_first(runs: QuerySet[TaskRun]) -> QuerySet[TaskRun]:
+    return runs.annotate(
+        terminal_rank=Case(
+            When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    ).order_by("terminal_rank", "-created_at")
+
+
+def _live_or_newest_run(task_id: UUID, *, team_ids: list[int]) -> TaskRun | None:
+    runs = TaskRun.objects.filter(task_id=task_id, team_id__in=team_ids)
+    return _live_first(runs).select_related(*TASK_RUN_SELECT_RELATED).first()
 
 
 def _find_task_run_by_run_state(
-    pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int]
+    pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int], task_id: UUID | None
 ) -> tuple[TaskRun | None, str]:
     indexed_candidates = TaskRun.objects.filter(team_id__in=team_ids)
     candidates = TaskRun.objects.filter(team_id__in=team_ids)
+    if task_id is not None:
+        candidates = candidates.filter(task_id=task_id)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
     # leg below may return one. The exclusion belongs here rather than on each leg: a stale
     # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
@@ -155,20 +160,7 @@ def _find_task_run_by_run_state(
         runs = candidates.filter(id__in=_indexed_candidate_ids(indexed_candidates.filter(verified_filter)))
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
-        # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
-        # variant that must not leak into the plain-queryset legs below.
-        task_run: TaskRun | None = (
-            runs.annotate(
-                terminal_rank=Case(
-                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
-                    default=Value(0),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("terminal_rank", "-created_at")
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
+        task_run = _live_first(runs).select_related(*TASK_RUN_SELECT_RELATED).first()
         if task_run:
             return task_run, "verified_pr_url"
 

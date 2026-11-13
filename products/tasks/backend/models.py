@@ -973,6 +973,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         return f"{prefix}-{self.task_number}"
 
     @property
+    def status_label(self) -> str | None:
+        if self.status is None:
+            return None
+        label = self.get_status_display()
+        if self.status_reason in (None, Task.StatusReason.TURN_CLOSED):
+            return label
+        return f"{label} ({self.get_status_reason_display().lower()})"
+
+    @property
     def latest_run(self) -> Optional["TaskRun"]:
         runs = [run for run in self.runs.all() if run.team_id == self.team_id]
         if runs:
