@@ -1139,7 +1139,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             + printed,
             {
                 **context.values,
-                "document": '{"$groups":{"organization":"hidden","project":"visible"}}',
+                "document": native_stored_document('{"$groups":{"organization":"hidden","project":"visible"}}'),
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
@@ -1156,13 +1156,13 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
         query = parse_select(
             """SELECT properties.$set,
                 properties.$set.email,
-                properties.$set."user%2Eemail" AS dotted_set,
+                properties.$set."user.email" AS dotted_set,
                 properties.$set.name,
                 properties.$set_once.email,
-                properties.$set_once."user%2Eemail" AS dotted_set_once,
+                properties.$set_once."user.email" AS dotted_set_once,
                 properties.email,
                 JSONHas(properties, '$set', 'email'),
-                JSONHas(properties, '$set', 'user%2Eemail'),
+                JSONHas(properties, '$set', 'user.email'),
                 JSONExtractString(properties, '$set_once', 'email')
             FROM events"""
         )
@@ -1184,7 +1184,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 "document": '{"email":"event-level"}',
                 # The native cleaner stores $set and $set_once in temporary_properties, so a read of either
                 # container comes from that document.
-                "temporary_document": '{"$set":{"email":"hidden","user%2Eemail":"hidden","name":"visible"},"$set_once":{"email":"hidden","user%2Eemail":"hidden"}}',
+                "temporary_document": native_stored_document(
+                    '{"$set":{"email":"hidden","user.email":"hidden","name":"visible"},'
+                    '"$set_once":{"email":"hidden","user.email":"hidden"}}'
+                ),
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
@@ -1723,7 +1726,6 @@ class TestPropertyTypes(BaseTest):
         # (The 'Array(String)' type literal is parameterized out by the printer, so match structure instead.)
         assert f"{fn_name}(JSONExtract(ifNull(" in printed
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            # The native table stores the list as a string of its JSON text, so it needs the same extraction.
             assert "events.properties.`$exception_values`" in printed
             assert "mat_$exception_values" not in printed
         else:

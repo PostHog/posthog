@@ -175,7 +175,7 @@ def native_stored_document(document: str) -> str:
     ClickHouse as it was written.
     """
     decoder = json.JSONDecoder()
-    members = []
+    members: list[str] = []
     index = document.index("{") + 1
     while True:
         index = len(document) - len(document[index:].lstrip())
