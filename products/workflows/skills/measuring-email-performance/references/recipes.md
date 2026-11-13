@@ -95,36 +95,13 @@ LIMIT 500
 ```
 
 Divide opens and clicks by `email_sent` minus `email_untracked`. `conversion` counts the whole workflow's conversions in the run, not this step's.
+`email_opened_by_person` and `email_clicked_by_person` count people, not events: the approximate distinct openers and clickers of the run, about 1% off. A click also counts its person as an opener. Each person counts once per run, under the step they first opened or clicked, so for a run with one email step they are its openers and clickers. A person who opens again more than 30 days later counts again. Never add them to opens or clicks. They exist from 2026-11-05, so read them only for runs that started on or after 2026-11-06.
 For a trend across runs, pass every run in the window and order the rows by the run start times from `posthog:workflows-list-batch-jobs`.
-
-### Counters by version
-
-The workflow's own counters for one step, one row per version and metric.
-Use it to compare versions when `posthog:workflows-version-stats` is not available.
-
-```sql
-SELECT
-    splitByChar('/', app_source_id)[2] AS version,
-    metric_name,
-    sum(count) AS total
-FROM app_metrics
-WHERE app_source = 'hog_flow_version'
-    AND startsWith(app_source_id, concat({workflow_id}, '/'))
-    AND instance_id IN ({step_id}, {workflow_id})
-    AND timestamp >= {window_start}
-    AND timestamp < {window_end}
-GROUP BY version, metric_name
-ORDER BY toInt(version), metric_name
-LIMIT 500
-```
-
-Start the window on the day the oldest compared version went live, and on or after the dates in "Versioned counters have start dates" in the skill. A newer version has no rows before it went live.
-Divide opens and clicks by `email_sent` minus `email_untracked`. `conversion` counts the whole workflow's conversions for that version.
 
 ### Engagement by version
 
 One step's callbacks split by the version that sent them.
-Use it for openers and clickers per version. Report them as counts, because the sent event carries a version only from 2026-11-10, so no count of people sent exists per version before then. Per-version ratios come from `posthog:workflows-version-stats` or the **Counters by version** recipe, as period occurrence ratios over tracked sends.
+Use it for openers and clickers per version. Report them as counts, because the sent event carries a version only from 2026-11-10, so no count of people sent exists per version before then. Per-version ratios come from `posthog:workflows-version-stats`, as period occurrence ratios over tracked sends.
 
 ```sql
 SELECT
@@ -226,7 +203,7 @@ LIMIT 500
 ```
 
 The outcome only counts when the email and the product events land on the same person.
-That holds when the workflow sends with the app's own distinct ID; a send addressed only by email can sit on a separate person.
+The email events take the distinct ID of the event that triggered the run, so that holds when the step emails the person who triggered it. When it emails someone else, such as an account owner, the recipe measures the triggering people, not the recipients.
 
 ### One person's email history
 

@@ -12,8 +12,6 @@ from posthog.test.base import (
     run_clickhouse_statement_in_parallel,
 )
 
-from parameterized import parameterized
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
@@ -44,6 +42,8 @@ def _recipes() -> dict[str, str]:
     recipes = {}
     for name, body in zip(sections[::2], sections[1::2]):
         (query,) = SQL_FENCE.findall(body)
+        # execute-sql cuts rows silently at its default limit, so every recipe sets the tool's maximum
+        assert query.rstrip().endswith("LIMIT 500"), f"{name} must end with LIMIT 500"
         recipes[name] = query
     return recipes
 
@@ -94,11 +94,6 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
 
     def _product_event(self, name: str, at: datetime) -> None:
         _create_event(team=self.team, distinct_id=name, event=OUTCOME_EVENT, timestamp=at)
-
-    @parameterized.expand(sorted(_recipes()))
-    def test_recipe_runs_as_written(self, recipe: str) -> None:
-        assert _recipes()[recipe].rstrip().endswith("LIMIT 500")
-        self._run(recipe)
 
     def test_step_engagement_separates_tracked_sends_and_counts_people_once(self) -> None:
         self._person("ada")
@@ -169,24 +164,6 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
             {"run_id": RUN_ID, "metric_name": "email_opened", "total": 2},
             {"run_id": RUN_ID, "metric_name": "email_sent", "total": 5},
             {"run_id": SECOND_RUN_ID, "metric_name": "email_sent", "total": 3},
-        ]
-
-    def test_counters_by_version_split_versions_of_one_workflow(self) -> None:
-        self._counter(f"{WORKFLOW_ID}/2", STEP_ID, "email_sent", 3)
-        self._counter(f"{WORKFLOW_ID}/2", STEP_ID, "email_untracked", 1)
-        self._counter(f"{WORKFLOW_ID}/2", WORKFLOW_ID, "conversion", 2)
-        self._counter(f"{WORKFLOW_ID}/10", STEP_ID, "email_sent", 4)
-        self._counter(RUN_ID, STEP_ID, "email_sent", 8, app_source="hog_flow")
-        self._counter(f"{WORKFLOW_ID}/2", OTHER_STEP_ID, "email_sent", 4)
-        self._counter(f"{OTHER_WORKFLOW_ID}/2", STEP_ID, "email_sent", 6)
-
-        rows = self._run("Counters by version")
-
-        assert rows == [
-            {"version": "2", "metric_name": "conversion", "total": 2},
-            {"version": "2", "metric_name": "email_sent", "total": 3},
-            {"version": "2", "metric_name": "email_untracked", "total": 1},
-            {"version": "10", "metric_name": "email_sent", "total": 4},
         ]
 
     def test_engagement_by_version_splits_one_steps_callbacks_and_keeps_unattributed_last(self) -> None:
