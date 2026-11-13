@@ -371,7 +371,7 @@ def _platform_state_expr() -> ast.Expr:
 
 
 def _platform_configuration_table(
-    name: str, source_kind: str, access_scope: APIScopeObject, insight_id_expr: Optional[str]
+    name: str, source_kind: str, access_scope: APIScopeObject, held_predicate: Expr, insight_id_expr: Optional[str]
 ) -> _InsightReadGatedTable:
     return _InsightReadGatedTable(
         name=name,
@@ -381,13 +381,7 @@ def _platform_configuration_table(
         # Object grants key an alert by its public id, which this table does not hold as a column.
         resource_level_access_only=True,
         postgres_pushdown_values={"source_kind": source_kind},
-        # A copy the source still owns is left to the source's own row, so every alert shows once.
-        predicates=[
-            parse_expr(
-                "source_kind = {source_kind} AND (legacy_configuration_id IS NULL OR owner = 'platform')",
-                placeholders={"source_kind": ast.Constant(value=source_kind)},
-            ),
-        ],
+        predicates=[held_predicate],
         description=(
             f"Internal table of {source_kind} alerts the alerts platform holds, from "
             "`alerts_platformalertconfiguration`: every alert with no source row, and every copy the platform owns. "
@@ -486,8 +480,14 @@ insight_alert_rows: _InsightReadGatedTable = _InsightReadGatedTable(
     },
 )
 
+# A copy the source still owns is left to the source's own row, so every alert shows once. The predicates are
+# static strings, because placeholder expansion at import would load `posthog.schema` during django.setup().
 platform_insight_alerts: PostgresTable = _platform_configuration_table(
-    "_platform_insight_alerts", "insight", "alert", "JSONExtractInt(source_config, 'insight_id')"
+    "_platform_insight_alerts",
+    "insight",
+    "alert",
+    parse_expr("source_kind = 'insight' AND (legacy_configuration_id IS NULL OR owner = 'platform')"),
+    "JSONExtractInt(source_config, 'insight_id')",
 )
 platform_insight_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_insight_alert_instances",
@@ -2590,7 +2590,13 @@ logs_alert_rows: PostgresTable = PostgresTable(
     },
 )
 
-platform_logs_alerts: PostgresTable = _platform_configuration_table("_platform_logs_alerts", "logs", "logs", None)
+platform_logs_alerts: PostgresTable = _platform_configuration_table(
+    "_platform_logs_alerts",
+    "logs",
+    "logs",
+    parse_expr("source_kind = 'logs' AND (legacy_configuration_id IS NULL OR owner = 'platform')"),
+    None,
+)
 platform_logs_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_logs_alert_instances",
     "_platform_logs_alerts",
