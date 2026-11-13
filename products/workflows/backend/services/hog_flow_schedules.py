@@ -1,5 +1,6 @@
 from collections.abc import Collection, Mapping
 from datetime import datetime
+from itertools import batched
 from typing import Any
 from uuid import UUID
 
@@ -9,7 +10,8 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.plugins.plugin_server_api import create_hog_flow_scheduled_invocation
+from posthog.dataclasses import frozen
+from posthog.plugins.plugin_server_api import create_hog_flow_scheduled_invocations
 
 from products.workflows.backend.facade.contracts import ProcessedSchedules, WorkflowSchedule, WorkflowScheduleNotFound
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
@@ -21,6 +23,15 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 logger = structlog.get_logger(__name__)
 
 WRITABLE_SCHEDULE_FIELDS = frozenset({"rrule", "starts_at", "timezone", "variables"})
+SCHEDULED_RUNS_PER_DISPATCH = 100
+
+
+@frozen
+class ScheduledRun:
+    schedule_id: str
+    team_id: int
+    hog_flow_id: str
+    variables: dict[str, Any]
 
 
 def _to_schedule(schedule: HogFlowSchedule) -> WorkflowSchedule:
@@ -127,11 +138,44 @@ def _resolve_variables(hog_flow: HogFlow, schedule: HogFlowSchedule) -> dict[str
     return variables
 
 
+def _dispatch_scheduled_runs(runs: list[ScheduledRun]) -> tuple[list[str], list[str]]:
+    dispatched: list[str] = []
+    not_dispatched: list[str] = []
+    for chunk in batched(runs, SCHEDULED_RUNS_PER_DISPATCH, strict=False):
+        try:
+            response = create_hog_flow_scheduled_invocations(
+                sorted({run.team_id for run in chunk}),
+                [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk],
+            )
+            response.raise_for_status()
+            outcomes = list(zip(chunk, [result["status"] for result in response.json()["results"]], strict=True))
+        except Exception:
+            logger.exception("Error dispatching scheduled runs", schedule_ids=[run.schedule_id for run in chunk])
+            not_dispatched.extend(run.schedule_id for run in chunk)
+            continue
+        for run, outcome in outcomes:
+            if outcome == "queued":
+                dispatched.append(run.schedule_id)
+            elif outcome == "quota_limited":
+                logger.info(
+                    "Skipped a scheduled run over the workflow quota",
+                    schedule_id=run.schedule_id,
+                    team_id=run.team_id,
+                    hog_flow_id=run.hog_flow_id,
+                )
+                dispatched.append(run.schedule_id)
+            else:
+                logger.warning("CDP refused a scheduled run", schedule_id=run.schedule_id, outcome=outcome)
+                not_dispatched.append(run.schedule_id)
+    return dispatched, not_dispatched
+
+
 def process_due_schedules() -> ProcessedSchedules:
     """Execute due schedules and initialize next_run_at for new ones, across all teams."""
     processed: list[str] = []
     initialized: list[str] = []
     failed: list[str] = []
+    scheduled_runs: list[ScheduledRun] = []
 
     # 1. Process due schedules (next_run_at <= now)
     # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
@@ -144,7 +188,6 @@ def process_due_schedules() -> ProcessedSchedules:
     for schedule_id in due_schedule_ids:
         try:
             batch_job_params: dict | None = None
-            schedule_invocation_params: dict | None = None
             with transaction.atomic():
                 # Per-schedule transaction: lock only one row at a time to minimize
                 # lock duration and allow concurrent replicas via skip_locked.
@@ -178,13 +221,15 @@ def process_due_schedules() -> ProcessedSchedules:
                         "filters": (hog_flow.trigger or {}).get("filters", {}),
                     }
                 else:
-                    schedule_invocation_params = {
-                        "team_id": schedule.team_id,
-                        "hog_flow_id": str(hog_flow.id),
-                        "variables": _resolve_variables(hog_flow, schedule),
-                    }
+                    scheduled_runs.append(
+                        ScheduledRun(
+                            schedule_id=str(schedule_id),
+                            team_id=schedule.team_id,
+                            hog_flow_id=str(hog_flow.id),
+                            variables=_resolve_variables(hog_flow, schedule),
+                        )
+                    )
 
-            # Dispatch outside the transaction so HTTP calls don't hold the row lock.
             if batch_job_params:
                 with transaction.atomic():
                     # Re-read the status under the flow's lock, so a stop that committed after
@@ -201,21 +246,14 @@ def process_due_schedules() -> ProcessedSchedules:
                         )
                 if still_active:
                     processed.append(str(schedule_id))
-            elif schedule_invocation_params:
-                response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
-                if response.status_code == 429:
-                    logger.info(
-                        "Skipped a scheduled run over the workflow quota",
-                        schedule_id=str(schedule_id),
-                        team_id=schedule_invocation_params["team_id"],
-                        hog_flow_id=schedule_invocation_params["hog_flow_id"],
-                    )
-                else:
-                    response.raise_for_status()
-                processed.append(str(schedule_id))
         except Exception:
             logger.exception("Error processing schedule", schedule_id=str(schedule_id))
             failed.append(str(schedule_id))
+
+    # Outside every transaction, so the CDP call holds no row lock.
+    dispatched, not_dispatched = _dispatch_scheduled_runs(scheduled_runs)
+    processed.extend(dispatched)
+    failed.extend(not_dispatched)
 
     # 2. Initialize next_run_at for schedules that need it
     # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)

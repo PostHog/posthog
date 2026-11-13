@@ -143,6 +143,26 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
+# The scheduler's poll runs in the web tier, which mints the cancel tokens, so it shares their key on its own audience.
+WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def create_hog_flow_scheduled_invocations(team_ids: list[int], runs: list[dict[str, object]]) -> requests.Response:
+    """Queue scheduled runs of `team_ids` in one request. Raises RuntimeError when the signing key is
+    not set. CdpApi.postHogflowScheduledInvocations verifies the token."""
+    token = WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.mint({"team_ids": team_ids})
+    return internal_requests.post(
+        CDP_API_URL + "/api/hog_flows/scheduled_invocations",
+        json={"runs": runs},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+
+
 def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Response:
     # The count scans every in-flight row for the flow, which can be slow on a very large flow with
     # a cold visibility map. The timeout keeps a slow scan from pinning the calling request thread —
