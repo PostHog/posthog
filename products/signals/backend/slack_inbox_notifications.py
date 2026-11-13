@@ -17,6 +17,7 @@ import re
 import json
 import logging
 from collections.abc import Collection, Iterable
+from typing import Literal
 
 from django.conf import settings
 
@@ -48,7 +49,12 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.report_content_gates import organization_inbox_slack_section_blocks_enabled
+from products.signals.backend.report_assignments import CLAIMABLE_REPORT_STATUSES
+from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_content_gates import (
+    organization_inbox_slack_report_actions_enabled,
+    organization_inbox_slack_section_blocks_enabled,
+)
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
@@ -71,7 +77,12 @@ from products.signals.backend.slack_notification_targets import is_slack_member_
 from products.signals.backend.slack_report_threads import record_report_slack_thread
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.typed_report_links import incoming_links
-from products.slack_app.backend.facade.api import slack_followup_invite, slack_report_implementation_button
+from products.slack_app.backend.facade.api import (
+    slack_followup_invite,
+    slack_report_claim_button,
+    slack_report_copy_prompt_button,
+    slack_report_implementation_button,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
@@ -445,6 +456,21 @@ def _owner_context_text(reviewer_labels: list[str], *, max_length: int = _SLACK_
     return text
 
 
+_ReportAction = Literal["claim", "copy_prompt"]
+
+
+def _offered_report_actions(report: SignalReport) -> tuple[_ReportAction, ...]:
+    """The "I'm on it" and "Copy prompt" buttons that the report's Slack message gets."""
+    if report.effective_status not in CLAIMABLE_REPORT_STATUSES:
+        return ()
+    if not organization_inbox_slack_report_actions_enabled(report.team.organization_id):
+        return ()
+    # The click cannot take a claim over, so a report that someone holds gets no claim button.
+    if get_active_claim(team_id=report.team_id, report_id=report.id) is not None:
+        return ("copy_prompt",)
+    return ("claim", "copy_prompt")
+
+
 def _build_message_blocks(
     report: SignalReport,
     *,
@@ -452,6 +478,7 @@ def _build_message_blocks(
     use_section_blocks: bool = False,
     priority: str | None = None,
     offer_implementation: bool = False,
+    report_actions: Collection[_ReportAction] = (),
     slack_integration_id: int | None = None,
 ) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
@@ -500,8 +527,13 @@ def _build_message_blocks(
         )
 
     action_elements: list[dict] = []
-    if offer_implementation and slack_integration_id is not None:
-        action_elements.append(slack_report_implementation_button(slack_integration_id))
+    if slack_integration_id is not None:
+        if offer_implementation:
+            action_elements.append(slack_report_implementation_button(slack_integration_id))
+        if "claim" in report_actions:
+            action_elements.append(slack_report_claim_button(slack_integration_id))
+        if "copy_prompt" in report_actions:
+            action_elements.append(slack_report_copy_prompt_button(slack_integration_id))
     action_elements.append(
         {
             "type": "button",
@@ -644,6 +676,7 @@ def _deliver_route_notification(
     trigger: str,
     priority: str | None,
     offer_implementation: bool,
+    report_actions: Collection[_ReportAction],
 ) -> bool:
     """Post one report notification to a route's destination.
 
@@ -664,7 +697,7 @@ def _deliver_route_notification(
         if route.is_direct_message and slack.get_user_by_id(channel_id) is None:
             # A member reachable when the target was saved can since have left or become a guest.
             logger.warning("Skipping signals inbox-item Slack DM to an ineligible member", extra=log_context)
-            _capture_notification_delivered(report, route, trigger=trigger, delivered=False)
+            _capture_notification_delivered(report, route, trigger=trigger, delivered=False, report_actions=())
             return False
         if route.is_direct_message:
             reviewer_labels: list[str] = []
@@ -682,6 +715,7 @@ def _deliver_route_notification(
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
             priority=priority,
             offer_implementation=offer_implementation,
+            report_actions=report_actions,
             slack_integration_id=route.integration.id,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
@@ -710,7 +744,7 @@ def _deliver_route_notification(
             )
     except Exception:
         logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
-    _capture_notification_delivered(report, route, trigger=trigger, delivered=delivered)
+    _capture_notification_delivered(report, route, trigger=trigger, delivered=delivered, report_actions=report_actions)
     return delivered
 
 
@@ -723,17 +757,28 @@ def _deliver_to_routes(
     offer_implementation: bool,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
+    report_actions = _offered_report_actions(report) if routes else ()
     sent = 0
     for route in routes:
         if _deliver_route_notification(
-            report, route, trigger=trigger, priority=priority, offer_implementation=offer_implementation
+            report,
+            route,
+            trigger=trigger,
+            priority=priority,
+            offer_implementation=offer_implementation,
+            report_actions=report_actions,
         ):
             sent += 1
     return sent
 
 
 def _capture_notification_delivered(
-    report: SignalReport, route: _ChannelRoute, *, trigger: str, delivered: bool
+    report: SignalReport,
+    route: _ChannelRoute,
+    *,
+    trigger: str,
+    delivered: bool,
+    report_actions: Collection[_ReportAction],
 ) -> None:
     """Emit `signals_inbox_notification_delivered` for one destination's outcome.
 
@@ -757,6 +802,7 @@ def _capture_notification_delivered(
                     "target_kind": "direct_message" if route.is_direct_message else "channel",
                     "reviewer_count": len(route.users),
                     "delivered": delivered,
+                    "report_actions_offered": sorted(report_actions),
                 },
                 groups=groups(team.organization, team),
             )

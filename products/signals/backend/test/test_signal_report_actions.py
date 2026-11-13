@@ -8,17 +8,21 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import (
+    ArtefactAttribution,
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
     SignalScoutConfig,
     SignalScoutRun,
 )
-from products.signals.backend.report_actions import suppress_report_from_slack
+from products.signals.backend.report_actions import claim_report_from_slack, suppress_report_from_slack
+from products.signals.backend.report_assignments import create_claim
+from products.signals.backend.report_claims import get_active_claim
 
 
 class TestSignalReportSlackActions(BaseTest):
@@ -37,6 +41,41 @@ class TestSignalReportSlackActions(BaseTest):
         assert feedback.state == "suppressed"
         assert feedback.reason == "slack_dismiss"
         assert feedback.slack_user_id == "slack-user-1"
+
+    def test_slack_claim_assigns_the_report_once(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+
+        assert claim_report_from_slack(self.team.id, str(report.id), user_id=self.user.id).status == "claimed"
+        first = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert first is not None and first.actor_kind == "user" and first.actor_user_id == self.user.id
+
+        assert claim_report_from_slack(self.team.id, str(report.id), user_id=self.user.id).status == "already_yours"
+        second = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert second is not None and second.claim_id == first.claim_id
+
+    @parameterized.expand([("own_agent", "already_yours", None), ("teammate", "claimed_by_other", "Robin")])
+    def test_slack_claim_leaves_an_existing_claim_in_place(self, holder, expected_status, expected_holder_name) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        teammate = User.objects.create(email="robin@example.com", first_name="Robin", distinct_id="robin")
+        held = create_claim(
+            report,
+            ArtefactAttribution.from_agent(self.user.id, "claude-code")
+            if holder == "own_agent"
+            else ArtefactAttribution.from_user(teammate.id),
+        )
+
+        outcome = claim_report_from_slack(self.team.id, str(report.id), user_id=self.user.id)
+
+        assert outcome.status == expected_status
+        assert outcome.holder_name == expected_holder_name
+        still_held = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert still_held is not None and still_held.claim_id == held.claim_id
+
+    def test_slack_claim_is_refused_for_a_closed_report(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="A report")
+
+        assert claim_report_from_slack(self.team.id, str(report.id), user_id=self.user.id).status == "not_claimable"
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):

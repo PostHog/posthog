@@ -1,5 +1,6 @@
 import type { SignalReport } from '../../types'
 
+// The Slack notification sends the same text from report_implementation_prompt.py. Change the two together.
 export function buildReportImplementationPrompt(report: SignalReport, reportUrl: string): string {
     return `Work on the PostHog Inbox report at ${reportUrl} (report ID: ${report.id}).
 

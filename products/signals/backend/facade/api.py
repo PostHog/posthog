@@ -152,6 +152,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import is_sandbox_run_request
 
 if TYPE_CHECKING:
+    from products.signals.backend.report_actions import SlackClaimOutcome
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
@@ -459,6 +460,24 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def claim_report_from_slack(team_id: int, report_id: str, *, user_id: int) -> "SlackClaimOutcome":
+    """Facade entrypoint for the Slack 'I'm on it' button. See report_actions.claim_report_from_slack."""
+    from products.signals.backend.report_actions import (
+        claim_report_from_slack as claim_report_from_slack_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return claim_report_from_slack_impl(team_id, report_id, user_id=user_id)
+
+
+def report_implementation_prompt(team_id: int, report_id: str) -> str:
+    """The prompt that the Slack 'Copy prompt' button gives a person for their own coding agent."""
+    from products.signals.backend.report_implementation_prompt import (
+        build_report_implementation_prompt,  # noqa: PLC0415 — same
+    )
+
+    return build_report_implementation_prompt(team_id, report_id)
 
 
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
