@@ -33,9 +33,10 @@ export const getFlutterInstallSteps = (
                     />
                     <Markdown>posthog_flutter 6.0 requires Flutter 3.41 or later on every platform.</Markdown>
                     <Markdown>
-                        If you embed Flutter in an iOS or macOS app as a module (`flutter create -t module`), stay on
-                        posthog_flutter 5.x for now. Flutter still installs module plugins with CocoaPods, and
-                        posthog_flutter 6.0 has no podspec.
+                        If you embed Flutter in an iOS app as a module (`flutter create -t module`), use Flutter 3.50 or
+                        later and build it with `flutter build swift-package`. Earlier Flutter versions install module
+                        plugins with CocoaPods, and posthog_flutter 6.0 has no podspec, so stay on posthog_flutter 5.x
+                        there.
                     </Markdown>
                 </>
             ),
@@ -68,7 +69,9 @@ export const getFlutterInstallSteps = (
                                 ]}
                             />
                             <Markdown>
-                                Update the minimum Android SDK version to **23** in `android/app/build.gradle`:
+                                posthog_flutter needs a minimum Android SDK version of **23** or higher. New Flutter
+                                projects default to 24, so change `android/app/build.gradle` only if your app sets a
+                                lower value:
                             </Markdown>
                             <CodeBlock
                                 blocks={[
