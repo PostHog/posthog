@@ -194,6 +194,7 @@ ACCEPTED: dict[str, dict[str, str]] = {
         "Beehiiv": "scope",
         "BetterStack": "scope",
         "BigCommerce": "scope",
+        "Bird": "scope",
         "Blueshift": "scope",
         "BoldDesk": "scope",
         "Braze": "scope",
