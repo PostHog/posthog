@@ -16,6 +16,17 @@ from products.signals.backend.models import (
 
 logger = logging.getLogger(__name__)
 
+# The statuses a report resolves from directly. A report in monitoring has open checks to cancel, and an
+# archived one must not reach resolved through the archive, so both go through the inbox instead.
+_SLACK_RESOLVABLE_STATUSES = frozenset(
+    {
+        SignalReport.Status.READY,
+        SignalReport.Status.PENDING_INPUT,
+        SignalReport.Status.FAILED,
+        SignalReport.Status.CLOSED,
+    }
+)
+
 
 def suppress_report_from_slack(
     team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
@@ -72,7 +83,7 @@ def resolve_report_from_slack(
 ) -> bool:
     """Resolve a report from a Slack 'Mark resolved' click. Idempotent — an already-resolved
     report is treated as success; returns False if the report doesn't exist or the transition
-    isn't allowed.
+    isn't allowed, which includes every status outside `_SLACK_RESOLVABLE_STATUSES`.
 
     Like a resolve through the state API, it says the work is done without the inbox pull request,
     so that pull request is superseded and the receiver closes it.
@@ -87,6 +98,13 @@ def resolve_report_from_slack(
 
         if report.status == SignalReport.Status.RESOLVED:
             return True
+
+        if report.status not in _SLACK_RESOLVABLE_STATUSES:
+            logger.warning(
+                "resolve_report_from_slack: status not resolvable from Slack",
+                extra={"report_id": report_id, "team_id": team_id, "status": report.status},
+            )
+            return False
 
         try:
             updated_fields = report.transition_to(SignalReport.Status.RESOLVED)

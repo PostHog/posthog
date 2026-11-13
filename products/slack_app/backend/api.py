@@ -6028,6 +6028,9 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+_REPORT_ACTION_NO_ACCESS = (
+    "You need editor access to this project's inbox to change this report. Ask a project admin for access."
+)
 _REMOVE_REVIEWER_FEEDBACK = {
     "removed": "You're no longer a suggested reviewer on this report.",
     "not_reviewer": "You aren't a suggested reviewer on this report.",
@@ -6104,6 +6107,17 @@ def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
+    # The same bar as the inbox API: project access, plus editor on `task`, which governs the inbox.
+    if not _can_access_team(org_member, integration) or not UserAccessControl(
+        org_member, team=integration.team
+    ).check_access_level_for_resource("task", "editor"):
+        logger.info("signals_report_state_no_access", integration_id=integration.id, slack_user_id=slack_user_id)
+        inbox_interactivity.post_response_url(
+            payload.get("response_url", ""),
+            {"response_type": "ephemeral", "replace_original": False, "text": _REPORT_ACTION_NO_ACCESS},
+        )
+        return HttpResponse(status=200)
+
     if action_id == SIGNALS_REMOVE_REVIEWER_ACTION_ID:
         outcome = remove_reviewer_from_slack(report_team_id, str(report_id), user_id=org_member.id)
         # Only the clicker stepped off, so the buttons stay for everyone else and only they see the outcome.
@@ -6165,7 +6179,7 @@ def _post_signals_report_state_feedback(payload: dict, *, resolving: bool, chang
         actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
         text = f"✅ {verb} by {actor}"
     else:
-        text = f"This report couldn't be {verb.lower()}. It may already be closed or removed, so check it in PostHog."
+        text = f"This report couldn't be {verb.lower()} from Slack. Open it in PostHog to check its status."
 
     # keep_link_buttons=False: messages posted before the follow-up carried "Review PR"/"Open in
     # PostHog" link buttons in the same actions block as Dismiss, so dropping the whole block here

@@ -54,13 +54,26 @@ class TestSignalReportSlackActions(BaseTest):
         assert feedback.reason == "slack_resolve"
         assert feedback.slack_user_id == "slack-user-1"
 
-    def test_slack_resolve_refuses_a_report_that_cannot_resolve(self) -> None:
-        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.POTENTIAL, title="A report")
+    @parameterized.expand(
+        [
+            ("potential", SignalReport.Status.POTENTIAL, None),
+            # Monitoring has open checks that only the inbox resolve cancels.
+            ("monitoring", SignalReport.Status.MONITORING, None),
+            # A candidate archived and then resolved would skip research.
+            ("archived_candidate", SignalReport.Status.SUPPRESSED, SignalReport.Status.CANDIDATE),
+        ]
+    )
+    def test_slack_resolve_refuses_a_report_that_cannot_resolve_from_slack(
+        self, _name: str, status: str, status_before_suppression: str | None
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=status, status_before_suppression=status_before_suppression, title="A report"
+        )
 
         assert not resolve_report_from_slack(self.team.id, str(report.id), user_id=self.user.id)
 
         report.refresh_from_db()
-        assert report.status == SignalReport.Status.POTENTIAL
+        assert report.status == status
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):

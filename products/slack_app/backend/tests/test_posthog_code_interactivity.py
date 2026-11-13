@@ -666,6 +666,34 @@ class TestSignalsDismissReport(TestCase):
         sent = mock_requests_post.call_args.kwargs["json"]
         assert sent == {"response_type": "ephemeral", "replace_original": False, "text": expected_text}
 
+    @parameterized.expand(
+        [("signals_resolve_report",), ("signals_dismiss_report",), ("signals_remove_report_reviewer",)]
+    )
+    @patch("products.slack_app.backend.api.UserAccessControl")
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_report_actions_refuse_a_member_without_inbox_editor_access(
+        self, action_id, mock_config, mock_requests_post, mock_is_org_member, mock_access_control
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        mock_access_control.return_value.check_access_level_for_resource.return_value = False
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id), action_id=action_id))
+
+        assert response.status_code == 200
+        mock_access_control.return_value.check_access_level_for_resource.assert_called_once_with("task", "editor")
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+        sent = mock_requests_post.call_args.kwargs["json"]
+        assert sent["response_type"] == "ephemeral"
+        assert "editor access" in sent["text"]
+
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
