@@ -81,13 +81,13 @@ async def create_intent_topics_schedules(client: Client) -> None:
 
     Every product's schedules are set up in one task group, so an error that escaped here would cancel them all.
     """
-    enabled, check_succeeded = await asyncio.to_thread(_schedule_enabled, FEATURE_FLAG_KEY, FEATURE_FLAG_DISTINCT_ID)
-    if not enabled and not check_succeeded:
+    flag = await asyncio.to_thread(_schedule_enabled, FEATURE_FLAG_KEY, FEATURE_FLAG_DISTINCT_ID)
+    if not flag.enabled and not flag.check_succeeded:
         logger.info("mcpa.intent_topics.schedule.feature_flag_check_failed_preserving_state")
         return
     for entry in SCHEDULES:
         try:
-            await _apply_schedule(client, entry, enabled=enabled)
+            await _apply_schedule(client, entry, enabled=flag.enabled)
         except Exception:
             logger.exception("mcpa.intent_topics.schedule.apply_failed", schedule_id=entry.schedule_id)
 
