@@ -295,32 +295,17 @@ batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
 )
 
 
-# Platform states, as `PlatformAlertState` and `PlatformAlertCheckStatus` store them.
-_PLATFORM_FIRING = "'firing'"
-_PLATFORM_FAILED_CHECK_STATES = "('errored', 'broken')"
+# The one state a source shows for a platform alert, as `runtime_by_public_id` composes it: a failing check replaces
+# the instances' state, an alert fires while any of its groups fires, and otherwise the ungrouped instance holds it.
+# An alert with no instance yet has not fired. `c` is the configuration and `i` its instances, grouped.
+_PLATFORM_STATE = """
+    if(c.check_status != 'ok', c.check_status,
+        if(ifNull(i.any_firing, 0) = 1, 'firing', coalesce(nullIf(i.ungrouped_state, ''), 'not_firing')))
+"""
 
 
-def _platform_state_expr(configuration: str, instances: str) -> str:
-    """The one state a source shows for a platform alert, as `runtime_by_public_id` composes it: a failing
-    check replaces the instances' state, an alert fires while any of its groups fires, and otherwise the
-    ungrouped instance holds it. An alert with no instance yet has not fired."""
-    return (
-        f"if({configuration}.check_status != 'ok', {configuration}.check_status, "
-        f"if(ifNull({instances}.any_firing, 0) = 1, {_PLATFORM_FIRING}, "
-        f"coalesce(nullIf({instances}.ungrouped_state, ''), 'not_firing')))"
-    )
-
-
-def _platform_instances_select(instances_table: str) -> str:
-    return f"""
-        SELECT
-            configuration_id,
-            max(state = {_PLATFORM_FIRING}) AS any_firing,
-            anyIf(state, grouping_key = '') AS ungrouped_state,
-            max(last_notified_at) AS last_notified_at
-        FROM system.{instances_table}
-        GROUP BY configuration_id
-    """
+def _platform_state_expr() -> ast.Expr:
+    return parse_expr(_PLATFORM_STATE)
 
 
 def _platform_configuration_table(name: str, source_kind: str, access_scope: APIScopeObject) -> PostgresTable:
@@ -333,7 +318,10 @@ def _platform_configuration_table(name: str, source_kind: str, access_scope: API
         postgres_pushdown_values={"source_kind": source_kind},
         # A copy the source still owns is left to the source's own row, so every alert shows once.
         predicates=[
-            parse_expr(f"source_kind = '{source_kind}' AND (legacy_configuration_id IS NULL OR owner = 'platform')")
+            parse_expr(
+                "source_kind = {source_kind} AND (legacy_configuration_id IS NULL OR owner = 'platform')",
+                placeholders={"source_kind": ast.Constant(value=source_kind)},
+            )
         ],
         description=(
             f"Internal table of {source_kind} alerts the alerts platform holds, from "
@@ -374,7 +362,9 @@ def _platform_configuration_table(name: str, source_kind: str, access_scope: API
     )
 
 
-def _platform_instances_table(name: str, configurations_table: str, access_scope: APIScopeObject) -> PostgresTable:
+def _platform_instances_table(
+    name: str, configurations_table: str, configurations_predicate: Expr, access_scope: APIScopeObject
+) -> PostgresTable:
     return PostgresTable(
         name=name,
         postgres_table_name="alerts_platformalert",
@@ -382,7 +372,7 @@ def _platform_instances_table(name: str, configurations_table: str, access_scope
         resource_level_access_only=True,
         push_team_guard_with_predicates=True,
         # The instance table holds every source's alerts, so it reads only those of its own source's table.
-        predicates=[parse_expr(f"configuration_id IN (SELECT id FROM system.{configurations_table})")],
+        predicates=[configurations_predicate],
         description=f"Internal table of the runtime state of each group of the alerts in `system.{configurations_table}`; not for direct querying.",
         fields={
             "id": StringDatabaseField(name="id", description="Instance UUID."),
@@ -431,22 +421,18 @@ insight_alert_rows: PostgresTable = PostgresTable(
 
 platform_insight_alerts: PostgresTable = _platform_configuration_table("_platform_insight_alerts", "insight", "alert")
 platform_insight_alert_instances: PostgresTable = _platform_instances_table(
-    "_platform_insight_alert_instances", "_platform_insight_alerts", "alert"
-)
-
-# The insight cadence each platform interval stands for. Kept in sync with `RECURRENCE` in
-# products/alerts/backend/platform_insight_alert.py.
-_INSIGHT_CALCULATION_INTERVAL_EXPR = (
-    "multiIf(c.check_interval_minutes = 2, 'real_time', c.check_interval_minutes = 15, 'every_15_minutes', "
-    "c.check_interval_minutes = 60, 'hourly', c.check_interval_minutes = 1440, 'daily', "
-    "c.check_interval_minutes = 10080, 'weekly', c.check_interval_minutes = 43200, 'monthly', NULL)"
+    "_platform_insight_alert_instances",
+    "_platform_insight_alerts",
+    parse_expr("configuration_id IN (SELECT id FROM system._platform_insight_alerts)"),
+    "alert",
 )
 
 
+# `calculation_interval` maps each platform interval to the insight cadence it stands for. Keep the mapping in sync
+# with `RECURRENCE` in products/alerts/backend/platform_insight_alert.py.
 def _insight_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
-    platform_state = _platform_state_expr("c", "i")
     return parse_select(
-        f"""
+        """
         SELECT
             toString(id) AS id, name, insight_id, enabled, state, calculation_interval, condition, config,
             created_at, last_notified_at, last_checked_at, next_check_at, snoozed_until, skip_weekend,
@@ -460,13 +446,21 @@ def _insight_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
             c.enabled AS enabled,
             multiIf(
                 c.snooze_until > now(), 'Snoozed',
-                {platform_state} = {_PLATFORM_FIRING}, 'Firing',
-                {platform_state} IN {_PLATFORM_FAILED_CHECK_STATES}, 'Errored',
+                {platform_state} = 'firing', 'Firing',
+                {platform_state} IN ('errored', 'broken'), 'Errored',
                 'Not firing'
             ) AS state,
-            {_INSIGHT_CALCULATION_INTERVAL_EXPR} AS calculation_interval,
-            if(JSONHas(c.source_config, 'condition', 'comparison'), JSONExtractRaw(c.source_config, 'condition', 'comparison'), '{{}}') AS condition,
-            if(JSONHas(c.source_config, 'config'), JSONExtractRaw(c.source_config, 'config'), '{{}}') AS config,
+            multiIf(
+                c.check_interval_minutes = 2, 'real_time',
+                c.check_interval_minutes = 15, 'every_15_minutes',
+                c.check_interval_minutes = 60, 'hourly',
+                c.check_interval_minutes = 1440, 'daily',
+                c.check_interval_minutes = 10080, 'weekly',
+                c.check_interval_minutes = 43200, 'monthly',
+                NULL
+            ) AS calculation_interval,
+            if(JSONHas(c.source_config, 'condition', 'comparison'), JSONExtractRaw(c.source_config, 'condition', 'comparison'), '{}') AS condition,
+            if(JSONHas(c.source_config, 'config'), JSONExtractRaw(c.source_config, 'config'), '{}') AS config,
             c.created_at AS created_at,
             i.last_notified_at AS last_notified_at,
             NULL AS last_checked_at,
@@ -475,8 +469,17 @@ def _insight_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
             JSONExtractBool(c.source_config, 'skip_weekend') AS skip_weekend,
             c.schedule_restriction AS schedule_restriction
         FROM system._platform_insight_alerts AS c
-        LEFT JOIN ({_platform_instances_select("_platform_insight_alert_instances")}) AS i ON i.configuration_id = c.id
-        """
+        LEFT JOIN (
+            SELECT
+                configuration_id,
+                max(state = 'firing') AS any_firing,
+                anyIf(state, grouping_key = '') AS ungrouped_state,
+                max(last_notified_at) AS last_notified_at
+            FROM system._platform_insight_alert_instances
+            GROUP BY configuration_id
+        ) AS i ON i.configuration_id = c.id
+        """,
+        placeholders={"platform_state": _platform_state_expr()},
     )
 
 
@@ -2520,14 +2523,16 @@ logs_alert_rows: PostgresTable = PostgresTable(
 
 platform_logs_alerts: PostgresTable = _platform_configuration_table("_platform_logs_alerts", "logs", "logs")
 platform_logs_alert_instances: PostgresTable = _platform_instances_table(
-    "_platform_logs_alert_instances", "_platform_logs_alerts", "logs"
+    "_platform_logs_alert_instances",
+    "_platform_logs_alerts",
+    parse_expr("configuration_id IN (SELECT id FROM system._platform_logs_alerts)"),
+    "logs",
 )
 
 
 def _logs_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
-    platform_state = _platform_state_expr("c", "i")
     return parse_select(
-        f"""
+        """
         SELECT
             toString(id) AS id, name, toInt(enabled) AS enabled, filters, threshold_count,
             threshold_operator, window_minutes, check_interval_minutes, state, evaluation_periods,
@@ -2539,7 +2544,7 @@ def _logs_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
             toString(coalesce(c.legacy_configuration_id, c.id)) AS id,
             c.name AS name,
             toInt(c.enabled) AS enabled,
-            if(JSONHas(c.source_config, 'filters'), JSONExtractRaw(c.source_config, 'filters'), '{{}}') AS filters,
+            if(JSONHas(c.source_config, 'filters'), JSONExtractRaw(c.source_config, 'filters'), '{}') AS filters,
             JSONExtractInt(c.source_config, 'condition', 'threshold_count') AS threshold_count,
             JSONExtractString(c.source_config, 'condition', 'threshold_operator') AS threshold_operator,
             JSONExtractInt(c.source_config, 'condition', 'window_minutes') AS window_minutes,
@@ -2559,8 +2564,17 @@ def _logs_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
             c.created_at AS created_at,
             c.updated_at AS updated_at
         FROM system._platform_logs_alerts AS c
-        LEFT JOIN ({_platform_instances_select("_platform_logs_alert_instances")}) AS i ON i.configuration_id = c.id
-        """
+        LEFT JOIN (
+            SELECT
+                configuration_id,
+                max(state = 'firing') AS any_firing,
+                anyIf(state, grouping_key = '') AS ungrouped_state,
+                max(last_notified_at) AS last_notified_at
+            FROM system._platform_logs_alert_instances
+            GROUP BY configuration_id
+        ) AS i ON i.configuration_id = c.id
+        """,
+        placeholders={"platform_state": _platform_state_expr()},
     )
 
 
