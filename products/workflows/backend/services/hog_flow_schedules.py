@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+import requests
 import structlog
 
 from posthog.plugins.plugin_server_api import create_hog_flow_scheduled_invocation
@@ -143,16 +144,16 @@ def process_due_schedules() -> ProcessedSchedules:
 
     for schedule_id in due_schedule_ids:
         try:
-            batch_job_params: dict | None = None
-            schedule_invocation_params: dict | None = None
+            # One transaction per schedule: the advance commits only with its dispatch, so a failed or
+            # interrupted dispatch leaves the occurrence due for the next poll.
             with transaction.atomic():
-                # Per-schedule transaction: lock only one row at a time to minimize
-                # lock duration and allow concurrent replicas via skip_locked.
+                # Locks the flow too, so a stop waits for this dispatch. skip_locked never waits, so a
+                # concurrent replica or a flow write (which locks the flow, then its schedules) cannot deadlock.
                 # Re-checks conditions since the schedule may have been processed
                 # between the ID scan and this lock.
                 schedule = (
                     # nosemgrep: idor-lookup-without-team
-                    HogFlowSchedule.objects.select_for_update(skip_locked=True)
+                    HogFlowSchedule.objects.select_for_update(skip_locked=True, of=("self", "hog_flow"))
                     .select_related("hog_flow")
                     .filter(id=schedule_id, status=HogFlowScheduleStatus.ACTIVE, next_run_at__lte=timezone.now())
                     .first()
@@ -170,49 +171,39 @@ def process_due_schedules() -> ProcessedSchedules:
 
                 _advance_next_run(schedule, after=schedule.next_run_at)
 
-                if trigger_type == "batch":
-                    batch_job_params = {
-                        "team_id": schedule.team_id,
-                        "hog_flow": hog_flow,
-                        "variables": _resolve_variables(hog_flow, schedule),
-                        "filters": (hog_flow.trigger or {}).get("filters", {}),
-                    }
-                else:
-                    schedule_invocation_params = {
-                        "team_id": schedule.team_id,
-                        "hog_flow_id": str(hog_flow.id),
-                        "variables": _resolve_variables(hog_flow, schedule),
-                    }
-
-            # Dispatch outside the transaction so HTTP calls don't hold the row lock.
-            if batch_job_params:
-                with transaction.atomic():
-                    # Re-read the status under the flow's lock, so a stop that committed after
-                    # the check above wins, and a stop that lands later sees this job.
-                    still_active = (
-                        HogFlow.objects.select_for_update()
-                        .filter(id=batch_job_params["hog_flow"].id, status=HogFlow.State.ACTIVE)
-                        .exists()
-                    )
-                    if still_active:
+                try:
+                    if trigger_type == "batch":
                         HogFlowBatchJob.objects.create(
-                            **batch_job_params,
+                            team_id=schedule.team_id,
+                            hog_flow=hog_flow,
+                            variables=_resolve_variables(hog_flow, schedule),
+                            filters=(hog_flow.trigger or {}).get("filters", {}),
                             status=HogFlowBatchJob.State.QUEUED,
                         )
-                if still_active:
-                    processed.append(str(schedule_id))
-            elif schedule_invocation_params:
-                response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
-                if response.status_code == 429:
-                    logger.info(
-                        "Skipped a scheduled run over the workflow quota",
-                        schedule_id=str(schedule_id),
-                        team_id=schedule_invocation_params["team_id"],
-                        hog_flow_id=schedule_invocation_params["hog_flow_id"],
+                    else:
+                        response = create_hog_flow_scheduled_invocation(
+                            team_id=schedule.team_id,
+                            hog_flow_id=str(hog_flow.id),
+                            variables=_resolve_variables(hog_flow, schedule),
+                        )
+                        if response.status_code == 429:
+                            logger.info(
+                                "Skipped a scheduled run over the workflow quota",
+                                schedule_id=str(schedule_id),
+                                team_id=schedule.team_id,
+                                hog_flow_id=str(hog_flow.id),
+                            )
+                        else:
+                            response.raise_for_status()
+                except requests.ReadTimeout:
+                    # The engine got the request and may have queued the run. Keep the advance, because a retry
+                    # on every poll would start one more duplicate run each time the engine is slow to answer.
+                    logger.exception(
+                        "Scheduled dispatch timed out after the engine got it", schedule_id=str(schedule_id)
                     )
-                else:
-                    response.raise_for_status()
-                processed.append(str(schedule_id))
+                    failed.append(str(schedule_id))
+                    continue
+            processed.append(str(schedule_id))
         except Exception:
             logger.exception("Error processing schedule", schedule_id=str(schedule_id))
             failed.append(str(schedule_id))
