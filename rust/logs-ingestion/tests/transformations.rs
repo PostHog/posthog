@@ -293,12 +293,10 @@ const MIN_MOD: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "attributes", 
 // let n := 0; for (let i := 0; i < 300; i := i + 1) { n := n + length(keys(record.attributes)) }
 // let rec := record; rec.attributes.n := n; return rec
 const REREAD: &str = r#"["_H", 1, 33, 0, 33, 0, 33, 300, 36, 1, 15, 40, 26, 32, "attributes", 32, "record", 1, 2, 2, "keys", 1, 2, "length", 1, 36, 0, 6, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -33, 35, 32, "record", 1, 1, 36, 1, 32, "attributes", 45, 32, "n", 36, 0, 46, 36, 1, 38, 35, 35]"#;
-// let a := {'x': 1}; for (let i := 0; i < 22; i := i + 1) { a := {'l': a, 'r': a} }
-// print(a); return record
+// let a := {'x': 1}; for (let i := 0; i < 22; i := i + 1) { a := {'l': a, 'r': a} }; print(a); return record
 const DAG: &str = r#"["_H", 1, 32, "x", 33, 1, 42, 1, 33, 0, 33, 22, 36, 1, 15, 40, 21, 32, "l", 36, 0, 32, "r", 36, 0, 42, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -28, 35, 36, 0, 2, "print", 1, 35, 32, "record", 1, 1, 38, 35]"#;
 
-// let a := []; for (let i := 0; i < 20000; i := i + 1) { a := [a] }
-// let rec := record; rec.attributes.deep := a; return rec
+// let a := []; for (let i := 0; i < 20000; i := i + 1) { a := [a] }; let rec := record; rec.attributes.deep := a; return rec
 const DEEP: &str = r#"["_H", 1, 43, 0, 33, 0, 33, 20000, 36, 1, 15, 40, 15, 36, 0, 43, 1, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -22, 35, 32, "record", 1, 1, 36, 1, 32, "attributes", 45, 32, "deep", 36, 0, 46, 36, 1, 38, 35, 35]"#;
 // print(record.body, record.body, ... ten times); return record
 const PRINT_BODY_TEN_TIMES: &str = r#"["_H", 1, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 32, "body", 32, "record", 1, 2, 2, "print", 10, 35, 32, "record", 1, 1, 38]"#;
@@ -330,7 +328,6 @@ async fn oversized_results_fail_the_invocation_instead_of_allocating() {
         function(STARS, &stars, Some(r#"{"secret": {"value": "*"}}"#)),
         // Shared references expand on every visit: printing 22 nested objects writes 2^22 leaves.
         function(DAG, "{}", None),
-        // Converting 20,000 nested arrays by recursion overflows the thread's stack.
         function(DEEP, "{}", None),
     ];
     for f in cases {

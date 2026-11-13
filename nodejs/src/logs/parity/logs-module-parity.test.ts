@@ -329,7 +329,6 @@ const HOG_TRANSFORM_CASES: HogTransformCase[] = [
     { hog: `return (x) -> x` },
     { hog: `let rec := record\nrec.attributes.f := (x) -> x\nreturn rec` },
     { hog: `return {'body': 'not applied'}`, sensitive: ['body'] },
-    // The templates that a customer starts from. Their regular expressions run on RE2 in Node.
     {
         hog: logPiiScrubTemplate.code,
         record: {

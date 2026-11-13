@@ -343,7 +343,6 @@ pub fn transform_message(
                 dropped[index] = true;
             }
             Some(false) => {}
-            // The record goes on with what the functions before the panic wrote to it.
             None => {
                 counter!("logs_ingestion_transformations_unexpected_errors_total").increment(1);
                 tracing::error!(
@@ -366,8 +365,7 @@ pub struct LogsTransformerService {
     monitoring: Arc<HogFunctionMonitoring>,
     config: LogsTransformerConfig,
     clock: Clock,
-    /// One VM thread runs at a time, as Node's single thread does. The timeout and the budgets are
-    /// wall-clock, so VM threads that wait for a CPU would time out and spend the budgets.
+    /// One VM thread at a time, as in Node. The limits are wall-clock, so threads that wait for a CPU would time out.
     vm_slot: Arc<Semaphore>,
 }
 
@@ -427,7 +425,6 @@ impl LogsTransformerService {
         if functions.is_empty() || records.is_empty() {
             return Ok(MessageTransformResult::default());
         }
-        // The thread holds the permit to its end, also when this future is dropped first.
         let permit = self.vm_slot.clone().acquire_owned().await.ok();
         let shared = Arc::new(Mutex::new(std::mem::take(records)));
         let task_records = shared.clone();

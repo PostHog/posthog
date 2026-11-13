@@ -11,10 +11,8 @@ use crate::{
     HogLiteral, HogValue, Num,
 };
 
-/// A global value whose objects keep their key order, as a JavaScript object does. `serde_json`
-/// sorts object keys, so a host that needs the reference VM's iteration order passes these
-/// instead of [`ExecutionContext::globals`]. Object keys must be unique. Strings are shared, so
-/// each read of a global copies its structure but not its text.
+/// A global value whose objects keep their key order, which `serde_json` does not. Object keys
+/// must be unique. Strings are shared, so a read of a global copies its structure but not its text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OrderedJson {
     Null,
@@ -177,8 +175,7 @@ impl ExecutionContext {
         self.ordered_globals = Some(globals);
     }
 
-    /// For a host that steps the VM itself and calls `HogVM::take_result`. `sync_execute` and the
-    /// resumable drivers drop the VM, so with this set they return null.
+    /// For a host that steps the VM and calls `HogVM::take_result`. `sync_execute` returns null with it.
     pub fn with_raw_result(mut self) -> Self {
         self.raw_result = true;
         self

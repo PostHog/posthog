@@ -144,8 +144,7 @@ impl HogFunction {
             .iter()
             .map(|(k, v)| (k.to_utf8_lossy().into_owned(), v.clone()))
             .collect();
-        // `Array#sort` is stable. A NaN order goes last here, because a comparator that calls NaN
-        // equal to every value is not a total order, and `sort_by` can panic on one.
+        // A NaN order sorts last, because `sort_by` can panic on a comparator that is not a total order.
         let sort_key = |input: &JsValue| match order(input) {
             n if n.is_nan() => f64::INFINITY,
             n => n + 0.0,

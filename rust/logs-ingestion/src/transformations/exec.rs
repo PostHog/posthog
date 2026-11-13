@@ -250,12 +250,10 @@ pub fn sanitize_log_message(args: &[JsValue], sensitive: &[String]) -> String {
 pub enum ConvertError {
     Cyclic,
     /// Shared references expand on every visit, so a small heap can describe an exponential tree.
-    /// Node would spend unbounded time in `JSON.stringify` there; the port stops and fails the invocation.
     TooLarge,
 }
 
-/// These bound the memory and the stack of one conversion. A result under the 1 MiB record cap can
-/// have more values or levels than these, and it fails here where Node applies it.
+/// Bounds on the memory and stack of one conversion. Node applies a result under the record cap that exceeds them.
 const MAX_CONVERTED_NODES: usize = 100_000;
 const MAX_CONVERTED_BYTES: usize = LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES;
 const MAX_CONVERTED_DEPTH: usize = MAX_JSON_SERDE_DEPTH;
@@ -437,7 +435,6 @@ pub fn run_program<T>(
     finish: impl FnOnce(&HogVM, HogValue) -> Result<T, String>,
 ) -> VmRun<T> {
     let start = Instant::now();
-    // A timeout too large for an `Instant` is no deadline.
     let deadline = Duration::try_from_secs_f64(timeout_ms.max(0.0) / 1000.0)
         .ok()
         .and_then(|timeout| start.checked_add(timeout));
@@ -456,8 +453,7 @@ pub fn run_program<T>(
                 number_to_string(timeout_ms / 1000.0)
             )
         };
-        // Strings on the stack are outside the heap limit. A native call can return one, and reading
-        // an element of an array copies one, so the bound is checked after a call and with the clock.
+        // Strings on the stack are outside the heap limit, and reading an array element copies one.
         let within_memory = |vm: &HogVM| {
             let used = vm.memory_bytes();
             if used > LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES {

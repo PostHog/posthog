@@ -65,8 +65,7 @@ fn string_building_calls_refuse_results_past_the_heap_limit() {
     );
 }
 
-// let a := {'x': 1}; for (let i := 0; i < 22; i := i + 1) { a := {'l': a, 'r': a} }
-// return length(<call>(a))
+// let a := {'x': 1}; for (let i := 0; i < 22; i := i + 1) { a := {'l': a, 'r': a} }; return length(<call>(a))
 fn shared_references(call: &str) -> String {
     format!(
         r#"["_H", 1, 32, "x", 33, 1, 42, 1, 33, 0, 33, 22, 36, 1, 15, 40, 21, 32, "l", 36, 0, 32, "r", 36, 0, 42, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -28, 35, 36, 0, 2, "{call}", 1, 2, "length", 1, 38]"#

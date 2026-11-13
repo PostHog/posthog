@@ -51,9 +51,8 @@ pub fn print_hog_string_output(heap: &VmHeap, value: &HogValue) -> Result<String
     }
 }
 
-/// A printer writes a container again for each reference to it, so a few kilobytes of nested
-/// references can print as gigabytes. This fails when the repeated containers alone hold more
-/// text than the heap has room for. The heap limit already bounds a value that shares nothing.
+/// A printer writes a container again for each reference to it, so a few kilobytes can print as
+/// gigabytes. This fails when the repeated containers hold more text than the heap has room for.
 pub(crate) fn assert_repeats_fit(
     heap: &VmHeap,
     value: &HogValue,
@@ -92,7 +91,6 @@ impl RepeatMeasure<'_> {
     }
 
     fn walk(&mut self, value: &HogValue, depth: usize) -> Result<(), crate::VmError> {
-        // Every value prints at least one byte, which also bounds the walk itself.
         self.count(1)?;
         if depth > self.max_depth {
             return Ok(());

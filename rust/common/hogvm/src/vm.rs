@@ -127,9 +127,8 @@ impl<'a> HogVM<'a> {
         })
     }
 
-    /// The finished program's value, when the context was built with
-    /// [`ExecutionContext::with_raw_result`]. Read it before the VM is dropped, because heap
-    /// references in it point into this VM's heap.
+    /// The finished program's value under [`ExecutionContext::with_raw_result`]. Its heap
+    /// references point into this VM's heap, so read it before the VM is dropped.
     pub fn take_result(&mut self) -> Option<HogValue> {
         self.result.take()
     }
@@ -141,9 +140,8 @@ impl<'a> HogVM<'a> {
         })
     }
 
-    /// The object the reference VM keeps for a closure or a callable value, which its
-    /// `convertHogToJS` passes through and `JSON.stringify` writes. `None` for any other value.
-    /// Upvalue ids count from 1 within this call, so they can differ from the reference's.
+    /// The object the reference VM keeps for a closure or a callable value. `None` for any other
+    /// value. Upvalue ids count from 1 within this call, so they can differ from the reference's.
     pub fn closure_json(&self, literal: &HogLiteral) -> Option<JsonValue> {
         let mut registry = CellRegistry::default();
         let header_len = self.context.program_header_len();
@@ -1167,8 +1165,7 @@ impl<'a> HogVM<'a> {
         Ok(())
     }
 
-    /// A host that answers a [`StepOutcome::NativeCall`] itself pushes the call's result here. A
-    /// container must already be on this VM's heap.
+    /// For a host that answers a [`StepOutcome::NativeCall`] itself. A container must already be on this VM's heap.
     pub fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
         if self.stack.len() >= self.context.max_stack_depth {
             return Err(VmError::StackOverflow);
