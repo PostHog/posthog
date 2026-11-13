@@ -2284,7 +2284,11 @@
                       "is_identified",
                       "last_seen_at",
                       "pdi",
-                      "revenue_analytics"
+                      "revenue_analytics",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type",
+                      "$virt_revenue",
+                      "$virt_mrr"
                   ],
                   "hogql_value": "person",
                   "id": "person",
@@ -19146,7 +19150,11 @@
                       "is_identified",
                       "last_seen_at",
                       "pdi",
-                      "revenue_analytics"
+                      "revenue_analytics",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type",
+                      "$virt_revenue",
+                      "$virt_mrr"
                   ],
                   "hogql_value": "person",
                   "id": "person",
