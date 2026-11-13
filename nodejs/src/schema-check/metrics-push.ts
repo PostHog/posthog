@@ -1,4 +1,4 @@
-import { SqlxShadowResult, describeError } from './check'
+import { SqlxResult, describeError } from './check'
 
 export const PUSH_TIMEOUT_MS = 3000
 
@@ -9,9 +9,15 @@ export interface PushTarget {
 
 export type FetchFunction = (url: string, init: RequestInit) => Promise<Response>
 
-// The charts alert rules read these names. Error, dirty and skipped results get no sample, so they
-// can never replace an earlier "missing" with 0.
-export function renderMetrics(djangoExitCode: number, sqlx: SqlxShadowResult[], nowSeconds: number): string {
+// The charts alert rules read these names. Error, dirty and skipped results get no sqlx sample, so they
+// can never replace an earlier "missing" with 0. The exit code covers them instead.
+// node_schema_check_django_exit_code keeps the Django result alone, so an alert can tell a Django hold from a sqlx hold.
+export function renderMetrics(
+    exitCode: number,
+    djangoExitCode: number,
+    sqlx: SqlxResult[],
+    nowSeconds: number
+): string {
     const sqlxSamples = sqlx
         .filter((result) => result.status === 'satisfied' || result.status === 'missing')
         .map(
@@ -22,6 +28,8 @@ export function renderMetrics(djangoExitCode: number, sqlx: SqlxShadowResult[], 
         [
             '# TYPE node_schema_check_last_run_timestamp_seconds gauge',
             `node_schema_check_last_run_timestamp_seconds ${nowSeconds}`,
+            '# TYPE node_schema_check_exit_code gauge',
+            `node_schema_check_exit_code ${exitCode}`,
             '# TYPE node_schema_check_django_exit_code gauge',
             `node_schema_check_django_exit_code ${djangoExitCode}`,
             ...(sqlxSamples.length > 0 ? ['# TYPE node_schema_check_sqlx_missing gauge', ...sqlxSamples] : []),

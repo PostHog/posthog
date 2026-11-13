@@ -82,38 +82,6 @@ function defaultSleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// Database errors count as "not yet" while time remains, because the hook can start before a failover settles.
-export async function waitForRequirements(
-    requirements: DjangoRequirement[],
-    store: MigrationStore,
-    options: WaitOptions
-): Promise<CheckOutcome> {
-    const now = options.now ?? Date.now
-    const sleep = options.sleep ?? defaultSleep
-    const log = options.log ?? ((): void => {})
-    const deadline = now() + options.waitSeconds * 1000
-
-    for (;;) {
-        const outcome = await checkOnce(requirements, store)
-        if (outcome.status === 'satisfied') {
-            return outcome
-        }
-
-        const remainingMs = deadline - now()
-        if (remainingMs <= 0) {
-            return outcome
-        }
-
-        if (outcome.status === 'missing') {
-            const names = outcome.missing.map((item) => `${item.app}.${item.migration}`)
-            log(`Waiting for ${names.length} migrations: ${names.join(', ')}`)
-        } else {
-            log(`Waiting: could not read django_migrations: ${describeError(outcome.error)}`)
-        }
-        await sleep(Math.min(options.pollIntervalMs, remainingMs))
-    }
-}
-
 export interface SqlxMigrationRow {
     version: number
     success: boolean
@@ -124,19 +92,28 @@ export interface SqlxMigrationStore {
     fetchRows(versions: number[]): Promise<SqlxMigrationRow[]>
 }
 
-export type SqlxShadowStatus = 'satisfied' | 'missing' | 'dirty' | 'skipped' | 'error'
+export type SqlxStatus = 'satisfied' | 'missing' | 'dirty' | 'skipped' | 'error'
 
-export interface SqlxShadowResult {
+export interface SqlxResult {
     requirement: SqlxRequirement
-    status: SqlxShadowStatus
+    status: SqlxStatus
     detail: string
 }
 
+export interface SqlxCheck {
+    requirement: SqlxRequirement
+    store: SqlxMigrationStore | null
+}
+
 // sqlx writes success = false when a migration without a transaction fails halfway. sqlx refuses to run on such a database.
-export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrationRow[]): SqlxShadowResult {
+export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrationRow[]): SqlxResult {
     const failed = rows.filter((row) => !row.success).map((row) => row.version)
     if (failed.length > 0) {
-        return { requirement, status: 'dirty', detail: `failed migrations recorded: ${failed.join(', ')}` }
+        return {
+            requirement,
+            status: 'dirty',
+            detail: `failed migrations recorded: ${failed.join(', ')}, sqlx-migrate stops until someone repairs them`,
+        }
     }
     const applied = new Set(rows.map((row) => row.version))
     const missing = requirement.versions.filter((version) => !applied.has(version))
@@ -151,10 +128,7 @@ export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrati
     return { requirement, status: 'missing', detail: `versions not applied: ${missing.join(', ')}` }
 }
 
-export async function checkSqlxShadow(
-    requirement: SqlxRequirement,
-    store: SqlxMigrationStore | null
-): Promise<SqlxShadowResult> {
+export async function checkSqlxOnce({ requirement, store }: SqlxCheck): Promise<SqlxResult> {
     // Node has no production default for these URLs, so an app without one does not use that database.
     if (store === null) {
         return { requirement, status: 'skipped', detail: 'no database URL in this environment' }
@@ -167,5 +141,73 @@ export async function checkSqlxShadow(
             status: 'error',
             detail: describeError(error instanceof Error ? error : new Error(String(error))),
         }
+    }
+}
+
+// A skipped database counts as satisfied, because an app without a URL for it never connects to it
+// and so cannot read a table that a missing version creates.
+export function isSqlxSatisfied(result: SqlxResult): boolean {
+    return result.status === 'satisfied' || result.status === 'skipped'
+}
+
+export interface WaitResult {
+    django: CheckOutcome
+    sqlx: SqlxResult[]
+}
+
+function isWaitSatisfied(result: WaitResult): boolean {
+    return result.django.status === 'satisfied' && result.sqlx.every(isSqlxSatisfied)
+}
+
+async function checkAllOnce(
+    djangoRequirements: DjangoRequirement[],
+    store: MigrationStore,
+    sqlxChecks: SqlxCheck[]
+): Promise<WaitResult> {
+    const [django, sqlx] = await Promise.all([
+        checkOnce(djangoRequirements, store),
+        Promise.all(sqlxChecks.map(checkSqlxOnce)),
+    ])
+    return { django, sqlx }
+}
+
+function logWaiting(result: WaitResult, log: (message: string) => void): void {
+    if (result.django.status === 'missing') {
+        const names = result.django.missing.map((item) => `${item.app}.${item.migration}`)
+        log(`Waiting for ${names.length} migrations: ${names.join(', ')}`)
+    } else if (result.django.status === 'error') {
+        log(`Waiting: could not read django_migrations: ${describeError(result.django.error)}`)
+    }
+    for (const sqlx of result.sqlx.filter((item) => !isSqlxSatisfied(item))) {
+        log(`Waiting for sqlx database ${sqlx.requirement.database}: ${sqlx.status}, ${sqlx.detail}`)
+    }
+}
+
+// Database errors count as "not yet" while time remains, because the hook can start before a failover settles.
+// A dirty sqlx database also waits, the same as a Django migration that failed and so is still missing.
+export async function waitForRequirements(
+    djangoRequirements: DjangoRequirement[],
+    store: MigrationStore,
+    sqlxChecks: SqlxCheck[],
+    options: WaitOptions
+): Promise<WaitResult> {
+    const now = options.now ?? Date.now
+    const sleep = options.sleep ?? defaultSleep
+    const log = options.log ?? ((): void => {})
+    const deadline = now() + options.waitSeconds * 1000
+
+    for (;;) {
+        const result = await checkAllOnce(djangoRequirements, store, sqlxChecks)
+        if (isWaitSatisfied(result)) {
+            return result
+        }
+
+        const remainingMs = deadline - now()
+        if (remainingMs <= 0) {
+            return result
+        }
+
+        logWaiting(result, log)
+        await sleep(Math.min(options.pollIntervalMs, remainingMs))
     }
 }
