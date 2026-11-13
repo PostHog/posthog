@@ -135,6 +135,7 @@ from products.cohorts.backend.models.dependencies import (
     extract_cohort_dependencies,
     get_flag_excluded_behavioral_cohort_ids,
 )
+from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     close_open_population_attempts,
@@ -533,6 +534,23 @@ def _canonical_criteria(node: Any) -> Any:
 def _criteria_key(filters: Any) -> str:
     # JSON keeps 1 and 1.0 apart, which Python equality does not, and they compile to different criteria.
     return json.dumps(_canonical_criteria(filters), sort_keys=True, default=str)
+
+
+def _criteria_edit_queues_behavioral_run(cohort: Cohort, previous_filters: Any) -> bool:
+    """Whether saving the cohort's edited filters queues a behavioral backfill.
+
+    `Cohort._maintain_filter_shape_hashes` decides this on save. It compares against the stored behavioral hash
+    when there is one, and against the old filters otherwise. A change against either one counts here. When the
+    two disagree, the caller's check still runs.
+    """
+    previous = FilterShapeHashes.from_filters(previous_filters)
+    current = FilterShapeHashes.from_filters(cohort.filters)
+    stored_behavioral = cohort.behavioral_filters_shape_hash
+    return (
+        current.behavioral != previous.behavioral
+        or (stored_behavioral is not None and current.behavioral != stored_behavioral)
+        or "behavioral" in current.composition_repair_kinds(previous, cohort.filters)
+    )
 
 
 def _coerce_stored_filter_values(filters: Any) -> Any:
@@ -2209,6 +2227,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        previous_filters = cohort.filters
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
         filters_changed = "filters" in validated_data and _criteria_key(validated_data.get("filters")) != _criteria_key(
             _coerce_stored_filter_values(cohort.filters)
@@ -2249,15 +2268,19 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             else:
                 cohort.filters = filters
 
-        # A criteria edit of a cohort with realtime on queues a backfill. The backfill refuses a cohort whose
-        # flag calls it can't read. The cohort would then never be ready.
+        # A criteria edit that moves a behavioral leaf of a cohort with realtime on queues a behavioral backfill.
+        # The backfill refuses a cohort whose flag calls it can't read. The cohort would then never be ready.
         if (
             filters_changed
             and cohort.realtime_enabled
             and not cohort.is_static
             and cohort.cohort_type == CohortType.REALTIME
-            and flag_calls_table_refusal(cohort) is not None
+            and _criteria_edit_queues_behavioral_run(cohort, previous_filters)
+            and (refusal := flag_calls_table_refusal(cohort)) is not None
         ):
+            logger.info(
+                "cohort_realtime_criteria_edit_refused", cohort_id=cohort.pk, team_id=cohort.team_id, reason=refusal
+            )
             raise ValidationError(
                 {
                     "filters": "Realtime is on for this cohort, and PostHog can't prepare one of its criteria in "

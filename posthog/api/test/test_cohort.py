@@ -35,6 +35,7 @@ from posthog.api.cohort import (
     CohortFilters,
     CohortViewSet,
     flag_call_criterion_shape_problem,
+    generate_cohort_filter_bytecode,
 )
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
@@ -120,6 +121,7 @@ def _pageview_with_hogql_filter(expression: str) -> dict[str, Any]:
 
 
 _FLAG_CALLED_PAST_RETENTION_CRITERION = {**_FLAG_CALLED_CRITERION, "time_value": 180}
+_PERSON_EMAIL_CRITERION = {"key": "email", "type": "person", "value": "person@example.com", "operator": "exact"}
 _FLAG_CALLED_UNRESOLVABLE_CRITERION = {
     **_FLAG_CALLED_CRITERION,
     "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
@@ -5290,6 +5292,15 @@ email@example.org,
                 [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PAGEVIEW_CRITERION],
                 _REALTIME_CRITERIA_REFUSAL,
             ),
+            # A person-only edit queues no behavioral backfill, so it never reads the stored flag calls.
+            (
+                "realtime_adds_person_criterion_beside_stored_criterion_past_retention",
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PERSON_EMAIL_CRITERION],
+                None,
+            ),
             (
                 "batch_keeps_stored_criterion_past_retention",
                 True,
@@ -5327,9 +5338,19 @@ email@example.org,
             cohort = Cohort.objects.create(
                 team=self.team,
                 name="flag callers",
-                # A criterion stored without the validator has no negation key.
+                # A criterion stored without the validator has no negation key. It still needs the conditionHash
+                # that saved rows carry, because the behavioral leaf hash skips a leaf without one.
                 filters={
-                    "properties": {"type": "OR", "values": stored_criteria},
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                **criterion,
+                                "conditionHash": generate_cohort_filter_bytecode(criterion, self.team).condition_hash,
+                            }
+                            for criterion in stored_criteria
+                        ],
+                    },
                     "filterTestAccounts": stored_filter_test_accounts,
                 },
                 cohort_type=CohortType.REALTIME if stored_realtime else None,
