@@ -2477,13 +2477,28 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "branded",
+                    "key": "branded",
+                    "csv": false
+                },
+                {
                     "param": "days",
                     "key": "days",
                     "csv": false
                 },
                 {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
                     "param": "keyword",
                     "key": "keyword",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
                     "csv": false
                 }
             ],
@@ -2520,8 +2535,23 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "branded",
+                    "key": "branded",
+                    "csv": false
+                },
+                {
                     "param": "days",
                     "key": "days",
+                    "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
                     "csv": false
                 }
             ],
@@ -2856,6 +2886,16 @@
                     "csv": false
                 },
                 {
+                    "param": "days",
+                    "key": "days",
+                    "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
                     "param": "include_archived",
                     "key": "include_archived",
                     "csv": false
@@ -2929,6 +2969,16 @@
                     "param": "days",
                     "key": "days",
                     "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
+                    "csv": false
                 }
             ],
             "body": null,
@@ -2971,6 +3021,16 @@
                 {
                     "param": "days",
                     "key": "days",
+                    "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
                     "csv": false
                 }
             ],
