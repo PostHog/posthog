@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
+import { router } from 'kea-router'
 
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -56,16 +57,17 @@ describe('EmptyDashboardComponent', () => {
         cleanup()
     })
 
-    function renderEmptyState(opts: { canEdit?: boolean } = {}): {
+    function renderEmptyState(opts: { canEdit?: boolean; userAccessLevel?: AccessControlLevel } = {}): {
         logic: ReturnType<typeof dashboardLogic.build>
     } {
-        const { canEdit = true } = opts
+        const { canEdit = true, userAccessLevel = AccessControlLevel.Editor } = opts
+        const dashboard = { ...MOCK_DASHBOARD, user_access_level: userAccessLevel }
 
-        const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
+        const logic = dashboardLogic({ id: dashboard.id, dashboard })
         logic.mount()
 
         render(
-            <BindLogic logic={dashboardLogic} props={{ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD }}>
+            <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard }}>
                 <EmptyDashboardComponent loading={false} canEdit={canEdit} />
             </BindLogic>
         )
@@ -110,10 +112,29 @@ describe('EmptyDashboardComponent', () => {
         logic.unmount()
     })
 
-    it('disables the dropdown when the user cannot edit the dashboard', () => {
-        const { logic } = renderEmptyState({ canEdit: false })
+    it('opens the SQL editor with the current dashboard selected without opening the picker', async () => {
+        const { logic } = renderEmptyState()
+
+        await userEvent.click(screen.getByText('Write SQL'))
+
+        expect(router.values.location.pathname).toContain('/sql')
+        expect(router.values.searchParams.dashboard).toBe(MOCK_DASHBOARD.id)
+        expect(addInsightToDashboardLogic.values.addInsightToDashboardModalVisible).toBe(false)
+
+        logic.unmount()
+    })
+
+    it.each([
+        { canEdit: false, userAccessLevel: AccessControlLevel.Editor },
+        { canEdit: true, userAccessLevel: AccessControlLevel.Viewer },
+    ])('disables creation with canEdit=$canEdit and access=$userAccessLevel', async (opts) => {
+        const { logic } = renderEmptyState(opts)
+        const initialLocation = router.values.location.pathname
 
         expect(document.querySelector('[data-attr="dashboard-add-dropdown"]')).toHaveAttribute('aria-disabled', 'true')
+        expect(document.querySelector('[data-attr="dashboard-write-sql"]')).toHaveAttribute('aria-disabled', 'true')
+        await userEvent.click(screen.getByText('Write SQL'))
+        expect(router.values.location.pathname).toBe(initialLocation)
 
         logic.unmount()
     })
