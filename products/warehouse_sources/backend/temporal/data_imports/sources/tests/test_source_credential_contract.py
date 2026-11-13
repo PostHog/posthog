@@ -196,6 +196,7 @@ ACCEPTED: dict[str, dict[str, str]] = {
         "BigCommerce": "scope",
         "Bird": "scope",
         "Blueshift": "scope",
+        "BoldDesk": "scope",
         "Braze": "scope",
         "Brex": "scope",
         "Buildkite": "scope",
