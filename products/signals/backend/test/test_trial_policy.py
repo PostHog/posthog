@@ -298,11 +298,7 @@ class TestTrialPolicy(BaseTest):
     def test_editing_the_operational_scout_mid_trial_needs_a_free_slot(
         self, _name: str, edit: str, chosen_count: int, refused: bool
     ) -> None:
-        self._operational_skill("shipped")
-        operational = SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
-        for index in range(chosen_count):
-            SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}")
-        self.claim()
+        operational = self._start_trial_beside_operational_scout(chosen_count)
 
         refusal = self.assertRaisesMessage(SkillPublishRefused, "every slot is in use") if refused else nullcontext()
         with refusal:
@@ -323,6 +319,27 @@ class TestTrialPolicy(BaseTest):
         assert latest.version == (1 if refused else 2)
         operational.refresh_from_db()
         assert operational.enabled
+
+    def test_operational_scout_edit_without_a_trial_slot_is_refused_over_the_api(self) -> None:
+        self._start_trial_beside_operational_scout(3)
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/llm_skills/name/{_INBOX_VALIDATION}/",
+            data={"body": "the team's own body", "base_version": 1},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "every slot is in use" in response.json()["detail"]
+
+    def _start_trial_beside_operational_scout(self, chosen_count: int) -> SignalScoutConfig:
+        self._operational_skill("shipped")
+        operational = SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
+        for index in range(chosen_count):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}")
+        self.claim()
+        return operational
 
     def _operational_skill(self, origin: str) -> None:
         skill = LLMSkill.objects.create(team=self.team, name=_INBOX_VALIDATION, description="d", body="shipped body")
