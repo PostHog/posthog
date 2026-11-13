@@ -5,7 +5,7 @@ import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.db import transaction
@@ -452,13 +452,51 @@ def validate_signal_input(
 
 def dismiss_report_from_slack(
     team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
-) -> bool:
+) -> Literal["changed", "unchanged", "refused"]:
     """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
     from products.signals.backend.report_actions import (
         suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def resolve_report_from_slack(
+    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+) -> Literal["changed", "unchanged", "refused"]:
+    """Facade entrypoint for the Slack 'Mark resolved' button. See report_actions.resolve_report_from_slack."""
+    from products.signals.backend.report_actions import (
+        resolve_report_from_slack as resolve_report_from_slack_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return resolve_report_from_slack_impl(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def remove_reviewer_from_slack(
+    team_id: int, report_id: str, *, user_id: int
+) -> Literal["removed", "not_reviewer", "failed"]:
+    """Facade entrypoint for the Slack 'Remove me' button. Takes the member off the report's suggested reviewers."""
+    from products.signals.backend.facade.reviewer_exclusions import (  # noqa: PLC0415 — avoids importing the views layer at facade import time
+        ReviewerWriteError,
+        remove_report_reviewer,
+    )
+
+    team = Team.objects.filter(id=team_id).first()
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if team is None or user is None:
+        return "failed"
+    try:
+        removed = remove_report_reviewer(
+            team=team, report_id=report_id, user=user, scoped_team_ids=None, was_impersonated=False
+        )
+    except ReviewerWriteError:
+        logger.warning("signals_remove_reviewer_from_slack_refused", report_id=report_id, team_id=team_id)
+        return "failed"
+    except Exception:
+        # The removal raises DRF's NotFound for a missing report, which this facade must not import.
+        logger.exception("signals_remove_reviewer_from_slack_failed", report_id=report_id, team_id=team_id)
+        return "failed"
+    return "removed" if removed else "not_reviewer"
 
 
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
@@ -484,8 +522,14 @@ def report_team_id_for_slack_thread(
     )
 
 
-def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str, user_id: int) -> None:
-    """Record a discussion started by a verified Slack user after its thread mapping is saved."""
+def record_slack_report_discussion(
+    *, team_id: int, report_id: str, task_id: str, user_id: int, question: str | None = None
+) -> None:
+    """Record a discussion started by a verified Slack user after its thread mapping is saved.
+
+    `question` is kept on the action row rather than read back from the task, because a `task:write`
+    credential can rewrite the task's description. `report_discussions` returns it to the report's scout.
+    """
     from products.signals.backend.models import SignalReport, SignalReportAction
     from products.signals.backend.task_run_artefacts import record_report_task
 
@@ -496,6 +540,7 @@ def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str
         report_id=report_id,
         user_id=user_id,
         action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+        metadata={"task_id": task_id, "question": question} if question else None,
     )
 
 

@@ -59,11 +59,10 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
-import { IntercomImportSection } from 'products/conversations/frontend/scenes/settings/IntercomImportSection'
+import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
 import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -513,7 +512,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Bring your own subscription',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
         keywords: ['subscriptions', 'byos', 'plan & usage'],
         settings: [
             {
@@ -537,7 +536,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
@@ -1702,14 +1701,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-imports',
                 title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
-                component: (
-                    <>
-                        <ZendeskImportSection />
-                        <IntercomImportSection />
-                    </>
-                ),
+                component: <ImportsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['import', 'zendesk', 'intercom', 'migrate', 'ticket', 'support', 'conversation'],
+                keywords: ['import', 'zendesk', 'intercom', 'pylon', 'migrate', 'ticket', 'support', 'conversation'],
             },
             {
                 id: 'conversations-macros',

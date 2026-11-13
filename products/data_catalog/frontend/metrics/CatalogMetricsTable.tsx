@@ -27,6 +27,7 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { stripMarkdown } from 'lib/utils/markdown'
@@ -44,7 +45,6 @@ import { SortHeadProps, SortableTableHead } from '../components/SortableTableHea
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { bulkBusyReason } from '../metricActionGuards'
 import { DEFAULT_METRICS_FILTERS, metricsLogic } from '../metricsLogic'
-import { CatalogTablesPagination } from '../tables/CatalogTablesPagination'
 import { MutedCellText } from '../tables/MutedCellText'
 import { CatalogMetricRowMenu } from './CatalogMetricRowMenu'
 import {
@@ -322,7 +322,7 @@ export function CatalogMetricsTable(): JSX.Element {
                 )}
             </Table>
             {pageCount > 1 && (
-                <CatalogTablesPagination
+                <QuillTablePagination
                     currentPage={currentPage}
                     pageCount={pageCount}
                     pageSize={CATALOG_PAGE_SIZE}

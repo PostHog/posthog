@@ -1954,10 +1954,6 @@ export class ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
     }
 
-    public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('evaluation_runs')
-    }
-
     // Heatmap screenshots
     public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('heatmap_screenshots')
@@ -6802,23 +6798,6 @@ const api = {
             clear(conversationId: string): Promise<ConversationQueueResponse> {
                 return new ApiRequest().conversation(conversationId).withAction('queue/clear').create({ data: {} })
             },
-        },
-    },
-
-    evaluationRuns: {
-        async create(data: {
-            evaluation_id: string
-            target_event_id: string
-            timestamp: string
-            event: string
-            distinct_id?: string
-        }): Promise<{
-            workflow_id: string
-            status: string
-            evaluation: { id: string; name: string }
-            target_event_id: string
-        }> {
-            return await new ApiRequest().evaluationRuns().create({ data })
         },
     },
 

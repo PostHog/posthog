@@ -33,6 +33,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
+from structlog.testing import capture_logs
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -3157,8 +3158,13 @@ def _route_id_probe(request: HttpRequest, probe_id: int) -> HttpResponse:
     return HttpResponse(get_query_tags().route_id)
 
 
+def _raising_probe(request: HttpRequest) -> HttpResponse:
+    raise RuntimeError("probe")
+
+
 urlpatterns = [
     path("api/_http_request_id_probe/", _http_request_id_probe),
+    path("api/_raising_probe/", _raising_probe),
     path("api/_route_id_probe/<int:probe_id>/", _route_id_probe),
 ]
 
@@ -3190,6 +3196,23 @@ async def test_chqueries_middleware_tags_route_id_under_asgi() -> None:
     response = await AsyncClient().get("/api/_route_id_probe/1/")
 
     assert response.content.decode() == "api/_route_id_probe/<int:probe_id>/"
+
+
+@pytest.mark.parametrize(
+    "path,expected_event",
+    [
+        pytest.param("/api/_route_id_probe/1/", "request_finished", id="finished"),
+        pytest.param("/api/_raising_probe/", "request_failed", id="failed"),
+    ],
+)
+@override_settings(ROOT_URLCONF=__name__)
+async def test_request_log_carries_duration_ms(path, expected_event) -> None:
+    with capture_logs() as logs:
+        await AsyncClient(raise_request_exception=False).get(path)
+
+    [entry] = [log for log in logs if log["event"] == expected_event]
+    assert isinstance(entry["duration_ms"], float)
+    assert entry["duration_ms"] >= 0
 
 
 @parameterized.expand(
