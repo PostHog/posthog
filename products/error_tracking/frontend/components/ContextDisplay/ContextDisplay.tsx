@@ -3,9 +3,18 @@ import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '../../utils'
 import { BUILT_IN_ERROR_TRACKING_PROPERTIES } from '../builtInProperties'
 import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
 import { ExceptionPropertiesTable } from './ExceptionPropertiesTable'
+
+// Built-in rows already show these, and the internal keys only hold fingerprinting and search data.
+const HIDDEN_POSTHOG_PROPERTY_KEYS = new Set<string>([
+    ...BUILT_IN_ERROR_TRACKING_PROPERTIES.flatMap(({ property, versionProperty }) =>
+        versionProperty ? [property, versionProperty] : [property]
+    ),
+    ...INTERNAL_EXCEPTION_PROPERTY_KEYS,
+])
 
 export type ContextDisplayProps = {
     loading: boolean
@@ -24,13 +33,12 @@ export function ContextDisplay({
     const onFilterValue = (key: string, value: string | number | boolean): void => {
         addPropertyFilter(key, value)
     }
-    const additionalEntries = Object.entries(additionalProperties)
-        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base' }))
-        .map(([key, value]) => ({
-            key,
-            value,
-            filterKey: key,
-        }))
+    const additionalEntries = toSortedEntries(Object.entries(additionalProperties))
+    const posthogEntries = toSortedEntries(
+        Object.entries(properties ?? {}).filter(
+            ([key]) => key.startsWith('$') && !HIDDEN_POSTHOG_PROPERTY_KEYS.has(key)
+        )
+    )
     const builtInEntries = BUILT_IN_ERROR_TRACKING_PROPERTIES.map(({ property, title, versionProperty }) => ({
         key: title,
         value: getBuiltInPropertyValue(properties, property, versionProperty),
@@ -60,6 +68,11 @@ export function ContextDisplay({
                                 title: 'Custom properties',
                                 entries: filterEntriesByPropertyName(additionalEntries, normalizedPropertyNameFilter),
                             },
+                            {
+                                id: 'posthog-exception-properties',
+                                title: 'PostHog properties',
+                                entries: filterEntriesByPropertyName(posthogEntries, normalizedPropertyNameFilter),
+                            },
                         ]}
                         emptyMessage={normalizedPropertyNameFilter ? 'No matching properties' : 'No properties'}
                         onFilterValue={onFilterValue}
@@ -68,6 +81,16 @@ export function ContextDisplay({
                 .exhaustive()}
         </>
     )
+}
+
+function toSortedEntries(entries: [string, unknown][]): { key: string; value: unknown; filterKey: string }[] {
+    return entries
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base' }))
+        .map(([key, value]) => ({
+            key,
+            value,
+            filterKey: key,
+        }))
 }
 
 function filterEntriesByPropertyName<T extends { key: string; filterKey?: string }>(

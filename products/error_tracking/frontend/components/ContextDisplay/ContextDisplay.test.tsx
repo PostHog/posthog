@@ -65,4 +65,29 @@ describe('ContextDisplay', () => {
             }),
         ])
     })
+
+    it('lists SDK $ properties that no built-in row or internal key covers', () => {
+        render(
+            <Provider>
+                <ContextDisplay
+                    loading={false}
+                    properties={{
+                        $job_class: 'SendEmailJob',
+                        $browser: 'Chrome',
+                        $browser_version: '120',
+                        $exception_types: ['TypeError'],
+                        plan: 'free',
+                    }}
+                    additionalProperties={{ plan: 'free' }}
+                />
+            </Provider>
+        )
+
+        const section = within(screen.getByText('PostHog properties').closest('section')!)
+        expect(section.getByText('$job_class')).toBeInTheDocument()
+        expect(section.getByText('SendEmailJob')).toBeInTheDocument()
+        for (const hiddenKey of ['$browser', '$browser_version', '$exception_types', 'plan']) {
+            expect(section.queryByText(hiddenKey)).not.toBeInTheDocument()
+        }
+    })
 })
