@@ -2,9 +2,6 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from parameterized import parameterized
-
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.query import execute_hogql_query
@@ -12,6 +9,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -118,12 +116,12 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(database.get_table("mcp_intent_assignments"), HogQLDataWarehouseTable)
 
-    @parameterized.expand(
-        [("deduped", "posthog.mcp_intent_assignments"), ("raw", "posthog.raw_mcp_intent_assignments")]
-    )
-    def test_restricting_the_intent_property_masks_the_copied_intent_text(self, _name: str, table: str) -> None:
-        # intent_text copies $mcp_intent, so a reader denied the property must not read or filter on the copy.
+    def test_restricting_the_intent_property_masks_the_raw_hash_and_text_and_empties_the_deduped_table(self) -> None:
+        # intent_text copies $mcp_intent and intent_hash is its unsalted sha256, so a reader denied the property
+        # must not read or filter on either. The deduped table cannot pick one row per intent without the hash.
+        _insert_assignment(self.team.pk, "a" * 64, "topic-0", timestamp=_now() - timedelta(days=2))
         _insert_assignment(self.team.pk, "a" * 64, "topic-1")
+        _insert_assignment(self.team.pk, "b" * 64, "topic-2")
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -134,10 +132,31 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         PropertyAccessControl.objects.create(
             team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
         )
+        hash_a = "a" * 64
 
-        def run(query: str) -> list:
-            context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
-            return execute_hogql_query(query=query, team=self.team, context=context).results
+        def run(query: str) -> list[tuple]:
+            return execute_hogql_query(query=query, team=self.team, user=self.user).results
 
-        assert run(f"SELECT intent_hash, intent_text FROM {table}") == [("a" * 64, None)]
-        assert run(f"SELECT intent_hash FROM {table} WHERE intent_text = 'list feature flags'") == []
+        raw_star = execute_hogql_query(
+            query="SELECT * FROM posthog.raw_mcp_intent_assignments ORDER BY topic_id", team=self.team, user=self.user
+        )
+        assert [
+            (row["topic_id"], row["intent_hash"], row["intent_text"])
+            for row in (dict(zip(raw_star.columns or [], values)) for values in raw_star.results)
+        ] == [("topic-0", None, None), ("topic-1", None, None), ("topic-2", None, None)]
+        assert run(f"SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_hash = '{hash_a}'") == [(0,)]
+        assert run(
+            "SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_text = 'list feature flags'"
+        ) == [(0,)]
+        assert run("SELECT count() FROM posthog.mcp_intent_assignments") == [(0,)]
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        assert run(f"SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_hash = '{hash_a}'") == [(2,)]
+        assert run(
+            "SELECT intent_hash, topic_id, intent_text FROM posthog.mcp_intent_assignments ORDER BY intent_hash"
+        ) == [
+            (hash_a, "topic-1", "list feature flags"),
+            ("b" * 64, "topic-2", "list feature flags"),
+        ]
