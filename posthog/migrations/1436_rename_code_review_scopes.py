@@ -51,16 +51,24 @@ SAME_TARGET = """
 
 def _update_in_batches(cursor, table: str, set_clause: str, where_clause: str) -> None:
     # Each batch commits on its own (the migration is not atomic), so no row lock outlives one batch.
-    # The outer WHERE repeats the condition: PostgreSQL checks it again on the locked row, so a row that
-    # a concurrent write changed while this batch waited for its lock (a revoked scope) is skipped.
+    # The UPDATE repeats the condition: PostgreSQL checks it again on the locked row, so a row that a
+    # concurrent write changed while this batch waited for its lock (a revoked scope) is skipped.
+    # The loop walks an id cursor and stops on a short SELECT, not a short UPDATE: a skipped row must
+    # not end the loop, and rows already done are never scanned again.
+    last_id = None
     while True:
+        cursor_filter = "" if last_id is None else "AND id > %s"
         cursor.execute(
-            f"UPDATE {table} SET {set_clause} "
-            f"WHERE id IN (SELECT id FROM {table} WHERE {where_clause} LIMIT %s) AND {where_clause}",
-            [BATCH_SIZE],
+            f"SELECT id FROM {table} WHERE {where_clause} {cursor_filter} ORDER BY id LIMIT %s",
+            [BATCH_SIZE] if last_id is None else [last_id, BATCH_SIZE],
         )
-        if cursor.rowcount < BATCH_SIZE:
+        ids = [row[0] for row in cursor.fetchall()]
+        if not ids:
             return
+        cursor.execute(f"UPDATE {table} SET {set_clause} WHERE id = ANY(%s) AND {where_clause}", [ids])
+        if len(ids) < BATCH_SIZE:
+            return
+        last_id = ids[-1]
 
 
 def _add_scope_next_to(cursor, present: str, added: str) -> None:
