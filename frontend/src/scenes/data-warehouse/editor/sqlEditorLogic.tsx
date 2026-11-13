@@ -3970,6 +3970,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         query: undefined,
                         executionTarget: source.executionTarget ?? 'default',
                         filters: normalizeFiltersForUrl(source.filters),
+                        variables: Object.keys(source.variables ?? {}).length > 0 ? source.variables : undefined,
                     })
                 if (
                     lastRunQuery &&

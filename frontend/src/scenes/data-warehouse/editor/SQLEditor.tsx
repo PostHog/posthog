@@ -621,7 +621,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     useEffect(() => {
         setPendingSave(null)
-    }, [queryInput, sourceQuery, editingView?.id, editingInsight?.id, editingMetricName])
+    }, [queryInput, editingView?.id, editingInsight?.id, editingMetricName])
 
     const confirmSave = (save: () => void): void => {
         if (needsSaveConfirmation) {
