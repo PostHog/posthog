@@ -79,6 +79,7 @@ export const messagingTemplatesCreateBodyContentOnePushOneDataMaxOne = 4000
 export const messagingTemplatesCreateBodyTypeMax = 24
 
 export const MessagingTemplatesCreateBody = () => zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)

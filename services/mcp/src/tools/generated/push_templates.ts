@@ -14,7 +14,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreatePushTemplateSchema = () => {
     const MessagingTemplatesCreateBody = orvalSchemas.MessagingTemplatesCreateBody()
-    return MessagingTemplatesCreateBody.extend({
+    return MessagingTemplatesCreateBody.omit({ _create_in_folder: true }).extend({
         type: MessagingTemplatesCreateBody.shape['type'].nonoptional().describe('Always push for this tool.'),
     })
 }
