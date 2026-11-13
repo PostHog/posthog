@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { MutableRefObject, ReactNode, useEffect, useRef, useState } from 'react'
 
 import { IconBrowser } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'
@@ -98,12 +98,23 @@ function SiteCard({
     )
 }
 
-function LoadedSiteThemeCard({ survey, appearance, onSelectTheme, disabled }: SiteThemeCardProps): JSX.Element {
+function LoadedSiteThemeCard({
+    survey,
+    appearance,
+    onSelectTheme,
+    disabled,
+    focusInside,
+}: SiteThemeCardProps & { focusInside: MutableRefObject<boolean> }): JSX.Element {
+    const ownsFocus = focusInside.current
     const { siteSnapshot, gaveUp } = useValues(
         surveySiteSnapshotLogic({
             surveyId: survey.id,
             device: 'desktop',
             urlCondition: siteSnapshotUrlCondition(survey.conditions),
+            target: {
+                url: survey.conditions?.url ?? '',
+                url_match_type: survey.conditions?.urlMatchType,
+            },
         })
     )
 
@@ -125,9 +136,9 @@ function LoadedSiteThemeCard({ survey, appearance, onSelectTheme, disabled }: Si
 
     if (!siteSnapshot?.site_style) {
         return outcome && outcome !== 'suggested' ? (
-            <SiteCard description={UNSUGGESTED_COPY[outcome]} focusOnMount />
+            <SiteCard description={UNSUGGESTED_COPY[outcome]} focusOnMount={ownsFocus} />
         ) : (
-            <SiteCard description="Reading your site. This can take a minute." loading focusOnMount />
+            <SiteCard description="Reading your site. This can take a minute." loading focusOnMount={ownsFocus} />
         )
     }
     const theme = siteTheme(siteSnapshot.site_style)
@@ -140,13 +151,14 @@ function LoadedSiteThemeCard({ survey, appearance, onSelectTheme, disabled }: Si
             }
             onClick={() => onSelectTheme(theme)}
             disabled={disabled}
-            autoFocus
+            autoFocus={ownsFocus}
         />
     )
 }
 
 function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
     const [requested, setRequested] = useState(false)
+    const focusInside = useRef(false)
     const { currentTeam } = useValues(teamLogic)
     const state: SiteThemeCardState = !SURVEY_TYPES_ON_SITE.includes(props.survey.type)
         ? 'not_on_site'
@@ -169,17 +181,27 @@ function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
             </SiteCard>
         )
     }
-    return requested ? (
-        <LoadedSiteThemeCard {...props} />
-    ) : (
-        <SiteCard
-            description="Use your site's colors"
-            onClick={() => {
-                reportSiteThemeRequested(props.survey.id)
-                setRequested(true)
-            }}
-            disabled={props.disabled}
-        />
+    return (
+        // The card swaps elements as it loads. Focus follows it only while it is inside the card, and removing the
+        // focused element fires no blur, so the flag still holds when the next element mounts.
+        <div
+            className="grid"
+            onFocus={() => (focusInside.current = true)}
+            onBlur={(event) => (focusInside.current = event.currentTarget.contains(event.relatedTarget))}
+        >
+            {requested ? (
+                <LoadedSiteThemeCard {...props} focusInside={focusInside} />
+            ) : (
+                <SiteCard
+                    description="Use your site's colors"
+                    onClick={() => {
+                        reportSiteThemeRequested(props.survey.id)
+                        setRequested(true)
+                    }}
+                    disabled={props.disabled}
+                />
+            )}
+        </div>
     )
 }
 

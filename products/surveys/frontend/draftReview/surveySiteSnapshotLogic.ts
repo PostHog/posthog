@@ -10,6 +10,7 @@ import { surveysSiteSnapshotRetrieve } from 'products/surveys/frontend/generated
 import type {
     SiteSnapshotApi,
     SurveysSiteSnapshotRetrieveDevice,
+    SurveysSiteSnapshotRetrieveParams,
 } from 'products/surveys/frontend/generated/api.schemas'
 
 const FIRST_POLL_DELAY_MS = 2000
@@ -22,6 +23,8 @@ export interface SurveySiteSnapshotLogicProps {
     device: SurveysSiteSnapshotRetrieveDevice
     // The snapshot is rendered for a URL condition, so a new condition needs a new snapshot.
     urlCondition: string
+    // Unsaved URL targeting to use instead of the survey's saved one.
+    target?: Pick<SurveysSiteSnapshotRetrieveParams, 'url' | 'url_match_type'>
 }
 
 export function siteSnapshotUrlCondition(
@@ -99,6 +102,7 @@ export const surveySiteSnapshotLogic = kea<surveySiteSnapshotLogicType>([
                 loadSiteSnapshot: async (): Promise<SiteSnapshotApi | null> =>
                     await surveysSiteSnapshotRetrieve(String(values.currentProjectId), props.surveyId, {
                         device: props.device,
+                        ...props.target,
                     }),
             },
         ],
