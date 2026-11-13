@@ -54,7 +54,8 @@ describe('hog', () => {
 
     test.each([
         ['an unknown command', ['nope'], 'unknown_command'],
-        ['a missing argument', ['query', 'run'], 'usage_error'],
+        ['a missing argument', ['query', 'check'], 'usage_error'],
+        ['a query run without a query or --wait', ['query', 'run'], 'query_required'],
         ['an invalid --output', ['query', 'run', 'select 1', '-o', 'yaml'], 'usage_error'],
     ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code) => {
         const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
@@ -93,7 +94,7 @@ describe('hog', () => {
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
             name: 'query run',
-            arguments: [{ name: 'query', required: true, stdin: true }],
+            arguments: [{ name: 'query', required: false, stdin: true }],
             scopes: ['query:read'],
         })
         expect(

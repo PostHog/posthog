@@ -1,8 +1,19 @@
+import { inCIWithoutAPerson } from '@/core/approval'
 import { defineCommand } from '@/core/command'
+import type { Context } from '@/core/context'
+import { EXIT_PENDING, EXIT_USAGE, HogError } from '@/core/errors'
 import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
-import { runHogQL, type HogQLResponse } from '@/posthog/query'
+import {
+    clearPendingQuery,
+    readPendingQuery,
+    savePendingQuery,
+    startHogQL,
+    waitForQuery,
+    type HogQLResponse,
+    type QueryState,
+} from '@/posthog/query'
 
 // ClickHouse returns 64-bit integers as JSON numbers and dates as strings, so the declared type
 // colors a column better than its values do.
@@ -25,42 +36,160 @@ function moreRowsHint(count: number): string {
     return `Only the first ${plural(count, 'row')} came back. Add a LIMIT to the query to get more, up to 50000, or filter or aggregate it to need fewer.`
 }
 
+const RESUME = 'hog query run --wait'
+
+// Agent shells often stop a command after about two minutes. Waiting half of that leaves time for
+// hog to start, for the last status request, and for the agent's other commands in the same call.
+const AGENT_WAIT_MS = 60_000
+
+type RunResult =
+    | {
+          status: 'done'
+          columns: { name: string; type: string | null }[]
+          rows: unknown[][]
+          hasMore: boolean
+          response: HogQLResponse
+      }
+    | { status: 'running'; queryId: string; next: string }
+
+function isTransient(error: unknown): error is HogError {
+    return (
+        error instanceof HogError &&
+        (error.code === 'network_error' || (error instanceof ApiError && (error.status === 429 || error.status >= 500)))
+    )
+}
+
+function done(response: HogQLResponse): RunResult {
+    return {
+        status: 'done',
+        columns: (response.columns ?? []).map((name, index) => ({
+            name,
+            type: response.types?.[index]?.[1] ?? null,
+        })),
+        rows: response.results,
+        hasMore: response.hasMore === true,
+        response,
+    }
+}
+
+// The query is saved first, so `--wait` can resume it after the budget, a lost connection or Ctrl-C.
+// A person and a CI job without an agent never run `--wait`, so they wait until the query ends.
+async function follow(ctx: Context, id: string): Promise<RunResult> {
+    const { runtime } = ctx
+    const { key } = await ctx.credentials()
+    await savePendingQuery(runtime, key, id)
+
+    const waitsToTheEnd = ctx.prompts !== undefined || inCIWithoutAPerson(ctx)
+    const deadline = waitsToTheEnd ? undefined : runtime.now() + AGENT_WAIT_MS
+    const spinner = ctx.prompts?.spinner('Waiting for the query to finish')
+    let state: QueryState
+    try {
+        state = await waitForQuery(runtime, await ctx.posthog(), id, deadline)
+    } catch (error) {
+        spinner?.error("The query didn't finish")
+        throw isTransient(error) ? error.withHint(`Run \`${RESUME}\` to keep waiting for the query.`) : error
+    }
+
+    switch (state.state) {
+        case 'running':
+            return { status: 'running', queryId: id, next: RESUME }
+        case 'failed':
+            spinner?.error("The query didn't finish")
+            await clearPendingQuery(runtime, key, id)
+            throw state.error
+        case 'done':
+            spinner?.stop('Query finished')
+            await clearPendingQuery(runtime, key, id)
+            return done(state.response)
+    }
+}
+
 export default defineCommand({
     description: 'Run a HogQL query and print the results',
     args: {
-        query: { description: 'The HogQL query to run, or - to read it from stdin', stdin: true },
+        query: { description: 'The HogQL query to run, or - to read it from stdin', stdin: true, optional: true },
+    },
+    options: {
+        wait: {
+            type: 'boolean',
+            description: 'Wait for the query an earlier run left running, and print its results',
+        },
     },
     scopes: ['query:read'],
     notes: [
         'Prints a table in a terminal. Agents and pipes get one JSON object: `columns` with the name and ClickHouse type of each, `rows` as arrays in column order, and `hasMore`.',
         'When `hasMore` is true, PostHog cut the results off, and `hint` says how to get the rest. --raw prints the full response.',
+        'Agents and pipes wait up to a minute. A query still running then returns `status` "running" with its `queryId`, and exits with code 4. `hog query run --wait` waits for it again.',
+        'A person at a terminal and a CI job wait until the query finishes.',
     ].join('\n'),
-    examples: ['hog query run "select event, count() from events group by event"', 'cat query.sql | hog query run -'],
+    examples: [
+        'hog query run "select event, count() from events group by event"',
+        'cat query.sql | hog query run -',
+        'hog query run --wait',
+    ],
 
-    async run({ args, ctx }) {
-        let response: HogQLResponse
+    async run({ args, options, ctx }): Promise<RunResult> {
+        if (options.wait) {
+            if (args.query !== undefined) {
+                throw new HogError(
+                    'query_with_wait',
+                    '`--wait` takes no query. It waits for the query an earlier run left running.',
+                    `Run \`${RESUME}\` on its own, or \`hog query run <query>\` to run another query.`,
+                    EXIT_USAGE
+                )
+            }
+            const id = await readPendingQuery(ctx.runtime, (await ctx.credentials()).key)
+            if (id === undefined) {
+                throw new HogError(
+                    'no_pending_query',
+                    'No query is running for this project.',
+                    'Run `hog query run <query>` to start one.'
+                )
+            }
+            return follow(ctx, id)
+        }
+
+        if (args.query === undefined) {
+            throw new HogError(
+                'query_required',
+                '`hog query run` needs a query.',
+                'For example: `hog query run "select count() from events"`, or `-` to read it from stdin.',
+                EXIT_USAGE
+            )
+        }
+
+        let state: QueryState
         try {
-            response = await runHogQL(await ctx.posthog(), args.query)
+            state = await startHogQL(await ctx.posthog(), args.query)
         } catch (error) {
             if (error instanceof ApiError && error.type === 'validation_error') {
                 throw error.withHint('Run `hog query check` on the query to see where it fails.')
             }
             throw error
         }
-        return {
-            columns: (response.columns ?? []).map((name, index) => ({
-                name,
-                type: response.types?.[index]?.[1] ?? null,
-            })),
-            rows: response.results,
-            hasMore: response.hasMore === true,
-            response,
+        switch (state.state) {
+            case 'running':
+                return follow(ctx, state.id)
+            case 'failed':
+                throw state.error
+            case 'done':
+                return done(state.response)
         }
     },
 
-    raw: (result) => result.response,
+    raw: (result) => (result.status === 'done' ? result.response : result),
+
+    exitCode: (result) => (result.status === 'running' ? EXIT_PENDING : 0),
 
     human({ result, out }) {
+        if (result.status === 'running') {
+            out.report({
+                status: 'partial',
+                result: 'The query is still running in PostHog',
+                notes: [`Run ${out.style(result.next, 'bold')} to wait for the results.`],
+            })
+            return
+        }
         out.table(
             result.columns.map((column) => ({ name: column.name, kind: kindOf(column.type) })),
             result.rows
@@ -75,6 +204,16 @@ export default defineCommand({
     // Rows stay arrays because HogQL can return two columns with the same name, as in
     // `select a.id, b.id`, and an object keyed by column name would keep only one of them.
     agent({ result, out }) {
+        if (result.status === 'running') {
+            out.json(
+                {
+                    ...result,
+                    hint: `The query is still running in PostHog. Run \`${result.next}\` to wait for the results.`,
+                },
+                { first: ['status', 'queryId', 'next'] }
+            )
+            return
+        }
         const { columns, rows, hasMore } = result
         out.json(
             { columns, rows, hasMore, ...(hasMore ? { hint: moreRowsHint(rows.length) } : {}) },
@@ -82,9 +221,14 @@ export default defineCommand({
         )
     },
 
-    telemetry: ({ result }) => ({
-        row_count: result.rows.length,
-        column_count: result.columns.length,
-        has_more: result.hasMore,
-    }),
+    telemetry: ({ options, result }) =>
+        result.status === 'running'
+            ? { query_status: result.status, resumed: options.wait === true }
+            : {
+                  query_status: result.status,
+                  resumed: options.wait === true,
+                  row_count: result.rows.length,
+                  column_count: result.columns.length,
+                  has_more: result.hasMore,
+              },
 })

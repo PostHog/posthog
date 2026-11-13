@@ -115,9 +115,14 @@ hog query run "select event from events" -o json | jq -c '.rows[]' | while read 
 
 `--raw` prints PostHog's whole response, as `--debug` did in posthog-cli.
 
+posthog-cli waits for a query until PostHog finishes it.
+hog does the same at a terminal and in CI.
+An agent or a pipe outside CI waits up to a minute, then gets `{"status":"running","queryId":...,"next":"hog query run --wait"}` and exit code 4.
+`hog query run --wait` waits for that query again.
+
 Errors go to stderr, as JSON with a stable `code` in JSON mode.
-Exit codes are 0 on success, 1 when a command fails or reports a problem, and 2 for usage errors.
-`--no-fail` turns 1 into 0, and leaves 2 alone.
+Exit codes are 0 on success, 1 when a command fails or reports a problem, 2 for usage errors, and 4 when work is still running, like a slow query.
+`--no-fail` turns 1 into 0, and leaves 2 and 4 alone.
 
 ## posthog.json
 

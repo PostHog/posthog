@@ -17,6 +17,22 @@ const ROWS = {
     clickhouse: 'SELECT 1',
 }
 
+const STATUS_URL = 'https://ph.example.com/api/environments/7/query/q1/'
+const RUNNING = { status: 202, body: { query_status: { id: 'q1', complete: false } } }
+const FINISHED = { status: 200, body: { query_status: { id: 'q1', complete: true, results: ROWS } } }
+
+// PostHog starts the query, and answers status check number `polls` with `final`.
+function slowQuery(polls: number, final: { status: number; body: unknown } = FINISHED) {
+    let checks = 0
+    return (url: string) => {
+        if (url !== STATUS_URL) {
+            return RUNNING
+        }
+        checks += 1
+        return checks < polls ? RUNNING : final
+    }
+}
+
 describe('hog query', () => {
     test('run fails on an answer of the wrong shape, and names every field that is wrong', async () => {
         const result = await runHog(['query', 'run', 'select 1'], {
@@ -61,7 +77,7 @@ describe('hog query', () => {
             {
                 method: 'POST',
                 url: 'https://ph.example.com/api/environments/7/query',
-                body: { query: { kind: 'HogQLQuery', query: 'select 1' }, refresh: 'blocking' },
+                body: { query: { kind: 'HogQLQuery', query: 'select 1' }, refresh: 'async' },
             },
         ])
     })
@@ -82,6 +98,91 @@ describe('hog query', () => {
             hint: expect.stringContaining('Add a LIMIT'),
             rows: [[1, 2]],
         })
+    })
+
+    test.each([
+        ['an agent gets the results of a query that finishes within the minute', false, 3, '"rows":[["$pageview",70]'],
+        ['a person at a terminal waits for a query that runs past the minute', true, 40, '│ $pageview │'],
+    ])('run: %s', async (_name, tty, polls, expected) => {
+        const result = await runHog(['query', 'run', 'select 1'], {
+            env: TEST_CREDENTIALS,
+            stdoutIsTTY: tty,
+            respond: slowQuery(polls),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain(expected)
+        expect(result.requests.at(-1)?.url).toBe(STATUS_URL)
+        expect(Object.keys(result.files).filter((path) => path.includes('pending-query'))).toEqual([])
+    })
+
+    test('run returns a query still running after a minute with the command that resumes it', async () => {
+        const started = await runHog(['query', 'run', 'select 1'], {
+            env: TEST_CREDENTIALS,
+            respond: slowQuery(Infinity),
+        })
+
+        expect(started.exitCode).toBe(4)
+        expect(started.json()).toEqual({
+            status: 'running',
+            queryId: 'q1',
+            next: 'hog query run --wait',
+            hint: expect.stringContaining('hog query run --wait'),
+        })
+        expect(started.elapsedMs).toBeLessThan(120_000)
+
+        const resumed = await runHog(['query', 'run', '--wait'], {
+            env: TEST_CREDENTIALS,
+            files: started.files,
+            respond: slowQuery(2),
+        })
+
+        expect(resumed.exitCode).toBe(0)
+        expect(resumed.json()).toMatchObject({ rows: ROWS.results, hasMore: false })
+        expect(resumed.requests.map((request) => request.url)).toEqual([STATUS_URL, STATUS_URL])
+
+        const again = await runHog(['query', 'run', '--wait'], { env: TEST_CREDENTIALS, files: resumed.files })
+
+        expect(again.exitCode).toBe(1)
+        expect(again.error()).toMatchObject({ code: 'no_pending_query' })
+    })
+
+    test.each([
+        [
+            'a query PostHog rejects keeps its reason',
+            {
+                status: 400,
+                body: {
+                    query_status: {
+                        id: 'q1',
+                        complete: true,
+                        error: true,
+                        error_code: 'hogql_query_error',
+                        error_message: 'Unable to resolve field: nope',
+                    },
+                },
+            },
+            { code: 'hogql_query_error', message: 'The query failed in PostHog: Unable to resolve field: nope' },
+        ],
+        [
+            'a query PostHog no longer has says to run it again',
+            { status: 404, body: { type: 'invalid_request', code: 'not_found', detail: 'Query q1 not found' } },
+            { code: 'query_expired', hint: expect.stringContaining('hog query run <query>') },
+        ],
+    ])('run --wait: %s', async (_name, final, error) => {
+        const started = await runHog(['query', 'run', 'select nope'], {
+            env: TEST_CREDENTIALS,
+            respond: slowQuery(Infinity),
+        })
+        const resumed = await runHog(['query', 'run', '--wait'], {
+            env: TEST_CREDENTIALS,
+            files: started.files,
+            respond: slowQuery(1, final),
+        })
+
+        expect(resumed.exitCode).toBe(1)
+        expect(resumed.error()).toMatchObject(error)
+        expect(Object.keys(resumed.files).filter((path) => path.includes('pending-query'))).toEqual([])
     })
 
     test.each([

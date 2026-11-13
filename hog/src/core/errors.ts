@@ -1,5 +1,7 @@
 export const EXIT_FAILURE = 1
 export const EXIT_USAGE = 2
+export const EXIT_NEEDS_PERSON = 3
+export const EXIT_PENDING = 4
 
 // A failure hog reports to the caller. `code` is stable and machine-readable, so agents and
 // scripts can branch on it; `message` and `hint` are for people. Agents also get `details`.

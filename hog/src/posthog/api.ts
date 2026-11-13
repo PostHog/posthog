@@ -155,8 +155,13 @@ export class PostHogApi {
 
     // Each call names the schema of the answer it expects, so a command never works with a shape
     // PostHog didn't send.
-    get<T>(path: string, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
-        return this.request('GET', path, schema, undefined, options.timeoutMs)
+    // `answers` lists error statuses whose body is an answer when it matches the schema.
+    get<T>(
+        path: string,
+        schema: Schema<T>,
+        options: { timeoutMs?: number; answers?: readonly number[] } = {}
+    ): Promise<T> {
+        return this.request('GET', path, schema, undefined, options.timeoutMs, options.answers)
     }
 
     post<T>(path: string, body: unknown, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
@@ -172,7 +177,8 @@ export class PostHogApi {
         path: string,
         schema: Schema<T>,
         body?: unknown,
-        timeoutMs?: number
+        timeoutMs?: number,
+        answers: readonly number[] = []
     ): Promise<T> {
         const url = this.url(path)
         const send = (): Promise<HttpResponse> =>
@@ -208,6 +214,10 @@ export class PostHogApi {
                 : new ApiError(response.status, undefined, 'unexpected_response', message, hint)
         }
         if (!response.ok) {
+            const answer = answers.includes(response.status) ? schema.safeParse(response.json) : undefined
+            if (answer?.success) {
+                return answer.data
+            }
             throw this.failure(response.status, response.json)
         }
         return parseOrThrow(schema, response.json, {

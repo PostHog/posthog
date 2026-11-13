@@ -21,6 +21,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                                      |
 | `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                           |
 | `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin. Agents get one JSON object with the columns, the rows and `hasMore`.          |
+| `hog query run --wait`                    | Waits for a query that ran past the minute agents and pipes wait. See [Slow queries](#slow-queries).                              |
 | `hog query check <query>`                 | Checks a query without running it. Exits with code 1 when the query has errors.                                                   |
 | `hog api groups`, `hog api tools [group]` | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                                 |
 | `hog api search`, `info`, `schema`        | Find a tool, see what it does and the input it takes.                                                                             |
@@ -84,7 +85,18 @@ Not planned:
 | A pipe or a script     | JSON                                      | Same as an agent                                                 |
 
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
-Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
+Exit codes: 0 on success, 1 when a command fails, 2 for a usage error, 4 when work is still running, like a slow query.
+
+## Slow queries
+
+`hog query run` asks PostHog to run the query in the background, then checks on it until it finishes.
+
+- A person at a terminal, and a CI job that no agent runs, wait until the query finishes. At a terminal, Ctrl-C stops waiting, and `hog query run --wait` picks the query up later.
+- Agents and pipes wait up to a minute. Agent shells often stop a command after about two minutes, so the minute leaves room for the rest of the call.
+- A query still running after that minute returns `{ status: "running", queryId, next, hint }` and exits with code 4. `next` is `hog query run --wait`.
+- `hog query run --wait` waits for that query again, and prints its results or the same answer with exit code 4. It takes no query: hog keeps the last running query for each host and project in hog's folder, and forgets it once the query ends.
+- Another slow query replaces it. The earlier query keeps running in PostHog, but `--wait` no longer finds it.
+- PostHog keeps a query's status for a limited time. After that, `--wait` fails with `query_expired`, and the query has to run again.
 
 ## Setup
 
