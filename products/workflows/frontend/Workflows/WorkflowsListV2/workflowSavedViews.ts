@@ -18,6 +18,7 @@ import type { WorkflowFolderFileRow } from './workflowFoldersLogic'
 import {
     folderFileFacets,
     folderFileMatchesText,
+    isFolderScope,
     searchesAcrossFolders,
     withoutFolderScope,
     workflowFolderFacet,
@@ -75,11 +76,7 @@ export function workflowViewValue(state: WorkflowViewStateApi): FacetSearchValue
     }
 }
 
-export function isFolderScope(filter: FacetFilter): boolean {
-    return filter.facet === 'in' && !filter.negated
-}
-
-export function withoutFolderScope(filters: FacetFilter[]): FacetFilter[] {
+export function filtersOutsideFolder(filters: FacetFilter[]): FacetFilter[] {
     return filters.filter((filter) => !isFolderScope(filter))
 }
 
@@ -89,7 +86,7 @@ export function savedViewChanges(
     columns: OptionalColumn[]
 ): string[] {
     const signature = (filters: FacetSearchValue['filters']): string =>
-        withoutFolderScope(filters)
+        filtersOutsideFolder(filters)
             .map((filter) => serializeFacetQuery([filter]))
             .sort()
             .join(' ')
@@ -108,7 +105,7 @@ export function savedViewChanges(
 
 export function workflowViewState(value: FacetSearchValue, columns: OptionalColumn[]): WorkflowViewStateApi {
     const allowed = Object.values(WorkflowViewFacetEnumApi)
-    const filters = withoutFolderScope(value.filters).filter(
+    const filters = filtersOutsideFolder(value.filters).filter(
         (filter): filter is FacetFilter & { facet: WorkflowViewFilterApi['facet'] } =>
             allowed.some((facet) => facet === filter.facet)
     )
