@@ -65396,6 +65396,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `keyword` - Keyword
+     * * `semantic` - Semantic
+     * * `both` - Keyword and semantic
+     * * `context` - Surrounding context
+     */
+    export type SearchMatchEnum = typeof SearchMatchEnum[keyof typeof SearchMatchEnum];
+
+
+    export const SearchMatchEnum = {
+      Keyword: 'keyword',
+      Semantic: 'semantic',
+      Both: 'both',
+      Context: 'context',
+    } as const;
+
+    /**
      * One ranked chunk from a business knowledge search.
      *
      * Output-only — the rows come from the ``search_knowledge_for_team`` logic
@@ -65424,6 +65440,18 @@ export namespace Schemas {
       readonly is_generated: boolean;
       /** Fetched page URL. Empty for text and file sources. */
       readonly url: string;
+      /** Why this chunk is in the result. `both`: the chunk matched the query words and the query meaning, the strongest evidence. `semantic`: it matched the meaning only. `keyword`: it shares words with the query, which can be a weak match for a long question. `context`: it did not match; it is a neighbour of a matching chunk, returned so the match reads in context.
+       *
+       * * `keyword` - Keyword
+       * * `semantic` - Semantic
+       * * `both` - Keyword and semantic
+       * * `context` - Surrounding context */
+      readonly matched_by: SearchMatchEnum;
+      /**
+         * Semantic similarity between the query and this chunk, from 0 to 1, higher is closer. Null when the semantic index did not return this chunk.
+         * @nullable
+         */
+      readonly similarity: number | null;
     }
 
     /**
