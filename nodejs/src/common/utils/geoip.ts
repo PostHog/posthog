@@ -84,6 +84,7 @@ export class GeoIPService {
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
     private _mmdbMetadataTimedOut = false
+    private refreshJob?: schedule.Job
 
     constructor(
         private mmdbFileLocation: string,
@@ -93,11 +94,14 @@ export class GeoIPService {
             return
         }
         logger.info('🌎', 'GeoIPService created', { mode })
-        // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
-        // We should rely on that instead
         if (!isTestEnv()) {
-            schedule.scheduleJob('0 * * * *', () => this.backgroundRefreshMmdb())
+            this.refreshJob = schedule.scheduleJob('0 * * * *', () => this.backgroundRefreshMmdb())
         }
+    }
+
+    stop(): void {
+        this.refreshJob?.cancel()
+        this.refreshJob = undefined
     }
 
     /** For readers that open the MMDB themselves, such as the Rust HogVM. */
@@ -242,6 +246,34 @@ export class GeoIPService {
                 } catch {
                     return null
                 }
+            },
+        }
+    }
+}
+
+/**
+ * Scope entry for a `GeoIPService`. `start` loads the MMDB before it returns the service, so in
+ * `required` mode a missing MMDB fails the scope start. `stop` cancels the hourly refresh.
+ */
+export class GeoIPServiceComponent {
+    constructor(
+        private readonly mmdbFileLocation: string,
+        private readonly mode: MmdbMode
+    ) {}
+
+    async start(): Promise<{ value: GeoIPService; stop: () => Promise<void> }> {
+        const service = new GeoIPService(this.mmdbFileLocation, this.mode)
+        try {
+            await service.get()
+        } catch (error) {
+            service.stop()
+            throw error
+        }
+        return {
+            value: service,
+            stop: () => {
+                service.stop()
+                return Promise.resolve()
             },
         }
     }

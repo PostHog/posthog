@@ -1,11 +1,13 @@
 import { Reader } from '@maxmind/geoip2-node'
 import fs from 'fs/promises'
+import * as schedule from 'node-schedule'
 
 import { PluginsServerConfig } from '~/types'
 
 import { defaultConfig } from '../config/config'
 import {
     GeoIPService,
+    GeoIPServiceComponent,
     GeoIp,
     MMDB_LOAD_TIMEOUT_MS,
     MmdbLoadTimeoutError,
@@ -58,20 +60,6 @@ describe('GeoIp', () => {
             commonCheck(res[1])
         })
 
-        it.each<{ mode: MmdbMode }>([{ mode: 'required' }, { mode: 'optional' }])(
-            'should load the mmdb when the mode is $mode',
-            async ({ mode }) => {
-                commonCheck(await new GeoIPService(config.MMDB_FILE_LOCATION, mode).get())
-            }
-        )
-
-        it('should fail the initial load if the MMDB is required and missing', async () => {
-            service = new GeoIPService('non-existent-file.mmdb', 'required')
-            await expect(service.get()).rejects.toThrow(
-                'GeoIP is required (MMDB_ENABLED), but the MMDB could not be loaded from non-existent-file.mmdb'
-            )
-        })
-
         it('should not read the MMDB or warn if disabled', async () => {
             const openSpy = jest.spyOn(Reader, 'open')
             const warnSpy = jest.spyOn(logger, 'warn')
@@ -93,6 +81,39 @@ describe('GeoIp', () => {
             const assertion = expect(promise).rejects.toThrow(MmdbLoadTimeoutError)
             await jest.advanceTimersByTimeAsync(MMDB_LOAD_TIMEOUT_MS)
             await assertion
+        })
+    })
+
+    describe('component', () => {
+        it.each<{ mode: MmdbMode }>([{ mode: 'required' }, { mode: 'optional' }])(
+            'starts with the mmdb loaded when the mode is $mode',
+            async ({ mode }) => {
+                const started = await new GeoIPServiceComponent(config.MMDB_FILE_LOCATION, mode).start()
+                commonCheck(await started.value.get())
+                await started.stop()
+            }
+        )
+
+        it('fails to start if the MMDB is required and missing', async () => {
+            await expect(new GeoIPServiceComponent('non-existent-file.mmdb', 'required').start()).rejects.toThrow(
+                'GeoIP is required (MMDB_ENABLED), but the MMDB could not be loaded from non-existent-file.mmdb'
+            )
+        })
+
+        it('cancels the hourly refresh on stop', async () => {
+            const nodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'dev'
+            const jobsBefore = Object.keys(schedule.scheduledJobs).length
+            try {
+                const started = await new GeoIPServiceComponent(config.MMDB_FILE_LOCATION, 'optional').start()
+                expect(Object.keys(schedule.scheduledJobs)).toHaveLength(jobsBefore + 1)
+
+                await started.stop()
+
+                expect(Object.keys(schedule.scheduledJobs)).toHaveLength(jobsBefore)
+            } finally {
+                process.env.NODE_ENV = nodeEnv
+            }
         })
     })
 

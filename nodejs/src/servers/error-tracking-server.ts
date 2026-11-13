@@ -13,7 +13,7 @@ import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPService, geoipServerDefaultMode, resolveMmdbMode } from '~/common/utils/geoip'
+import { GeoIPServiceComponent, geoipServerDefaultMode, resolveMmdbMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -173,6 +173,13 @@ export class ErrorTrackingServer implements NodeServer {
                     new TeamManagerComponent(container.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
                 )
                 .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
+                .add(
+                    'geoipService',
+                    new GeoIPServiceComponent(
+                        this.config.MMDB_FILE_LOCATION,
+                        resolveMmdbMode(this.config.MMDB_ENABLED, geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT))
+                    )
+                )
         )
 
         const sharedServices = await sharedServicesScope.start()
@@ -187,11 +194,7 @@ export class ErrorTrackingServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const geoipService = new GeoIPService(
-            this.config.MMDB_FILE_LOCATION,
-            resolveMmdbMode(this.config.MMDB_ENABLED, geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT))
-        )
-        await geoipService.get()
+        const geoipService = sharedServices.container.geoipService
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(
