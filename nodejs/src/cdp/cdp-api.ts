@@ -711,13 +711,6 @@ export class CdpApi {
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
-            // Redact configuration: it carries function inputs (auth headers, API keys) that must not land in logs
-            logger.info('⚡️', 'Received invocation', {
-                id,
-                team_id,
-                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
-            })
-
             const invocationID = invocation_id ?? new UUIDT().toString()
 
             // Check the invocationId is a valid UUID
@@ -725,6 +718,14 @@ export class CdpApi {
                 res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
+
+            // Allowlist: the body carries secrets in inputs and customer data in the sample event
+            logger.info('⚡️', 'Received invocation', {
+                id,
+                team_id,
+                invocationId: invocationID,
+                mock_async_functions,
+            })
 
             const isNewFunction = req.params.id === 'new'
 
@@ -995,13 +996,6 @@ export class CdpApi {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
 
-            // Redact configuration: it carries action inputs (auth headers, API keys) that must not land in logs
-            logger.info('⚡️', 'Received hogflow invocation', {
-                id,
-                team_id,
-                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
-            })
-
             const invocationID = invocation_id ?? new UUIDT().toString()
 
             // Check the invocationId is a valid UUID
@@ -1009,6 +1003,15 @@ export class CdpApi {
                 res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
+
+            // Allowlist: the body carries secrets in inputs and customer data in the sample event
+            logger.info('⚡️', 'Received hogflow invocation', {
+                id,
+                team_id,
+                invocationId: invocationID,
+                current_action_id,
+                mock_async_functions,
+            })
 
             const isNewHogFlow = req.params.id === 'new'
             const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)

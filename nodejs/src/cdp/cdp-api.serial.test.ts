@@ -303,6 +303,32 @@ describe('CDP API', () => {
         expect(res.body.errors).toEqual([])
     })
 
+    it.each([
+        ['hog function', () => `hog_functions/${hogFunction.id}`, 'Received invocation', 200],
+        ['hog flow', () => 'hog_flows/new', 'Received hogflow invocation', undefined],
+    ])('keeps event data out of the received %s invocation log', async (_name, path, message, expectedStatus) => {
+        const sentinel = `sample-value-${randomUUID()}`
+        const emitted = emittedLogLines()
+        let res: supertest.Response
+        try {
+            res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/${path()}/invocations`)
+                .send({
+                    globals: { ...globals, event: { ...globals.event, properties: { email: sentinel } } },
+                    clickhouse_event: { event: '$exception', properties: JSON.stringify({ email: sentinel }) },
+                    mock_async_functions: true,
+                })
+        } finally {
+            emitted.stop()
+        }
+
+        if (expectedStatus) {
+            expect(res.status).toEqual(expectedStatus)
+        }
+        expect(emitted.lines.some((line) => String(parseJSON(line).msg).endsWith(message))).toBe(true)
+        expect(emitted.lines.join('')).not.toContain(sentinel)
+    })
+
     it("does not error if hog function is 'new'", async () => {
         const res = await supertest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
