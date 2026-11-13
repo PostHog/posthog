@@ -343,7 +343,7 @@ def record_source_destination(
         configuration_id=configuration_id,
         destinations=(
             NewAlertDestination(
-                data=data, event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
+                data=_own_fields(data), event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
             ),
         ),
         hog_function_groups=hog_function_groups,
@@ -394,20 +394,43 @@ def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
 ) -> frozenset[UUID]:
     """Deletes the alert's rows named by id or that copy any of `hog_function_ids`, and returns the
-    HogFunctions those rows copied, which the source deletes too."""
+    HogFunctions the rows named by id copied, which the source deletes too. A delete by HogFunction
+    ids keeps to the group it names: a row that copies a group since split into two takes no other."""
     if not destination_ids and not hog_function_ids:
         return frozenset()
     rows = AlertDestination.objects.for_team(team_id).filter(
         models.Q(id__in=list(destination_ids)) | models.Q(legacy_hog_function_ids__overlap=list(hog_function_ids)),
         configuration__in=_configurations_by_public_id(team_id, public_id),
     )
+    named = set(destination_ids)
     copied = frozenset(
         hog_function_id
-        for copies in rows.values_list("legacy_hog_function_ids", flat=True)
+        for row_id, copies in rows.values_list("id", "legacy_hog_function_ids")
+        if row_id in named
         for hog_function_id in copies
     )
     rows.delete()
     return copied
+
+
+# The fields each type sends with. A field of another type, such as a PagerDuty default on a Slack
+# request, would be stored and then shown unredacted, because redaction reads the type's own fields.
+_FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id", "slack_channel_name"),
+    DestinationType.WEBHOOK: ("webhook_url", "webhook_headers"),
+    DestinationType.TEAMS: ("webhook_url",),
+    DestinationType.DISCORD: ("webhook_url",),
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+}
+
+
+def _own_fields(data: AlertDestinationData) -> AlertDestinationData:
+    fields = _FIELDS_BY_TYPE.get(DestinationType(data["type"]))
+    if fields is None:
+        return data
+    own = cast(AlertDestinationData, {key: value for key, value in data.items() if key in fields})
+    own["type"] = data["type"]
+    return own
 
 
 def _configurations_by_public_id(team_id: int, public_id: UUID) -> models.QuerySet[PlatformAlertConfiguration]:
