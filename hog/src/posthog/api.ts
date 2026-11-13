@@ -87,20 +87,23 @@ export interface ApiErrorOptions {
     details?: Readonly<Record<string, unknown>>
     serverDetail?: string
     exitCode?: number
+    body?: unknown
 }
 
 // A non-2xx answer from PostHog.
 export class ApiError extends HogError {
     readonly type: string | undefined
+    readonly body: unknown
 
     constructor(
         readonly status: number,
         code: string,
         message: string,
-        { type, hint, details, serverDetail, exitCode }: ApiErrorOptions = {}
+        { type, hint, details, serverDetail, exitCode, body }: ApiErrorOptions = {}
     ) {
         super(code, message, hint, exitCode, details, serverDetail)
         this.type = type
+        this.body = body
     }
 
     protected override copy(patch: ErrorPatch): ApiError {
@@ -110,8 +113,17 @@ export class ApiError extends HogError {
             details: this.details,
             serverDetail: this.serverDetail,
             exitCode: this.exitCode,
+            body: this.body,
         })
     }
+}
+
+export function isTransient(error: HogError): boolean {
+    return (
+        error.code === 'network_error' ||
+        error.code === 'refresh_failed' ||
+        (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+    )
 }
 
 export type StepUp = (scopes: readonly string[]) => Promise<boolean>
@@ -166,13 +178,8 @@ export class PostHogApi {
 
     // Each call names the schema of the answer it expects, so a command never works with a shape
     // PostHog didn't send.
-    // `answers` lists error statuses whose body is an answer when it matches the schema.
-    get<T>(
-        path: string,
-        schema: Schema<T>,
-        options: { timeoutMs?: number; answers?: readonly number[] } = {}
-    ): Promise<T> {
-        return this.request('GET', path, schema, undefined, options.timeoutMs, options.answers)
+    get<T>(path: string, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
+        return this.request('GET', path, schema, undefined, options.timeoutMs)
     }
 
     post<T>(path: string, body: unknown, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
@@ -188,8 +195,7 @@ export class PostHogApi {
         path: string,
         schema: Schema<T>,
         body?: unknown,
-        timeoutMs?: number,
-        answers: readonly number[] = []
+        timeoutMs?: number
     ): Promise<T> {
         const url = this.url(path)
         const send = (): Promise<HttpResponse> =>
@@ -222,10 +228,6 @@ export class PostHogApi {
                 : new ApiError(response.status, 'unexpected_response', message, { hint })
         }
         if (!response.ok) {
-            const answer = answers.includes(response.status) ? schema.safeParse(response.json) : undefined
-            if (answer?.success) {
-                return answer.data
-            }
             throw this.failure(response.status, response.json)
         }
         return parseOrThrow(schema, response.json, {
@@ -263,6 +265,7 @@ export class PostHogApi {
             type: error.type,
             hint: hints[status],
             serverDetail: error.detail,
+            body,
         })
     }
 }

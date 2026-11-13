@@ -109,6 +109,7 @@ The exit code says what happened, so a script or an agent can branch without rea
 - Agents and pipes wait up to a minute. Agent shells often stop a command after about two minutes, so the minute leaves room for the rest of the call.
 - A query still running after that minute returns `{ status: "running", queryId, next, hint }` and exits with code 4. `next` is `hog query run --wait <query-id>` with the query's ID.
 - `hog query run --wait <query-id>` waits for that query again, and prints its results or the same answer with exit code 4. hog stores nothing between the two runs, so an agent can run several slow queries at once and resume each by its ID.
+- hog prints a query ID, and takes one back with `--wait`, only when it has nothing but letters, digits, `_` and `-`, as every ID PostHog makes does. A query can join a run that another caller named with its own ID. hog then waits until the query finishes, also for an agent, and never prints that ID, because no quoting makes a command safe in every shell.
 - PostHog keeps a query's status for a limited time. After that, `--wait` fails with `query_expired`, and the query has to run again.
 
 ## Setup

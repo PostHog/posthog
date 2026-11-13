@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { ApiError } from '@/posthog/api'
+import { isTransient } from '@/posthog/api'
 
 import type { Context } from './context'
 import { EXIT_NEEDS_PERSON, HogError } from './errors'
@@ -277,14 +277,6 @@ async function waitFor<Pending extends PendingApproval, Value>(
         }
     }
     return fail(expired(flow, pending))
-}
-
-function isTransient(error: HogError): boolean {
-    return (
-        error.code === 'network_error' ||
-        error.code === 'refresh_failed' ||
-        (error instanceof ApiError && (error.status === 429 || error.status >= 500))
-    )
 }
 
 function expired<Pending extends PendingApproval>(

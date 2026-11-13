@@ -2,10 +2,10 @@ import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
 import type { ColumnKind } from '@/core/output'
-import { plural, shellQuote } from '@/core/text'
-import { ApiError } from '@/posthog/api'
-import { parseQueryId, type QueryId } from '@/posthog/ids'
-import { startHogQL, waitForQuery, type HogQLResponse, type QueryState } from '@/posthog/query'
+import { plural } from '@/core/text'
+import { ApiError, isTransient } from '@/posthog/api'
+import { parseQueryId, resumableQueryId, type QueryId } from '@/posthog/ids'
+import { startHogQL, waitForQuery, type HogQLResponse, type QueryState, type SettledState } from '@/posthog/query'
 
 // ClickHouse returns 64-bit integers as JSON numbers and dates as strings, so the declared type
 // colors a column better than its values do.
@@ -29,12 +29,14 @@ function moreRowsHint(count: number): string {
 }
 
 function resumeCommand(id: QueryId): string {
-    return `hog query run --wait ${shellQuote(id, /^[\w-]+$/)}`
+    return `hog query run --wait ${id}`
 }
 
 // Agent shells often stop a command after about two minutes. Waiting half of that leaves time for
 // hog to start, for the last status request, and for the agent's other commands in the same call.
 const AGENT_WAIT_MS = 60_000
+
+const NOT_FINISHED = "The query didn't finish"
 
 type RunResult =
     | {
@@ -44,16 +46,14 @@ type RunResult =
           hasMore: boolean
           response: HogQLResponse
       }
-    | { status: 'running'; queryId: string; next: string }
+    | { status: 'running'; queryId: QueryId; next: string }
 
-function isTransient(error: unknown): error is HogError {
-    return (
-        error instanceof HogError &&
-        (error.code === 'network_error' || (error instanceof ApiError && (error.status === 429 || error.status >= 500)))
-    )
-}
+function settle(state: SettledState): RunResult {
+    if (state.state === 'failed') {
+        throw state.error
+    }
 
-function done(response: HogQLResponse): RunResult {
+    const { response } = state
     return {
         status: 'done',
         columns: (response.columns ?? []).map((name, index) => ({
@@ -67,34 +67,40 @@ function done(response: HogQLResponse): RunResult {
 }
 
 // A person whose stdout is a terminal and a CI job without an agent never run `--wait`, so they wait
-// until the query ends, also when the query comes in on stdin.
-async function follow(ctx: Context, id: QueryId): Promise<RunResult> {
+// until the query ends, also when the query comes in on stdin. So does a query whose ID hog won't
+// print, because nothing could resume it.
+async function follow(ctx: Context, id: string, pollFirst: boolean): Promise<RunResult> {
     const { runtime } = ctx
-    const waitsToTheEnd = ctx.mode.agent === undefined && (runtime.stdoutIsTTY || ctx.mode.isCI)
-    const deadline = waitsToTheEnd ? undefined : runtime.now() + AGENT_WAIT_MS
-    const spinner = ctx.prompts?.spinner(`Waiting for query ${id} to finish`)
-    if (!spinner && waitsToTheEnd && runtime.stdoutIsTTY) {
+    const resumable = resumableQueryId(id)
+    const limited = resumable !== undefined && !(ctx.mode.agent === undefined && (runtime.stdoutIsTTY || ctx.mode.isCI))
+    const spinner = ctx.prompts?.spinner(
+        resumable ? `Waiting for query ${resumable} to finish` : 'Waiting for the query to finish'
+    )
+    if (!spinner && resumable && !limited && runtime.stdoutIsTTY) {
         runtime.writeStderr(
-            `Waiting for query ${id} to finish. After Ctrl-C, run ${resumeCommand(id)} to wait for it again.\n`
+            `Waiting for query ${resumable} to finish. After Ctrl-C, run ${resumeCommand(resumable)} to wait for it again.\n`
         )
     }
-    let state: QueryState
-    try {
-        state = await waitForQuery(runtime, await ctx.posthog(), id, deadline)
-    } catch (error) {
-        spinner?.error("The query didn't finish")
-        throw isTransient(error) ? error.withHint(`Run \`${resumeCommand(id)}\` to keep waiting for the query.`) : error
-    }
 
-    switch (state.state) {
-        case 'running':
-            return { status: 'running', queryId: id, next: resumeCommand(id) }
-        case 'failed':
-            spinner?.error("The query didn't finish")
-            throw state.error
-        case 'done':
-            spinner?.stop('Query finished')
-            return done(state.response)
+    try {
+        const api = await ctx.posthog()
+        let result: RunResult
+        if (limited) {
+            const state = await waitForQuery(runtime, api, id, { deadline: runtime.now() + AGENT_WAIT_MS, pollFirst })
+            result =
+                state.state === 'running'
+                    ? { status: 'running', queryId: resumable, next: resumeCommand(resumable) }
+                    : settle(state)
+        } else {
+            result = settle(await waitForQuery(runtime, api, id, { pollFirst }))
+        }
+        spinner?.stop('Query finished')
+        return result
+    } catch (error) {
+        spinner?.error(NOT_FINISHED)
+        throw error instanceof HogError && isTransient(error) && resumable
+            ? error.withHint(`Run \`${resumeCommand(resumable)}\` to keep waiting for the query.`)
+            : error
     }
 }
 
@@ -116,7 +122,7 @@ export default defineCommand({
         'Prints a table in a terminal. Agents and pipes get one JSON object: `columns` with the name and ClickHouse type of each, `rows` as arrays in column order, and `hasMore`.',
         'When `hasMore` is true, PostHog cut the results off, and `hint` says how to get the rest. --raw prints the full response.',
         `Agents and pipes wait up to a minute. A query still running then returns \`status\` "running", its \`queryId\`, and in \`next\` the \`hog query run --wait <query-id>\` command that waits for it again. It exits with code ${EXIT_PENDING}.`,
-        'A person at a terminal and a CI job wait until the query finishes.',
+        'A person at a terminal and a CI job wait until the query finishes. So does a query that joins a run another caller named with an ID beyond letters, digits, `_` and `-`, because hog never prints such an ID.',
     ].join('\n'),
     examples: [
         'hog query run "select event, count() from events group by event"',
@@ -134,7 +140,7 @@ export default defineCommand({
                     EXIT_USAGE
                 )
             }
-            return follow(ctx, options.wait)
+            return follow(ctx, options.wait, true)
         }
 
         if (args.query === undefined) {
@@ -155,14 +161,7 @@ export default defineCommand({
             }
             throw error
         }
-        switch (state.state) {
-            case 'running':
-                return follow(ctx, state.id)
-            case 'failed':
-                throw state.error
-            case 'done':
-                return done(state.response)
-        }
+        return state.state === 'running' ? follow(ctx, state.id, false) : settle(state)
     },
 
     raw: (result) => (result.status === 'done' ? result.response : result),
@@ -209,14 +208,11 @@ export default defineCommand({
         )
     },
 
-    telemetry: ({ options, result }) =>
-        result.status === 'running'
-            ? { query_status: result.status, resumed: options.wait !== undefined }
-            : {
-                  query_status: result.status,
-                  resumed: options.wait !== undefined,
-                  row_count: result.rows.length,
-                  column_count: result.columns.length,
-                  has_more: result.hasMore,
-              },
+    telemetry: ({ options, result }) => ({
+        query_status: result.status,
+        resumed: options.wait !== undefined,
+        ...(result.status === 'done'
+            ? { row_count: result.rows.length, column_count: result.columns.length, has_more: result.hasMore }
+            : {}),
+    }),
 })

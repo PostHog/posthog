@@ -25,13 +25,13 @@ export const OrganizationIdSchema = z
 
 export type OrganizationId = z.output<typeof OrganizationIdSchema>
 
-// PostHog makes UUIDs, but a query can join a running one whose caller set its own `client_query_id`,
-// which PostHog takes as free text of any length. The status route matches `[^/.]+`, so an ID with
-// `/` or `.` can't be polled. The length cap only keeps junk out, and is not PostHog's.
+// A query ID hog prints in a command and takes back with `--wait`. Every ID PostHog makes fits, as
+// a UUID or hex. Another caller's own `client_query_id` may not, and an ID that needs quoting is
+// never printed, because no quoting is safe in every shell.
 export const QueryIdSchema = z
     .string()
-    .regex(/^[^\s\p{Cc}\p{Cf}/.]{1,200}$/u, {
-        error: 'The query ID must be the `queryId` that `hog query run` returned: up to 200 characters, with no spaces, control characters, `/` or `.`.',
+    .regex(/^[A-Za-z0-9_-]{1,200}$/, {
+        error: 'The query ID must be the `queryId` that `hog query run` returned: up to 200 letters, digits, `_` or `-`.',
     })
     .brand<'QueryId'>()
 
@@ -43,6 +43,11 @@ export function parseQueryId(raw: unknown, failure?: Partial<ParseFailure>): Que
         hint: 'Pass the `queryId` from the answer that said the query is still running.',
         ...failure,
     })
+}
+
+export function resumableQueryId(id: string): QueryId | undefined {
+    const parsed = QueryIdSchema.safeParse(id)
+    return parsed.success ? parsed.data : undefined
 }
 
 export function parseProjectId(raw: unknown, failure?: Partial<ParseFailure>): ProjectId {

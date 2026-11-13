@@ -119,6 +119,7 @@ posthog-cli waits for a query until PostHog finishes it.
 hog does the same at a terminal and in CI.
 An agent or a pipe outside CI waits up to a minute, then gets `{"status":"running","queryId":"<query-id>","next":"hog query run --wait <query-id>"}` and exit code 4.
 `hog query run --wait <query-id>` waits for that query again.
+A query that joins a run another caller named with an ID beyond letters, digits, `_` and `-` waits until it finishes, as in posthog-cli.
 
 Errors go to stderr, as JSON with a stable `code` in JSON mode.
 Each error also names the `hog feedback` command to report it, as a last line for a person and as `feedback` in the JSON. posthog-cli's errors don't.

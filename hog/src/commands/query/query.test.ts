@@ -23,11 +23,21 @@ const SECOND_ID = '0190f5b4-1d2a-7000-8a1c-3f6e2b9c7d11'
 const SECOND_QUERY = 'select 2'
 const JOINED_ID = "nightly's:run#1"
 const JOINED_QUERY = 'select 3'
+const SMART_QUOTE_ID = 'x’;whoami;#'
+const SMART_QUOTE_QUERY = 'select 4'
+const ID_BY_QUERY: Record<string, string> = {
+    [SECOND_QUERY]: SECOND_ID,
+    [JOINED_QUERY]: JOINED_ID,
+    [SMART_QUOTE_QUERY]: SMART_QUOTE_ID,
+}
 const RESULTS: Record<string, unknown> = {
     [FIRST_ID]: ROWS,
     [SECOND_ID]: { ...ROWS, results: [['second', 1]] },
     [JOINED_ID]: { ...ROWS, results: [['joined', 1]] },
+    [SMART_QUOTE_ID]: { ...ROWS, results: [['smart quote', 1]] },
 }
+const STATUS_CHECKS_WITHIN_THE_MINUTE = 3
+const STATUS_CHECKS_PAST_THE_MINUTE = 40
 
 const statusUrl = (id: string): string => `https://ph.example.com/api/environments/7/query/${encodeURIComponent(id)}/`
 type Reply = { status: number; body: unknown }
@@ -40,7 +50,8 @@ function slowQueries(polls: number, final?: Reply): (url: string, body: unknown)
         const id = Object.keys(RESULTS).find((candidate) => url === statusUrl(candidate))
         if (id === undefined) {
             const text = JSON.stringify(body)
-            return running(text.includes(SECOND_QUERY) ? SECOND_ID : text.includes(JOINED_QUERY) ? JOINED_ID : FIRST_ID)
+            const query = Object.keys(ID_BY_QUERY).find((candidate) => text.includes(candidate))
+            return running(query === undefined ? FIRST_ID : ID_BY_QUERY[query]!)
         }
 
         const count = (checks.get(id) ?? 0) + 1
@@ -124,21 +135,21 @@ describe('hog query', () => {
             'an agent gets the results of a query that finishes within the minute',
             'select 1',
             { stdoutIsTTY: false },
-            3,
+            STATUS_CHECKS_WITHIN_THE_MINUTE,
             '"rows":[["$pageview",70]',
         ],
         [
             'a person at a terminal waits for a query that runs past the minute',
             'select 1',
             { stdoutIsTTY: true },
-            40,
+            STATUS_CHECKS_PAST_THE_MINUTE,
             '│ $pageview │',
         ],
         [
             'a person who pipes the query into a terminal waits past the minute too',
             '-',
             { stdoutIsTTY: true, stdinIsTTY: false, stdin: 'select 1' },
-            40,
+            STATUS_CHECKS_PAST_THE_MINUTE,
             '│ $pageview │',
         ],
     ])('run: %s', async (_name, query, terminal, polls, expected) => {
@@ -186,32 +197,29 @@ describe('hog query', () => {
         expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(FIRST_ID), statusUrl(FIRST_ID)])
     })
 
-    test('run quotes an ID another caller chose in the resume command, and --wait takes it back', async () => {
-        const started = await runHog(['query', 'run', JOINED_QUERY], {
-            env: TEST_CREDENTIALS,
-            respond: slowQueries(Infinity),
-        })
+    test.each([
+        ['an ID with a quote and a #', JOINED_QUERY, JOINED_ID, [['joined', 1]]],
+        ['an ID that ends a PowerShell string', SMART_QUOTE_QUERY, SMART_QUOTE_ID, [['smart quote', 1]]],
+    ])(
+        'run waits to the end, without a resume command, for a run another caller named with %s',
+        async (_name, query, id, rows) => {
+            const result = await runHog(['query', 'run', query], {
+                env: TEST_CREDENTIALS,
+                respond: slowQueries(STATUS_CHECKS_PAST_THE_MINUTE),
+            })
 
-        expect(started.exitCode).toBe(EXIT_PENDING)
-        expect(started.json()).toMatchObject({
-            queryId: JOINED_ID,
-            next: `hog query run --wait 'nightly'\\''s:run#1'`,
-        })
-
-        const resumed = await runHog(['query', 'run', '--wait', JOINED_ID], {
-            env: TEST_CREDENTIALS,
-            respond: slowQueries(1),
-        })
-
-        expect(resumed.exitCode).toBe(EXIT_SUCCESS)
-        expect(resumed.json()).toMatchObject({ rows: [['joined', 1]] })
-        expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(JOINED_ID)])
-    })
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
+            expect(result.json()).toMatchObject({ rows })
+            expect(result.json()).not.toHaveProperty('next')
+            expect(result.requests.at(-1)?.url).toBe(statusUrl(id))
+            expect(`${result.stdout}${result.stderr}`).not.toContain(id)
+        }
+    )
 
     test.each([
         ['without an ID', ['--wait'], { code: 'usage_error', hint: expect.stringContaining('--wait <query-id>') }],
         ['with an ID that leaves the status path', ['--wait', '../../users/@me'], { code: 'invalid_input' }],
-        ['with an ID that holds a space', ['--wait', 'a b'], { code: 'invalid_input' }],
+        ['with an ID that needs quoting', ['--wait', JOINED_ID], { code: 'invalid_input' }],
         ['with a query as well', ['select 1', '--wait', FIRST_ID], { code: 'query_with_wait' }],
     ])('run --wait %s is a usage error that sends nothing', async (_name, flags, error) => {
         const result = await runHog(['query', 'run', ...flags], { env: TEST_CREDENTIALS, respond: slowQueries(1) })
@@ -251,6 +259,7 @@ describe('hog query', () => {
 
         expect(resumed.exitCode).toBe(EXIT_FAILURE)
         expect(resumed.error()).toMatchObject(error)
+        expect(resumed.elapsedMs).toBe(0)
     })
 
     test.each([
