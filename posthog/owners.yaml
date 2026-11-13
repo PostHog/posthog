@@ -86,6 +86,10 @@ rules:
           - '/session/test/test_*.py'
       owners: team-platform-features
     - match:
+          - '/login_challenge.py'
+          - '/test/test_login_challenge.py'
+      owners: team-platform-features
+    - match:
           - '/resource_limits/test/test_*.py'
           - '/schema_migrations/test/test_*.py'
       owners: team-product-analytics

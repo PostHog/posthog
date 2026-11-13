@@ -169,6 +169,10 @@ export interface loginLogicValues {
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
     turnstileClientStatus: TurnstileClientStatus
+    turnstileLoginFields: {
+        turnstile_client_status: TurnstileClientStatus
+        turnstile_token?: string
+    }
     turnstileScriptFailed: boolean
     turnstileToken: string | null
     turnstileWidgetKey: number
@@ -351,6 +355,13 @@ export interface loginLogicActions {
 export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
+        turnstileLoginFields: (
+            turnstileToken: string | null,
+            turnstileClientStatus: TurnstileClientStatus
+        ) => {
+            turnstile_client_status: TurnstileClientStatus
+            turnstile_token?: string
+        }
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
         hasNoConfiguredLoginMethod: (
             precheckResponse: PrecheckResponseType,
@@ -597,12 +608,7 @@ export const loginLogic = kea<loginLogicType>([
                 actions.clearGeneralError()
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', {
-                        email,
-                        password,
-                        turnstile_client_status: values.turnstileClientStatus,
-                        ...(values.turnstileToken ? { turnstile_token: values.turnstileToken } : {}),
-                    })
+                    return await api.create<any>('api/login', { email, password, ...values.turnstileLoginFields })
                 } catch (e) {
                     actions.resetTurnstile()
                     const { code, detail } = e as Record<string, any>
@@ -683,6 +689,16 @@ export const loginLogic = kea<loginLogicType>([
         ],
         // Every way this specific account can get in. Empty until precheck resolves, and empty when
         // SSO is enforced (that path takes over the whole form).
+        turnstileLoginFields: [
+            (s) => [s.turnstileToken, s.turnstileClientStatus],
+            (
+                turnstileToken: string | null,
+                turnstileClientStatus: TurnstileClientStatus
+            ): { turnstile_client_status: TurnstileClientStatus; turnstile_token?: string } =>
+                turnstileToken
+                    ? { turnstile_client_status: turnstileClientStatus, turnstile_token: turnstileToken }
+                    : { turnstile_client_status: turnstileClientStatus },
+        ],
         availableLoginMethods: [
             (s) => [s.precheckResponse],
             (precheckResponse: PrecheckResponseType): LoginMethod[] => {
