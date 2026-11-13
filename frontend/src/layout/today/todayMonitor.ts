@@ -8,7 +8,6 @@ import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { pinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
-/** Monitor lives on the rail, so it is on only with both the rail and its own flag. */
 export function monitorAreaEnabled(featureFlags: FeatureFlagsSet): boolean {
     return !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && !!featureFlags[FEATURE_FLAGS.MONITOR_AREA]
 }

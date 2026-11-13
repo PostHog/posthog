@@ -378,6 +378,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
         }
 
+        const applySavedViewParam = (raw: unknown): void => {
+            const savedView = monitorAreaEnabled(values.featureFlags) && typeof raw === 'string' ? raw : null
+            if (savedView && savedView !== values.openSavedView?.short_id) {
+                actions.openSavedViewById(savedView)
+            } else if (!savedView && values.openSavedView) {
+                actions.setOpenSavedView(null)
+            }
+        }
+
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return
@@ -498,15 +507,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
 
-            const savedView =
-                monitorAreaEnabled(values.featureFlags) && typeof params[SAVED_VIEW_PARAM] === 'string'
-                    ? params[SAVED_VIEW_PARAM]
-                    : null
-            if (savedView && savedView !== values.openSavedView?.short_id) {
-                actions.openSavedViewById(savedView)
-            } else if (!savedView && values.openSavedView) {
-                actions.setOpenSavedView(null)
-            }
+            applySavedViewParam(params[SAVED_VIEW_PARAM])
 
             const linkToLogId = params.linkToLogId as string | undefined
             if (linkToLogId && linkToLogId !== values.linkToLogId) {
