@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import type {
     OAuthApplicationPublicMetadata,
     OAuthEmaIssuerConsent,
+    OAuthGrantAccess,
     OrganizationBasicType,
     TeamBasicType,
     UserType,
@@ -40,6 +41,27 @@ export type OAuthAuthorizationFormValues = {
     scoped_organizations: string[]
     scoped_teams: number[]
     access_type: 'all' | 'organizations' | 'teams'
+}
+
+const grantReachesSelection = (access: OAuthGrantAccess | null, selection: OAuthAuthorizationFormValues): boolean => {
+    if (!access) {
+        return false
+    }
+    if (access.scoped_teams.length === 0 && access.scoped_organizations.length === 0) {
+        return true
+    }
+    if (selection.access_type === 'teams') {
+        return (
+            selection.scoped_teams.length > 0 && selection.scoped_teams.every((id) => access.scoped_teams.includes(id))
+        )
+    }
+    if (selection.access_type === 'organizations') {
+        return (
+            selection.scoped_organizations.length > 0 &&
+            selection.scoped_organizations.every((id) => access.scoped_organizations.includes(id))
+        )
+    }
+    return false
 }
 
 // `*` grants read+write to everything; its read-only form is every grantable object's read
@@ -152,6 +174,8 @@ export interface oauthAuthorizeLogicValues {
     appName: string
     authorizationComplete: boolean
     consentResourceScopes: string[]
+    earlierGrantAccess: OAuthGrantAccess | null
+    earlierGrantScopes: string[]
     effectiveScopes: string[]
     emaIssuerConsent: OAuthEmaIssuerConsent | null
     filteredTeams: TeamBasicType[] | null
@@ -233,14 +257,18 @@ export interface oauthAuthorizeLogicActions {
     resetOauthAuthorization: (values?: OAuthAuthorizationFormValues) => {
         values?: OAuthAuthorizationFormValues
     }
-    setAlreadyGrantedScopes: (alreadyGrantedScopes: string[]) => {
-        alreadyGrantedScopes: string[]
-    }
     setAuthorizationComplete: (complete: boolean) => {
         complete: boolean
     }
     setCanceling: (canceling: boolean) => {
         canceling: boolean
+    }
+    setEarlierGrant: (
+        scopes: string[],
+        access: OAuthGrantAccess | null
+    ) => {
+        scopes: string[]
+        access: OAuthGrantAccess | null
     }
     setIsMcpResource: (isMcpResource: boolean) => {
         isMcpResource: boolean
@@ -338,6 +366,11 @@ export interface oauthAuthorizeLogicMeta {
             sortedTeams: TeamBasicType[] | null,
             selectedOrganization: string | null
         ) => TeamBasicType[] | null
+        alreadyGrantedScopes: (
+            earlierGrantScopes: string[],
+            earlierGrantAccess: OAuthGrantAccess | null,
+            oauthAuthorization: OAuthAuthorizationFormValues
+        ) => string[]
         identityScopeRows: (scopes: string[], appName: string, alreadyGrantedScopes: string[]) => OAuthScopeRow[]
         isStepUp: (alreadyGrantedScopes: string[]) => boolean
         requiredScopeLevels: (oauthApplication: OAuthApplicationPublicMetadata | null) => Map<string, RequiredLevel>
@@ -379,7 +412,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     })),
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
-        setAlreadyGrantedScopes: (alreadyGrantedScopes: string[]) => ({ alreadyGrantedScopes }),
+        setEarlierGrant: (scopes: string[], access: OAuthGrantAccess | null) => ({ scopes, access }),
         setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
         setScopeGroupAccess: (scopeObjects: string[], level: ScopeAccessLevel) => ({ scopeObjects, level }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
@@ -527,10 +560,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setScopes: (_, { scopes }) => scopes,
             },
         ],
-        alreadyGrantedScopes: [
+        earlierGrantScopes: [
             [] as string[],
             {
-                setAlreadyGrantedScopes: (_, { alreadyGrantedScopes }) => alreadyGrantedScopes,
+                setEarlierGrant: (_, { scopes }) => scopes,
+            },
+        ],
+        earlierGrantAccess: [
+            null as OAuthGrantAccess | null,
+            {
+                setEarlierGrant: (_, { access }) => access,
             },
         ],
         // The user's picks per scope object. Absent entries default to the requested ceiling, and
@@ -797,6 +836,14 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 return teams.filter((t) => t.organization === selectedOrg)
             },
         ],
+        alreadyGrantedScopes: [
+            (s) => [s.earlierGrantScopes, s.earlierGrantAccess, s.oauthAuthorization],
+            (
+                earlierGrantScopes: string[],
+                earlierGrantAccess: OAuthGrantAccess | null,
+                oauthAuthorization: OAuthAuthorizationFormValues
+            ): string[] => (grantReachesSelection(earlierGrantAccess, oauthAuthorization) ? earlierGrantScopes : []),
+        ],
         identityScopeRows: [
             (s) => [s.scopes, s.appName, s.alreadyGrantedScopes],
             (scopes: string[], appName: string, alreadyGrantedScopes: string[]): OAuthScopeRow[] =>
@@ -944,7 +991,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const earlierTeam = requiredAccessLevel === 'team' ? (earlierAccess?.scoped_teams[0] ?? null) : null
 
             actions.setScopesWereDefaulted(scopesWereDefaulted)
-            actions.setAlreadyGrantedScopes(scopeResolution?.already_granted_scopes ?? [])
+            actions.setEarlierGrant(scopeResolution?.already_granted_scopes ?? [], earlierAccess ?? null)
             actions.setTeamHint(teamHint ?? earlierTeam)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             if (earlierAccess && !requiredAccessLevel) {

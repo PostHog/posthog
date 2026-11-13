@@ -249,7 +249,8 @@ describe('oauthAuthorizeLogic', () => {
 
     it('lists only what a step-up adds, and keeps what was granted before in the grant', () => {
         logic.actions.setScopes(['openid', 'insight:write', 'comment:write'])
-        logic.actions.setAlreadyGrantedScopes(['openid', 'insight:write'])
+        logic.actions.setEarlierGrant(['openid', 'insight:write'], { scoped_teams: [22], scoped_organizations: [] })
+        logic.actions.setOauthAuthorizationValues({ access_type: 'teams', scoped_teams: [22] })
         setAllScopeAccess('none')
 
         expect(logic.values.scopeGroups.flatMap((group) => group.rows.map((row) => row.key))).toEqual(['comment'])
@@ -261,6 +262,16 @@ describe('oauthAuthorizeLogic', () => {
         })
         expect(logic.values.scopeRows.find((r) => r.key === 'comment')).toMatchObject({ alreadyGranted: false })
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+
+        logic.actions.setOauthAuthorizationValue('scoped_teams', [33])
+
+        expect(logic.values.isStepUp).toBe(false)
+        expect(logic.values.scopeGroups.flatMap((group) => group.rows.map((row) => row.key))).toEqual([
+            'insight',
+            'openid',
+            'comment',
+        ])
+        expect(logic.values.effectiveScopes).toEqual(['openid'])
     })
 
     it('clamps an optional write above a required read floor to the floor, never below', () => {

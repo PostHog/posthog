@@ -45,6 +45,7 @@ const withScopeResolution: Decorator = function ScopeResolutionDecorator(Story, 
             scopes: resolvedScopes ?? (scope ? scope.split(' ') : []),
             was_defaulted: !scope,
             already_granted_scopes: alreadyGrantedScopes ?? [],
+            ...(alreadyGrantedScopes ? { earlier_access: { scoped_teams: [], scoped_organizations: [] } } : {}),
         }
     })
     return <Story />
