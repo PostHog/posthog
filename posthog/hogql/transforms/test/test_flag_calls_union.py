@@ -2163,7 +2163,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ({"a": 1}, {"a": 1}),
             ([1, 2], [1, 2]),
             ("text", "text"),
-            ({}, None),
+            ({}, {}),
             (None, None),
             (missing, None),
         ]
