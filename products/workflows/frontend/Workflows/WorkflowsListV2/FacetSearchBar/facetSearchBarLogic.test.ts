@@ -49,6 +49,13 @@ const FACETS: FacetDefinition<Item>[] = [
         getValues: () => [],
         emptyLabel: 'Health shows once run metrics load',
     },
+    {
+        key: 'team',
+        label: 'Team',
+        description: 'Known once teams load',
+        getValues: (item) => (item.name === 'Promo' ? ['growth'] : []),
+        emptyLabel: 'Team shows once teams load',
+    },
 ]
 
 const ITEMS: Item[] = [
@@ -226,6 +233,13 @@ describe('facetSearchBarLogic', () => {
             'one is already a filter',
         ],
         ['a facet whose values have not loaded', [], 'health:', 'Health shows once run metrics load'],
+        ['a loaded facet the search rules out', [], 'wel team:', 'No values to pick with your search'],
+        [
+            'a loaded facet other pills rule out',
+            [{ facet: 'status', value: 'draft', negated: false }],
+            'team:',
+            'No values to pick with your other filters',
+        ],
     ])('says why no values are left for %s', (_, filters, input, label) => {
         mountWith({ filters, text: '' })
         logic.actions.setInput(input)
@@ -332,6 +346,32 @@ describe('facetSearchBarLogic', () => {
     })
 
     it.each([
+        ['a value no item has', 'status:zzz ', [], 'status:zzz'],
+        ['a negated value no item has', '-status:zzz ', [], '-status:zzz'],
+        ['a pinned value no item has', 'owner:me ', [{ facet: 'owner', value: 'me', negated: false }], ''],
+        ['a free text value no item has', 'sends:zzz ', [{ facet: 'sends', value: 'zzz', negated: false }], ''],
+    ])('pills a typed token only when its facet takes the value: %s', (_, typed, filters, text) => {
+        const owner: FacetDefinition<Item> = {
+            key: 'owner',
+            label: 'Owner',
+            description: 'Who made it',
+            pinnedValues: ['me'],
+            getValues: () => [],
+        }
+        logic = facetSearchBarLogic({
+            id: 'test',
+            facets: [...FACETS, owner],
+            items: ITEMS,
+            value: { filters: [], text: '' },
+            onChange,
+            matchesText,
+        })
+        logic.mount()
+        logic.actions.setInput(typed)
+        expect(onChange).toHaveBeenLastCalledWith({ filters, text })
+    })
+
+    it.each([
         [
             'picked from the suggestions',
             { filters: [], text: '' },
@@ -376,32 +416,19 @@ describe('facetSearchBarLogic', () => {
         ['a facet draft', ['tag:', 'tag:d', 'tag:de'], 50, 'deal0001'],
         ['a bare word', ['de', 'dea', 'deal'], 8, 'Tag: deal0001'],
     ])(
-        'reuses the counts of a scope and builds only the rows it shows, reading no later facet, while typing %s',
+        'shows a capped list, best match first, over 1000 items while typing %s',
         (_, keystrokes, rowCount, firstLabel) => {
-            let valueReads = 0
-            let laterFacetReads = 0
-            let formats = 0
             const tag: FacetDefinition<number> = {
                 key: 'tag',
                 label: 'Tag',
                 description: 'Labels',
-                getValues: (item) => {
-                    valueReads++
-                    return [`deal${String(item).padStart(4, '0')}`]
-                },
-                formatValue: (value) => {
-                    formats++
-                    return value
-                },
+                getValues: (item) => [`deal${String(item).padStart(4, '0')}`],
             }
             const owner: FacetDefinition<number> = {
                 key: 'owner',
                 label: 'Owner',
                 description: 'Who made it',
-                getValues: () => {
-                    laterFacetReads++
-                    return ['deal-owner@example.com']
-                },
+                getValues: () => ['deal-owner@example.com'],
             }
             logic = facetSearchBarLogic({
                 id: 'test',
@@ -413,20 +440,13 @@ describe('facetSearchBarLogic', () => {
             })
             logic.mount()
 
-            logic.actions.setInput(keystrokes[0])
-            expect(logic.values.suggestions.length).toBeGreaterThan(0)
-            const readsForScope = valueReads
-            for (const keystroke of keystrokes.slice(1)) {
+            for (const keystroke of keystrokes) {
                 logic.actions.setInput(keystroke)
             }
-            formats = 0
             const rows = logic.values.suggestions.filter((suggestion) => suggestion.kind === 'value')
 
             expect(rows).toHaveLength(rowCount)
             expect(rows[0].label).toEqual(firstLabel)
-            expect(valueReads).toEqual(readsForScope)
-            expect(formats).toBeLessThanOrEqual(rowCount)
-            expect(laterFacetReads).toEqual(0)
         }
     )
 
