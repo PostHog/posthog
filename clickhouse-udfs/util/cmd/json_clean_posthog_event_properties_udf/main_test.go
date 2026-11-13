@@ -415,6 +415,30 @@ func TestShouldStringifyNumber(t *testing.T) {
 	}
 }
 
+func TestCanonicalNumber(t *testing.T) {
+	tests := map[string]string{
+		"42":                      "42",
+		"-0":                      "0",
+		"2.0":                     "2",
+		"-0.0":                    "-0",
+		"1.50":                    "1.5",
+		"1E3":                     "1000",
+		"1e20":                    "100000000000000000000",
+		"1e21":                    "1e21",
+		"0.000001":                "0.000001",
+		"0.0000001":               "1e-7",
+		"1.7976931348623157e+308": "1.7976931348623157e308",
+		"9007199254740993.0":      "9007199254740992",
+		"1e400":                   "1e400",
+	}
+
+	for input, want := range tests {
+		if got := canonicalNumber(input); got != want {
+			t.Fatalf("canonicalNumber(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func BenchmarkProcessLine(b *testing.B) {
 	input := []byte(`{"$active_feature_flags":"[\"beta\", \"new-ui\"]","$exception_types":"undefined","Account.client_id":"client_123","huge":18446744073709551616,"small":123,"dotted.key":"value","duplicate":"","duplicate":"kept","null_field":null,"nested":{"a.b":{"c":1}}}`)
 	var buf bytes.Buffer
@@ -504,7 +528,7 @@ func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
 			name:      "allowlist",
 			input:     `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null],"$sdk_debug_current_session_duration":42,"$debug_images":[{"type":"elf"}],"$feature/demo":"control","$active_feature_flags":["demo"],"$feature_flag_payload":{},"$feature_flag_payloads":{},"$feature_flag_bootstrapped_payload":{},"$feature_flag_original_payload":{},"$transformations_succeeded":[],"custom":{"$set":"keep"}}`,
 			permanent: `{"$sent_at":"2026-01-01","$sdk_debug_current_session_duration":42,"$debug_images":"[{\"type\":\"elf\"}]","custom":"{\"$set\":\"keep\"}","$feature_flags":{"demo":"control"}}`,
-			temporary: `{"$set":"{\"score\":7,\"enabled\":false}","$set_once":"{\"source\":\"demo\"}","$unset":"[\"old\"]","$group_set":"{\"tier\":\"basic\"}","$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":"{\"enabled\":true}","$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":"{\"version\":3}","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":"[[1,\"x\"],null]"}`,
+			temporary: `{"$set":"{\"enabled\":false,\"score\":7}","$set_once":"{\"source\":\"demo\"}","$unset":"[\"old\"]","$group_set":"{\"tier\":\"basic\"}","$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":"{\"enabled\":true}","$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":"{\"version\":3}","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":"[[1,\"x\"],null]"}`,
 		},
 		{
 			name:      "dotted keys and normalization",
@@ -582,8 +606,8 @@ func TestProcessEnvelopeLineSplitsEveryOutput(t *testing.T) {
 		`{"name":"x","email":null,"$initial_referrer":null,"address":{"city":null}}`,
 	)
 	want := envelopeResult{
-		Properties:               `{"custom":"kept","nested":"{\"deep\":null,\"keep\":1}","service.name":"api","user":"{\"plan\":null,\"a.b\":null}","items":"[{\"a\":null},2]","$exception_types":"TypeError","$feature_flags":{"demo":"control","off":"$false"}}`,
-		TemporaryProperties:      `{"$set":"{\"score\":7,\"gone\":null}","$sdk_debug_probe":true}`,
+		Properties:               `{"custom":"kept","nested":"{\"deep\":null,\"keep\":1}","service.name":"api","user":"{\"a.b\":null,\"plan\":null}","items":"[{\"a\":null},2]","$exception_types":"TypeError","$feature_flags":{"demo":"control","off":"$false"}}`,
+		TemporaryProperties:      `{"$set":"{\"gone\":null,\"score\":7}","$sdk_debug_probe":true}`,
 		PersonProperties:         `{"name":"x","address":"{\"city\":null}"}`,
 		PropertiesNullKeys:       []string{"plan", "a%2Eb"},
 		PersonPropertiesNullKeys: []string{"email", "$initial_referrer"},
@@ -715,13 +739,13 @@ func TestProcessEnvelopeLineStoresObjectsAndArraysAsStrings(t *testing.T) {
 		want                     envelopeResult
 	}{
 		{
-			"source text is kept byte for byte",
-			`{"plan": { "seats" : 5, "gone":null, "seats":6, "id":18446744073709551616 },"path":["a\/b","\u0041"],"n":1}`,
-			`{"address":{"city":null},"tags":[null]}`,
+			"the stored text is compact with sorted keys and ClickHouse spelling",
+			`{"plan": { "seats" : 5, "gone":null, "seats":6, "id":18446744073709551616, "cost": 2.0 },"path":["a\/b","\u0041","\u001f\u2028"],"n":1.0}`,
+			`{"address":{"zip": "1", "city":null},"tags":[null, {"b": 1e3, "a": -0.0}]}`,
 			envelopeResult{
-				Properties:          `{"plan":"{ \"seats\" : 5, \"gone\":null, \"seats\":6, \"id\":18446744073709551616 }","path":"[\"a\\/b\",\"\\u0041\"]","n":1}`,
+				Properties:          `{"plan":"{\"cost\":2,\"gone\":null,\"id\":\"18446744073709551616\",\"seats\":5,\"seats\":6}","path":"[\"a/b\",\"A\",\"\\u001F\\u2028\"]","n":1.0}`,
 				TemporaryProperties: `{}`,
-				PersonProperties:    `{"address":"{\"city\":null}","tags":"[null]"}`,
+				PersonProperties:    `{"address":"{\"city\":null,\"zip\":\"1\"}","tags":"[null,{\"a\":-0,\"b\":1000}]"}`,
 			},
 		},
 		{

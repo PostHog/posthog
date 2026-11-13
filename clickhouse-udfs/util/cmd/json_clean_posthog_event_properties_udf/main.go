@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"runtime/pprof"
 	"slices"
@@ -139,7 +140,7 @@ const (
 	kindNumber
 	kindBool
 	kindNull
-	// The source text of an object or array that is stored as a string. It orders before kindObject because the
+	// The JSON text of an object or array that is stored as a string. It orders before kindObject because the
 	// cleaner treats it as a scalar: nothing inside it is cleaned, deduplicated, or checked for nulls.
 	kindRaw
 	kindObject
@@ -185,8 +186,9 @@ type processor struct {
 	nullKeyBytes int
 	nullKeysOver bool
 	// True while parsing a properties document. Every top-level object and array, except the event feature-flags
-	// map, is then kept as a string of its source text. It is false for the envelope row itself.
+	// map, is then stored as a string of its JSON text. It is false for the envelope row itself.
 	captureNested bool
+	nestedBuf     bytes.Buffer
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -541,25 +543,65 @@ func (p *processor) keepsStructure(key string) bool {
 	return key == featureFlagsKey && (p.kind == eventEnvelope || p.kind == eventProperties)
 }
 
-// An object or array is validated without building its tree and kept as its source text, so the stored string
-// is the bytes that were sent: nested nulls, duplicate keys, large integers and escapes are not rewritten.
+// Equal content must have equal stored text: compact, keys in byte order, spelled as JSONExtractRaw prints it.
 func (p *processor) parseNestedAsString(depth int) (*value, error) {
 	p.skipWS()
 	if p.pos >= len(p.data) || (p.data[p.pos] != '{' && p.data[p.pos] != '[') {
 		return p.parseValue(depth)
 	}
-	start := p.pos
-	p.discard = true
-	_, err := p.parseValue(depth)
-	p.discard = false
+	tree, err := p.parseValue(depth)
 	if err != nil {
 		return nil, err
 	}
+	canonicalize(tree)
+	p.nestedBuf.Reset()
+	p.writeValue(&p.nestedBuf, tree)
+	p.recycle(tree)
 	// The stored value is a string, so the output differs from the input and the line cannot be copied through.
 	p.mutated = true
 	v := p.newValue(kindRaw)
-	v.s = borrowedString(p.data[start:p.pos])
+	v.s = p.nestedBuf.String()
 	return v, nil
+}
+
+func canonicalize(v *value) {
+	switch v.kind {
+	case kindNumber:
+		v.s = canonicalNumber(v.s)
+	case kindObject:
+		slices.SortStableFunc(v.entries, func(a, b entry) int { return strings.Compare(a.key, b.key) })
+		for _, entry := range v.entries {
+			canonicalize(entry.value)
+		}
+	case kindArray:
+		for _, child := range v.values {
+			canonicalize(child)
+		}
+	}
+}
+
+func canonicalNumber(num string) string {
+	if !strings.ContainsAny(num, ".eE") {
+		if num == "-0" {
+			return "0"
+		}
+		return num
+	}
+	f, err := strconv.ParseFloat(num, 64)
+	if err != nil {
+		return num
+	}
+	if abs := math.Abs(f); abs == 0 || abs >= 1e-6 && abs < 1e21 {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	// strconv writes the exponent as e+21 or e-07, and ClickHouse writes e21 or e-7.
+	text := strconv.FormatFloat(f, 'e', -1, 64)
+	mantissa, exponent, _ := strings.Cut(text, "e")
+	sign := ""
+	if exponent[0] == '-' {
+		sign = "-"
+	}
+	return mantissa + "e" + sign + strings.TrimLeft(exponent[1:], "0")
 }
 
 func (p *processor) parseArray(depth int) (*value, error) {
@@ -1069,16 +1111,34 @@ func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
 	}
 }
 
+// The escapes match ClickHouse's JSON printer, so the text stored for an object equals what JSONExtractRaw prints.
 func writeJSONString(buf *bytes.Buffer, s string) {
 	buf.WriteByte('"')
 	start := 0
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
-		if ch >= 0x20 && ch != '\\' && ch != '"' {
+		if ch >= 0x20 && ch != '\\' && ch != '"' && ch != 0xe2 {
 			continue
+		}
+		escaped := ""
+		if ch == 0xe2 {
+			switch {
+			case strings.HasPrefix(s[i:], "\u2028"):
+				escaped = `\u2028`
+			case strings.HasPrefix(s[i:], "\u2029"):
+				escaped = `\u2029`
+			default:
+				continue
+			}
 		}
 		if start < i {
 			buf.WriteString(s[start:i])
+		}
+		if escaped != "" {
+			buf.WriteString(escaped)
+			i += 2
+			start = i + 1
+			continue
 		}
 		switch ch {
 		case '\\', '"':
@@ -1096,7 +1156,7 @@ func writeJSONString(buf *bytes.Buffer, s string) {
 			buf.WriteString("\\t")
 		default:
 			buf.WriteString("\\u00")
-			const hex = "0123456789abcdef"
+			const hex = "0123456789ABCDEF"
 			buf.WriteByte(hex[ch>>4])
 			buf.WriteByte(hex[ch&0x0f])
 		}
@@ -1125,10 +1185,8 @@ func isNonEmptyValue(v *value) bool {
 	}
 }
 
-// Reports whether the source text of an object or array has no members, such as `{}` or `[ ]`.
 func isEmptyContainer(s string) bool {
-	rest := strings.TrimLeft(s[1:], " \t\n\r")
-	return rest == "}" || rest == "]"
+	return s == "{}" || s == "[]"
 }
 
 func shouldStringifyNumber(num string) bool {
