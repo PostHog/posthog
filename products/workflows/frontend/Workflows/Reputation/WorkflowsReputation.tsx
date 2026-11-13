@@ -459,6 +459,12 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         tooltip="The biggest audience this tier allows for a single batch send."
                     />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
+                    {allowance.rate_limited_max_batch_audience ? (
+                        <div className="text-xs text-secondary" data-attr="workflows-rate-limited-batch-audience">
+                            Up to {humanFriendlyNumber(allowance.rate_limited_max_batch_audience)} with a sending rate
+                            limit
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </div>
