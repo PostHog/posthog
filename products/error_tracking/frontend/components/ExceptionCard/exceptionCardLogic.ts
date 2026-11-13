@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { JSX } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +13,7 @@ export type ExceptionCardLogicProps = {
     loading: boolean
     logicKey?: string
     onShowOnlyWithRecording?: () => void
+    renderRecordingActions?: () => JSX.Element | null
 }
 
 export type ExceptionCardTab = 'stack_trace' | 'properties' | 'timeline' | 'recording' | 'logs' | 'trace'
@@ -29,6 +31,7 @@ export interface exceptionCardLogicValues {
     logsScope: ExceptionLogsScope
     onShowOnlyWithRecording: (() => void) | null
     propertyNameFilter: string
+    renderRecordingActions: (() => JSX.Element | null) | null
     showJSONProperties: boolean
     traceTabEnabled: boolean
 }
@@ -65,6 +68,7 @@ export interface exceptionCardLogicMeta {
         traceTabEnabled: (logsEnabled: boolean) => boolean
         loading: (loading: boolean) => boolean
         onShowOnlyWithRecording: (arg: any) => (() => void) | null
+        renderRecordingActions: (arg: any) => (() => JSX.Element | null) | null
     }
 }
 
@@ -153,6 +157,11 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         onShowOnlyWithRecording: [
             () => [(_, props) => props.onShowOnlyWithRecording],
             (onShowOnlyWithRecording: (() => void) | undefined): (() => void) | null => onShowOnlyWithRecording ?? null,
+        ],
+        renderRecordingActions: [
+            () => [(_, props) => props.renderRecordingActions],
+            (renderRecordingActions: (() => JSX.Element | null) | undefined): (() => JSX.Element | null) | null =>
+                renderRecordingActions ?? null,
         ],
     }),
 

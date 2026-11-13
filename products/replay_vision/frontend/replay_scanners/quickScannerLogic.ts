@@ -1,0 +1,483 @@
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    getContext,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
+import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
+import type { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { AI_CONSENT_PENDING_REDIRECT_TTL_MS, aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { type ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { visionScannersCreate, visionScannersEstimateCreate } from '../generated/api'
+import type { EstimateResponseApi, ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { freeCreditsLeft } from '../utils/quotaProjection'
+import type { ScannerCreditCap } from './components/ScannerSpendChoiceFields'
+import { DEFAULT_GOAL_BUDGET, type GoalDraftSpend, type GoalSpendChoice, goalSpendChoice } from './replayScannerLogic'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, type ScannerFormValues, scannerToApiBody } from './types'
+
+// The create API's limit for `credit_limit`.
+const MAX_CREDIT_CAP = 100_000_000
+
+/** A scanner another product has fully set up, so it can be created without the wizard. */
+export type QuickScannerPrefill = Pick<ScannerFormValues, 'name' | 'scanner_type' | 'scanner_config' | 'query'> &
+    Partial<Pick<ScannerFormValues, 'description' | 'sampling_rate' | 'sampling_mode'>>
+
+export interface QuickScannerLogicProps {
+    /** One per trigger, so two buttons for the same scanner each open their own popover. */
+    key: string
+    /** Pinned: the `placement` on the shared replay_vision_upsell_* events and the scanner's `entry_point`. */
+    entryPoint: string
+    prefill: QuickScannerPrefill
+    productIntent?: { from: ProductKey; intent_context: ProductIntentContext }
+    /** Triggers that create the same scanner share this, so whichever is on the page after an SSO
+     * reauthentication can finish the creation. Defaults to `key`. */
+    resumeScope?: string
+}
+
+type QuickScannerCta = 'open' | 'start_watching' | 'open_scanner'
+
+// Pinned: shared with the other Replay vision upsells, so one funnel compares every placement.
+export const REPLAY_VISION_UPSELL_SHOWN = 'replay_vision_upsell_shown'
+
+function reportClicked(entryPoint: string, cta: QuickScannerCta): void {
+    posthog.capture('replay_vision_upsell_clicked', { placement: entryPoint, cta })
+}
+
+/** For a trigger that appears without being rendered on view, such as a menu item. */
+export function reportQuickScannerShown(entryPoint: string): void {
+    posthog.capture(REPLAY_VISION_UPSELL_SHOWN, { placement: entryPoint })
+}
+
+const CONSENT_INTENT_KEY = 'replay-vision.quick-scanner-consent-intent'
+
+interface QuickScannerConsentIntent {
+    resumeScope: string
+    entryPoint: string
+    spend: GoalDraftSpend
+    expiresAt: number
+}
+
+// Approving AI consent can trigger a full-page SSO reauthentication that unloads the page before the
+// approval resolves, so the chosen spend is kept for as long as the consent flow waits to resume.
+function storeConsentIntent(intent: Omit<QuickScannerConsentIntent, 'expiresAt'>): void {
+    try {
+        sessionStorage.setItem(
+            CONSENT_INTENT_KEY,
+            JSON.stringify({ ...intent, expiresAt: Date.now() + AI_CONSENT_PENDING_REDIRECT_TTL_MS })
+        )
+    } catch {
+        // Without storage the person starts again after the redirect, which is the behavior before this.
+    }
+}
+
+function clearConsentIntent(): void {
+    try {
+        sessionStorage.removeItem(CONSENT_INTENT_KEY)
+    } catch {}
+}
+
+function consumeConsentIntent(resumeScope: string): QuickScannerConsentIntent | null {
+    try {
+        const raw = sessionStorage.getItem(CONSENT_INTENT_KEY)
+        if (!raw) {
+            return null
+        }
+        const intent = JSON.parse(raw) as QuickScannerConsentIntent
+        if (intent?.resumeScope !== resumeScope) {
+            return null
+        }
+        sessionStorage.removeItem(CONSENT_INTENT_KEY)
+        const validSpend =
+            ('freeOnly' in intent.spend && intent.spend.freeOnly === true) ||
+            ('monthlyCreditBudget' in intent.spend && typeof intent.spend.monthlyCreditBudget === 'number')
+        return Date.now() <= intent.expiresAt && validSpend && typeof intent.entryPoint === 'string' ? intent : null
+    } catch {
+        return null
+    }
+}
+
+function createErrorMessage(error: ApiError | undefined): string {
+    if (error?.attr === 'name') {
+        return 'Replay vision already watches this. Find its scanner in Replay vision.'
+    }
+    return "Couldn't create the scanner. Try again."
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface quickScannerLogicValues {
+    dataProcessingAccepted: boolean // aiConsentLogic
+    budget: number | null
+    consentRequested: boolean
+    consentSpend: GoalDraftSpend | null
+    createError: string | null
+    createdScanner: ReplayScannerApi | null
+    createdScannerLoading: boolean
+    creditCap: ScannerCreditCap
+    estimate: EstimateResponseApi | null
+    estimateLoading: boolean
+    freeCreditsLeft: number | null
+    popoverOpen: boolean
+    quota: VisionQuotaApi | null
+    spendChoice: GoalSpendChoice
+    startDisabledReason: string | null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface quickScannerLogicActions {
+    approveConsent: () => {
+        value: true
+    }
+    cancelConsent: () => {
+        value: true
+    }
+    createScanner: (
+        spend: GoalDraftSpend,
+        entryPoint?: string
+    ) => {
+        entryPoint: string | undefined
+        spend: GoalDraftSpend
+    }
+    createScannerFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    createScannerSuccess: (
+        createdScanner: ReplayScannerApi | null,
+        payload?: {
+            entryPoint: string | undefined
+            spend: GoalDraftSpend
+        }
+    ) => {
+        createdScanner: ReplayScannerApi | null
+        payload?: {
+            entryPoint: string | undefined
+            spend: GoalDraftSpend
+        }
+    }
+    loadEstimate: () => {
+        value: true
+    }
+    loadEstimateFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEstimateSuccess: (
+        estimate: EstimateResponseApi | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        estimate: EstimateResponseApi | null
+        payload?: {
+            value: true
+        }
+    }
+    rememberConsentIntent: () => {
+        value: true
+    }
+    reportOpenScanner: () => {
+        value: true
+    }
+    requestConsent: (spend: GoalDraftSpend) => {
+        spend: GoalDraftSpend
+    }
+    resumeConsentIntent: (intent: QuickScannerConsentIntent) => {
+        intent: QuickScannerConsentIntent
+    }
+    setBudget: (budget: number | null) => {
+        budget: number | null
+    }
+    setCreditCap: (cap: ScannerCreditCap) => {
+        cap: ScannerCreditCap
+    }
+    setPopoverOpen: (open: boolean) => {
+        open: boolean
+    }
+    setQuota: (quota: VisionQuotaApi | null) => {
+        quota: VisionQuotaApi | null
+    }
+    startWatching: () => {
+        value: true
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface quickScannerLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        consentRequested: (consentSpend: GoalDraftSpend | null) => boolean
+        freeCreditsLeft: (quota: VisionQuotaApi | null) => number | null
+        spendChoice: (
+            creditCap: ScannerCreditCap,
+            budget: number | null,
+            freeCreditsLeft: number | null
+        ) => GoalSpendChoice
+        startDisabledReason: (spendChoice: GoalSpendChoice, budget: number | null) => string | null
+    }
+}
+
+export type quickScannerLogicType = MakeLogicType<
+    quickScannerLogicValues,
+    quickScannerLogicActions,
+    QuickScannerLogicProps,
+    quickScannerLogicMeta
+>
+
+export const quickScannerLogic = kea<quickScannerLogicType>([
+    path((key) => ['products', 'replay_vision', 'frontend', 'replay_scanners', 'quickScannerLogic', key]),
+    props({} as QuickScannerLogicProps),
+    key((props) => props.key),
+    // Quota is not connected: visionQuotaLogic loads quota and billing on mount, and a trigger renders on
+    // every page view. It is mounted only once the popover opens.
+    connect(() => ({ values: [aiConsentLogic, ['dataProcessingAccepted']] })),
+
+    actions({
+        setPopoverOpen: (open: boolean) => ({ open }),
+        setCreditCap: (cap: ScannerCreditCap) => ({ cap }),
+        setBudget: (budget: number | null) => ({ budget }),
+        setQuota: (quota: VisionQuotaApi | null) => ({ quota }),
+        startWatching: true,
+        requestConsent: (spend: GoalDraftSpend) => ({ spend }),
+        rememberConsentIntent: true,
+        approveConsent: true,
+        cancelConsent: true,
+        resumeConsentIntent: (intent: QuickScannerConsentIntent) => ({ intent }),
+        reportOpenScanner: true,
+        loadEstimate: true,
+        createScanner: (spend: GoalDraftSpend, entryPoint?: string) => ({ spend, entryPoint }),
+    }),
+
+    loaders(({ props, values }) => ({
+        estimate: [
+            null as EstimateResponseApi | null,
+            {
+                loadEstimate: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.estimate
+                    }
+                    return await visionScannersEstimateCreate(String(teamId), {
+                        query: props.prefill.query,
+                        sampling_rate: props.prefill.sampling_rate,
+                        sampling_mode: props.prefill.sampling_mode,
+                    })
+                },
+            },
+        ],
+        createdScanner: [
+            null as ReplayScannerApi | null,
+            {
+                createScanner: async ({ spend, entryPoint }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.createdScanner
+                    }
+                    return await visionScannersCreate(
+                        String(teamId),
+                        scannerToApiBody({
+                            ...props.prefill,
+                            provider: DEFAULT_PROVIDER,
+                            model: DEFAULT_MODEL,
+                            enabled: true,
+                            entry_point: entryPoint ?? props.entryPoint,
+                            ...('freeOnly' in spend
+                                ? { free_only: true, credit_limit: null }
+                                : { free_only: false, credit_limit: spend.monthlyCreditBudget }),
+                        })
+                    )
+                },
+            },
+        ],
+    })),
+
+    reducers({
+        popoverOpen: [
+            false,
+            {
+                setPopoverOpen: (_, { open }) => open,
+                resumeConsentIntent: () => true,
+            },
+        ],
+        creditCap: [
+            'free' as ScannerCreditCap,
+            {
+                setCreditCap: (_, { cap }) => cap,
+                resumeConsentIntent: (_, { intent }) => ('freeOnly' in intent.spend ? 'free' : 'cap'),
+            },
+        ],
+        budget: [
+            DEFAULT_GOAL_BUDGET as number | null,
+            {
+                // A cleared number input emits NaN, which would otherwise reach the API as null.
+                setBudget: (_, { budget }) => (budget != null && Number.isFinite(budget) ? budget : null),
+                resumeConsentIntent: (state, { intent }) =>
+                    'monthlyCreditBudget' in intent.spend ? intent.spend.monthlyCreditBudget : state,
+            },
+        ],
+        quota: [
+            null as VisionQuotaApi | null,
+            {
+                setQuota: (_, { quota }) => quota,
+            },
+        ],
+        // The spend chosen when consent was asked for, so a quota that loads meanwhile cannot change it.
+        consentSpend: [
+            null as GoalDraftSpend | null,
+            {
+                requestConsent: (_, { spend }) => spend,
+                cancelConsent: () => null,
+                createScanner: () => null,
+                setPopoverOpen: () => null,
+            },
+        ],
+        createError: [
+            null as string | null,
+            {
+                createScanner: () => null,
+                createScannerFailure: (_, { errorObject }) => createErrorMessage(errorObject),
+                setPopoverOpen: () => null,
+            },
+        ],
+    }),
+
+    selectors({
+        consentRequested: [(s) => [s.consentSpend], (consentSpend: GoalDraftSpend | null): boolean => !!consentSpend],
+        freeCreditsLeft: [(s) => [s.quota], (quota: VisionQuotaApi | null): number | null => freeCreditsLeft(quota)],
+        spendChoice: [
+            (s) => [s.creditCap, s.budget, s.freeCreditsLeft],
+            (creditCap: ScannerCreditCap, budget: number | null, freeCreditsLeft: number | null): GoalSpendChoice =>
+                goalSpendChoice(creditCap === 'free' ? 'free' : 'budget', budget, freeCreditsLeft),
+        ],
+        startDisabledReason: [
+            (s) => [s.spendChoice, s.budget],
+            (spendChoice: GoalSpendChoice, budget: number | null): string | null => {
+                const capInRange = budget != null && Number.isInteger(budget) && budget >= 1 && budget <= MAX_CREDIT_CAP
+                if (!spendChoice.spend || (spendChoice.mode === 'budget' && !capInRange)) {
+                    return 'Enter a monthly credit cap from 1 to 100,000,000 credits'
+                }
+                return null
+            },
+        ],
+    }),
+
+    listeners(({ props, values, actions, cache }) => {
+        const loadPopoverData = (): void => {
+            cache.disposables.add(
+                () => {
+                    const unmountQuota = visionQuotaLogic.mount()
+                    // A connected logic cannot be mounted on demand, so its quota is mirrored instead.
+                    const syncQuota = (): void => {
+                        if (visionQuotaLogic.values.quota !== values.quota) {
+                            actions.setQuota(visionQuotaLogic.values.quota)
+                        }
+                    }
+                    syncQuota()
+                    const unsubscribe = getContext().store.subscribe(syncQuota)
+                    return () => {
+                        unsubscribe()
+                        unmountQuota()
+                    }
+                },
+                'visionQuota',
+                { pauseOnPageHidden: false }
+            )
+            if (!values.estimate && !values.estimateLoading) {
+                actions.loadEstimate()
+            }
+        }
+
+        return {
+            setPopoverOpen: ({ open }) => {
+                if (!open) {
+                    return
+                }
+                reportClicked(props.entryPoint, 'open')
+                loadPopoverData()
+            },
+            startWatching: () => {
+                const spend = values.spendChoice.spend
+                if (!spend || values.startDisabledReason) {
+                    return
+                }
+                if (values.dataProcessingAccepted) {
+                    actions.createScanner(spend)
+                } else {
+                    actions.requestConsent(spend)
+                }
+            },
+            rememberConsentIntent: () => {
+                if (values.consentSpend) {
+                    storeConsentIntent({
+                        resumeScope: props.resumeScope ?? props.key,
+                        entryPoint: props.entryPoint,
+                        spend: values.consentSpend,
+                    })
+                }
+            },
+            approveConsent: () => {
+                clearConsentIntent()
+                if (values.consentSpend) {
+                    actions.createScanner(values.consentSpend)
+                }
+            },
+            resumeConsentIntent: ({ intent }) => {
+                loadPopoverData()
+                if (values.dataProcessingAccepted) {
+                    actions.createScanner(intent.spend, intent.entryPoint)
+                }
+            },
+            createScanner: ({ entryPoint }) => {
+                reportClicked(entryPoint ?? props.entryPoint, 'start_watching')
+            },
+            reportOpenScanner: () => {
+                reportClicked(props.entryPoint, 'open_scanner')
+            },
+            createScannerSuccess: ({ createdScanner }) => {
+                if (!createdScanner) {
+                    return
+                }
+                if (props.productIntent) {
+                    void addProductIntentForCrossSell({ to: ProductKey.REPLAY_VISION, ...props.productIntent })
+                }
+                // The popover can close before the request ends, for example when the consent dialog takes the
+                // click, so the toast is the confirmation that always reaches the person.
+                lemonToast.success('AI is watching new sessions. Summaries appear after each session ends.', {
+                    button: {
+                        label: 'Open scanner',
+                        action: () => window.open(urls.replayVision(createdScanner.id), '_blank'),
+                    },
+                })
+            },
+        }
+    }),
+
+    afterMount(({ props, actions }) => {
+        const intent = consumeConsentIntent(props.resumeScope ?? props.key)
+        if (intent) {
+            actions.resumeConsentIntent(intent)
+        }
+    }),
+])

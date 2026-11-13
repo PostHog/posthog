@@ -48,7 +48,7 @@ jest.mock('./sessionTabLogic', () => {
     }
 })
 
-function renderTab(recordingStatus?: string): HTMLElement {
+function renderTab(recordingStatus?: string, renderRecordingActions?: () => JSX.Element | null): HTMLElement {
     const properties = {
         $session_id: SESSION_ID,
         $recording_status: recordingStatus,
@@ -56,7 +56,10 @@ function renderTab(recordingStatus?: string): HTMLElement {
 
     const { container } = render(
         <Provider>
-            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
+            <BindLogic
+                logic={exceptionCardLogic}
+                props={{ issueId: 'issue-id', loading: false, renderRecordingActions }}
+            >
                 <BindLogic logic={errorPropertiesLogic} props={{ id: 'exception-uuid', properties }}>
                     <SessionRecordingContent />
                 </BindLogic>
@@ -68,6 +71,11 @@ function renderTab(recordingStatus?: string): HTMLElement {
 
 const playerIn = (container: HTMLElement): Element | null =>
     container.querySelector('[data-attr="session-recording-player"]')
+
+const recordingAction = (): JSX.Element => <button data-attr="recording-action" />
+
+const recordingActionIn = (container: HTMLElement): Element | null =>
+    container.querySelector('[data-attr="recording-action"]')
 
 describe('SessionRecordingContent', () => {
     beforeEach(() => {
@@ -105,5 +113,15 @@ describe('SessionRecordingContent', () => {
         const container = renderTab('disabled')
 
         expect(playerIn(container)).not.toBeNull()
+    })
+
+    it.each([
+        { case: 'a recording exists', exists: true, shown: true },
+        { case: 'the exception has no recording', exists: false, shown: false },
+    ])('renders the recording actions only when $case', ({ exists, shown }) => {
+        mockRecordingExists.value = exists
+        const container = renderTab(undefined, recordingAction)
+
+        expect(recordingActionIn(container) !== null).toBe(shown)
     })
 })
