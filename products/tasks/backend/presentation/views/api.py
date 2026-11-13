@@ -3975,6 +3975,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return compute_quota_limit_response(error.reason)
             except tasks_facade.TaskDoneError:
                 return _task_done_response()
+            except tasks_facade.TaskRunAlreadyLiveError:
+                return _run_in_progress_response()
             except Exception:
                 logger.warning("Failed to queue user message for task run %s", pk)
                 return Response(

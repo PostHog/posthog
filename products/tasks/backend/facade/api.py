@@ -2673,18 +2673,25 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     return True
 
 
-def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
+def claim_and_fail_stale_run(
+    run_id: str | UUID, error: str, error_type: str | None = None, *, not_updated_since: datetime | None = None
+) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
+
+    ``not_updated_since`` makes the claim lose to a run written at or after that time.
 
     Atomically flips a run still in ``QUEUED``/``IN_PROGRESS`` to ``FAILED`` via a conditional
     update, so concurrent reapers of the same row resolve to exactly one winner (the losers match
     zero rows). The winner finalizes via ``mark_failed`` (error message, ``completed_at``, stream +
     analytics). Intentionally cross-team (janitor sweep).
     """
-    claimed = TaskRun.objects.filter(
+    claimable = TaskRun.objects.filter(
         id=run_id,
         status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
-    ).update(status=TaskRun.Status.FAILED)  # nosemgrep: celery-task-team-scope-audit
+    )  # nosemgrep: celery-task-team-scope-audit
+    if not_updated_since is not None:
+        claimable = claimable.filter(updated_at__lt=not_updated_since)
+    claimed = claimable.update(status=TaskRun.Status.FAILED)
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
@@ -6227,6 +6234,8 @@ def signal_task_run_user_message(
     if not plan_owner_consented:
         ensure_subscription_owner(run.state, actor_user_id)
     check_wake(run.task, source="follow_up")
+    if (run.state or {}).get("await_user_message"):
+        run.task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -9742,6 +9751,8 @@ def _deliver_warm_run_message(
                 workflow_id=workflow_id,
                 rpc_timeout=timedelta(seconds=10),
             )
+        except TaskRunAlreadyLiveError as error:
+            raise WarmRunActivationUnavailable("target_unavailable") from error
         except RPCError as error:
             # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
             if error.status != RPCStatusCode.NOT_FOUND:
@@ -10602,6 +10613,14 @@ def run_task(
                         return contracts.TaskRunResult(
                             error=contracts.TaskValidationError(
                                 kind="validation_error", code="task_done", detail=str(done_error), attr="status"
+                            )
+                        )
+                    try:
+                        task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=warm_run.id)
+                    except TaskRunAlreadyLiveError as live_error:
+                        return contracts.TaskRunResult(
+                            error=contracts.TaskValidationError(
+                                kind="validation_error", code="run_in_progress", detail=str(live_error), attr="status"
                             )
                         )
                     if warm_staged_artifacts:
@@ -12929,7 +12948,7 @@ def forward_thread_message(
             signal_result = signal_task_run_user_message(
                 run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
             )
-        except TaskDoneError:
+        except (TaskDoneError, TaskRunAlreadyLiveError):
             return "no_run", None
         if not signal_result:
             return "signal_failed", None
@@ -13405,6 +13424,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                     return "signaled"
             except ComputeBillingLimitError as error:
                 return _canvas_fix_denial_outcome(error.reason)
+            except TaskRunAlreadyLiveError:
+                return "run_in_progress"
             if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
                 # A queued, prompt-seeded run whose workflow hasn't registered yet
                 # is a fix run a just-committed request dispatched (creation is
@@ -13412,7 +13433,7 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
-            if not (run.state or {}).get("cancel_requested_at"):
+            if run.environment == TaskRun.Environment.CLOUD and not (run.state or {}).get("cancel_requested_at"):
                 _fail_run_whose_workflow_is_gone(run)
         if quota_gate is not None:
             enforce_self_driving_pr_quota(

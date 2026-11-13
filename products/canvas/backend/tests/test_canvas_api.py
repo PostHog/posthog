@@ -2644,9 +2644,17 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert response.json()["dispatch_outcome"] == "already_queued"
         assert TaskRun.objects.filter(task=task).count() == 1
 
-    def test_request_fix_replaces_a_run_whose_workflow_is_gone(self):
+    @parameterized.expand(
+        [
+            ("cloud_run_is_failed", TaskRun.Environment.CLOUD, TaskRun.Status.FAILED),
+            ("local_run_is_left_alone", TaskRun.Environment.LOCAL, TaskRun.Status.IN_PROGRESS),
+        ]
+    )
+    def test_request_fix_replaces_a_run_whose_workflow_is_gone(self, _name, environment, expected_status):
         canvas_id, build_id, task = self._authored_canvas()
-        stale_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+        stale_run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=environment, state={}
+        )
 
         with (
             patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False),
@@ -2658,7 +2666,7 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json()["dispatch_outcome"] == "new_run"
         stale_run.refresh_from_db()
-        assert stale_run.status == TaskRun.Status.FAILED
+        assert stale_run.status == expected_status
         assert TaskRun.objects.filter(task=task).exclude(id=stale_run.id).get().status == TaskRun.Status.QUEUED
 
     def test_scoped_keys_need_task_write_to_request_a_fix(self):

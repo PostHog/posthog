@@ -53,6 +53,7 @@ from products.tasks.backend.models import (
     TaskRunAlreadyLiveError,
     TaskThreadMessage,
     bump_task_activity,
+    fail_stale_live_runs,
 )
 from products.tasks.backend.run_options import run_options_record
 from products.tasks.backend.task_profiles import USER
@@ -1763,6 +1764,16 @@ class TestTaskRun(TestCase):
         stale.refresh_from_db()
         self.assertEqual(stale.status, TaskRun.Status.FAILED)
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+    def test_a_run_written_after_the_stale_check_is_not_failed(self) -> None:
+        run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+
+        fail_stale_live_runs([run.id], django_timezone.now() - LIVE_RUN_STALE_AFTER)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
 
     def test_create_run_does_not_inject_permission_mode_by_default(self):
         run = self.task.create_run(mode="interactive")

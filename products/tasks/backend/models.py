@@ -106,12 +106,15 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
 LIVE_RUN_STALE_AFTER = timedelta(hours=24)
 
 
-def fail_stale_live_runs(run_ids: list[uuid.UUID]) -> None:
+def fail_stale_live_runs(run_ids: list[uuid.UUID], stale_before: datetime) -> None:
     from products.tasks.backend.facade.api import claim_and_fail_stale_run  # noqa: PLC0415 -- the facade imports models
 
     for run_id in run_ids:
         claim_and_fail_stale_run(
-            run_id, "This run stopped responding, so a new run replaced it.", error_type="stale_live_run"
+            run_id,
+            "This run stopped responding, so a new run replaced it.",
+            error_type="stale_live_run",
+            not_updated_since=stale_before,
         )
 
 
@@ -1091,11 +1094,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             self.runs.filter(updated_at__gte=django_timezone.now() - LIVE_RUN_STALE_AFTER), exclude_run_id
         )
 
-    def stale_cloud_run_ids(self, exclude_run_id: uuid.UUID | None = None) -> list[uuid.UUID]:
-        return self._cloud_run_ids_holding_the_task(
-            self.runs.filter(updated_at__lt=django_timezone.now() - LIVE_RUN_STALE_AFTER), exclude_run_id
-        )
-
     def refuse_run_beside_live_run(self, *, source: str, exclude_run_id: uuid.UUID | None = None) -> None:
         live_run_ids = self.live_cloud_run_ids(exclude_run_id)
         if live_run_ids:
@@ -1108,9 +1106,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 source=source,
             )
             raise TaskRunAlreadyLiveError()
-        stale_run_ids = self.stale_cloud_run_ids(exclude_run_id)
+        stale_before = django_timezone.now() - LIVE_RUN_STALE_AFTER
+        stale_run_ids = self._cloud_run_ids_holding_the_task(
+            self.runs.filter(updated_at__lt=stale_before), exclude_run_id
+        )
         if stale_run_ids:
-            execute_after_commit(lambda: fail_stale_live_runs(stale_run_ids))
+            execute_after_commit(lambda: fail_stale_live_runs(stale_run_ids, stale_before))
 
     def observe_run_started_beside_live_runs(self, task_run: "TaskRun") -> None:
         live_run_ids = self.live_cloud_run_ids(exclude_run_id=task_run.id)

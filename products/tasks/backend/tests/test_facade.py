@@ -476,6 +476,24 @@ class TestFacadeReadsAndMappers(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
 
+    def test_a_warm_run_refuses_its_first_message_while_another_run_is_live(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        warm = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"await_user_message": True},
+        )
+
+        with self.assertRaises(facade.TaskRunAlreadyLiveError):
+            facade.signal_task_run_user_message(
+                warm.id, task.id, self.team.id, content="hello", artifact_ids=[], actor_user_id=self.user.id
+            )
+
     @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT,), (Task.OriginProduct.SIGNALS_SCOUT,)])
     def test_resume_in_cloud_cannot_reopen_automated_spend(self, origin_product: str) -> None:
         task = self._make_task(origin_product=origin_product)
