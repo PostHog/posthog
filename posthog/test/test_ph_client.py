@@ -68,14 +68,22 @@ class TestPrivateScoutCapture(SimpleTestCase):
 
         client.before_send = record
         try:
-            for event in ("query executed", "query execution failed", "$exception"):
-                captured = client.capture(event, distinct_id="synthetic", properties={"query": query})
+            for event, query_key, event_query in (
+                ("query executed", "query", query),
+                ("query execution failed", "query", query),
+                ("query duplicate found", "query_json", query["source"]),
+                ("$exception", "query", query),
+                ("$exception", "query_json", query["source"]),
+            ):
+                captured = client.capture(event, distinct_id="synthetic", properties={query_key: event_query})
                 if event == "$exception":
                     self.assertIsNone(captured)
                     continue
                 assert captured is not None
-                self.assertNotIn("filters", messages[-1]["properties"]["query"]["source"])
-                self.assertEqual(messages[-1]["properties"]["query"]["source"]["query"], query["source"]["query"])
+                captured_query = messages[-1]["properties"][query_key]
+                captured_source = captured_query.get("source", captured_query)
+                self.assertNotIn("filters", captured_source)
+                self.assertEqual(captured_source["query"], query["source"]["query"])
             self.assertEqual(query, original)
             with tags_context(query=query):
                 self.assertIsNone(client.capture("$exception", distinct_id="synthetic"))

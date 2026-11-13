@@ -72,13 +72,12 @@ def _has_filtered_sql_query(value: Any) -> bool:
 
 def filter_sql_query_capture(message: dict[str, Any]) -> dict[str, Any] | None:
     properties = message.get("properties", {})
+    has_filtered_sql = _has_filtered_sql_query(properties)
     # Exception chains and stack context can include expanded SQL beyond the query metadata.
-    if message.get("event") == "$exception" and (
-        _has_filtered_sql_query(properties.get("query")) or _has_filtered_sql_query(get_query_tags().query)
-    ):
+    if message.get("event") == "$exception" and (has_filtered_sql or _has_filtered_sql_query(get_query_tags().query)):
         return None
-    if isinstance(properties.get("query"), dict):
-        properties = {**properties, "query": _query_without_sql_filters(properties["query"])}
+    if has_filtered_sql:
+        properties = _query_without_sql_filters(properties)
     if properties.get("query_type") == "HogQLQuery":
         # ClickHouse errors can embed the compiled SQL with filter values substituted.
         properties = {key: value for key, value in properties.items() if key != "error_message"}
