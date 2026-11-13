@@ -1,1 +1,1 @@
-0382_embedding_model_small_256
+0381_drop_legacy_metrics_on_logs

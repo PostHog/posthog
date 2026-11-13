@@ -18,7 +18,7 @@ from products.error_tracking.backend.indexed_embedding import (
 )
 
 MIGRATION_0247 = "posthog.clickhouse.migrations.0247_warpstream_shared_kafka_engines"
-MIGRATION_0382 = "posthog.clickhouse.migrations.0382_embedding_model_small_256"
+MIGRATION_0383 = "posthog.clickhouse.migrations.0383_embedding_model_small_256"
 
 
 def _migration_operations(module_name: str, cloud_deployment: str) -> list:
@@ -107,8 +107,8 @@ class TestMigrationReplay:
         assert all("text_embedding_3_small_256" not in sql for sql in statements)
 
     @parameterized.expand(["", "US", "EU", "DEV"])
-    def test_migration_0382_replaces_the_union_view_without_dropping_it(self, cloud_deployment):
-        statements = _migration_statements(MIGRATION_0382, cloud_deployment)
+    def test_migration_0383_replaces_the_union_view_without_dropping_it(self, cloud_deployment):
+        statements = _migration_statements(MIGRATION_0383, cloud_deployment)
         assert not any(re.search(r"DROP VIEW", sql) for sql in statements)
         view_sql = [sql for sql in statements if "posthog_document_embeddings_union_view" in sql]
         assert len(view_sql) == 1
@@ -116,8 +116,8 @@ class TestMigrationReplay:
         for table in [*EMBEDDING_TABLES_1, *EMBEDDING_TABLES_2]:
             assert f"FROM {table.distributed_table_name()}" in view_sql[0]
 
-    def test_migration_0382_resumes_the_buffer_from_the_msk_kafka_table_outside_cloud(self):
-        statements = _migration_statements(MIGRATION_0382, "")
+    def test_migration_0383_resumes_the_buffer_from_the_msk_kafka_table_outside_cloud(self):
+        statements = _migration_statements(MIGRATION_0383, "")
         model_mv_positions = [
             position
             for position, sql in enumerate(statements)
@@ -135,8 +135,8 @@ class TestMigrationReplay:
         assert not any("posthog_document_embeddings_ws_mv" in sql for sql in statements)
 
     @parameterized.expand(["US", "EU", "DEV"])
-    def test_migration_0382_leaves_deployed_cloud_ingestion_running(self, cloud_deployment):
-        operations = _migration_operations(MIGRATION_0382, cloud_deployment)
+    def test_migration_0383_leaves_deployed_cloud_ingestion_running(self, cloud_deployment):
+        operations = _migration_operations(MIGRATION_0383, cloud_deployment)
         assert operations
         assert [op._sql for op in operations if op._node_roles != [NodeRole.DATA]] == []
 
