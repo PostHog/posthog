@@ -15,10 +15,6 @@ from posthog.schema import CachedExperimentQueryResponse, EventsNode, Experiment
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.organization import OrganizationMembership
-from posthog.temporal.experiments.activities import (
-    _calculate_experiment_regular_metric_sync,
-    _calculate_experiment_saved_metric_sync,
-)
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -31,6 +27,12 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.temporal.timeseries.activities import (
+    _calculate_experiment_regular_metric_sync,
+    _calculate_experiment_saved_metric_sync,
+)
+
+_ACTIVITIES_MODULE = "products.experiments.backend.temporal.timeseries.activities"
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -111,7 +113,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         # wrapper, and patch stops the activity from closing the test's DB
         # connection mid-run. Same pattern as test_backfill.py.
         fingerprint = metric_calculation_keys(experiment.id, team_id=self.team.id).inline[metric_dict["uuid"]]
-        with patch("posthog.temporal.experiments.activities.close_old_connections"):
+        with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
             activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, metric_dict["uuid"], fingerprint
             )
@@ -199,7 +201,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
 
         cache.clear()
 
-        with patch("posthog.temporal.experiments.activities.close_old_connections"):
+        with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
             activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, metric_dict["uuid"], fingerprint
             )
@@ -224,8 +226,8 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
         ):
             activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, bad_metric["uuid"], "fingerprint"
@@ -259,8 +261,8 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         )
 
         with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
         ):
             activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, bad_metric["uuid"], "fingerprint"

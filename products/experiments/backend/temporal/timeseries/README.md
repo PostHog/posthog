@@ -153,7 +153,7 @@ The coordinator never waits for the runs it starts. Each run's outcome lands on 
 import asyncio
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_delete_schedule
-from posthog.temporal.experiments.schedule import create_experiment_regular_metrics_schedules
+from products.experiments.backend.temporal.timeseries.schedule import create_experiment_regular_metrics_schedules
 
 OLD_SCHEDULE_ID_PREFIX = "experiment-metrics-hour"
 
@@ -182,7 +182,7 @@ asyncio.run(main())
 ```python
 import asyncio
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.experiments.schedule import create_experiment_saved_metrics_schedules
+from products.experiments.backend.temporal.timeseries.schedule import create_experiment_saved_metrics_schedules
 
 async def main():
     client = await async_connect()

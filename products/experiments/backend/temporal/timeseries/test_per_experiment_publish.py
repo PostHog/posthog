@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.experiments.models import ExperimentRegularMetricResult
-from posthog.temporal.experiments.workflows import _MetricOutcomes, _record_publish_outcome
+from products.experiments.backend.temporal.timeseries.models import ExperimentRegularMetricResult
+from products.experiments.backend.temporal.timeseries.workflows import _MetricOutcomes, _record_publish_outcome
 
 
 @pytest.mark.parametrize(

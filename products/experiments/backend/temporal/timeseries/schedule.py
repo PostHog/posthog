@@ -5,7 +5,8 @@ from django.conf import settings
 from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleSpec
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.experiments.models import (
+
+from products.experiments.backend.temporal.timeseries.models import (
     ExperimentRegularMetricsWorkflowInputs,
     ExperimentSavedMetricsWorkflowInputs,
 )

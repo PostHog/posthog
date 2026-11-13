@@ -24,14 +24,6 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.experiments.models import (
-    TIMESERIES_METRIC_MAX_ATTEMPTS,
-    ExperimentRegularMetricInput,
-    ExperimentRegularMetricResult,
-    ExperimentSavedMetricInput,
-    ExperimentSavedMetricResult,
-)
-from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
 from products.experiments.backend.facade.daily_calculation import daily_calculation_start_cutoff
 from products.experiments.backend.facade.timeseries import (
@@ -54,6 +46,17 @@ from products.experiments.backend.hogql_queries.error_handling import (
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.temporal.timeseries.models import (
+    TIMESERIES_METRIC_MAX_ATTEMPTS,
+    ExperimentRegularMetricInput,
+    ExperimentRegularMetricResult,
+    ExperimentSavedMetricInput,
+    ExperimentSavedMetricResult,
+)
+from products.experiments.backend.temporal.timeseries.utils import (
+    check_significance_transition,
+    recalculation_hour_filter,
+)
 from products.experiments.stats.shared.statistics import StatisticError
 
 if TYPE_CHECKING:
