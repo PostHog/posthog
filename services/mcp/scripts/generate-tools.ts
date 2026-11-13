@@ -460,6 +460,7 @@ const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
     'object-json-string': 'castObjectToJsonString',
+    'sync-frequency': 'castSyncFrequency',
 } as const
 
 interface SchemaComposition {

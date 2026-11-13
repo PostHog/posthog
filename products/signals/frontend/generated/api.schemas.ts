@@ -1120,6 +1120,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1240,6 +1242,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1411,6 +1415,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -1622,6 +1628,35 @@ export interface PauseResponseApi {
     /** The timestamp the pipeline is paused until. */
     paused_until: string
 }
+
+/**
+ * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+ * @nullable
+ */
+export type PaginatedSignalReportListListApiPersonalRankingStatus = {
+    /** real: the model personalized 2 or more reports, so the ranking can reorder the list. one_report: it personalized a single report. not_personalized: the build finished without personalizing. empty: the build had no reports to rank. fallback: the build kept the default order, see fallback_reason. none: no ranking is stored. */
+    state: 'real' | 'one_report' | 'not_personalized' | 'empty' | 'fallback' | 'none'
+    /**
+     * Reports in the stored ranking. Null when state is none.
+     * @nullable
+     */
+    size: number | null
+    /**
+     * Minutes since the ranking was built. Null when state is none.
+     * @nullable
+     */
+    age_minutes: number | null
+    /**
+     * Minutes since a build or the scheduled check last confirmed the ranking's inputs. Null when state is none.
+     * @nullable
+     */
+    checked_age_minutes: number | null
+    /**
+     * Why the build kept the default order, when state is fallback. Else null.
+     * @nullable
+     */
+    fallback_reason: string | null
+} | null | null
 
 export interface ReviewerStateApi {
     /**
@@ -2775,6 +2810,11 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranking_id?: string | null
+    /**
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * @nullable
+     */
+    personal_ranking_status?: PaginatedSignalReportListListApiPersonalRankingStatus
     /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
     count_is_capped?: boolean
     /**
@@ -4281,6 +4321,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4401,6 +4443,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -5243,6 +5287,22 @@ export interface VitallyConversationSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
+    created_at: string | null
+}
+
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
@@ -5692,6 +5752,8 @@ export type SignalExtraApi =
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -5883,6 +5945,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics

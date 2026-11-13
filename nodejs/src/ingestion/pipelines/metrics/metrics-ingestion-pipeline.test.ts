@@ -327,4 +327,50 @@ describe('MetricsIngestionPipeline', () => {
         expect((await decodeMetricRecords(values[0]!)).records.map((r) => unwrap(r.value))).toEqual([20])
         expect(values[1]).toBe(large.value)
     })
+
+    it('passes messages through unchanged when a merged histogram would not fit the largest input', async () => {
+        const schema: avro.Schema = {
+            ...METRIC_SCHEMA,
+            fields: [
+                ...(METRIC_SCHEMA as avro.schema.RecordType).fields,
+                { name: 'histogram_bounds', type: ['null', { type: 'array', items: 'double' }] },
+                { name: 'histogram_counts', type: ['null', { type: 'array', items: 'long' }] },
+            ],
+        }
+        const container = {
+            type: parseWriterSchema(schema),
+            meta: { 'avro.schema': Buffer.from(JSON.stringify(schema)) },
+            codec: 'zstandard',
+        }
+        // 63 is the largest count that zigzag varint writes in one byte, so the merged 126 takes two.
+        const bucketCounts = Array.from({ length: 200 }, () => 63n)
+        const histogramPoint = (microsIntoBucket: bigint) => ({
+            ...metricPoint('histogram', 1, microsIntoBucket),
+            count: { long: 63n * 200n },
+            is_monotonic: { boolean: false },
+            histogram_bounds: { array: Array.from({ length: 199 }, (_, i) => i) },
+            histogram_counts: { array: bucketCounts },
+        })
+        const messages = await Promise.all(
+            [1n, 2n].map(async (microsIntoBucket) => {
+                const message = createMessage(teamA.api_token, 1)
+                message.value = await encodeMetricRecords(container, [histogramPoint(microsIntoBucket)])
+                return message
+            })
+        )
+        const step = createAggregateMetricsStep<{
+            message: Message
+            teamId: number
+            bytesUncompressed: number
+            recordCount: number
+        }>(() => true)
+
+        const results = await step(
+            messages.map((message) => ({ message, teamId: teamA.id, bytesUncompressed: 1, recordCount: 1 }))
+        )
+
+        expect(
+            results.map((result) => (result.type === PipelineResultType.OK ? result.value.message.value : null))
+        ).toEqual(messages.map((message) => message.value))
+    })
 })

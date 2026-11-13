@@ -577,6 +577,40 @@ describe('oauthAuthorizeLogic', () => {
             expect(body.state).toBeNull()
             expect(body.nonce).toBeNull()
         })
+
+        it('grants only the EMA scope, for the first organization that qualifies', async () => {
+            const original = window.POSTHOG_APP_CONTEXT
+            window.POSTHOG_APP_CONTEXT = {
+                ...original,
+                oauth_scope_resolution: { scopes: ['ema_issuer:manage'], was_defaulted: false },
+                oauth_ema_issuer_consent: {
+                    scope: 'ema_issuer:manage',
+                    organizations: [
+                        { id: 'org-member', name: 'Member org', verified_domains: [], disabled_reason: 'Not admin' },
+                        {
+                            id: 'org-admin',
+                            name: 'Admin org',
+                            verified_domains: ['example.com'],
+                            disabled_reason: null,
+                        },
+                    ],
+                },
+            } as AppContext
+            try {
+                router.actions.push('/oauth/authorize', { client_id: 'abc', scope: 'ema_issuer:manage' })
+
+                await expectLogic(logic, () => logic.actions.submitOauthAuthorization()).toFinishAllListeners()
+
+                expect(sentBody).toMatchObject({
+                    scope: 'ema_issuer:manage',
+                    access_level: 'organization',
+                    scoped_organizations: ['org-admin'],
+                    allow: true,
+                })
+            } finally {
+                window.POSTHOG_APP_CONTEXT = original
+            }
+        })
     })
 
     describe('describeOAuthError', () => {
