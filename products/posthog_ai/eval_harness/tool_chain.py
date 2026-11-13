@@ -14,11 +14,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from .log_parser import EXECUTE_SQL_TOOL_NAME, LogParser, ToolCall, is_schema_discovery_call
+from .log_parser import EXECUTE_SQL_TOOL_NAME, LogParser, ToolCall, is_answer_query_tool, is_schema_discovery_call
 
 DIGEST_CHAR_LIMIT = 240
 JUDGE_CHAIN_STEP_LIMIT = 80
-QUERY_TOOL_PREFIX = "query-"
 DISCOVERY_TOOL_NAMES = frozenset({"read-data-schema", "metric-list", "metric-describe"})
 
 
@@ -28,8 +27,9 @@ class ToolChainStep(BaseModel):
     sequence: int
     """Zero-based position in the chain."""
 
-    turn: int
-    """Zero-based conversation turn the call belongs to. Single-turn cases are all turn 0."""
+    turn: int | None
+    """Zero-based conversation turn the call belongs to. Single-turn cases are all turn 0.
+    ``None`` in a multi-turn case when the runner could not slice the log into turns."""
 
     name: str
     """Normalized tool name, with ``exec`` unwrapped to the inner tool."""
@@ -48,16 +48,21 @@ class ToolChainStep(BaseModel):
 
 
 def build_tool_chain(output: dict[str, Any] | None) -> list[ToolChainStep]:
-    """Build the chain from a sandboxed case's scorer ``output`` (``raw_log``, ``prompt``, ``turn_logs``)."""
+    """Build the chain from a sandboxed case's scorer ``output``.
+
+    Reads ``raw_log`` and ``prompt``, plus ``turn_logs`` and ``turn_prompts`` for a multi-turn case.
+    """
     if not output or not output.get("raw_log"):
         return []
     parser = LogParser.cached(output["raw_log"], initial_prompt=output.get("prompt", "") or "")
-    turns = _turn_by_call_id(output.get("turn_logs"))
-    calls = sorted(parser.get_tool_calls(include_skills=True), key=_chain_order)
+    turn_logs = output.get("turn_logs")
+    turn_prompts = output.get("turn_prompts")
+    multi_turn = isinstance(turn_logs, list) or (isinstance(turn_prompts, list) and len(turn_prompts) > 1)
+    turns = _turn_by_call_id(turn_logs)
     return [
         ToolChainStep(
-            sequence=index,
-            turn=turns.get(call.call_id, 0),
+            sequence=call.sequence,
+            turn=turns.get(call.call_id) if multi_turn else 0,
             name=call.name,
             raw_name=call.raw_name,
             server=call.server,
@@ -69,17 +74,12 @@ def build_tool_chain(output: dict[str, Any] | None) -> list[ToolChainStep]:
             ended_at=call.ended_at,
             duration_seconds=_duration_seconds(call.started_at, call.ended_at),
         )
-        for index, call in enumerate(calls)
+        for call in parser.get_tool_calls(include_skills=True)
     ]
 
 
-def is_discovery_step(step: ToolChainStep) -> bool:
-    return step.is_discovery
-
-
 def is_answer_step(step: ToolChainStep) -> bool:
-    is_query = step.name == EXECUTE_SQL_TOOL_NAME or step.name.startswith(QUERY_TOOL_PREFIX)
-    return is_query and not is_discovery_step(step)
+    return is_answer_query_tool(step.name) and not step.is_discovery
 
 
 def summarize_tool_chain(chain: list[ToolChainStep]) -> dict[str, Any]:
@@ -88,7 +88,7 @@ def summarize_tool_chain(chain: list[ToolChainStep]) -> dict[str, Any]:
     return {
         "tool_count": len(chain),
         "distinct_tools": sorted({step.name for step in chain}),
-        "discovery_calls": sum(1 for step in chain if is_discovery_step(step)),
+        "discovery_calls": sum(1 for step in chain if step.is_discovery),
         "answer_calls": sum(1 for step in chain if is_answer_step(step)),
         "errors": sum(1 for step in chain if step.is_error),
         "first_answer_sequence": first_answer,
@@ -110,16 +110,11 @@ def render_tool_chain(chain: list[ToolChainStep], *, step_limit: int = JUDGE_CHA
 
 
 def input_digest(call: ToolCall) -> str:
-    if call.name == EXECUTE_SQL_TOOL_NAME or is_schema_discovery_call(call):
+    if call.name == EXECUTE_SQL_TOOL_NAME:
         query = call.input.get("query")
         if isinstance(query, str):
             return _truncate(_collapse(query))
     return _truncate(json.dumps(call.input, sort_keys=True, default=str, separators=(",", ":")))
-
-
-def _chain_order(call: ToolCall) -> int:
-    # Calls without a tool_call line (hand-built logs) fall back to message order, after the timed calls.
-    return call.sequence if call.sequence is not None else 1_000_000 + call.position
 
 
 def _turn_by_call_id(turn_logs: Any) -> dict[str, int]:
@@ -143,7 +138,9 @@ def _tool_call_id(line: str) -> str | None:
         entry = json.loads(line)
     except json.JSONDecodeError:
         return None
-    update = ((entry.get("notification") or {}).get("params") or {}).get("update")
+    notification = entry.get("notification") if isinstance(entry, dict) else None
+    params = notification.get("params") if isinstance(notification, dict) else None
+    update = params.get("update") if isinstance(params, dict) else None
     if not isinstance(update, dict) or update.get("sessionUpdate") != "tool_call":
         return None
     call_id = update.get("toolCallId")
