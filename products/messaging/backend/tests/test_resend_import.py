@@ -598,8 +598,9 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
-        for step in run.steps:
-            runs.run_step(self.team.id, run.id, step, attempt=1)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
 

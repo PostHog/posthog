@@ -40,6 +40,10 @@ def import_provider_contacts(
         return ProviderContactsResult(
             status="failed", notes=("The person who started this import can't access this project anymore.",)
         )
+    if not access.check_access_level_for_resource("person", "editor"):
+        return ProviderContactsResult(
+            status="failed", notes=("The person who started this import can't edit persons in this project.",)
+        )
     cohort = import_cohort(team_id, user, access, description=cohort_description, name=cohort_name, source=source)
     if cohort.cohort_id is None:
         return ProviderContactsResult(status="failed", notes=(cohort.problem,))

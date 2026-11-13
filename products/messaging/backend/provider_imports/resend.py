@@ -44,8 +44,8 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.contacts import (
     CONTACT_COUNT_LABELS,
+    ContactCollector,
     ContactList,
-    contact_row,
     new_people_page,
     new_people_step,
     save_contact_lists,
@@ -389,7 +389,10 @@ def _timestamp(value: Any) -> datetime | None:
 
 def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[ImportPage]:
     # Each list's cohort fills in one go, so the step reads every contact before it saves, and a retry reads them again.
-    everyone = _contact_rows(contact for page in client.pages("/contacts") for contact in page.data)
+    contacts = ContactCollector()
+    for page in client.pages("/contacts"):
+        _collect(contacts, page.data)
+    everyone = contacts.everyone
     segments = []
     for page in client.pages("/segments"):
         for segment in page.data:
@@ -397,17 +400,17 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             if not segment_id:
                 continue
             name = str(segment.get("name") or segment_id)
-            members = (
-                contact
-                for members in client.pages(f"/contacts?segment_id={quote(segment_id)}")
-                for contact in members.data
-            )
+            members = [
+                row
+                for members_page in client.pages(f"/contacts?segment_id={quote(segment_id)}")
+                for row in _collect(contacts, members_page.data)
+            ]
             segments.append(
                 ContactList(
                     cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Resend)",
                     cohort_description=resend_segment_description(segment_id),
                     source=f'the Resend segment "{name}"',
-                    rows=_contact_rows(members),
+                    rows=tuple(members),
                 )
             )
     yield ImportPage(
@@ -426,14 +429,14 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
     )
 
 
-def _contact_rows(contacts: Iterable[dict[str, Any]]) -> tuple[dict[str, str], ...]:
+def _collect(contacts: ContactCollector, page: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
     rows = (
-        contact_row(
+        contacts.add(
             contact.get("email"), {"first_name": contact.get("first_name"), "last_name": contact.get("last_name")}
         )
-        for contact in contacts
+        for contact in page
     )
-    return tuple(row for row in rows if row)
+    return [row for row in rows if row]
 
 
 def _fetch_opt_outs(

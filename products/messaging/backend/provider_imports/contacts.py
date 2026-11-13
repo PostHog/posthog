@@ -1,11 +1,18 @@
 """Contact steps every provider import shares: each list of contacts becomes people and fills a cohort."""
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.provider_imports.base import ImportContext, ImportItem, ImportStepSpec, SavedPage
+from products.messaging.backend.provider_imports.base import (
+    ImportContext,
+    ImportItem,
+    ImportStepError,
+    ImportStepSpec,
+    SavedPage,
+)
 from products.messaging.backend.provider_imports.emails import exact_email
 from products.workflows.backend.facade.contracts import ProviderContactsResult
 from products.workflows.backend.facade.people_import import import_provider_contacts
@@ -13,6 +20,15 @@ from products.workflows.backend.facade.people_import import import_provider_cont
 NEW_PEOPLE_STEP = "new_people"
 # Person properties hold short values, so a provider's longer custom field is left out rather than cut.
 MAX_PROPERTY_VALUE_LENGTH = 1000
+# Contacts plus list memberships one step reads. Every list's contacts stay in memory until the step saves.
+MAX_CONTACT_MEMBERSHIPS = 250_000
+TOO_MANY_CONTACTS_MESSAGE = (
+    f"This account has more than {MAX_CONTACT_MEMBERSHIPS:,} contacts and list memberships, more than one import "
+    "takes. Upload your people as a CSV file instead."
+)
+# The people import reads these names as the person to write to, so a provider field can't use them.
+_IDENTITY_NAMES = frozenset({"email", "id", "distinct_id"})
+_NAME_SEPARATORS = re.compile(r"[^a-z0-9]+")
 
 CONTACT_COUNT_LABELS = (
     ("people", "Contacts sent to PostHog"),
@@ -56,10 +72,39 @@ def contact_row(email: Any, properties: Mapping[str, Any]) -> dict[str, str] | N
         return None
     row = {"email": address}
     for key, value in properties.items():
+        name = str(key).strip()
         text = _property_text(value)
-        if key != "email" and text:
-            row[key] = text
+        if text and not name.startswith("$") and _loose_name(name) not in _IDENTITY_NAMES:
+            row[name] = text
     return row
+
+
+class ContactCollector:
+    """Keeps each contact once, by email, so a contact on several lists is one row that every list shares.
+
+    A repeat adds the properties the first entry lacked. The total stops at MAX_CONTACT_MEMBERSHIPS, so one large
+    account can't fill the worker's memory.
+    """
+
+    def __init__(self) -> None:
+        self._rows: dict[str, dict[str, str]] = {}
+        self._memberships = 0
+
+    def add(self, email: Any, properties: Mapping[str, Any]) -> dict[str, str] | None:
+        row = contact_row(email, properties)
+        if row is None:
+            return None
+        self._memberships += 1
+        if self._memberships > MAX_CONTACT_MEMBERSHIPS:
+            raise ImportStepError(TOO_MANY_CONTACTS_MESSAGE)
+        existing = self._rows.setdefault(row["email"].lower(), row)
+        for key, value in row.items():
+            existing.setdefault(key, value)
+        return existing
+
+    @property
+    def everyone(self) -> tuple[dict[str, str], ...]:
+        return tuple(self._rows.values())
 
 
 def save_contact_lists(context: ImportContext, everyone: ContactList, lists: Iterable[ContactList]) -> SavedPage:
@@ -150,3 +195,7 @@ def _property_text(value: Any) -> str:
         text = str(value).strip()
         return text if len(text) <= MAX_PROPERTY_VALUE_LENGTH else ""
     return ""
+
+
+def _loose_name(name: str) -> str:
+    return _NAME_SEPARATORS.sub("_", name.lower()).strip("_")

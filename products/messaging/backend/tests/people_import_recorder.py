@@ -13,7 +13,9 @@ class PeopleImportRecorder:
     """Stands in for the people import's storage and tasks, and records what each import would send or fill."""
 
     def __init__(self, test: TestCase) -> None:
+        self.stored: dict[str, str] = {}
         self.storage = MagicMock()
+        self.storage.write.side_effect = self.stored.__setitem__
         # ("send <cohort>" or "fill <cohort>", distinct IDs), in the order the imports started.
         self.imports: list[tuple[str, list[str]]] = []
         # The person properties the sending import sets, by distinct ID.
@@ -29,7 +31,7 @@ class PeopleImportRecorder:
             patcher.start()
 
     def _record(self, sends: bool, kwargs: dict[str, Any]) -> None:
-        people = json.loads(self.storage.write.call_args.args[1])
+        people = json.loads(self.stored[kwargs["storage_key"]])
         cohort = Cohort.objects.get(id=kwargs["cohort_id"])
         self.imports.append((f"{'send' if sends else 'fill'} {cohort.name}", [p["distinct_id"] for p in people]))
         if sends:
