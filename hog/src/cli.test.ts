@@ -57,8 +57,14 @@ describe('hog', () => {
         ['an unknown command', ['nope'], 'unknown_command', 'hog feedback "<what happened>"'],
         [
             'a missing argument',
-            ['query', 'run'],
+            ['query', 'check'],
             'usage_error',
+            'hog feedback --area "hog query check" "<what happened>"',
+        ],
+        [
+            'a query run without a query or --wait',
+            ['query', 'run'],
+            'query_required',
             'hog feedback --area "hog query run" "<what happened>"',
         ],
         [
@@ -104,7 +110,7 @@ describe('hog', () => {
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
             name: 'query run',
-            arguments: [{ name: 'query', required: true, stdin: true }],
+            arguments: [{ name: 'query', required: false, stdin: true }],
             scopes: ['query:read'],
         })
         expect(

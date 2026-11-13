@@ -86,19 +86,22 @@ export interface ApiErrorOptions {
     details?: Readonly<Record<string, unknown>>
     serverDetail?: string
     exitCode?: number
+    body?: unknown
 }
 
 export class ApiError extends HogError {
     readonly type: string | undefined
+    readonly body: unknown
 
     constructor(
         readonly status: number,
         code: string,
         message: string,
-        { type, hint, details, serverDetail, exitCode }: ApiErrorOptions = {}
+        { type, hint, details, serverDetail, exitCode, body }: ApiErrorOptions = {}
     ) {
         super(code, message, hint, exitCode, details, serverDetail)
         this.type = type
+        this.body = body
     }
 
     protected override copy(patch: ErrorPatch): ApiError {
@@ -108,8 +111,17 @@ export class ApiError extends HogError {
             details: this.details,
             serverDetail: this.serverDetail,
             exitCode: this.exitCode,
+            body: this.body,
         })
     }
+}
+
+export function isTransient(error: HogError): boolean {
+    return (
+        error.code === 'network_error' ||
+        error.code === 'refresh_failed' ||
+        (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+    )
 }
 
 export type StepUp = (scopes: readonly string[]) => Promise<boolean>
@@ -251,6 +263,7 @@ export class PostHogApi {
             type: error.type,
             hint: hints[status],
             serverDetail: error.detail,
+            body,
         })
     }
 }

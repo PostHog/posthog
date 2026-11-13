@@ -486,6 +486,15 @@ function toHogError(caught: unknown): HogError {
                 EXIT_USAGE
             )
         }
+        const form = /option '(?:-\w, )?([^']+)' argument missing/.exec(caught.message)?.[1]
+        if (caught.code === 'commander.optionMissingArgument' && form) {
+            return new HogError(
+                'usage_error',
+                sentence,
+                `Pass a value after the option, as in \`${form}\`.`,
+                EXIT_USAGE
+            )
+        }
         return new HogError('usage_error', sentence, 'Run the command with --help to see its usage.', EXIT_USAGE)
     }
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
