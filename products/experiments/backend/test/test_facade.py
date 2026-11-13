@@ -206,6 +206,7 @@ class TestCreateExperiment(APIBaseTest):
 
 FLAG_CALLS = {"kind": "EventsNode", "event": "$feature_flag_called"}
 FLAG_CALL_ACTION = {"kind": "ActionsNode", "id": "flag_call_action"}
+DELETED_FLAG_CALL_ACTION = {"kind": "ActionsNode", "id": "deleted_flag_call_action"}
 PAGEVIEW_ACTION = {"kind": "ActionsNode", "id": "pageview_action"}
 PURCHASES = {"kind": "EventsNode", "event": "purchase"}
 
@@ -256,6 +257,7 @@ class TestCountRunningExperimentsNeedingFlagCallsInEvents(BaseTest):
                 0,
             ),
             ("primary_metric_on_flag_calls", {"metrics": [_mean_metric(FLAG_CALLS)]}, 1),
+            ("metric_on_a_deleted_flag_call_action", {"metrics": [_mean_metric(DELETED_FLAG_CALL_ACTION)]}, 1),
             (
                 "secondary_funnel_step_on_a_flag_call_action",
                 {"metrics_secondary": [_funnel_metric(PURCHASES, FLAG_CALL_ACTION)]},
@@ -305,6 +307,9 @@ class TestCountRunningExperimentsNeedingFlagCallsInEvents(BaseTest):
         action_ids = {
             "flag_call_action": create_action(
                 team=team, name="Flag called", steps_json=[{"event": "$pageview"}, {"event": "$feature_flag_called"}]
+            ).id,
+            "deleted_flag_call_action": create_action(
+                team=team, name="Deleted", steps_json=[{"event": "$feature_flag_called"}], deleted=True
             ).id,
             "pageview_action": create_action(team=team, name="Viewed", steps_json=[{"event": "$pageview"}]).id,
         }

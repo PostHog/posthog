@@ -26,6 +26,7 @@ from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
@@ -42,7 +43,7 @@ from products.experiments.backend.metric_calculation.config import (
     calculation_metric_name,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
+from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment as ExperimentModel,
@@ -177,13 +178,22 @@ def count_running_experiments_needing_flag_calls_in_events(organization_id: UUID
         .select_related("team")
         .prefetch_related("experimenttosavedmetric_set__saved_metric")
     )
-    nodes_by_team: dict[Team, list[tuple[int, list[dict[str, Any]]]]] = defaultdict(list)
+    reads_by_project: dict[int, list[tuple[set[str], set[int]]]] = defaultdict(list)
     for experiment in experiments:
-        nodes_by_team[experiment.team].append((experiment.id, _nodes_read_without_exposure_copy(experiment)))
-    return sum(
-        len(filter_metric_group_ids_by_event(groups, DEFAULT_EXPOSURE_EVENT, team))
-        for team, groups in nodes_by_team.items()
-    )
+        reads_by_project[experiment.team.project_id].append(
+            collect_metric_events_and_action_ids(_nodes_read_without_exposure_copy(experiment))
+        )
+    count = 0
+    for project_id, reads in reads_by_project.items():
+        # The queries resolve actions by project and keep reading deleted ones, so this lookup does the same.
+        action_ids = set().union(*(ids for _, ids in reads))
+        flag_call_action_ids = {
+            action.id
+            for action in get_actions(action_ids=action_ids, project_id=project_id, include_deleted=True)
+            if DEFAULT_EXPOSURE_EVENT in action.get_step_events()
+        }
+        count += sum(DEFAULT_EXPOSURE_EVENT in events or bool(ids & flag_call_action_ids) for events, ids in reads)
+    return count
 
 
 def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[str, Any]]:
