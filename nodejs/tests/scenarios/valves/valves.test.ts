@@ -1,3 +1,6 @@
+import { once } from 'events'
+import { setTimeout as sleep } from 'timers/promises'
+
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
@@ -18,6 +21,8 @@ type StackSetup = {
     probeFailure?: string
     probeFailsFor?: number
     runningJobs?: number
+    applyTakesMs?: number
+    observesUntilHoldEnds?: boolean
 }
 
 function stackOf({
@@ -27,6 +32,8 @@ function stackOf({
     probeFailure,
     probeFailsFor = Infinity,
     runningJobs = 0,
+    applyTakesMs = 0,
+    observesUntilHoldEnds = false,
 }: StackSetup = {}) {
     let probeReads = 0
     let nextPid = 1
@@ -48,6 +55,9 @@ function stackOf({
             actuate: (action): Promise<Actuation> => {
                 if (finishesJobsFirst) {
                     jobs.splice(0)
+                }
+                if (action.kind === 'edge.fault') {
+                    return Promise.reject(new Error('this stack has no provider edge'))
                 }
                 if (action.kind === 'pg.terminate') {
                     const dropped = Math.ceil(action.share * roleSessions)
@@ -103,6 +113,27 @@ function stackOf({
         },
     }
 
+    let applyReturnedAt: number | undefined
+    if (applyTakesMs > 0 || observesUntilHoldEnds) {
+        const { actuate } = context.environment
+        context.environment = {
+            actuate: async (action) => {
+                const actuation = await actuate(action)
+                await sleep(applyTakesMs)
+                applyReturnedAt = Date.now()
+                return {
+                    ...actuation,
+                    observed: async (signal) => {
+                        if (observesUntilHoldEnds) {
+                            await once(signal!, 'abort')
+                        }
+                        return await actuation.observed(signal)
+                    },
+                }
+            },
+        }
+    }
+
     const run = (count: number, queue: Queue = 'email'): void => {
         jobs.push(...Array.from({ length: count }, () => ({ team: OUR_TEAM, queue, status: 'running' as const })))
     }
@@ -113,6 +144,7 @@ function stackOf({
         gone: () => [...gone],
         effects: () => ({ gone: [...gone], frozen: [...frozen], everFrozen: [...everFrozen], droppedSessions }),
         goneAfterRelease: () => [...goneAfterRelease],
+        applyReturnedAt: () => applyReturnedAt,
         releasing: (release: () => Promise<void>) => {
             releaseBegan = true
             return release()
@@ -326,5 +358,23 @@ describe('valves', () => {
 
         expect(stack.gone()).toEqual([1])
         expect(valves.timeline()[0].releasedAt).toEqual(expect.any(String))
+    })
+
+    it.each<[string, StackSetup]>([
+        ['a slow apply returns', { applyTakesMs: 100 }],
+        ['observing lasts until the hold ends', { applyTakesMs: 100, observesUntilHoldEnds: true }],
+    ])('holds an entry for its duration from the moment apply returns, when %s', async (_story, setup) => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf(setup)
+
+        await valves.start([kill({ at: '0ms' }, '200ms')], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        const { appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
+        const applyReturnedAt = stack.applyReturnedAt()
+        expect({ observedAt, error }).toEqual({ observedAt: expect.any(String), error: undefined })
+        expect(Date.parse(appliedAt!)).toBeGreaterThanOrEqual(applyReturnedAt!)
+        expect(Date.parse(releasedAt!) - applyReturnedAt!).toBeGreaterThanOrEqual(195)
     })
 })

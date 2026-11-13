@@ -126,6 +126,22 @@ describe('load', () => {
             'valves.0.target: ',
         ],
         [
+            'a destination status aimed at a host the edge does not answer for',
+            {
+                ...card,
+                valves: [
+                    {
+                        ...emailWorkerKill,
+                        valve: 'dest.status',
+                        target: 'api.example.com',
+                        dose: { code: 503, share: 1 },
+                    },
+                ],
+            },
+            undefined,
+            'valves.0.target: ',
+        ],
+        [
             'running_on_queue on a queue the probe does not count',
             {
                 ...card,

@@ -22,7 +22,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { RoleSpec, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
@@ -261,7 +261,11 @@ export function createRunner(
                 },
             ] = consumerGroupsOf(specs)
             const probe = createCyclotronProbe(cyclotronUrlOf(specs[0]))
-            const judge = createJudge({ edgeUrl, probe })
+            const judge = createJudge({
+                edgeUrl,
+                probe,
+                fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
+            })
             const valves = createValves()
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
             let stopHealth: (() => Promise<string[]>) | undefined

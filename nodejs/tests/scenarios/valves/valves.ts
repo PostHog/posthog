@@ -6,6 +6,8 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
+import { WEBHOOK_HOST } from '../provider-edge'
+import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
@@ -62,7 +64,25 @@ export const pgDropConnections: ValveDefinition = {
         environment.actuate({ kind: 'pg.terminate', share: ConnectionShare.parse(dose).share }),
 }
 
-export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections]
+const StatusCode = z.number().int().min(400).max(599)
+const DestinationStatus = z.union([
+    z.object({ code: StatusCode, count: z.number().int().min(1) }).strict(),
+    z.object({ code: StatusCode, share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const destStatus: ValveDefinition = {
+    name: 'dest.status',
+    params: DestinationStatus,
+    target: z.literal(WEBHOOK_HOST),
+    strandsRunningJobs: false,
+    apply: ({ environment }, target, dose) => {
+        const { code, ...amount } = DestinationStatus.parse(dose)
+        const rule = ruleOf({ name: 'dest.status', params: { code }, match: { host: target }, dose: amount })
+        return environment.actuate({ kind: 'edge.fault', rule })
+    },
+}
+
+export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus]
 
 const POLL_MS = 1000
 
@@ -116,9 +136,10 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         const definition = VALVES.find(({ name }) => name === entry.valve)!
         let actuation: Actuation | undefined
         try {
-            record.appliedAt = now()
             actuation = await definition.apply(context, entry.target, entry.dose)
-            if (!(await actuation.observed())) {
+            record.appliedAt = now()
+            const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
+            if (!(await actuation.observed(held))) {
                 record.error = 'applied but not observed'
             } else if (
                 entry.when &&
@@ -131,7 +152,9 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             } else {
                 record.observedAt = now()
             }
-            await sleep(durationMs(entry.for), undefined, { signal: released.signal }).catch(() => undefined)
+            if (!held.aborted) {
+                await new Promise((resolve) => held.addEventListener('abort', resolve, { once: true }))
+            }
         } catch (error) {
             record.error = (error as Error).message
         } finally {
