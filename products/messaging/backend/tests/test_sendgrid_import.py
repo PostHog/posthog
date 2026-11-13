@@ -319,17 +319,17 @@ class TestSendGridImport(BaseTest):
             runs.run_step(self.team.id, run.id, "group_unsubscribes", attempt=1)
 
     def test_a_body_cut_off_while_it_streams_is_read_again(self) -> None:
-        real_get = requests.get
+        real_request = requests.request
         cut_off: list[str] = []
 
-        def get(url: str, **kwargs: Any) -> requests.Response:
-            response = real_get(url, **kwargs)
+        def request(method: str, url: str, **kwargs: Any) -> requests.Response:
+            response = real_request(method, url, **kwargs)
             if not cut_off and url.endswith("/v3/asm/groups"):
                 cut_off.append(url)
                 response.iter_content = MagicMock(side_effect=requests.ConnectionError("reset"))  # type: ignore[method-assign]
             return response
 
-        with patch(f"{_CLIENT}.requests.get", side_effect=get):
+        with patch(f"{_CLIENT}.requests.request", side_effect=request):
             run = self._run(["suppression_groups"])
 
         assert cut_off and run.progress["suppression_groups"]["status"] == "completed"
