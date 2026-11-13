@@ -23,25 +23,35 @@ const GRACE = ['person-grace', null, JSON.stringify({ email: 'grace@example.com'
 const READY_EMAIL: BroadcastEmailValue = {
     ...DEFAULT_BROADCAST_EMAIL,
     from: { integrationId: 1 },
+    cc: 'team@example.com',
+    bcc: 'archive@example.com',
     subject: 'Hi {{ person.properties.name }}',
     html: '<p>Hello {{ person.properties.name }}</p>',
 }
-const log = (message: string, level = 'info'): any => ({ level, timestamp: '2026-01-01T00:00:00Z', message })
+type LogEntry = NonNullable<HogflowTestResult['logs']>[number]
+const log = (message: string, level: LogEntry['level'] = 'info'): LogEntry =>
+    ({ level, timestamp: '2026-01-01T00:00:00Z', message }) as LogEntry
+type Lookup = unknown[][] | 'pending' | 'failed'
+type SentInvocation = {
+    configuration: { actions: { id: string; config: { inputs: Record<string, { value: any }> } }[] }
+    current_action_id: string
+    globals: { person: Record<string, unknown> }
+}
 
 describe('broadcast previews', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
-    let people: unknown[][] | 'pending' | 'failed'
+    let people: Lookup
     let sendResult: Partial<HogflowTestResult>
-    let sent: any[]
+    let sent: SentInvocation[]
     let sendGate: Promise<void>
-    let mounted: { unmount: () => void }[]
+    let wizard: ReturnType<typeof broadcastWizardLogic.build> | undefined
 
     beforeEach(() => {
         people = []
         sendResult = { status: 'success' }
         sent = []
         sendGate = Promise.resolve()
-        mounted = []
+        wizard = undefined
         useMocks({
             get: { '/api/projects/:team_id/integrations/': { results: [], count: 0 } },
             post: {
@@ -53,7 +63,7 @@ describe('broadcast previews', () => {
                           : [200, { results: people }],
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [200, { affected: 0, total: 0 }],
                 '/api/projects/:team_id/hog_flows/new/invocations/': async ({ request }) => {
-                    sent.push(await request.json())
+                    sent.push((await request.json()) as SentInvocation)
                     await sendGate
                     return [200, { nextActionId: null, ...sendResult }]
                 },
@@ -63,39 +73,51 @@ describe('broadcast previews', () => {
 
     afterEach(() => {
         cleanup()
-        mounted.forEach((logic) => logic.unmount())
+        wizard?.unmount()
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
-    function renderReview(
-        content: { email?: BroadcastEmailValue; push?: boolean },
-        preview: JSX.Element = <BroadcastEmailPreview showTestButton={false} />
-    ): void {
+    function renderTree(children: JSX.Element): void {
+        render(
+            <Provider>
+                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
+                    <BindLogic logic={broadcastPreviewLogic} props={{ id: 'new' }}>
+                        <BindLogic logic={broadcastTestSendLogic} props={{ id: 'new' }}>
+                            {children}
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </Provider>
+        )
+    }
+
+    function mountWizard(content: { email?: BroadcastEmailValue; push?: boolean }): void {
         window.POSTHOG_APP_CONTEXT = {
             ...priorAppContext,
             resource_access_control: { [AccessControlResourceType.Workflow]: AccessControlLevel.Editor },
         } as AppContext
         initKeaTests()
-        const wizard = broadcastWizardLogic({ id: 'new' })
+        wizard = broadcastWizardLogic({ id: 'new' })
         wizard.mount()
-        mounted.push(wizard)
         if (content.push) {
             wizard.actions.setChannel('push')
             wizard.actions.setPush({ channels: [7], title: 'New release', body: 'Open the app' })
         } else {
             wizard.actions.setEmail(content.email ?? READY_EMAIL)
         }
-        render(
-            <Provider>
-                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
-                    <BindLogic logic={broadcastPreviewLogic} props={{ id: 'new' }}>
-                        <BindLogic logic={broadcastTestSendLogic} props={{ id: 'new' }}>
-                            <BroadcastReviewTestEmail />
-                            {preview}
-                        </BindLogic>
-                    </BindLogic>
-                </BindLogic>
-            </Provider>
+    }
+
+    function renderReview(content: { email?: BroadcastEmailValue; push?: boolean }): void {
+        mountWizard(content)
+        renderTree(
+            <>
+                <BroadcastReviewTestEmail />
+                {content.push ? (
+                    <BroadcastPushPreview showTestButton={false} />
+                ) : (
+                    <BroadcastEmailPreview showTestButton={false} />
+                )}
+            </>
         )
     }
 
@@ -113,6 +135,11 @@ describe('broadcast previews', () => {
     }
     const reviewCard = (selector: string): Element | null =>
         document.querySelector(`[data-attr="broadcast-review-test-email"] ${selector}`)
+    const toAddress = (): string | null | undefined =>
+        document
+            .querySelector('[data-attr="broadcast-preview-person"]')
+            ?.closest('.flex-wrap')
+            ?.querySelector(':scope > span.text-muted')?.textContent
     const iframeHtml = (): string | null | undefined =>
         document.querySelector('iframe[title="Email preview"]')?.getAttribute('srcdoc')
 
@@ -131,17 +158,7 @@ describe('broadcast previews', () => {
         } as AppContext
         initKeaTests()
 
-        render(
-            <Provider>
-                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
-                    <BindLogic logic={broadcastPreviewLogic} props={{ id: 'new' }}>
-                        <BindLogic logic={broadcastTestSendLogic} props={{ id: 'new' }}>
-                            {channel === 'email' ? <BroadcastEmailPreview /> : <BroadcastPushPreview />}
-                        </BindLogic>
-                    </BindLogic>
-                </BindLogic>
-            </Provider>
-        )
+        renderTree(channel === 'email' ? <BroadcastEmailPreview /> : <BroadcastPushPreview />)
 
         expect(
             document.querySelector(`[data-attr="broadcast-open-test-${channel === 'email' ? 'email' : 'push'}"]`)
@@ -155,24 +172,12 @@ describe('broadcast previews', () => {
             },
         })
         initKeaTests()
-        const wizard = broadcastWizardLogic({ id: 'new' })
-        wizard.mount()
-        wizard.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, html: '<p>Hi</p>' })
+        const draft = broadcastWizardLogic({ id: 'new' })
+        wizard = draft
+        draft.mount()
+        draft.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, html: '<p>Hi</p>' })
 
-        render(
-            <Provider>
-                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
-                    <BindLogic logic={broadcastPreviewLogic} props={{ id: 'new' }}>
-                        <BindLogic logic={broadcastTestSendLogic} props={{ id: 'new' }}>
-                            <BroadcastEmailPreview
-                                showTestButton={false}
-                                onModifyContent={wizard.actions.editEmailContent}
-                            />
-                        </BindLogic>
-                    </BindLogic>
-                </BindLogic>
-            </Provider>
-        )
+        renderTree(<BroadcastEmailPreview showTestButton={false} onModifyContent={draft.actions.editEmailContent} />)
         const button = document.querySelector('[data-attr="broadcast-review-modify-content"]') as HTMLElement
         expect(button).toHaveAttribute('aria-disabled', 'false')
 
@@ -181,7 +186,6 @@ describe('broadcast previews', () => {
         })
 
         expect(button).toHaveAttribute('aria-disabled', 'true')
-        wizard.unmount()
     })
 
     it('previews the email as the first audience member with an email address, then as the person picked', async () => {
@@ -190,7 +194,7 @@ describe('broadcast previews', () => {
 
         await screen.findByText(/^Values come from Ada\./)
         expect(screen.getByText('Hi Ada')).toBeInTheDocument()
-        expect(screen.getByText('ada@example.com')).toBeInTheDocument()
+        expect(toAddress()).toBe('ada@example.com')
         expect(iframeHtml()).toBe('<p>Hello Ada</p>')
         expect(document.querySelector('[data-attr="broadcast-review-modify-content"]')).toBeNull()
 
@@ -202,17 +206,18 @@ describe('broadcast previews', () => {
         expect(await screen.findByText('Hi Grace')).toBeInTheDocument()
         expect(iframeHtml()).toBe('<p>Hello Grace</p>')
         expect(screen.getByText(/^Values come from grace@example\.com\./)).toBeInTheDocument()
-        expect(screen.getAllByText('grace@example.com')).toHaveLength(2)
+        expect(document.querySelector('[data-attr="broadcast-preview-person"]')).toHaveTextContent('grace@example.com')
+        expect(toAddress()).toBeUndefined()
     })
 
-    it.each([
+    it.each<[Lookup, () => Element | null]>([
         ['pending', () => document.querySelector('.Spinner')],
         ['failed', () => screen.queryByText(/^Couldn't load anyone to preview against, so variables stay unfilled/)],
         [[], () => screen.queryByText('No one matches this audience yet, so variables stay unfilled below.')],
-    ] as const)(
+    ])(
         'shows the recipient row and leaves variables unfilled when the audience lookup is %j',
         async (lookup, recipientRow) => {
-            people = lookup as typeof people
+            people = lookup
             renderReview({})
 
             await waitFor(() => expect(recipientRow()).not.toBeNull())
@@ -224,9 +229,9 @@ describe('broadcast previews', () => {
     it.each([
         ['no subject or content', { subject: '', html: '', text: '' }, ['No subject', 'No content yet']],
         ['plain text only', { html: '', text: 'Plain text for {{ person.properties.name }}' }, ['Plain text for Ada']],
-    ])('previews an email with %s, and opens the test modal from its own button', async (_, change, shown) => {
+    ])('previews an email with %s', async (_, change, shown) => {
         people = [ADA]
-        renderReview({ email: { ...READY_EMAIL, ...change } }, <BroadcastEmailPreview />)
+        renderReview({ email: { ...READY_EMAIL, ...change } })
 
         for (const text of shown) {
             expect(await screen.findByText(text)).toBeInTheDocument()
@@ -234,6 +239,13 @@ describe('broadcast previews', () => {
         expect(iframeHtml()).toBeUndefined()
         expect(document.querySelector('[data-attr="broadcast-preview-person"]')).toHaveTextContent('Ada')
         expect(screen.getByText('Preview and test before this reaches the audience.')).toBeInTheDocument()
+    })
+
+    it('opens the test modal from the preview on its own and closes it', async () => {
+        people = [ADA]
+        mountWizard({})
+        renderTree(<BroadcastEmailPreview />)
+        await screen.findByText(/^Values come from Ada\./)
 
         click('broadcast-open-test-email')
 
@@ -286,14 +298,18 @@ describe('broadcast previews', () => {
         expect(reviewCard('[data-attr="broadcast-review-send-test"]')).toHaveClass('LemonButton--secondary')
         await waitFor(() => expect(screen.queryByText('Send a test email')).toBeNull())
         expect(sent).toHaveLength(1)
-        const action = sent[0].configuration.actions.find((a: any) => a.id === sent[0].current_action_id)
-        expect(action.config.inputs.email.value.to).toEqual({ email: 'reviewer@example.com', name: '' })
+        const action = sent[0].configuration.actions.find((a) => a.id === sent[0].current_action_id)
+        expect(action?.config.inputs.email.value).toMatchObject({
+            to: { email: 'reviewer@example.com', name: '' },
+            cc: '',
+            bcc: '',
+        })
         expect(sent[0].globals.person).toMatchObject({ id: 'person-ada', name: 'Ada' })
     })
 
     it('sends a test push to a distinct ID, then vouches for it on the review step', async () => {
         sendResult = { status: 'success', logs: [log('Push accepted by FCM')] }
-        renderReview({ push: true }, <BroadcastPushPreview showTestButton={false} />)
+        renderReview({ push: true })
         expect(screen.getByText(/^See the notification on a real phone/)).toBeInTheDocument()
 
         act(() => {
@@ -314,10 +330,12 @@ describe('broadcast previews', () => {
         expect(await screen.findByText("Test sent to user-1's devices")).toBeInTheDocument()
         expect(screen.getByText('Check it on your phone and tap it before you send.')).toBeInTheDocument()
         await waitFor(() => expect(screen.queryByText('Send a test notification')).toBeNull())
-        expect(sent[0].current_action_id).toBe('send_test_push')
+        const action = sent[0].configuration.actions.find((a) => a.id === sent[0].current_action_id)
+        expect(action?.id).toBe('send_test_push')
+        expect(action?.config.inputs.distinctId.value).toBe('{% raw %}user-1{% endraw %}')
     })
 
-    it.each([
+    it.each<['email' | 'push', Partial<HogflowTestResult>, string]>([
         ['email', { emailSendResult: { status: 'skipped', reason: 'Unsubscribed' } }, 'Unsubscribed'],
         ['email', { status: 'skipped', logs: [log('No address.'), log('Step skipped.')] }, 'No address. Step skipped.'],
         ['email', { status: 'skipped' }, 'The email step was skipped, so nothing was sent.'],
@@ -331,8 +349,8 @@ describe('broadcast previews', () => {
         ],
         ['push', { status: 'skipped' }, 'The push step was skipped, so nothing was sent.'],
         ['push', { status: 'error' }, 'Could not send the test notification.'],
-    ] as const)('keeps the %s test modal open with why %j sent nothing', async (channel, result, banner) => {
-        sendResult = { status: 'success', ...result } as Partial<HogflowTestResult>
+    ])('keeps the %s test modal open with why %j sent nothing', async (channel, result, banner) => {
+        sendResult = { status: 'success', ...result }
         renderReview({ push: channel === 'push' })
         click('broadcast-review-send-test')
         click('broadcast-send-test-email')
