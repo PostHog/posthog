@@ -31,7 +31,12 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
+from products.experiments.backend.facade import (
+    api,
+    count_running_experiments_on_feature_flag_called,
+    create_experiment,
+    feature_flags as feature_flags_facade,
+)
 from products.experiments.backend.facade.change_signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
@@ -311,6 +316,12 @@ class TestHighlightFacts(BaseTest):
         self._experiment("Ended", start_date=now - timedelta(days=80), end_date=now - timedelta(days=1))
         self._experiment(
             "Not yours", start_date=now - timedelta(days=80), created_by=self._create_user("other@example.com")
+        )
+        self._experiment(
+            "On a flag rule",
+            start_date=now - timedelta(days=62),
+            feature_flag_rule_id=uuid.uuid4(),
+            feature_flag_rule_snapshot={"flag": {}, "rule": {}},
         )
 
         found = api.list_running_experiments(
@@ -712,6 +723,11 @@ class TestFlagLiveExperiments(BaseTest):
             "deleted_null": False,
             "no_experiment": False,
         }
+        assert feature_flags_facade.flag_ids_with_live_experiment(listed.values(), using="default") == frozenset(
+            flag_ids[key] for key in ("running", "stopped", "archived")
+        )
+        with self.assertNumQueries(0):
+            assert feature_flags_facade.flag_ids_with_live_experiment([], using="default") == frozenset()
 
 
 class TestDigestExperiments(BaseTest):

@@ -44,15 +44,18 @@ describe('CLI skill installer', () => {
         vi.mocked(loadManifestFromArchive).mockReset()
     })
 
-    it('installs a skill under .agents/skills', async () => {
+    it.each([
+        [undefined, ['.agents', 'skills']],
+        ['.claude/skills', ['.claude', 'skills']],
+    ])('installs a skill with skillsDir %s under %j', async (skillsDir, folder) => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-cli-skills-'))
         mockSkillArchive([skillEntry('test-skill')])
 
-        const result = await installSkill('test-skill', { cwd: dir })
+        const result = await installSkill('test-skill', { cwd: dir, skillsDir })
 
         expect(result).toEqual({
             id: 'test-skill',
-            directory: path.join(dir, '.agents', 'skills', 'test-skill'),
+            directory: path.join(dir, ...folder, 'test-skill'),
             fileCount: 1,
         })
         await expect(fs.readFile(path.join(result.directory, 'SKILL.md'), 'utf-8')).resolves.toBe('# Test skill\n')
@@ -64,6 +67,18 @@ describe('CLI skill installer', () => {
 
         await expect(installSkill('../../../outside', { cwd: dir, force: true })).rejects.toThrow('Invalid skill ID')
         await expect(fs.access(path.join(dir, 'outside'))).rejects.toMatchObject({ code: 'ENOENT' })
+    })
+
+    it('refuses a skillsDir outside the working directory', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-cli-skills-'))
+        const repo = path.join(dir, 'repo')
+        await fs.mkdir(repo)
+        mockSkillArchive([skillEntry('test-skill')])
+
+        await expect(installSkill('test-skill', { cwd: repo, skillsDir: '../skills' })).rejects.toThrow(
+            'Refusing to write outside'
+        )
+        await expect(fs.access(path.join(dir, 'skills'))).rejects.toMatchObject({ code: 'ENOENT' })
     })
 
     it('refuses to follow a symlinked .agents directory out of the working directory', async () => {

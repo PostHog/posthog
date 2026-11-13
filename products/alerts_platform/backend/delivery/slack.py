@@ -5,7 +5,9 @@ stays here is the part that is about alerts: which destination a message goes to
 message becomes blocks.
 """
 
+from http.client import HTTPException
 from typing import Any, Final
+from urllib.error import HTTPError, URLError
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -28,7 +30,12 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.describers import slack_renderer_for
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL, AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationRefused,
+    MessageHandle,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SLACK_IMAGE_SLOT_BLOCK_ID,
     AlertDestinationData,
@@ -47,6 +54,11 @@ MAX_CONTEXT_CHARS: Final = 3000
 
 # Separates alert traffic from the API-driven calls on the shared Slack egress metrics.
 EGRESS_SOURCE: Final = "alerts"
+
+# A slow send followed by a slow root edit still ends before the deliver activity's 10-second
+# start_to_close, so Slack's answer is read and handled rather than lost with the attempt.
+SLACK_SEND_TIMEOUT_SECONDS: Final = 6
+SLACK_EDIT_TIMEOUT_SECONDS: Final = 3
 
 # What Slack answers when it cannot fetch an image block, such as an expired chart URL. It refuses
 # the whole message, so the message goes again without its image rather than not at all.
@@ -70,10 +82,18 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
     return "\n".join(clip_text(line, share) for line in lines)
 
 
+def _details_block(details: tuple[MessageDetail, ...]) -> dict[str, Any]:
+    block = section_block(_body(details))
+    # Escaping stops `<!here>`, but Slack also parses a bare `@here` into a broadcast unless the
+    # text is verbatim. A rule annotation can carry query results into this text.
+    block["text"]["verbatim"] = True
+    return block
+
+
 def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [header_block(message.title)]
-    if message.details:
-        blocks.append(section_block(_body(message.details)))
+    if message.all_details:
+        blocks.append(_details_block(message.all_details))
     elements: list[str] = []
     if message.context:
         # Context names things a user chose, such as services, so it is escaped like a detail.
@@ -138,10 +158,13 @@ def _above_actions(blocks: list[dict[str, Any]], notice: dict[str, Any]) -> list
 
 
 def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) -> SlackMessageContent:
-    notices = [detail for detail in message.details if detail.label == UNTRACKED_GROUPS_LABEL]
+    notices = [
+        *(detail for detail in message.details if detail.label == UNTRACKED_GROUPS_LABEL),
+        *message.rule_details,
+    ]
     if not notices:
         return content
-    notice = section_block(_body(tuple(notices)))
+    notice = _details_block(tuple(notices))
     # The warning says the alert is at its group limit, so a reader who misses it reads a truncated
     # alert as a complete one. It goes wherever the renderer left room, never nowhere.
     if not content.attachments:
@@ -164,9 +187,47 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
     )
 
 
-# Only codes a customer's own setup causes. A code a platform bug can also cause, such as
-# `missing_scope` or `channel_not_found`, stays a failure so the platform's alert still sees it.
-_MISCONFIGURED_ERRORS: Final = frozenset({"account_inactive", "not_in_channel"})
+# Only codes a customer's own setup causes, each with what happened and what to change. The alert's
+# creator is told about these. A code a platform bug can also cause, such as `missing_scope` or
+# `channel_not_found`, stays a failure so the platform's alert still sees it.
+_MISCONFIGURED_ERRORS: Final = {
+    "not_in_channel": (
+        "The PostHog app is not in this channel.",
+        "Invite it with /invite @PostHog in the channel, or pick another channel for the alert.",
+    ),
+    "account_inactive": (
+        "The Slack connection is no longer active.",
+        "Reconnect Slack in the project's integrations, or pick another destination for the alert.",
+    ),
+}
+
+
+def _slack_refusal(code: Any, refused: str) -> DeliveryError:
+    """The code stays in the text, so a refusal can be searched for in the worker's logs."""
+    misconfigured = _MISCONFIGURED_ERRORS.get(code)
+    if misconfigured is None:
+        return DeliveryError(f"Slack refused the {refused}: {code}")
+    explanation, remedy = misconfigured
+    return DestinationRefused(f"Slack refused the {refused}: {code}. {explanation}", remedy=remedy)
+
+
+def _maybe_posted(error: OSError | HTTPException) -> bool:
+    """Whether Slack may have taken the post before the failure.
+
+    urllib raises `URLError` only while it is still writing the request, which covers a connect
+    timeout, so Slack never had the whole post. Any other socket or HTTP error, a read timeout
+    included, comes while waiting for or reading the answer, after the post was sent.
+    """
+    if isinstance(error, URLError):
+        return False
+    # slack_sdk reads the body of an HTTP error answer, a 429 included. When that read times out,
+    # the timeout carries the answer as its context, and the answer says Slack refused the post.
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, HTTPError):
+            return False
+        cause = cause.__cause__ or cause.__context__
+    return True
 
 
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
@@ -231,7 +292,11 @@ class SlackTransport:
         if workspace_id is None or channel is None:
             raise DeliveryError("This Slack destination is missing its workspace or channel.")
 
-        slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
+        slack = SlackIntegration(
+            self._integration(team_id=team_id, workspace_id=workspace_id),
+            source=EGRESS_SOURCE,
+            timeout_seconds=SLACK_SEND_TIMEOUT_SECONDS,
+        )
         content = content_for(team_id=team_id, message=message)
 
         def post(content: SlackMessageContent) -> Any:
@@ -258,9 +323,13 @@ class SlackTransport:
                 content = _without_image_content(content)
                 response = post(content)
         except SlackApiError as error:
-            code = error.response.get("error")
-            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
-            raise refusal(f"Slack refused the message: {code}") from error
+            raise _slack_refusal(error.response.get("error"), "message") from error
+        except (OSError, HTTPException) as error:
+            if not _maybe_posted(error):
+                raise
+            raise DeliveryAmbiguous(
+                f"Slack's answer was lost, so the message may have posted: {type(error).__name__}"
+            ) from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
@@ -326,7 +395,13 @@ class SlackTransport:
         ts = root.external_ref.get("ts")
         if workspace_id is None or not channel or not ts or not root.root_content:
             raise DeliveryError("This Slack conversation has no opening message to edit.")
-        slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
+        # An edit timeout is not ambiguous: `chat.update` sets the same content again on a retry,
+        # and dispatch counts a failed state edit without failing the send.
+        slack = SlackIntegration(
+            self._integration(team_id=team_id, workspace_id=workspace_id),
+            source=EGRESS_SOURCE,
+            timeout_seconds=SLACK_EDIT_TIMEOUT_SECONDS,
+        )
         original = root.root_content
         attachments = original.get("attachments") or []
         text = f"{original['text']} ({state_line})" if state_line and original["text"] else original["text"]
@@ -367,9 +442,7 @@ class SlackTransport:
                     raise
                 update(_without_image_content(content))
         except SlackApiError as error:
-            code = error.response.get("error")
-            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
-            raise refusal(f"Slack refused the edit: {code}") from error
+            raise _slack_refusal(error.response.get("error"), "edit") from error
 
     def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing

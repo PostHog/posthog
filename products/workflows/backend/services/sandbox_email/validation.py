@@ -6,7 +6,11 @@ from django.conf import settings
 from rest_framework.exceptions import ValidationError
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
-from products.cdp.backend.validation import generate_template_bytecode
+from products.cdp.backend.validation import (
+    build_html_wrap_design,
+    generate_template_bytecode,
+    html_wrap_design_needs_refresh,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import SANDBOX_EMAIL_ACTION_TYPE
 
 _ACTION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -23,6 +27,13 @@ _CATEGORY_TYPES = ("marketing", "transactional")
 _TEMPLATING = ("hog", "liquid")
 
 ADOPTION_UNAVAILABLE = "The sandbox sender isn't available for this organization. Choose a verified email sender."
+INVALID_ACTION_ID = "A sandbox email step ID can only use letters, numbers, '-' and '_', up to 128 characters."
+
+
+def valid_sandbox_action_id(action_id: Any) -> bool:
+    return isinstance(action_id, str) and bool(_ACTION_ID.match(action_id))
+
+
 RUNTIME_UNAVAILABLE = "The sandbox sender can't send from workflows yet. Save this workflow as a draft, or choose a verified email sender."
 
 
@@ -42,10 +53,8 @@ def validate_sandbox_email_action(
     is_dwh_source: bool = False,
 ) -> dict[str, Any]:
     action_id = action.get("id")
-    if not isinstance(action_id, str) or not _ACTION_ID.match(action_id):
-        raise ValidationError(
-            {"id": "A sandbox email step ID can only use letters, numbers, '-' and '_', up to 128 characters."}
-        )
+    if not valid_sandbox_action_id(action_id):
+        raise ValidationError({"id": INVALID_ACTION_ID})
     if action_id not in stored_sandbox_action_ids and not adoption_enabled:
         raise ValidationError({"type": ADOPTION_UNAVAILABLE})
 
@@ -76,6 +85,10 @@ def validate_sandbox_email_action(
     if not isinstance(value, dict):
         raise ValidationError({"config": "The sandbox email needs a 'value' object."})
     _validate_email_value(value, require_complete=require_complete)
+    html = value.get("html")
+    if isinstance(html, str) and html and html_wrap_design_needs_refresh(html, value.get("design")):
+        value = {**value, "design": build_html_wrap_design(html)}
+        envelope["value"] = value
 
     if templating == "hog":
         envelope.update(_compile(value, is_dwh_source=is_dwh_source))

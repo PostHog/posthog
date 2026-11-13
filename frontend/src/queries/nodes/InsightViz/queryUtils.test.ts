@@ -34,7 +34,18 @@ describe('filterVariablesReferencedInQuery', () => {
 })
 
 describe('syncSelectedVariablesToQuery', () => {
-    it('removes stale selected variables while preserving values for ones still in use', () => {
+    it.each([
+        [[], []],
+        [[{ id: 'new-region-id', code_name: 'region' }], [{ variableId: 'new-region-id', code_name: 'region' }]],
+    ])('drops deleted definitions before adding replacements', (definitions, expected) => {
+        expect(
+            syncSelectedVariablesToQuery('SELECT {variables.region}', definitions, [
+                { variableId: 'region-id', code_name: 'region', value: 'South' },
+            ])
+        ).toEqual(expected)
+    })
+
+    it('preserves selected variables and their values when references are removed', () => {
         expect(
             syncSelectedVariablesToQuery(
                 'SELECT * FROM events WHERE timestamp >= {variables.date}',
@@ -44,7 +55,10 @@ describe('syncSelectedVariablesToQuery', () => {
                     { variableId: 'product-id', code_name: 'product', value: 'mobile' },
                 ]
             )
-        ).toEqual([{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }])
+        ).toEqual([
+            { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
+            { variableId: 'product-id', code_name: 'product', value: 'mobile' },
+        ])
     })
 
     it('adds newly referenced variables once, in query order', () => {
@@ -55,6 +69,7 @@ describe('syncSelectedVariablesToQuery', () => {
                 [{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }]
             )
         ).toEqual([
+            { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
             { variableId: 'product-id', code_name: 'product' },
             { variableId: 'region-id', code_name: 'region' },
         ])

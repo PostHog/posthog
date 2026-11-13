@@ -16,6 +16,7 @@ from posthog.models import PersonalAPIKey
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.id_jag import id_jag_access_token
 from posthog.utils import absolute_uri
 
 from products.wizard.backend.facade import api as wizard_facade
@@ -87,6 +88,7 @@ class TestWizardInstallViewSet(APIBaseTest):
             ("oauth_task_write", "task:write", status.HTTP_201_CREATED),
             ("oauth_task_read_only", "task:read", status.HTTP_403_FORBIDDEN),
             ("oauth_other_scope", "insight:write", status.HTTP_403_FORBIDDEN),
+            ("id_jag_task_write", "id_jag", status.HTTP_201_CREATED),
             ("personal_api_key", "personal_api_key", status.HTTP_403_FORBIDDEN),
         ]
     )
@@ -95,6 +97,11 @@ class TestWizardInstallViewSet(APIBaseTest):
     ) -> None:
         if credential == "personal_api_key":
             self._authenticate_personal_api_key()
+        elif credential == "id_jag":
+            self.client.logout()
+            self.client.credentials(
+                HTTP_AUTHORIZATION=f"Bearer {id_jag_access_token(self.user, self.organization, 'task:write')}"
+            )
         elif credential is not None:
             self._authenticate_oauth(credential)
 

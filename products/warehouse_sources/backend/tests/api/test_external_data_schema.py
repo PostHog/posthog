@@ -10,6 +10,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
+from django.core.cache.backends.locmem import LocMemCache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
@@ -43,6 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_external_data_job_workflow,
 )
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
+from products.warehouse_sources.backend.facade.incremental_field_model import WIZARD_PATH, recommend_for_candidates
 from products.warehouse_sources.backend.facade.models import (
     INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
@@ -58,6 +60,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     UNREADABLE_SOURCE_CONFIG_ERROR,
     ExternalDataSchemaSerializer,
     ExternalDataSchemaViewset,
+    live_query_unavailable_reason,
     masked_columns_error,
     schema_display_status,
 )
@@ -89,7 +92,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
-from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
+from products.warehouse_sources.backend.tests.api.utils import (
+    create_external_data_source_ok,
+    fake_decision_model,
+    open_orders_schema,
+)
 from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
 
 _PH_HISTORY_NAMING_FLAG = (
@@ -129,6 +136,11 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     yield connection
 
     await connection.close()
+
+
+class _UnreachableCache(LocMemCache):
+    def add(self, *args, **kwargs):
+        raise ConnectionError("cache unreachable")
 
 
 @pytest.mark.usefixtures("postgres_connection", "postgres_config")
@@ -715,6 +727,153 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["supports_webhooks"] is True
         assert [call.kwargs["names"] for call in mock_get_schemas.call_args_list] == expected_names_per_call
+
+    @parameterized.expand(
+        [
+            ("no_cursor_yet", {}, ["created_at", "fecha_actualizacion"], 1),
+            ("cursor_configured", {"incremental_field": "created_at"}, ["created_at", "created_at"], 0),
+            (
+                "stale_stored_pick",
+                {"incremental_field_suggestion": {"field": "dropped_column", "candidates": "older-column-set"}},
+                ["created_at", "fecha_actualizacion"],
+                1,
+            ),
+            ("unsure_answer", {}, ["created_at", "created_at"], 1, "c1", 0.3),
+            ("wizard_already_asked", {}, ["fecha_actualizacion", "fecha_actualizacion"], 1, "c1", 0.9, True),
+        ]
+    )
+    def test_incremental_fields_stores_the_model_pick_for_later_opens(
+        self,
+        _name,
+        sync_type_config,
+        expected_first_field_per_open,
+        expected_model_calls,
+        choice="c1",
+        confidence=0.9,
+        wizard_asked_first=False,
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=StripeSource().source_type, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config=sync_type_config,
+        )
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            fake_decision_model(choice=choice, confidence=confidence) as model_calls,
+            mock.patch(
+                "products.warehouse_sources.backend.logic.incremental_field_model.cache",
+                LocMemCache(f"incremental-field-{_name}", {}),
+            ),
+        ):
+            if wizard_asked_first:
+                discovered = open_orders_schema()
+                recommend_for_candidates(
+                    [(discovered.name, discovered.incremental_fields)], team=self.team, path=WIZARD_PATH
+                )
+            first_fields = []
+            for _ in expected_first_field_per_open:
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                first_fields.append(response.json()["incremental_fields"][0]["field"])
+
+        assert first_fields == expected_first_field_per_open
+        assert len(model_calls) == expected_model_calls
+
+    def test_incremental_fields_queues_nothing_when_the_wizard_answer_agrees_with_the_rules(self):
+        schema = self._orders_schema_without_cursor()
+        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            mock.patch(f"{recommender}.cache", LocMemCache("incremental-field-agrees", {})),
+            mock.patch(
+                "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.apply_async"
+            ) as dispatch,
+            fake_decision_model(choice="c0"),
+        ):
+            discovered = open_orders_schema()
+            recommend_for_candidates(
+                [(discovered.name, discovered.incremental_fields)], team=self.team, path=WIZARD_PATH
+            )
+            first_field = self._open_sync_form(schema)
+
+        assert first_field == "created_at"
+        assert dispatch.call_count == 0
+
+    def _orders_schema_without_cursor(self) -> ExternalDataSchema:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=StripeSource().source_type, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+    def _open_sync_form(self, schema: ExternalDataSchema) -> str:
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["incremental_fields"][0]["field"]
+
+    def test_incremental_fields_withdraws_a_stored_pick_when_the_flag_turns_off(self):
+        schema = self._orders_schema_without_cursor()
+        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            mock.patch(f"{recommender}.cache", LocMemCache("incremental-field-flag-off", {})),
+            fake_decision_model(),
+        ):
+            self._open_sync_form(schema)
+            assert self._open_sync_form(schema) == "fecha_actualizacion"
+            with mock.patch(f"{recommender}.feature_enabled_or_false", return_value=False):
+                assert self._open_sync_form(schema) == "created_at"
+
+    @parameterized.expand(
+        [
+            ("broker_up", LocMemCache, None, 1),
+            ("broker_down", LocMemCache, OSError("broker unreachable"), 3),
+            ("cache_down", _UnreachableCache, None, 0),
+        ]
+    )
+    def test_incremental_fields_queues_one_question_while_one_is_pending(
+        self, _name, cache_class, dispatch_error, expected_dispatches
+    ):
+        schema = self._orders_schema_without_cursor()
+        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            mock.patch(f"{recommender}.cache", cache_class(f"incremental-field-queue-{_name}", {})),
+            mock.patch(
+                "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.apply_async",
+                side_effect=dispatch_error,
+            ) as dispatch,
+            fake_decision_model(),
+        ):
+            first_fields = [self._open_sync_form(schema) for _ in range(3)]
+
+        assert first_fields == ["created_at"] * 3
+        assert dispatch.call_count == expected_dispatches
 
     @parameterized.expand(
         [
@@ -1963,6 +2122,47 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.sync_frequency_interval == timedelta(days=30)
         # ...but no schedule create/update is attempted, because the schema has no schedule to touch.
         mock_sync_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("canonical", "24hour", 200, timedelta(hours=24)),
+            ("daily", "daily", 200, timedelta(hours=24)),
+            ("hourly", "hourly", 200, timedelta(hours=1)),
+            ("weekly", "weekly", 200, timedelta(days=7)),
+            ("sixty_minutes", "60min", 200, timedelta(hours=1)),
+            ("one_h", "1h", 200, timedelta(hours=1)),
+            ("never", "never", 400, timedelta(hours=6)),
+            ("unknown", "fortnightly", 400, timedelta(hours=6)),
+        ]
+    )
+    def test_update_schema_sync_frequency_synonyms(self, _name, sync_frequency, expected_status, expected_interval):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_frequency": sync_frequency},
+        )
+
+        assert response.status_code == expected_status, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == expected_interval
+        if sync_frequency == "never":
+            assert "should_sync" in response.json()["detail"]
+        elif expected_status == 400:
+            assert "5min" in response.json()["detail"]
+            assert "30day" in response.json()["detail"]
 
     def test_update_schema_frequency_on_enabled_schema_without_schedule_creates_it(self):
         # An enabled schema whose Temporal schedule is missing should have it created when the
@@ -5465,27 +5665,34 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
-    def _create(self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE):
+    def _create(
+        self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE, direct_query_enabled: bool = False
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=source_type,
             job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+            direct_query_enabled=direct_query_enabled,
         )
         schema = ExternalDataSchema.objects.create(name="Customers", team=self.team, source=source)
         return source, schema
 
     @parameterized.expand(
         [
-            # source_type, expected supports_column_selection, expected supports_row_filters.
+            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled.
             # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
-            (ExternalDataSourceType.STRIPE, False, False),
-            (ExternalDataSourceType.POSTGRES, True, True),
+            (ExternalDataSourceType.STRIPE, False, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True, True),
         ]
     )
     def test_retrieve_includes_source_summary(
-        self, source_type: ExternalDataSourceType, expected_column_selection: bool, expected_row_filters: bool
+        self,
+        source_type: ExternalDataSourceType,
+        expected_column_selection: bool,
+        expected_row_filters: bool,
+        direct_query_enabled: bool,
     ):
-        source, schema = self._create(source_type=source_type)
+        source, schema = self._create(source_type=source_type, direct_query_enabled=direct_query_enabled)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 200, response.json()
         summary = response.json()["source"]
@@ -5495,6 +5702,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["access_method"] == source.access_method
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
+        assert summary["direct_query_enabled"] is direct_query_enabled
         assert "user_access_level" in summary
 
     @parameterized.expand(
@@ -5601,6 +5809,75 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
             ).data
 
         assert [row["webhook_not_registered"] for row in rows] == [False, False, True, True]
+
+    @parameterized.expand(
+        [
+            ("default", "", False),
+            ("compact_false", "?compact=false", False),
+            ("compact", "?compact=true", True),
+            ("compact_with_search", "?compact=true&search=Cust", True),
+        ]
+    )
+    def test_list_compact_shape(self, _name: str, query: str, compact: bool) -> None:
+        source, schema = self._create()
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.should_sync = True
+        schema.latest_error = "failed for key 123 " + "y" * 2000
+        schema.save()
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()["results"]
+        assert len(rows) == 1
+        row = rows[0]
+        if compact:
+            assert set(row) == {
+                "id",
+                "name",
+                "source_id",
+                "should_sync",
+                "live_query_enabled",
+                "sync_type",
+                "status",
+                "last_synced_at",
+                "latest_error",
+            }
+            assert row["source_id"] == str(source.id)
+            assert row["status"] == ExternalDataSchema.Status.FAILED
+            assert row["latest_error"].endswith("[truncated, 2019 characters]")
+            assert len(row["latest_error"]) < 600
+        else:
+            assert {"table", "sync_frequency", "incremental_field", "webhook_not_registered"} <= set(row)
+            assert len(row["latest_error"]) > 2000
+
+    def test_list_compact_rejects_invalid_flag(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/?compact=nope")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_compact_query_count_does_not_scale_with_failed_sources(self) -> None:
+        source, schema = self._create()
+        schema.latest_error = "err"
+        schema.save()
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/?compact=true"
+        self.client.get(url)  # warm
+
+        with CaptureQueriesContext(connection) as before:
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+
+        for index in range(4):
+            other_source, other_schema = self._create()
+            other_schema.name = f"Other {index}"
+            other_schema.latest_error = f"err {index}"
+            other_schema.save()
+
+        with CaptureQueriesContext(connection) as after:
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+
+        assert len(response.json()["results"]) == 5
+        assert len(after.captured_queries) == len(before.captured_queries)
 
     def test_list_omits_source_summary(self):
         self._create()
@@ -5899,6 +6176,122 @@ class TestMaskedColumnsError(SimpleTestCase):
             incremental_fields=[],
         )
         assert error is not None and "columns are known" in error
+
+
+class TestLiveQueryUnavailableReason(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("allowed", {}, None),
+            ("source_without_live_queries", {"source_serves_live_queries": False}, "live queries turned on"),
+            ("engine_without_live_tables", {"engine_supports_live_tables": False}, "type of source"),
+            ("row_filters", {"has_row_filters": True}, "row filters"),
+            ("masked_columns", {"has_masked_columns": True}, "masked columns"),
+            ("no_column_metadata", {"has_column_metadata": False}, "Pull new schemas"),
+        ]
+    )
+    def test_live_query_unavailable_reason(self, _name: str, overrides: dict[str, bool], expected: str | None) -> None:
+        inputs = {
+            "source_serves_live_queries": True,
+            "engine_supports_live_tables": True,
+            "has_row_filters": False,
+            "has_masked_columns": False,
+            "has_column_metadata": True,
+            **overrides,
+        }
+
+        reason = live_query_unavailable_reason(**inputs)
+
+        if expected is None:
+            assert reason is None
+        else:
+            assert reason is not None and expected in reason
+
+
+class TestExternalDataSchemaLiveQuery(APIBaseTest):
+    def _create(
+        self,
+        *,
+        direct_query_enabled: bool = True,
+        source_type: str = ExternalDataSourceType.POSTGRES,
+        **schema_fields: Any,
+    ) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=source_type,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=direct_query_enabled,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        return ExternalDataSchema.objects.create(
+            name="invoices",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type_config={"schema_metadata": {"columns": [{"name": "id", "data_type": "integer"}]}},
+            **schema_fields,
+        )
+
+    @parameterized.expand(
+        [
+            ("live_queries_on", True, ExternalDataSourceType.POSTGRES, 200),
+            ("live_queries_off", False, ExternalDataSourceType.POSTGRES, 400),
+            ("engine_without_live_tables", True, ExternalDataSourceType.TRINO, 400),
+        ]
+    )
+    def test_patch_live_query_enabled(
+        self, _name: str, direct_query_enabled: bool, source_type: str, expected_status: int
+    ) -> None:
+        schema = self._create(direct_query_enabled=direct_query_enabled, source_type=source_type)
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+
+        response = self.client.patch(url, data={"live_query_enabled": True})
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.live_query_enabled is (expected_status == 200)
+        reason = self.client.get(url).json()["live_query_unavailable_reason"]
+        if expected_status == 400:
+            assert response.json()["attr"] == "live_query_enabled"
+            assert response.json()["detail"] == reason
+        else:
+            assert reason is None
+
+    def test_saving_row_filters_turns_live_queries_off(self) -> None:
+        schema = self._create(live_query_enabled=True)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"row_filters": [{"column": "id", "operator": ">", "value": 10}]},
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.live_query_enabled is False
+
+    def test_enabling_is_refused_when_the_table_changed_while_saving(self) -> None:
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        table = DataWarehouseTable.objects.create(
+            name="invoices", format="Parquet", team=self.team, url_pattern="s3://bucket/invoices/*"
+        )
+        schema = self._create(table=table)
+        serializer = ExternalDataSchemaSerializer(
+            schema,
+            data={"live_query_enabled": True},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        serializer.is_valid(raise_exception=True)
+        # A concurrent data delete unlinks the table, and its access rules, after the request was checked.
+        ExternalDataSchema.objects.filter(id=schema.id).update(table=None)
+
+        with self.assertRaises(ValidationError):
+            serializer.save()
+
+        schema.refresh_from_db()
+        assert schema.live_query_enabled is False
 
 
 class TestExternalDataSchemaMaskedColumns(APIBaseTest):

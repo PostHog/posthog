@@ -4,6 +4,7 @@ import './hogflows/registry/triggers'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
 import { HogFlow } from './hogflows/types'
@@ -63,7 +64,7 @@ const linkedMixedEventTrigger: WorkflowTriggerConfig = {
     },
 }
 
-describe('workflowLogic template links', () => {
+describe('workflowLogic pages opened from a link or a template', () => {
     beforeEach(() => {
         initKeaTests()
         useMocks({
@@ -96,5 +97,60 @@ describe('workflowLogic template links', () => {
         )
         expect(logic.values.workflow.edges).toEqual(template.edges)
         expect(logic.values.workflow.trigger_masking).toEqual(expectedMasking)
+    })
+
+    it.each([
+        { case: 'a blank new workflow', props: {}, id: 'new', name: 'New workflow', version: 1 },
+        {
+            case: 'a copy of a template',
+            props: { templateId: template.id },
+            id: undefined,
+            name: template.name,
+            version: 1,
+        },
+        {
+            case: 'the template itself',
+            props: { editTemplateId: template.id },
+            id: template.id,
+            name: template.name,
+            version: 7,
+        },
+    ])('opens $case on a new workflow page', async ({ case: _, props, ...expected }) => {
+        useMocks({
+            get: { '/api/projects/:team_id/hog_flow_templates/:id/': { ...template, version: 7, status: 'active' } },
+        })
+        const logic = workflowLogic({ id: 'new', ...props })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const { id, name, status, version } = logic.values.workflow
+        expect({ id, name, status, version }).toEqual({ ...expected, status: 'draft' })
+    })
+
+    it('keeps one editor per saved workflow and per template', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': ({ params }: MockResolverInfo) => [
+                    200,
+                    { ...NEW_WORKFLOW, id: params.id, name: `Saved ${params.id}` },
+                ],
+            },
+        })
+        const opened = [{ id: 'wf-a' }, { id: 'wf-b' }, { id: 'new' }, { id: 'new', templateId: template.id }]
+        const logics = opened.map((props) => workflowLogic(props))
+        for (const logic of logics) {
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        logics[0].actions.setWorkflowValue('name', 'Renamed a')
+
+        expect(logics.map((logic) => logic.values.workflow.name)).toEqual([
+            'Renamed a',
+            'Saved wf-b',
+            'New workflow',
+            template.name,
+        ])
+        expect(logics.map((logic) => logic.values.logicProps)).toEqual(opened)
+        expect(workflowLogic({ id: 'wf-a' }).values.workflow.name).toBe('Renamed a')
     })
 })

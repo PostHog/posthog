@@ -140,7 +140,11 @@ jobs:
                       bin/test/test_render_hobby_compose.py
                   sparse-checkout-cone-mode: false
             - name: Install envsubst
-              run: sudo apt-get update && sudo apt-get install -y gettext-base
+              run: |
+                  if command -v envsubst >/dev/null; then
+                      exit 0
+                  fi
+                  sudo apt-get update && sudo apt-get install -y gettext-base
             - name: Check upgrade rendering
               # Branches opened before the renderer landed have no test file yet; skip instead of failing discovery.
               run: |
@@ -389,6 +393,17 @@ jobs:
               run: |
                   set +e
                   uv run bin/hobby-ci.py smoke-test-ingestion
+                  echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+                  exit 0
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+            - name: Check memory budget
+              if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
+              timeout-minutes: 5
+              run: |
+                  set +e
+                  uv run bin/hobby-ci.py check-memory-budget
                   echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
                   exit 0
               env:

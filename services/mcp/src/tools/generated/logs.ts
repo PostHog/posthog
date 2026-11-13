@@ -3,7 +3,9 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/logs/api'
+import hooks_logsGroupBy from '@/tools/logs/groupByRedactionHooks'
 import hooks_logsAttributeValuesList from '@/tools/logs/redactCredentialsHooks'
+import hooks_logsContext from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsFacetValuesCreate from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsImpact from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsPatterns from '@/tools/logs/redactCredentialsHooks'
@@ -63,6 +65,9 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
         if (params.labels !== undefined) {
             body['labels'] = params.labels
         }
+        if (params.annotations !== undefined) {
+            body['annotations'] = params.annotations
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -85,6 +90,7 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -194,6 +200,9 @@ const logsAlertsDestinationsDeleteCreate = (): ToolBase<
         if (params.hog_function_ids !== undefined) {
             body['hog_function_ids'] = params.hog_function_ids
         }
+        if (params.destination_ids !== undefined) {
+            body['destination_ids'] = params.destination_ids
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
@@ -299,6 +308,7 @@ const logsAlertsList = (): ToolBase<
                     'schedule_restriction',
                     'grouping',
                     'labels',
+                    'annotations',
                     'platform_owned',
                     'created_at',
                     'updated_at',
@@ -363,6 +373,9 @@ const logsAlertsPartialUpdate = (): ToolBase<
         if (params.labels !== undefined) {
             body['labels'] = params.labels
         }
+        if (params.annotations !== undefined) {
+            body['annotations'] = params.annotations
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
@@ -385,6 +398,7 @@ const logsAlertsPartialUpdate = (): ToolBase<
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -432,6 +446,7 @@ const logsAlertsRetrieve = (): ToolBase<
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -631,6 +646,32 @@ const logsAttributesList = (): ToolBase<
     },
 })
 
+const LogsContextSchema = () => {
+    const LogsContextCreateBody = orvalSchemas.LogsContextCreateBody()
+    return LogsContextCreateBody
+}
+
+const logsContext = (): ToolBase<ReturnType<typeof LogsContextSchema>, Schemas.LogsContextResponse> => ({
+    name: 'logs-context',
+    schema: LogsContextSchema(),
+    handler: withToolHooks(
+        hooks_logsContext,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsContextSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas.LogsContextResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/context/`,
+                body: await transformRequestBody(hooks_logsContext, context, params, body),
+            })
+            return result
+        }
+    ),
+})
+
 const LogsCountSchema = () => {
     const LogsCountCreateBody = orvalSchemas.LogsCountCreateBody()
     return LogsCountCreateBody
@@ -717,20 +758,23 @@ const LogsGroupBySchema = () => {
 const logsGroupBy = (): ToolBase<ReturnType<typeof LogsGroupBySchema>, Schemas._LogsGroupByResponse> => ({
     name: 'logs-group-by',
     schema: LogsGroupBySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsGroupBySchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_logsGroupBy,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsGroupBySchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._LogsGroupByResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/group-by/`,
+                body: await transformRequestBody(hooks_logsGroupBy, context, params, body),
+            })
+            const filtered = omitResponseFields(result, ['groups.*.value']) as typeof result
+            return filtered
         }
-        const result = await context.api.request<Schemas._LogsGroupByResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/group-by/`,
-            body,
-        })
-        const filtered = omitResponseFields(result, ['groups.*.value']) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const LogsImpactSchema = () => {
@@ -915,7 +959,7 @@ const queryLogs = (): ToolBase<ReturnType<typeof QueryLogsSchema>, Schemas._Logs
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
                 body: await transformRequestBody(hooks_queryLogs, context, params, body),
             })
-            const filtered = pickResponseFields(result, ['results']) as typeof result
+            const filtered = pickResponseFields(result, ['results', 'columns']) as typeof result
             return filtered
         }
     ),
@@ -935,6 +979,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-anomalies-series-bands': logsAnomaliesSeriesBands,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
+    'logs-context': logsContext,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
     'logs-facet-values-create': logsFacetValuesCreate,

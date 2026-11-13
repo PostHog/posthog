@@ -17,8 +17,6 @@ from django.utils import timezone
 import structlog
 from dateutil.relativedelta import relativedelta
 
-from posthog.schema import WebStatsBreakdown
-
 from posthog.hogql import ast
 
 from posthog.errors import QueryErrorCategory, classify_query_error
@@ -87,12 +85,8 @@ def ready_dimensional_job_ids(
     if runner._test_account_filters:
         return None
 
-    # The channel breakdown and filter use the built-in channel rules, because the stored dimensions
-    # cannot evaluate custom rules that match on the entry URL.
-    if runner.modifiers.customChannelTypeRules and _reads_channel_type(runner):
-        return None
-
-    # A per-request override, such as a longer bounce duration, would count the stored rows differently.
+    # A per-request override, such as a longer bounce duration or different custom channel rules, would
+    # count the stored rows differently.
     build_modifiers = dimensional_insert_modifiers(runner.team)
     if any(
         getattr(runner.modifiers, field) != getattr(build_modifiers, field)
@@ -178,17 +172,16 @@ def _has_inexact_property_filter(runner: Union["WebStatsTableQueryRunner", "WebO
         # The tables hold the session's initial referring domain, not the referrer of each event.
         if key == "$referring_domain" and getattr(prop, "type", None) == "event":
             return True
-        # The overview maps a page filter to the entry page, which counts sessions that started on the
-        # page instead of the visitors and views of it.
-        if key == "$pathname" and runner.query.kind == "WebOverviewQuery":
+        # The overview maps a page filter to the entry page, as v2 does. Serving it only to queries that
+        # read v2 otherwise keeps one meaning when the read falls back, because the lazy and live paths
+        # count the views of the page instead.
+        if (
+            key == "$pathname"
+            and runner.query.kind == "WebOverviewQuery"
+            and not runner.modifiers.useWebAnalyticsPreAggregatedTables
+        ):
             return True
     return False
-
-
-def _reads_channel_type(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
-    if getattr(runner.query, "breakdownBy", None) == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
-        return True
-    return any(getattr(prop, "key", None) == "$channel_type" for prop in runner.query.properties)
 
 
 def _fits_whole_hour_buckets(date_from: datetime, date_to: datetime) -> bool:
@@ -227,6 +220,11 @@ class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
     @property
     def bounces_table(self) -> str:
         return WEB_BOUNCES_DIMENSIONAL_READ_TABLE
+
+    def _get_channel_type_expr(self) -> ast.Expr:
+        # The writer stores the session's channel type with the team's custom rules applied, and the rules
+        # are part of the job identity, so the column always matches the rules of the jobs being read.
+        return ast.Field(chain=["channel_type"])
 
     def _get_filters(self, table_name: str, exclude_pathname: bool = False) -> ast.And:
         filters = super()._get_filters(table_name, exclude_pathname=exclude_pathname)

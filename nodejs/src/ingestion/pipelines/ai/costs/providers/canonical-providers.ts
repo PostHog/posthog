@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-11 10:03:44 UTC
+// Generated at: 2026-11-13 10:04:14 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -74,7 +74,6 @@ export type CanonicalProvider =
     | 'deepinfra-bf16'
     | 'deepinfra-bf16-flex'
     | 'deepinfra-bf16-priority'
-    | 'deepinfra-fp16'
     | 'deepinfra-fp32'
     | 'deepinfra-fp4'
     | 'deepinfra-fp4-flex'
@@ -112,6 +111,7 @@ export type CanonicalProvider =
     | 'google-vertex-us-central1'
     | 'google-vertex-us-east5'
     | 'groq'
+    | 'heygen'
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
@@ -136,8 +136,6 @@ export type CanonicalProvider =
     | 'liquid-bf16'
     | 'liquid-fp8'
     | 'makora'
-    | 'makora-bf16'
-    | 'makora-fp16'
     | 'makora-fp4'
     | 'makora-fp8'
     | 'mancer-fp4'
@@ -153,6 +151,7 @@ export type CanonicalProvider =
     | 'modal'
     | 'modal-fp4'
     | 'modal-mxfp4'
+    | 'modal-nvfp4'
     | 'moonshotai'
     | 'moonshotai-highspeed'
     | 'moonshotai-mxfp4'
@@ -214,6 +213,7 @@ export type CanonicalProvider =
     | 'relace-fp4'
     | 'relace-fp8'
     | 'respan'
+    | 'river'
     | 'sail-research-fp4'
     | 'sail-research-fp4-us'
     | 'sail-research-fp8'
@@ -244,6 +244,7 @@ export type CanonicalProvider =
     | 'venice-fp8'
     | 'venice-int4'
     | 'venice-turbo'
+    | 'venice-ultrafast'
     | 'voyageai'
     | 'wafer'
     | 'wafer-fast'
