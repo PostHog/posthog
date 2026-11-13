@@ -28,6 +28,7 @@ import {
     buildKPIs,
     rankToolsByErrorRate,
     rankToolsByP95,
+    toolRowsFromRankings,
     buildToolDailySeries,
     type DashboardLayout,
     deltaPct,
@@ -360,6 +361,20 @@ describe('mcpDashboardOverviewLogic', () => {
     })
 
     describe('ranking tools', () => {
+        it('keeps one row per tool when a tool tops several rankings', () => {
+            const rows = toolRowsFromRankings([
+                ['calls', 'search_docs', 400, 40, 10, 2500],
+                ['calls', 'list_flags', 300, 0, 0, 80],
+                ['error_rate', 'search_docs', 400, 40, 10, 2500],
+                ['p95', 'search_docs', 400, 40, 10, 2500],
+            ])
+
+            expect(rows).toEqual([
+                { tool: 'search_docs', total_calls: 400, errors: 40, error_rate_pct: 10, p95_duration_ms: 2500 },
+                { tool: 'list_flags', total_calls: 300, errors: 0, error_rate_pct: 0, p95_duration_ms: 80 },
+            ])
+        })
+
         const tool = (name: string, total_calls: number, error_rate_pct: number, p95_duration_ms = 0): ToolRow => ({
             tool: name,
             total_calls,
@@ -608,7 +623,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                     [MCPDashboardSection.PeriodTotals]: [[42, 30, 900, 600]],
-                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                    [MCPDashboardSection.ToolRows]: [['calls', 'search_docs', 4, 1, 25, 120]],
                 }
                 mockSections((section) => (section === failing ? new Error('Query failed') : (answers[section] ?? [])))
                 const logic = await mountDashboard()
@@ -664,7 +679,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 useLayout(layout, batched)
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
-                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                    [MCPDashboardSection.ToolRows]: [['calls', 'search_docs', 4, 1, 25, 120]],
                     [MCPDashboardSection.Tool]: [['search_docs', 4, 1, 0]],
                 }
                 mockSections((section) => answers[section] ?? [])
@@ -708,7 +723,7 @@ describe('mcpDashboardOverviewLogic', () => {
             const toastError = jest.spyOn(lemonToast, 'error')
             const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                 [MCPDashboardSection.Model]: [['2026-11-01', 'claude-sonnet-5', 4]],
-                [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                [MCPDashboardSection.ToolRows]: [['calls', 'search_docs', 4, 1, 25, 120]],
             }
             mockSections((section) => (section === row.failing ? new Error('Query failed') : (answers[section] ?? [])))
             const logic = await mountDashboard()
