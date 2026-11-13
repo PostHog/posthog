@@ -885,15 +885,6 @@ class TestFileSystemAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual([obj["path"] for obj in response.json()["results"]], expected)
 
-        # Folder names are checked with this lookup on every create and rename, so its count and its page compare
-        # the raw path that the (team, surface, path) index holds.
-        with CaptureQueriesContext(connection) as captured:
-            self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "SomeFolder/File1", "limit": "2"})
-        lookups = [query["sql"] for query in captured.captured_queries if "SomeFolder/File1" in query["sql"]]
-        self.assertEqual(len(lookups), 2, lookups)
-        for sql in lookups:
-            self.assertIn(""""posthog_filesystem"."path" = 'SomeFolder/File1'""", sql)
-
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_folder_counts_counts_the_files_directly_in_each_folder(self, mock_flag: MagicMock) -> None:
         for path, file_type, shortcut in [

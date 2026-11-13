@@ -2,7 +2,6 @@ import { useDndMonitor, useDraggable } from '@dnd-kit/core'
 import { HTMLAttributes, ReactNode } from 'react'
 
 import { IconDrag } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 
 import { TreeNodeDroppable } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 
@@ -63,7 +62,10 @@ function DraggableRow({
             <span className="relative flex size-6 shrink-0 items-center justify-center text-secondary">
                 <span className="flex group-hover/row:opacity-0 group-focus-within/row:opacity-0">{icon}</span>
                 <span className="absolute inset-0 opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100">
-                    <LemonButton size="xsmall" icon={<IconDrag />} aria-label={drag.label} />
+                    {/* The row is the drag handle, so the icon only shows where to grab. */}
+                    <span role="img" aria-label={drag.label} className="flex size-6 items-center justify-center">
+                        <IconDrag />
+                    </span>
                 </span>
             </span>
             {children}
