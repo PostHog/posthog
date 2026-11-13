@@ -89,13 +89,23 @@ function cachedSsoToken(home: string, ssoSession: string): { expiresAt?: string;
     }
 }
 
+function endOf(expiry: string | undefined): Session {
+    if (!expiry) {
+        return { unknown: true }
+    }
+    const endsAt = new Date(expiry)
+    return Number.isFinite(endsAt.getTime())
+        ? { endsAt }
+        : { problem: `The credentials report an unreadable expiry, ${expiry}. Sign in again.` }
+}
+
 async function sessionOf({ aws, env }: Controller): Promise<Session> {
     const ssoSession = env.AWS_ACCESS_KEY_ID ? '' : await aws.text(['configure', 'get', 'sso_session']).catch(() => '')
     if (ssoSession === '') {
         const { Expiration } = parseJSON(
             await aws.text(['configure', 'export-credentials', '--format', 'process'])
         ) as { Expiration?: string }
-        return Expiration ? { endsAt: new Date(Expiration) } : { unknown: true }
+        return endOf(Expiration)
     }
     const token = cachedSsoToken(env.HOME ?? os.homedir(), ssoSession)
     if (token === undefined) {
@@ -104,7 +114,7 @@ async function sessionOf({ aws, env }: Controller): Promise<Session> {
     if (token.refreshToken) {
         return { refreshable: true }
     }
-    return token.expiresAt ? { endsAt: new Date(token.expiresAt) } : { unknown: true }
+    return endOf(token.expiresAt)
 }
 
 function probesOf({ baseline }: CloudProfile, now: Date): [string, string[]][] {

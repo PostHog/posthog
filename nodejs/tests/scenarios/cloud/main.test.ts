@@ -51,7 +51,7 @@ type Setup = {
     profile?: (profile: typeof PROFILE) => unknown
     cloud?: Partial<FakeCloudOptions>
     published?: boolean
-    ssoToken?: { expiresAt: Date; refreshToken?: string }
+    ssoToken?: { expiresAt: Date | string; refreshToken?: string }
     env?: NodeJS.ProcessEnv
 }
 
@@ -78,7 +78,11 @@ describe('cloud controller', () => {
             const name = createHash('sha1').update(cloud.ssoSession!).digest('hex')
             writeFileSync(
                 path.join(cache, `${name}.json`),
-                JSON.stringify({ ...ssoToken, expiresAt: ssoToken.expiresAt.toISOString() })
+                JSON.stringify({
+                    ...ssoToken,
+                    expiresAt:
+                        ssoToken.expiresAt instanceof Date ? ssoToken.expiresAt.toISOString() : ssoToken.expiresAt,
+                })
             )
         }
         const controller: Controller = {
@@ -239,6 +243,12 @@ describe('cloud controller', () => {
             'expiry',
         ],
         ['credentials with no known expiry', { cloud: { expiration: null } }, 'expiry'],
+        ['role credentials with an unreadable expiry', { cloud: { expiration: 'not a date' } }, 'unreadable expiry'],
+        [
+            'an SSO token with an unreadable expiry',
+            { cloud: { ssoSession: 'test-sso' }, ssoToken: { expiresAt: 'not a date' } },
+            'unreadable expiry',
+        ],
         ['a commit that is not on origin', { published: false }, COMMIT],
         ['a writer class that is not orderable', { cloud: { orderable: ['db.serverless'] } }, 'db.r8g.2xlarge'],
         [

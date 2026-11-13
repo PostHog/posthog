@@ -9,7 +9,7 @@ type Schedule = { expression: string; target: { Arn: string; RoleArn: string; In
 export type FakeCloudOptions = {
     now: () => Date
     account?: string
-    expiration?: Date | null
+    expiration?: Date | string | null
     ssoSession?: string
     orderable?: string[]
     denied?: string[]
@@ -59,7 +59,7 @@ export class FakeCloud implements Aws {
     readonly objects = new Map<string, string>()
     readonly schedules = new Map<string, Schedule>()
     readonly deleteStackRequests: { stackName: string; at: string }[] = []
-    expiration: Date | null
+    expiration: Date | string | null
     ssoSession: string | undefined
     readonly orderable: string[]
     readonly denied: Set<string>
@@ -138,7 +138,12 @@ export class FakeCloud implements Aws {
                     AccessKeyId: 'ASIAEXAMPLE',
                     SecretAccessKey: 'example-secret',
                     SessionToken: 'example-token',
-                    ...(this.expiration ? { Expiration: this.expiration.toISOString() } : {}),
+                    ...(this.expiration
+                        ? {
+                              Expiration:
+                                  this.expiration instanceof Date ? this.expiration.toISOString() : this.expiration,
+                          }
+                        : {}),
                 }
             case 'rds describe-orderable-db-instance-options':
                 return {
