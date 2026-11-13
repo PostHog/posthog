@@ -9061,7 +9061,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         changes = [
             (change["before"], change["after"])
             for log in ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.id)).order_by("created_at")
-            for change in log.detail["changes"]
+            for change in (log.detail or {}).get("changes", [])
             if change["field"] == "realtime_enabled"
         ]
         assert changes == [(False, True), (True, False)]
