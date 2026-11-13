@@ -88,6 +88,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.templates.discord.template_discord import template as template_discord
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
@@ -595,6 +596,33 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
 
+    @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
+    def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
+        sync_template_to_db(template_discord)
+        created = self.client.post(
+            f"{self.url}/{self.alert.id}/destinations/webhook/",
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        (hog_function_id,) = created.json()["hog_function_ids"]
+        (listed,) = self.client.get(f"{self.url}/{self.alert.id}/destinations/").json()
+        assert listed["id"] is not None
+
+        if delete_path == "alert_route":
+            response = self.client.post(
+                f"{self.url}/{self.alert.id}/destinations/delete/",
+                {"hog_function_ids": [hog_function_id]},
+                format="json",
+            )
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{hog_function_id}/", {"deleted": True}, format="json"
+            )
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
+        assert self.client.get(f"{self.url}/{self.alert.id}/destinations/").json() == []
+
     def _copy(self) -> Any:
         with team_scope(self.team.id):
             view = get_configuration(
@@ -873,6 +901,28 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             tested = self.client.post(f"{self.url}/{self.copy_id}/test-delivery/")
         assert (tested.status_code, tested.json()["email_recipient_count"]) == (status.HTTP_202_ACCEPTED, 1)
         assert mock_send.call_args.kwargs["recipients"] == [self.user.email]
+
+        self.client.patch(f"{self.url}/{self.copy_id}/", {"subscribed_users": [denied.id]}, format="json")
+
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="AlertConfiguration",
+            item_id=str(self.copy_id),
+            detail__type="alert_subscription_change",
+        ).order_by("created_at")
+        assert [
+            (
+                row.activity,
+                row.user_id,
+                (row.detail or {})["context"]["subscriber_email"],
+                (row.detail or {})["context"]["insight_name"],
+            )
+            for row in logged
+        ] == [
+            ("created", self.user.id, self.user.email, self.alert.insight.name),
+            ("created", self.user.id, denied.email, "Signups"),
+            ("deleted", self.user.id, self.user.email, "Signups"),
+        ]
 
     def test_enabling_an_alert_insight_keeps_no_row_for_keeps_its_requested_start_time(self) -> None:
         self._forget_the_insight_row()
@@ -1562,6 +1612,22 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="AlertConfiguration",
+            item_id=str(self.copy_id),
+            detail__type="alert_destination_change",
+        ).order_by("created_at")
+        assert [
+            (
+                row.user_id,
+                [(change["action"], change["before"] or change["after"]) for change in (row.detail or {})["changes"]],
+            )
+            for row in logged
+        ] == [
+            (self.user.id, [("created", {"id": hog_function_id, "type": "slack"})]),
+            (self.user.id, [("deleted", {"id": hog_function_id, "type": "slack"})]),
+        ]
 
     def _destination(self, alert_id: UUID | None = None) -> HogFunction:
         return HogFunction.objects.create(

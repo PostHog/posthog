@@ -7,20 +7,16 @@ import { tasksRunsCancelCreate, tasksWarmCreate, tasksWarmResumeCreate } from 'p
 import type { WarmTaskRequestApi, WarmTaskResumeRequestApi } from 'products/tasks/frontend/generated/api.schemas'
 
 /** Debounce before warming, measured from the keystroke that first made the draft non-empty. */
-const WARM_DEBOUNCE_MS = 250
+const WARM_DEBOUNCE_MS = 600
 /** Grace period after the draft empties before the warm sandbox is released. */
 const RELEASE_AFTER_EMPTY_MS = 5000
-/** Minimum gap between warm requests for the same selection, counted from the request, not the answer. */
-const WARM_RETRY_AFTER_MS = 5 * 60 * 1000
 
-/**
- * A warm sandbox the backend is holding for this composer. `key` is the selection the warm was booted
- * for — repo, branch, runtime, model, permission mode — so a later change to any of them invalidates it.
- */
 export interface WarmLease {
     key: string
     taskId: string
     runId: string
+    configurationKey?: string
+    permissionModeMutable?: boolean
 }
 
 export interface WarmSubmission {
@@ -44,13 +40,13 @@ export type TaskWarmRequest = WarmTaskRequestApi | WarmTaskResumeRequestApi
  * deliberately excluded: activation applies the final effort before the first turn, so changing it must
  * not throw the warm away (`_find_idling_warm_run` omits it from the match for the same reason).
  */
-export function warmLeaseKey(request: TaskWarmRequest): string {
+export function warmLeaseKey(request: TaskWarmRequest, ignorePermissionMode = false): string {
     if ('resume_from_run_id' in request) {
         return [
             request.resume_from_run_id,
             request.runtime_adapter ?? '',
             request.model ?? '',
-            request.initial_permission_mode ?? '',
+            ignorePermissionMode ? '' : (request.initial_permission_mode ?? ''),
         ].join('|')
     }
     return [
@@ -60,10 +56,18 @@ export function warmLeaseKey(request: TaskWarmRequest): string {
         request.branch ?? '',
         request.runtime_adapter ?? '',
         request.model ?? '',
-        request.initial_permission_mode ?? '',
+        ignorePermissionMode ? '' : (request.initial_permission_mode ?? ''),
         request.sandbox_environment_id ?? '',
         request.custom_image_id ?? '',
     ].join('|')
+}
+
+function matchesWarmLease(lease: WarmLease | null, request: TaskWarmRequest): boolean {
+    return (
+        !!lease &&
+        (lease.key === warmLeaseKey(request) ||
+            (lease.permissionModeMutable === true && lease.configurationKey === warmLeaseKey(request, true)))
+    )
 }
 
 /**
@@ -121,8 +125,10 @@ export interface taskWarmLogicActions {
     }
     noteDraft: (
         hasText: boolean,
-        request: TaskWarmRequest
+        request: TaskWarmRequest,
+        eligible?: boolean
     ) => {
+        eligible: boolean
         hasText: boolean
         request: TaskWarmRequest
     }
@@ -172,7 +178,11 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
     }),
 
     actions({
-        noteDraft: (hasText: boolean, request: TaskWarmRequest) => ({ hasText, request }),
+        noteDraft: (hasText: boolean, request: TaskWarmRequest, eligible: boolean = true) => ({
+            hasText,
+            request,
+            eligible,
+        }),
         prewarm: (request: TaskWarmRequest) => ({ request }),
         prepareSubmit: (submission: WarmSubmission) => ({ submission }),
         releaseWarm: true,
@@ -190,7 +200,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
     }),
 
     listeners(({ actions, values, cache, props }) => ({
-        noteDraft: ({ hasText, request }) => {
+        noteDraft: ({ hasText, request, eligible }) => {
             if (!hasText) {
                 // Draft emptied — drop a pending warm and schedule a release, so a user who clears the
                 // box and walks away doesn't leave a sandbox idling until the server-side reaper.
@@ -198,38 +208,47 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 // Also drop any selection queued behind an in-flight warm, so an abandon isn't followed
                 // by a re-warm for a selection the user no longer wants.
                 cache.pendingWarmRequest = null
-                if (values.warmLease || cache.warming) {
-                    cache.disposables.add(() => {
-                        const timer = setTimeout(() => actions.releaseWarm(), RELEASE_AFTER_EMPTY_MS)
-                        return () => clearTimeout(timer)
-                    }, 'warm-release')
+                if (cache.warmAttempted || values.warmLease || cache.warming) {
+                    cache.disposables.add(
+                        () => {
+                            const timer = setTimeout(() => {
+                                cache.warmAttempted = false
+                                actions.releaseWarm()
+                            }, RELEASE_AFTER_EMPTY_MS)
+                            return () => clearTimeout(timer)
+                        },
+                        'warm-release',
+                        { pauseOnPageHidden: false }
+                    )
                 }
                 return
             }
             cache.disposables.dispose('warm-release')
+            if (!eligible) {
+                cache.pendingWarmRequest = null
+                actions.releaseWarm()
+                return
+            }
             const key = warmLeaseKey(request)
-            if (values.warmLease?.key === key || cache.warmingKey === key) {
+            if (matchesWarmLease(values.warmLease, request) || cache.warmingKey === key) {
+                cache.warmAttempted = true
                 // Re-engaging the selection we already warmed or are still warming. A release may have
                 // raced the in-flight POST and deferred itself via pendingRelease; clear it so the warm
                 // that lands is kept for this submit rather than cancelled out from under the user.
                 cache.pendingRelease = false
+                cache.pendingWarmRequest = null
                 return
             }
-            // A warm request that answered "not warmed" (the flag is off, the pool is full, the
-            // integration didn't resolve) leaves no lease, so the checks above can't stop the next
-            // keystroke from asking again — that is one POST per typing pause for the whole draft. Ask
-            // once per selection, then only after the cooldown, on the chance the answer has changed.
-            if (
-                cache.lastWarmRequestKey === key &&
-                cache.lastWarmRequestAt != null &&
-                Date.now() - cache.lastWarmRequestAt < WARM_RETRY_AFTER_MS
-            ) {
+            if (cache.warming) {
+                cache.pendingWarmRequest = request
+                cache.pendingRelease = false
                 return
             }
-            // The selection changed out from under an existing warm (a different repo, branch, model or
-            // permission mode); that sandbox can no longer serve this submit, so let it go and warm again.
             if (values.warmLease) {
                 actions.releaseWarm()
+            }
+            if (cache.warmAttempted) {
+                return
             }
             cache.disposables.add(() => {
                 const timer = setTimeout(() => actions.prewarm(request), WARM_DEBOUNCE_MS)
@@ -240,7 +259,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
         prewarm: async ({ request }) => {
             cache.disposables.dispose('warm-debounce')
             const key = warmLeaseKey(request)
-            if (values.currentProjectId == null || values.warmLease?.key === key) {
+            if (values.currentProjectId == null || matchesWarmLease(values.warmLease, request)) {
                 return
             }
             // Route on the payload, not on `props.taskId`: the request shape is what each endpoint
@@ -253,22 +272,17 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 return
             }
             if (cache.warming) {
-                // Only one warm POST runs at a time. A newer selection that arrives mid-flight must not
-                // be dropped, or the completing POST installs a lease on the stale selection and the
-                // submit cold-creates while that sandbox idles until the reaper. Record the latest
-                // selection so the completion below re-warms for it. This is the re-warm partner of the
-                // pendingRelease handling.
                 if (cache.warmingKey !== key) {
                     cache.pendingWarmRequest = request
                 }
                 return
             }
+            if (cache.warmAttempted) {
+                return
+            }
+            cache.warmAttempted = true
             cache.warming = true
             cache.warmingKey = key
-            // Stamped here rather than on the answer, so a slow or failed warm still holds off the next
-            // request for the full cooldown.
-            cache.lastWarmRequestKey = key
-            cache.lastWarmRequestAt = Date.now()
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
             const warmRequest: { submission: WarmSubmission | null } = { submission: null }
@@ -279,7 +293,19 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 const warm = resumeRequest
                     ? await tasksWarmResumeCreate(projectId, props.taskId as string, resumeRequest)
                     : await tasksWarmCreate(projectId, request as WarmTaskRequestApi)
-                const lease = warm?.task_id && warm?.run_id ? { key, taskId: warm.task_id, runId: warm.run_id } : null
+                const lease =
+                    warm?.task_id && warm?.run_id
+                        ? {
+                              key,
+                              taskId: warm.task_id,
+                              runId: warm.run_id,
+                              configurationKey: warmLeaseKey(request, true),
+                              permissionModeMutable:
+                                  !resumeRequest &&
+                                  'permission_mode_mutable' in warm &&
+                                  warm.permission_mode_mutable === true,
+                          }
+                        : null
                 if (warmRequest.submission) {
                     warmRequest.submission.lease = lease
                     await releaseUnusedWarm(warmRequest.submission)
@@ -295,12 +321,6 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 // full, or the integration didn't resolve. Not an error, just no speedup this time.
                 if (lease) {
                     actions.setWarmLease(lease)
-                    // The cooldown throttles repeated "not warmed" answers, which leave no lease. This
-                    // warm produced one, so drop the stamp: once a submit consumes the lease or a
-                    // release drops it, the next draft for the same selection must warm again instead
-                    // of waiting out the cooldown.
-                    cache.lastWarmRequestKey = null
-                    cache.lastWarmRequestAt = null
                 }
                 // The user may have abandoned the draft while this POST was in flight, in which case the
                 // release hit the early-exit below with nothing to release. Honor that intent now so the
@@ -316,17 +336,15 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 cache.warmingKey = null
                 cache.warmRequest = null
             }
-            // A newer selection arrived while the POST was open. Now that the slot is free, release the
-            // sandbox booted for the stale selection and warm for the latest one instead. A pending
-            // release above has already cleared the lease and dropped pendingWarmRequest via noteDraft,
-            // so this only fires when the latest selection still stands.
             const pending = cache.pendingWarmRequest
             cache.pendingWarmRequest = null
-            if (pending && warmLeaseKey(pending) !== values.warmLease?.key) {
+            if (pending && !matchesWarmLease(values.warmLease, pending)) {
                 if (values.warmLease) {
                     actions.releaseWarm()
                 }
-                actions.prewarm(pending)
+                if (!cache.warmAttempted) {
+                    actions.prewarm(pending)
+                }
             }
         },
 
@@ -355,9 +373,6 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.disposables.dispose('warm-release')
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
-            // A submission-owned warm never installs a lease to clear this stamp. Let the next draft warm.
-            cache.lastWarmRequestKey = null
-            cache.lastWarmRequestAt = null
             if (values.currentProjectId == null) {
                 return
             }
@@ -376,6 +391,9 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
 
         consumeWarm: async ({ submission, runId }) => {
             submission.runId = runId
+            if (cache.submission === submission && runId) {
+                cache.warmAttempted = false
+            }
             await releaseUnusedWarm(submission)
         },
     })),
