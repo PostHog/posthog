@@ -21,7 +21,7 @@ registerAsyncFunction('fetch', {
                 : JSON.stringify(fetchOptions.body)
             : fetchOptions?.body
 
-        const webhookId = randomUUID()
+        const webhookId = fetchOptions?.standard_webhooks || fetchOptions?.hmac_sha256 ? randomUUID() : undefined
 
         // Hog templates targeting AWS services (Kinesis, SQS, …) pass `aws_sigv4`
         // here instead of computing the Authorization header in Hog. The fetch
