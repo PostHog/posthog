@@ -1,7 +1,5 @@
-// Prints whether this version may move latest, given the manifest latest names now, so a rerun of an older
-// release never moves it back. A manifest that can't be read or names no semver version fails the check,
-// because the workflow then can't prove this version is the newest. No zod: the publishing job runs this
-// without installing hog's dependencies.
+// So a rerun never moves latest back, an unreadable manifest or a non-semver version fails instead of
+// passing. No zod: the publishing job runs this without installing hog's dependencies.
 
 import { parseArgs } from 'node:util'
 
