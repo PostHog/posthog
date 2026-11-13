@@ -10025,6 +10025,17 @@ export const ReportInvolvementEnumApi = {
 } as const
 
 /**
+ * * `inbox` - Inbox
+ * * `slack` - Slack
+ */
+export type DiscussionSourceEnumApi = (typeof DiscussionSourceEnumApi)[keyof typeof DiscussionSourceEnumApi]
+
+export const DiscussionSourceEnumApi = {
+    Inbox: 'inbox',
+    Slack: 'slack',
+} as const
+
+/**
  * One discussion a person opened on a report your scout emitted or edited.
  */
 export interface ScoutReportDiscussionApi {
@@ -10037,6 +10048,11 @@ export interface ScoutReportDiscussionApi {
      * * `authored` - Authored
      * * `edited` - Edited */
     involvement: ReportInvolvementEnumApi
+    /** `inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.
+     *
+     * * `inbox` - Inbox
+     * * `slack` - Slack */
+    source: DiscussionSourceEnumApi
     /** The discussion task. */
     task_id: string
     /** When the discussion started. */
@@ -10049,10 +10065,15 @@ export interface ScoutReportDiscussionApi {
      */
     status: string | null
     /**
-     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
+     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
      * @nullable
      */
     task_summary: string | null
+    /**
+     * For a `slack` discussion, the message that started it, in the person's own words. Null when that person may not steer scouts on this project, or started a later Slack discussion on the same report. Always null for an `inbox` discussion, because a scout note carried its question.
+     * @nullable
+     */
+    question: string | null
 }
 
 /**
