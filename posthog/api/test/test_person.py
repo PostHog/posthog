@@ -1665,6 +1665,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
             type="transformation",
             template_id="template-pii-hashing",
+            hog="returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))",
             enabled=True,
             inputs_schema=[{"key": "hashDistinctId", "type": "boolean", "secret": False}],
             inputs={"hashDistinctId": {"value": True}},

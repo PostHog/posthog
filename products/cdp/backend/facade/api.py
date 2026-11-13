@@ -91,14 +91,23 @@ def _input_value(inputs: dict[str, Any], key: str) -> Any:
     return entry.get("value") if isinstance(entry, dict) else None
 
 
-def _hashes_distinct_id(template_id: str | None, inputs: dict[str, Any] | None) -> bool:
+# A function keeps its template_id after someone edits its source, so the inputs alone don't prove
+# it still hashes distinct_id. Each template's own hashing statement must survive in the saved source.
+_DISTINCT_ID_HASHING_STATEMENTS = {
+    "template-pii-hashing": "returnEvent.distinct_id := sha256Hex",
+    "template-hash-properties": "anonymizedEvent[trimmedFieldName] := hashValue(event[trimmedFieldName]",
+}
+
+
+def _hashes_distinct_id(template_id: str | None, inputs: dict[str, Any] | None, hog: str | None) -> bool:
+    statement = _DISTINCT_ID_HASHING_STATEMENTS.get(template_id or "")
+    if statement is None or statement not in (hog or ""):
+        return False
     inputs = inputs or {}
     if template_id == "template-pii-hashing":
         return _input_value(inputs, "hashDistinctId") is True
-    if template_id == "template-hash-properties":
-        fields = _input_value(inputs, "privateFields")
-        return isinstance(fields, str) and "distinct_id" in {field.strip() for field in fields.split(",")}
-    return False
+    fields = _input_value(inputs, "privateFields")
+    return isinstance(fields, str) and "distinct_id" in {field.strip() for field in fields.split(",")}
 
 
 def has_distinct_id_hashing_transformation(*, team_id: int) -> bool:
@@ -106,17 +115,17 @@ def has_distinct_id_hashing_transformation(*, team_id: int) -> bool:
 
     Such a team stores persons under hashed distinct IDs, and every event it captures is hashed again,
     so an event sent with a stored distinct ID lands on a new person. Only the built-in hashing
-    templates with literal input values are recognized; a custom transformation, or an input written
-    as a template expression such as "{true}", that hashes distinct_id is not.
+    templates with literal input values and their hashing statement intact are recognized; a custom
+    transformation, or an input written as a template expression such as "{true}", is not.
     """
     transformations = HogFunction.objects.filter(
         team_id=team_id,
         type=HogFunctionType.TRANSFORMATION,
         enabled=True,
         deleted=False,
-        template_id__in=["template-pii-hashing", "template-hash-properties"],
-    ).values_list("template_id", "inputs")
-    return any(_hashes_distinct_id(template_id, inputs) for template_id, inputs in transformations)
+        template_id__in=list(_DISTINCT_ID_HASHING_STATEMENTS),
+    ).values_list("template_id", "inputs", "hog")
+    return any(_hashes_distinct_id(template_id, inputs, hog) for template_id, inputs, hog in transformations)
 
 
 def _enabled_hog_functions_triggered_by(

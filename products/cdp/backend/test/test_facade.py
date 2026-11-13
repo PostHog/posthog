@@ -40,16 +40,29 @@ class TestWarehouseTablesWithEnabledHogFunctions(BaseTest):
 
 PII_HASHING = "template-pii-hashing"
 HASH_PROPERTIES = "template-hash-properties"
+TEMPLATE_SOURCE = {
+    PII_HASHING: "returnEvent.distinct_id := sha256Hex(concat(toString(event.distinct_id), salt))",
+    HASH_PROPERTIES: "anonymizedEvent[trimmedFieldName] := hashValue(event[trimmedFieldName], inputs.salt)",
+}
+CUSTOMIZED_SOURCE = "return event"
 
 
 class TestHasDistinctIdHashingTransformation(BaseTest):
     def _transformation(
-        self, template_id: str, inputs: dict, *, team=None, enabled: bool = True, deleted: bool = False
+        self,
+        template_id: str,
+        inputs: dict,
+        *,
+        team=None,
+        enabled: bool = True,
+        deleted: bool = False,
+        hog: str | None = None,
     ) -> None:
         HogFunction.objects.create(
             team=team or self.team,
             type="transformation",
             template_id=template_id,
+            hog=hog if hog is not None else TEMPLATE_SOURCE.get(template_id, CUSTOMIZED_SOURCE),
             enabled=enabled,
             deleted=deleted,
             inputs_schema=[
@@ -76,6 +89,20 @@ class TestHasDistinctIdHashingTransformation(BaseTest):
             ("disabled", PII_HASHING, {"hashDistinctId": True}, {"enabled": False}, False),
             ("deleted", PII_HASHING, {"hashDistinctId": True}, {"deleted": True}, False),
             ("other_template", "template-geoip", {"hashDistinctId": True}, {}, False),
+            (
+                "pii_hashing_customized_source",
+                PII_HASHING,
+                {"hashDistinctId": True},
+                {"hog": CUSTOMIZED_SOURCE},
+                False,
+            ),
+            (
+                "hash_properties_customized_source",
+                HASH_PROPERTIES,
+                {"privateFields": "distinct_id,email"},
+                {"hog": CUSTOMIZED_SOURCE},
+                False,
+            ),
         ]
     )
     def test_detects_an_enabled_transformation_that_hashes_distinct_id(
