@@ -25,3 +25,5 @@ class MergeCheckFailure(StrEnum):
     NO_DOCS_GITHUB = "no_docs_github"
     JUDGE_CLIENT_UNAVAILABLE = "judge_client_unavailable"
     RETRIES_EXHAUSTED = "retries_exhausted"
+    PULL_REQUEST_NOT_MERGED = "pull_request_not_merged"
+    CHECK_CAPPED = "check_capped"

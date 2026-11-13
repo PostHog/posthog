@@ -9944,12 +9944,13 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.31.3"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c193cc8361451fa68c1c2586350a9987f38dd82183f0484ea3376585c964fa8c"
+checksum = "66ce55a332c6981f409bbbe5fbfd2f96183f6d3e4dab31c176eb92a8e3a9e7d0"
 dependencies = [
  "backtrace",
  "brotli 9.1.1",
+ "bytes",
  "chrono",
  "derive_builder",
  "findshlibs",
@@ -9961,6 +9962,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1 0.11.0",
+ "sha2 0.10.9",
  "tokio",
  "tracing",
  "uuid",

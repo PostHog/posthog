@@ -1095,7 +1095,7 @@ class NativeConfigurationMatch:
 
 @frozen
 class EnabledNativeConfiguration:
-    """One enabled alert of a kind with no source row, with what a source's own readers of its
+    """One enabled alert of a kind with no source row, or a copy the platform owns, with what a source's own readers of its
     enabled alerts need, such as the insight an insight alert watches."""
 
     id: UUID
@@ -1104,6 +1104,12 @@ class EnabledNativeConfiguration:
     created_at: datetime
     created_by_id: int | None
     source_config: dict[str, Any]
+    # Set for a copy the platform owns, whose source row's id stays its public id.
+    legacy_configuration_id: UUID | None = None
+
+    @property
+    def public_id(self) -> UUID:
+        return self.legacy_configuration_id or self.id
 
 
 @frozen
@@ -1569,6 +1575,16 @@ class SourceDestination:
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     enabled: bool
+
+
+@frozen
+class DeletedSourceDestinations:
+    """What a source destination delete removed on the platform side."""
+
+    # The type of each deleted row, by row id.
+    row_types: Mapping[UUID, str]
+    # The HogFunctions the rows named by id copied, which the source deletes too.
+    copied_hog_function_ids: frozenset[UUID]
 
 
 class AlertDestinationValidationError(Exception):

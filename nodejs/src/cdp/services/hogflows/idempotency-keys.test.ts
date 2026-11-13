@@ -49,6 +49,34 @@ describe('IdempotencyKeys', () => {
     })
 
     it.each([
+        [
+            'an old pod queued, a new pod retries',
+            'request-a-before',
+            { current: 'request-a', previousShape: 'request-a-before' },
+        ],
+        [
+            'a new pod queued, an old pod retries',
+            { current: 'request-a', previousShape: 'request-a-before' },
+            'request-a-before',
+        ],
+        [
+            'a new pod queued, a new pod retries a request whose previous shape changed',
+            { current: 'request-a', previousShape: 'request-a-before' },
+            { current: 'request-a', previousShape: 'request-a-before-other-sender' },
+        ],
+    ] as const)('replays a run across a fingerprint shape change when %s', async (_desc, first, retry) => {
+        await keys.reserve(1, key, first, 'run-1')
+        await keys.markQueued(1, key, first, 'run-1')
+
+        expect(await keys.reserve(1, key, retry, 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
+        expect(
+            await keys.reserve(1, key, { current: 'request-b', previousShape: 'request-b-before' }, 'run-3')
+        ).toEqual({
+            status: 'conflict',
+        })
+    })
+
+    it.each([
         { send: 'now', scheduledInMs: null, windowMs: 24 * HOUR_MS },
         { send: 'scheduled 3 days ahead', scheduledInMs: 72 * HOUR_MS, windowMs: 96 * HOUR_MS },
     ])('keeps the key of a send $send until 24 hours after it is due', async ({ scheduledInMs, windowMs }) => {
@@ -71,6 +99,33 @@ describe('IdempotencyKeys', () => {
         })
         expect(ttlSeconds).toBeGreaterThan(windowMs / 1000 - 60)
         expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
+    })
+
+    it('keeps the sender and both fingerprint shapes of a sandbox send when a reschedule extends its key', async () => {
+        const fingerprint = { current: 'request-a', previousShape: 'request-a-before' }
+        await keys.reserve(1, key, fingerprint, 'run-1')
+        await keys.markQueued(1, key, fingerprint, 'run-1', undefined, undefined, undefined, 'email_sandbox')
+
+        await keys.replayUntilDayAfter(
+            1,
+            'run-1',
+            {
+                hash: IdempotencyKeys.hash(key),
+                fingerprint: 'request-a-before',
+                currentFingerprint: 'request-a',
+                senderKind: 'email_sandbox',
+            },
+            new Date(Date.now() + 30 * 24 * HOUR_MS)
+        )
+
+        expect(
+            await keys.reserve(
+                1,
+                key,
+                { current: 'request-a', previousShape: 'request-a-before-other-sender' },
+                'run-2'
+            )
+        ).toEqual({ status: 'replayed', invocationId: 'run-1', senderKind: 'email_sandbox' })
     })
 
     it('replays the fields recorded with the run', async () => {
