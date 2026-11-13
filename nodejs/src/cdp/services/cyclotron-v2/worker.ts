@@ -48,7 +48,6 @@ export interface RawJobRow {
 
 const CHURN_PARK_MS = (2 * 3_600_000) / CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR
 
-// Read off the dequeued row and the reschedule time, so tracking churn costs no extra query.
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
     help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, or at the counter cap and rescheduled into the next ${CHURN_PARK_MS / 1000}s, meaning they are cycling without completing.`,
