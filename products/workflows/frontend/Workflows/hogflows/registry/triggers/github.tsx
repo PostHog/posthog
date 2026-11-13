@@ -57,18 +57,25 @@ function GithubRepositoriesSelect({
     value: string[]
     onChange: (repositories: string[]) => void
 }): JSX.Element {
-    const { options, loading } = useRepositories(integrationId, { valueKey: 'full_name' })
+    const { options, loading, failed, retry } = useRepositories(integrationId, { valueKey: 'full_name' })
 
     return (
-        <LemonInputSelect
-            mode="multiple"
-            value={value}
-            options={options}
-            loading={loading}
-            placeholder="Select repositories"
-            onChange={onChange}
-            data-attr="github-trigger-repositories"
-        />
+        <div>
+            {failed && (
+                <LemonBanner type="error" className="mb-2" action={{ children: 'Retry', onClick: retry }}>
+                    Could not load repositories. Try again.
+                </LemonBanner>
+            )}
+            <LemonInputSelect
+                mode="multiple"
+                value={value}
+                options={options}
+                loading={loading}
+                placeholder="Select repositories"
+                onChange={onChange}
+                data-attr="github-trigger-repositories"
+            />
+        </div>
     )
 }
 
