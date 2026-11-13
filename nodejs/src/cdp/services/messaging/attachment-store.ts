@@ -69,7 +69,12 @@ export class AttachmentMissingError extends Error {
 
 export interface AttachmentStore {
     prepareUploads(teamId: number, files: UploadRequest[]): Promise<UploadSlot[]>
-    acceptForSend(teamId: number, refs: AttachmentRef[], needsUntil: Date): Promise<AcceptedForSend | RefusedForSend>
+    acceptForSend(
+        teamId: number,
+        refs: AttachmentRef[],
+        needsUntil: Date,
+        deadline?: AbortSignal
+    ): Promise<AcceptedForSend | RefusedForSend>
     load(teamId: number, files: EmailAttachmentMetadata[], signal: AbortSignal): Promise<LoadedAttachment[]>
 }
 
@@ -98,10 +103,11 @@ export class S3AttachmentStore implements AttachmentStore {
     async acceptForSend(
         teamId: number,
         refs: AttachmentRef[],
-        needsUntil: Date
+        needsUntil: Date,
+        deadline?: AbortSignal
     ): Promise<AcceptedForSend | RefusedForSend> {
         const found = await Promise.all(
-            refs.map(async (ref) => ({ ref, stored: await this.storedFile(teamId, ref.sha256) }))
+            refs.map(async (ref) => ({ ref, stored: await this.storedFile(teamId, ref.sha256, deadline) }))
         )
         const present = found.filter((file): file is { ref: AttachmentRef; stored: StoredFile } => !!file.stored)
         const missing = found.find((file) => !file.stored)
@@ -111,7 +117,8 @@ export class S3AttachmentStore implements AttachmentStore {
         }
         await this.keepUntil(
             present.map(({ stored }) => stored),
-            needsUntil
+            needsUntil,
+            deadline
         )
         return { files: present.map(({ ref, stored }) => ({ ...ref, sizeBytes: stored.sizeBytes })) }
     }
@@ -165,23 +172,24 @@ export class S3AttachmentStore implements AttachmentStore {
         }
     }
 
-    private async storedFile(teamId: number, sha256: Sha256Hex): Promise<StoredFile | null> {
+    private async storedFile(teamId: number, sha256: Sha256Hex, deadline?: AbortSignal): Promise<StoredFile | null> {
         const key = this.key(teamId, sha256)
-        const head = await this.head(key)
+        const head = await this.head(key, deadline)
         if (!head || (head.ChecksumSHA256 && head.ChecksumSHA256 !== Buffer.from(sha256, 'hex').toString('base64'))) {
             return null
         }
         return { key, sizeBytes: head.ContentLength ?? 0, expiresAt: expiryOf(head) }
     }
 
-    private async keepUntil(files: StoredFile[], needsUntil: Date): Promise<void> {
+    private async keepUntil(files: StoredFile[], needsUntil: Date, deadline?: AbortSignal): Promise<void> {
         const toCopy = files.filter(({ expiresAt }) => expiresAt < needsUntil)
         if (toCopy.length && needsUntil > this.latestKeepable()) {
             throw new RangeError(
                 `A file can be kept until ${this.latestKeepable().toISOString()} at the latest, not ${needsUntil.toISOString()}`
             )
         }
-        await Promise.all(toCopy.map(({ key }) => this.restartLifetimeBySelfCopy(key)))
+        deadline?.throwIfAborted()
+        await Promise.all(toCopy.map(({ key }) => this.restartLifetimeBySelfCopy(key, deadline)))
         attachmentStoreFiles.labels({ operation: 'accept', outcome: 'copied' }).inc(toCopy.length)
         attachmentStoreFiles.labels({ operation: 'accept', outcome: 'kept' }).inc(files.length - toCopy.length)
     }
@@ -197,8 +205,13 @@ export class S3AttachmentStore implements AttachmentStore {
         return [this.config.prefix, 'team', teamId, sha256].filter((segment) => segment !== '').join('/')
     }
 
-    private async head(key: string): Promise<HeadObjectCommandOutput | null> {
-        const signal = AbortSignal.timeout(this.config.timeoutMs)
+    private callSignal(deadline?: AbortSignal): AbortSignal {
+        const timeout = AbortSignal.timeout(this.config.timeoutMs)
+        return deadline ? AbortSignal.any([timeout, deadline]) : timeout
+    }
+
+    private async head(key: string, deadline?: AbortSignal): Promise<HeadObjectCommandOutput | null> {
+        const signal = this.callSignal(deadline)
         try {
             return await settleBeforeAbortEvenWhileCredentialsStall(
                 signal,
@@ -214,9 +227,9 @@ export class S3AttachmentStore implements AttachmentStore {
         }
     }
 
-    private async restartLifetimeBySelfCopy(key: string): Promise<void> {
+    private async restartLifetimeBySelfCopy(key: string, deadline?: AbortSignal): Promise<void> {
         const { bucket } = this.config
-        const signal = AbortSignal.timeout(this.config.timeoutMs)
+        const signal = this.callSignal(deadline)
         try {
             await settleBeforeAbortEvenWhileCredentialsStall(
                 signal,

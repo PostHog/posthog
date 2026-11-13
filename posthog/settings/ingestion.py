@@ -75,6 +75,11 @@ OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")
 OTEL_METRICS_EXPORT_TOKEN = os.getenv("OTEL_METRICS_EXPORT_TOKEN", "")
 OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS", type_cast=int, default=60_000)
 
+# Internal OTLP/HTTP base URL that metrics recording rules write their results to (the `capture-logs`
+# service, path `/i/v1/metrics`). Each rule writes with its own team's project token as the Bearer, so
+# the result lands in that team's metrics. Empty = recording rules are not evaluated.
+METRICS_RECORDING_RULES_INGEST_URL = os.getenv("METRICS_RECORDING_RULES_INGEST_URL", "")
+
 # The names and defaults match the Node producer (nodejs/src/logs/config.ts), so one env set configures both runtimes.
 LOGS_INTERNAL_PRODUCER_URL = os.getenv("LOGS_INTERNAL_PRODUCER_URL", "")
 LOGS_INTERNAL_INGESTION_SIGNING_KEYS = os.getenv("LOGS_INTERNAL_INGESTION_SIGNING_KEYS", "")

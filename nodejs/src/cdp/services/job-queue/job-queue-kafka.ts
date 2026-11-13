@@ -74,8 +74,9 @@ export class CyclotronJobQueueKafka implements JobQueue {
     }
 
     public async stopProducer() {
-        await this.kafkaProducer?.disconnect()
+        const producer = this.kafkaProducer
         this.kafkaProducer = undefined
+        await producer?.disconnect()
     }
 
     public isHealthy(): HealthCheckResult {

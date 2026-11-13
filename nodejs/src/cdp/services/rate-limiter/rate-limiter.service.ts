@@ -136,6 +136,80 @@ redis.call('hset', key, 'resv', slotAt)
 return {0, math.ceil(slotAt - now), 1}
 `
 
+const MARK_CLAIM_SPENT_LUA = `
+if redis.call('hexists', KEYS[1], 'attempt:' .. ARGV[1]) == 1 and not redis.call('hget', KEYS[1], 'spent') then
+    redis.call('hset', KEYS[1], 'spent', ARGV[1])
+    return 1
+end
+return 0
+`
+
+const RELEASE_CLAIM_SPEND_LUA = `
+if redis.call('hget', KEYS[1], 'spent') == ARGV[1] then
+    redis.call('hdel', KEYS[1], 'spent')
+    return 1
+end
+return 0
+`
+
+const CLAIM_ALL_OR_NOTHING_ACROSS_LUA = `
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+
+local claimKey = KEYS[#KEYS]
+local claimAttempt = ARGV[#ARGV - 1]
+local claimTtlSeconds = tonumber(ARGV[#ARGV])
+if claimTtlSeconds == nil or claimTtlSeconds < 1 or claimTtlSeconds > 2147483647 or claimTtlSeconds % 1 ~= 0 then
+    return redis.error_reply('invalid ttl for ' .. claimKey)
+end
+if claimAttempt == nil or claimAttempt == '' then
+    return redis.error_reply('invalid attempt for ' .. claimKey)
+end
+if redis.call('exists', claimKey) == 1 and not redis.call('hget', claimKey, 'spent') then
+    redis.call('hset', claimKey, 'attempt:' .. claimAttempt, 1)
+    return 1
+end
+
+local after = {}
+for i = 1, #KEYS - 1 do
+    local key = KEYS[i]
+    local base = (i - 1) * 4
+    local requested = tonumber(ARGV[base + 1])
+    local capacity = tonumber(ARGV[base + 2])
+    local refillPerSecond = tonumber(ARGV[base + 3])
+    local ttlSeconds = tonumber(ARGV[base + 4])
+    if ttlSeconds == nil or ttlSeconds < 1 or ttlSeconds > 2147483647 or ttlSeconds % 1 ~= 0 then
+        return redis.error_reply('invalid ttl for ' .. key)
+    end
+
+    local existing = redis.call('hmget', key, 'ts', 'pool')
+    local available = capacity
+    if existing[1] ~= false then
+        local elapsedMs = math.max(0, now - tonumber(existing[1]))
+        local currentTokens = capacity
+        if existing[2] ~= false then
+            currentTokens = tonumber(existing[2])
+        end
+        available = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
+    end
+    if available < requested then
+        return 0
+    end
+    after[i] = available - requested
+end
+
+for i = 1, #KEYS - 1 do
+    redis.call('hset', KEYS[i], 'ts', now, 'pool', after[i])
+    redis.call('expire', KEYS[i], tonumber(ARGV[(i - 1) * 4 + 4]))
+end
+redis.call('del', claimKey)
+redis.call('hset', claimKey, 'attempt:' .. claimAttempt, 1)
+redis.call('expire', claimKey, claimTtlSeconds)
+return 1
+`
+
+export const CLAIM_DEADLINE_MS = 2_000
+
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
@@ -202,6 +276,88 @@ export class RateLimiterService {
     ): Promise<{ granted: boolean; retryAfterMs: number | null; reserved: boolean }> {
         const { granted, retryAfterMs, reserved } = await this.evalClaim(req, reserveOnDenyMs, true)
         return { granted: granted >= req.requested, retryAfterMs, reserved }
+    }
+
+    public async markClaimSpent(claim: { key: string; attempt: string }): Promise<boolean> {
+        return await this.evalClaimMark('markClaimSpent', MARK_CLAIM_SPENT_LUA, claim)
+    }
+
+    public async releaseClaimSpend(claim: { key: string; attempt: string }): Promise<boolean> {
+        return await this.evalClaimMark('releaseClaimSpend', RELEASE_CLAIM_SPEND_LUA, claim)
+    }
+
+    private async evalClaimMark(
+        operation: string,
+        script: string,
+        claim: { key: string; attempt: string }
+    ): Promise<boolean> {
+        try {
+            const result = await this.valkey.useClient(
+                {
+                    name: `rate-limiter:${this.config.name}:${operation}`,
+                    timeout: 1000,
+                    deadlineMs: CLAIM_DEADLINE_MS,
+                },
+                (client) => client.eval(script, 1, claim.key, claim.attempt)
+            )
+            return result === 1
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) ${operation} threw`, {
+                key: claim.key,
+                error: String(err),
+            })
+            return false
+        }
+    }
+
+    public async claimAllOrNothingAcross(
+        reqs: ClaimRequest[],
+        claim: { key: string; attempt: string; ttlSeconds: number }
+    ): Promise<'granted' | 'denied' | 'unavailable'> {
+        const endTimer = claimLatency.startTimer({ limiter: this.config.name })
+        try {
+            const result = await this.valkey.useClient(
+                {
+                    name: `rate-limiter:${this.config.name}:claimAllOrNothingAcross`,
+                    timeout: 1000,
+                    deadlineMs: CLAIM_DEADLINE_MS,
+                },
+                (client) =>
+                    client.eval(
+                        CLAIM_ALL_OR_NOTHING_ACROSS_LUA,
+                        reqs.length + 1,
+                        ...reqs.map((req) => req.key),
+                        claim.key,
+                        ...reqs.flatMap((req) => [
+                            String(req.requested),
+                            String(req.capacity),
+                            String(req.refillPerSecond),
+                            String(req.ttlSeconds ?? 3600),
+                        ]),
+                        claim.attempt,
+                        String(claim.ttlSeconds)
+                    )
+            )
+            if (result !== 0 && result !== 1) {
+                logger.warn('🪙', `RateLimiterService(${this.config.name}) returned invalid grant`, {
+                    keys: reqs.map((req) => req.key),
+                    raw: result,
+                })
+                claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+                return 'unavailable'
+            }
+            claimCounter.inc({ limiter: this.config.name, result: result === 1 ? 'granted_full' : 'denied' })
+            return result === 1 ? 'granted' : 'denied'
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, {
+                keys: reqs.map((req) => req.key),
+                error: String(err),
+            })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+            return 'unavailable'
+        } finally {
+            endTimer()
+        }
     }
 
     /**

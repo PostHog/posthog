@@ -3,9 +3,11 @@ import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { Heading } from '@posthog/quill'
 
 import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
+import { QuillExportButton } from 'lib/components/ExportButton/QuillExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -132,6 +134,13 @@ function DashboardInsightRefreshHintOrLoading({
         )
     }
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
+}
+
+function exportItems(exportContext: ExportButtonItem['export_context']): ExportButtonItem[] {
+    return [
+        { export_format: ExporterFormat.CSV, export_context: exportContext },
+        { export_format: ExporterFormat.XLSX, export_context: exportContext },
+    ]
 }
 
 function isNonEmptyResult(rows: unknown): boolean {
@@ -526,26 +535,22 @@ export function InsightVizDisplay({
         if (hasDetailedResultsTable && !disableTable) {
             return (
                 <>
-                    {exportContext && (
-                        <div className="flex items-center justify-between my-4 mx-0">
-                            <h2 className="font-semibold text-lg m-0">Detailed results</h2>
-                            <Tooltip title="Export this table" placement="left">
-                                <ExportButton
-                                    type="secondary"
-                                    items={[
-                                        {
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.XLSX,
-                                            export_context: exportContext,
-                                        },
-                                    ]}
-                                />
-                            </Tooltip>
-                        </div>
-                    )}
+                    {exportContext &&
+                        (quillSurface ? (
+                            <div className="flex items-center justify-between gap-2 my-4">
+                                <Heading size="base" render={<h2 className="m-0" />}>
+                                    Detailed results
+                                </Heading>
+                                <QuillExportButton tooltip="Export this table" items={exportItems(exportContext)} />
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-between my-4 mx-0">
+                                <h2 className="font-semibold text-lg m-0">Detailed results</h2>
+                                <Tooltip title="Export this table" placement="left">
+                                    <ExportButton type="secondary" items={exportItems(exportContext)} />
+                                </Tooltip>
+                            </div>
+                        ))}
 
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
@@ -697,8 +702,10 @@ export function InsightVizDisplay({
                     <ExplainChartAgentBridge insightProps={insightProps} />
                 </Suspense>
             )}
-            {renderAIAnalysisSection()}
-            {renderTable()}
+            <QuillSurfaceContext.Provider value={quillSurface}>
+                {renderAIAnalysisSection()}
+                {renderTable()}
+            </QuillSurfaceContext.Provider>
         </>
     )
 }

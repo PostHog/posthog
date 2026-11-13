@@ -446,15 +446,6 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
     )
 
 
-def is_cdc_enabled_for_team(team: Team) -> bool:
-    return feature_enabled_or_false(
-        "dwh-postgres-cdc",
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-    )
-
-
 def is_custom_source_ai_builder_enabled_for_team(team: Team) -> bool:
     return feature_enabled_or_false(
         "dwh-custom-source-ai-builder",

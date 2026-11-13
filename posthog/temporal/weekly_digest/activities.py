@@ -50,7 +50,6 @@ from posthog.temporal.common.metrics import get_metric_meter
 from posthog.temporal.common.utils import asyncify, make_sync_retryable_with_exponential_backoff
 from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
 from posthog.temporal.weekly_digest.queries import (
-    query_new_dashboards,
     query_new_error_issues,
     query_new_event_definitions,
     query_new_external_data_sources,
@@ -92,6 +91,8 @@ from posthog.temporal.weekly_digest.types import (
 from posthog.token_bucket import BucketDecision, Budget, consume
 from posthog.utils import get_instance_region
 
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import TeamDashboardRef
 from products.error_tracking.backend.facade.api import get_new_issues_for_team
 from products.experiments.backend.facade import api as experiments_api
 from products.experiments.backend.facade.contracts import DigestCompletedExperiment, DigestLaunchedExperiment
@@ -299,16 +300,38 @@ def generate_digest_data_lookup(
     _store_resources(input, logger, key_kind, resources_by_team, eligible_team_ids)
 
 
+type _DigestRow = TeamDashboardRef | DigestLaunchedExperiment | DigestCompletedExperiment
+
+
+class _ListDigestRows(Protocol):
+    def __call__(self, *, period_start: datetime, period_end: datetime, team_ids: range) -> Iterable[_DigestRow]: ...
+
+
+def _generate_facade_lookup(
+    input: GenerateDigestDataBatchInput,
+    key_kind: TeamDataKey,
+    list_rows: _ListDigestRows,
+    resource_type: DigestResourceType,
+) -> None:
+    logger = _bind_batch_logger(input)
+    logger.info("Generating digest data batch", key_kind=key_kind)
+
+    eligible_team_ids = _eligible_team_ids(input)
+    rows = list_rows(
+        period_start=input.digest.period_start,
+        period_end=input.digest.period_end,
+        team_ids=range(input.team_id_range.start, input.team_id_range.end),
+    )
+    rows_by_team = _rows_by_team((dataclasses.asdict(row) for row in rows), eligible_team_ids)
+    resources_by_team = _validate_by_team(logger, rows_by_team, resource_type)
+    _store_resources(input, logger, key_kind, resources_by_team, eligible_team_ids)
+
+
 @activity.defn(name="generate-dashboard-lookup")
 @asyncify
 def generate_dashboard_lookup(input: GenerateDigestDataBatchInput) -> None:
     with HeartbeaterSync(logger=LOGGER):
-        generate_digest_data_lookup(
-            input,
-            key_kind=TeamDataKey.DASHBOARDS,
-            query_func=query_new_dashboards,
-            resource_type=DashboardList,
-        )
+        _generate_facade_lookup(input, TeamDataKey.DASHBOARDS, dashboards_api.dashboards_created_between, DashboardList)
 
 
 @activity.defn(name="generate-event-definition-lookup")
@@ -323,35 +346,15 @@ def generate_event_definition_lookup(input: GenerateDigestDataBatchInput) -> Non
         )
 
 
-class _ListDigestExperiments(Protocol):
-    def __call__(
-        self, *, period_start: datetime, period_end: datetime, team_ids: range
-    ) -> Iterable[DigestLaunchedExperiment | DigestCompletedExperiment]: ...
-
-
-def _generate_experiment_lookup(
-    input: GenerateDigestDataBatchInput, key_kind: TeamDataKey, list_experiments: _ListDigestExperiments
-) -> None:
-    logger = _bind_batch_logger(input)
-    logger.info("Generating digest data batch", key_kind=key_kind)
-
-    eligible_team_ids = _eligible_team_ids(input)
-    experiments = list_experiments(
-        period_start=input.digest.period_start,
-        period_end=input.digest.period_end,
-        team_ids=range(input.team_id_range.start, input.team_id_range.end),
-    )
-    rows_by_team = _rows_by_team((dataclasses.asdict(experiment) for experiment in experiments), eligible_team_ids)
-    resources_by_team = _validate_by_team(logger, rows_by_team, ExperimentList)
-    _store_resources(input, logger, key_kind, resources_by_team, eligible_team_ids)
-
-
 @activity.defn(name="generate-experiment-completed-lookup")
 @asyncify
 def generate_experiment_completed_lookup(input: GenerateDigestDataBatchInput) -> None:
     with HeartbeaterSync(logger=LOGGER):
-        _generate_experiment_lookup(
-            input, TeamDataKey.EXPERIMENTS_COMPLETED, experiments_api.list_completed_experiments_for_digest
+        _generate_facade_lookup(
+            input,
+            TeamDataKey.EXPERIMENTS_COMPLETED,
+            experiments_api.list_completed_experiments_for_digest,
+            ExperimentList,
         )
 
 
@@ -359,8 +362,11 @@ def generate_experiment_completed_lookup(input: GenerateDigestDataBatchInput) ->
 @asyncify
 def generate_experiment_launched_lookup(input: GenerateDigestDataBatchInput) -> None:
     with HeartbeaterSync(logger=LOGGER):
-        _generate_experiment_lookup(
-            input, TeamDataKey.EXPERIMENTS_LAUNCHED, experiments_api.list_launched_experiments_for_digest
+        _generate_facade_lookup(
+            input,
+            TeamDataKey.EXPERIMENTS_LAUNCHED,
+            experiments_api.list_launched_experiments_for_digest,
+            ExperimentList,
         )
 
 

@@ -3,6 +3,7 @@ import './InsightsTable.scss'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { percentage } from 'lib/utils/numbers'
@@ -24,6 +25,8 @@ import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { QuillInsightsTable } from './QuillInsightsTable'
+import { seriesRowColor } from './seriesRowColor'
 import { CalcColumnState, InsightsTableColumn, MAX_VALUE_COLUMNS, useInsightsTableModel } from './useInsightsTableModel'
 
 export interface InsightsTableProps {
@@ -69,6 +72,7 @@ export function InsightsTable({
     editMode,
     emptyState = 'No insight results',
 }: InsightsTableProps): JSX.Element {
+    const quillSurface = useQuillSurface()
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
@@ -112,6 +116,21 @@ export function InsightsTable({
         renderCount,
         showMoreColumns,
     } = useInsightsTableModel({ filterKey, isLegend, embedded, isMainInsightView })
+
+    if (quillSurface && !isMainInsightView) {
+        return (
+            <QuillInsightsTable
+                filterKey={filterKey}
+                isLegend={isLegend}
+                embedded={embedded}
+                canEditSeriesNameInline={canEditSeriesNameInline}
+                seriesNameTooltip={seriesNameTooltip}
+                canCheckUncheckSeries={canCheckUncheckSeries}
+                editMode={editMode}
+                emptyState={emptyState}
+            />
+        )
+    }
 
     const toLemonColumn = (column: InsightsTableColumn): LemonTableColumn<IndexedTrendResult, any> => {
         switch (column.kind) {
@@ -358,18 +377,7 @@ export function InsightsTable({
             emptyState={emptyState}
             data-attr="insights-table-graph"
             useURLForSorting={!editMode}
-            rowRibbonColor={
-                isLegend
-                    ? (item) => {
-                          const isPrevious = !!item.compare && item.compare_label === 'previous'
-
-                          const themeColor = getTrendsColor(item)
-                          const mainColor = isPrevious ? `${themeColor}80` : themeColor
-
-                          return mainColor
-                      }
-                    : undefined
-            }
+            rowRibbonColor={isLegend ? (item) => seriesRowColor(item, getTrendsColor(item)) : undefined}
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"

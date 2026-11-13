@@ -7,8 +7,9 @@ import { INGESTION_HOSTS } from '@/posthog/host'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
+import { detectCi, isRunningInCI } from './ci'
 import { parseJsonOrUndefined } from './json'
-import type { Env, Runtime } from './runtime'
+import type { Runtime } from './runtime'
 import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
@@ -21,67 +22,6 @@ const ID_FILE = 'hog-telemetry-id'
 const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
-
-type EnvCheck = (env: Env) => boolean
-const has =
-    (name: string): EnvCheck =>
-    (env) =>
-        Boolean(env[name])
-
-// First match wins. Platforms that also set the variables of another one come first: Depot CI
-// before GitHub Actions, Harness and Woodpecker before Drone. Vercel sets VERCEL outside builds too.
-const CI_PROVIDERS: ReadonlyArray<readonly [provider: string, check: EnvCheck]> = [
-    ['depot-ci', has('DEPOT_JOB_URL')],
-    ['harness', has('HARNESS_BUILD_ID')],
-    ['woodpecker', (env) => env.CI === 'woodpecker'],
-    ['github-actions', has('GITHUB_ACTIONS')],
-    ['gitlab', has('GITLAB_CI')],
-    ['circleci', has('CIRCLECI')],
-    ['buildkite', has('BUILDKITE')],
-    ['jenkins', has('JENKINS_URL')],
-    ['travis', has('TRAVIS')],
-    ['bitbucket', has('BITBUCKET_COMMIT')],
-    ['azure-pipelines', has('TF_BUILD')],
-    ['aws-codebuild', has('CODEBUILD_BUILD_ARN')],
-    ['google-cloud-build', has('BUILDER_OUTPUT')],
-    ['vercel', (env) => Boolean(env.VERCEL && env.CI)],
-    ['netlify', has('NETLIFY')],
-    ['cloudflare-pages', has('CF_PAGES')],
-    ['cloudflare-workers', has('WORKERS_CI')],
-    ['render', has('RENDER')],
-    ['railway', has('RAILWAY_SERVICE_ID')],
-    ['heroku-ci', has('HEROKU_TEST_RUN_ID')],
-    ['expo-eas', has('EAS_BUILD')],
-    ['bitrise', has('BITRISE_IO')],
-    ['xcode-cloud', has('CI_XCODE_CLOUD')],
-    ['codemagic', has('CM_BUILD_ID')],
-    ['semaphore', has('SEMAPHORE')],
-    ['drone', has('DRONE')],
-    ['teamcity', has('TEAMCITY_VERSION')],
-    ['appveyor', has('APPVEYOR')],
-]
-
-// Vendors that run GitHub Actions jobs on their own machines. Some of these variables hold tokens,
-// so hog only checks that they are set.
-const runnerName =
-    (prefix: string): EnvCheck =>
-    (env) =>
-        env.RUNNER_NAME?.startsWith(prefix) === true
-const CI_RUNNERS: ReadonlyArray<readonly [runner: string, check: EnvCheck]> = [
-    ['depot', (env) => has('DEPOT_ORG_ID')(env) || runnerName('depot-')(env)],
-    ['blacksmith', has('BLACKSMITH_VM_ID')],
-    ['namespace', (env) => has('NSC_CACHE_PATH')(env) || runnerName('nsc-runner-')(env)],
-    ['warpbuild', has('WARPBUILD_RUNNER_VERIFICATION_TOKEN')],
-    ['ubicloud', has('UBICLOUD_CACHE_URL')],
-    ['runs-on', has('RUNS_ON_RUNNER_NAME')],
-    ['cirun', runnerName('cirun-')],
-]
-
-export function detectCi(env: Env): { provider: string | null; runner: string | null } {
-    const provider = CI_PROVIDERS.find(([, check]) => check(env))?.[0] ?? null
-    const runner = CI_RUNNERS.find(([, check]) => check(env))?.[0] ?? env.RUNNER_ENVIRONMENT ?? null
-    return { provider, runner }
-}
 
 interface QueuedEvent {
     event: string
@@ -233,7 +173,7 @@ export class Telemetry {
             os: process.platform,
             arch: process.arch,
             runtime_version: process.versions.bun,
-            is_ci: env.CI !== undefined || ci.provider !== null,
+            is_ci: isRunningInCI(env),
             ci_provider: ci.provider,
             ci_runner: ci.runner,
             is_terminal: this.runtime.stdoutIsTTY,

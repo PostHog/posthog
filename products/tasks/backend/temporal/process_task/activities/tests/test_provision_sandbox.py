@@ -15,6 +15,7 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.integrations import RepositoryCache
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
@@ -871,12 +872,16 @@ def test_denial_classification_resolves_team_installation_state(
         if unavailable:
             config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = "2026-01-01T00:00:00Z"
         row.config = config
+        row.auth_type = "oauth"
         row.errors = ""
-        row.repository_cache_updated_at = None
-        row.repository_cache = None
         row.integration_id = str(index + 1)
         rows.append(row)
     mocker.patch("posthog.integrations.IntegrationManager.github.oauth.list", return_value=rows)
+    # The adapter reads the repository list through the SDK, not from the row.
+    mocker.patch(
+        "posthog.integrations.accessors.AuthAccessor.get_repository_cache",
+        return_value=RepositoryCache(repositories=None, updated_at=None),
+    )
     mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
     context = _clone_context(state={"github_read_access": True})
     stderr = "fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n"

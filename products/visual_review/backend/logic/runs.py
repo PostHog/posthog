@@ -12,19 +12,23 @@ import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.ph_client import ph_scoped_capture
+from posthog.utils import safe_cache_add
 
 from ..classifier import SnapshotClassifier
 from ..db import WRITER_DB
 from ..facade.contracts import CreateRunInput
-from ..facade.enums import RunStatus, SnapshotResult
+from ..facade.enums import AutoQuarantineMode, RunStatus, SnapshotResult
 from ..models import Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import (
     artifact_store,
+    auto_lift,
+    auto_quarantine,
     baselines,
     ci_status,
     errors,
     gating,
+    github_api,
     quarantine_lifts,
     repos,
     run_queries,
@@ -392,6 +396,13 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     # then reclassifies every snapshot whose diff came in under the threshold. A reader
     # that sees COMPLETED before the recount therefore gets counts that still report drift
     # the run no longer has, and the CLI fails CI on them.
+    # Before the recount, so a quarantine this run proves is stamped on this run and the run passes.
+    # A failure here must never fail the run or make it retry, because the gate works without it.
+    try:
+        auto_quarantine.quarantine_proven_flakes(run)
+    except Exception:
+        logger.exception("visual_review.auto_quarantine_failed", run_id=str(run_id))
+
     try:
         snapshots = gating._recount(run)
     except Exception as exc:
@@ -413,6 +424,7 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
 
     gating._post_status(run, snapshots)
     _enqueue_quarantine_lift_check(run)
+    _enqueue_clean_quarantine_release(run)
 
     return run
 
@@ -434,6 +446,36 @@ def _enqueue_quarantine_lift_check(run: Run) -> None:
         reconcile_quarantine_lifts.delay(run.team_id, str(run.id))
     except Exception:
         logger.warning("visual_review.quarantine_lift_enqueue_failed", run_id=str(run.id), exc_info=True)
+
+
+# A clean window does not end within an hour, so a busy default branch skips the grouped read on most runs.
+_CLEAN_RELEASE_THROTTLE_SECONDS = 60 * 60
+
+
+def _enqueue_clean_quarantine_release(run: Run) -> None:
+    """Hand a completed full default-branch run to the task that lifts quarantines gone clean.
+
+    A failure here must never fail the run: a later default-branch run checks again.
+    """
+    if not auto_lift.may_release(run):
+        return
+    try:
+        if run.repo.auto_quarantine_mode == AutoQuarantineMode.OFF:
+            return
+        # Before the hourly slot, so a full run without a pull request on another branch cannot take it.
+        if github_api.default_branch_name(run.repo) != run.branch:
+            return
+        if not safe_cache_add(
+            f"visual_review:release_clean_quarantines:{run.repo_id}:{run.run_type}",
+            True,
+            timeout=_CLEAN_RELEASE_THROTTLE_SECONDS,
+        ):
+            return
+        from ..tasks.tasks import release_clean_quarantines  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+        release_clean_quarantines.delay(run.team_id, str(run.id))
+    except Exception:
+        logger.warning("visual_review.clean_quarantine_release_enqueue_failed", run_id=str(run.id), exc_info=True)
 
 
 def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:

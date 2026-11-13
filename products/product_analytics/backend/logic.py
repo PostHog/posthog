@@ -1,10 +1,11 @@
-from collections.abc import Collection, Mapping
+import json
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db import router
+from django.db import connection, router
 from django.db.models import Count, Max, OuterRef, Q, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
@@ -12,7 +13,12 @@ from django.utils.timezone import now
 
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
+from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
+from products.product_analytics.backend.facade.contracts import (
+    InsightActionReference,
+    InsightVariableDefinition,
+    SavedTrendsInsight,
+)
 from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
 from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -349,6 +355,51 @@ def update_insight_explanation(
     explanation.data = data
     explanation.save(update_fields=["data"])
     return explanation
+
+
+def insights_referencing_action(*, team_id: int, action_id: int, limit: int) -> list[InsightActionReference]:
+    vars_json = json.dumps({"id": action_id, "id_str": str(action_id)})
+    rows = (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        Insight.objects.filter(team_id=team_id, deleted=False)
+        .extra(
+            where=[
+                f"""
+                jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
+                """
+            ],
+            params=[vars_json] * 3,
+        )
+        .values("id", "short_id", "name", "derived_name", "created_at", "created_by_id")
+    )
+    return [InsightActionReference(**row) for row in rows[:limit]]
+
+
+def count_insights_referencing_actions(*, team_id: int, action_ids: Sequence[int]) -> dict[int, int]:
+    if not action_ids:
+        return {}
+    insight_table = Insight._meta.db_table
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
+            CROSS JOIN LATERAL (
+                SELECT 1 FROM {insight_table}
+                WHERE team_id = %s AND NOT deleted
+                AND (
+                    jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                )
+            ) AS matched
+            GROUP BY aid
+            """,
+            [list(action_ids), team_id],
+        )
+        return dict(cursor.fetchall())
 
 
 def insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> InsightExplanation | None:

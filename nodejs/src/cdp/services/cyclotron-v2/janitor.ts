@@ -6,9 +6,9 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
-import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { QUEUE_DEPTHS_SQL } from './due-rows-sql'
+import { v2JobToInvocation } from './job-codec'
 import { createCyclotronPool } from './pg-pool'
 import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
@@ -96,11 +96,7 @@ interface PoisonRow {
     created: string
     parent_run_id: string | null
     state: Buffer | null
-    distinct_id: string | null
-    person_id: string | null
-    action_id: string | null
     janitor_touch_count: number
-    transition_count: number
 }
 
 export class CyclotronV2Janitor {
@@ -292,8 +288,7 @@ export class CyclotronV2Janitor {
 
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
-                    parent_run_id, state, distinct_id, person_id, action_id,
-                    janitor_touch_count, transition_count
+                    parent_run_id, state, janitor_touch_count
              FROM cyclotron_jobs
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1

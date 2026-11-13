@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
@@ -13,8 +14,12 @@ from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertSt
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.scoping import team_scope
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.alerts_platform.backend.facade.api import get_configuration, subscriber_user_ids_by_public_id
+from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.product_analytics.backend.facade.models import Insight
 
 from .max_tools import CreateAlertAction, UpdateAlertAction, UpsertAlertTool
@@ -134,6 +139,100 @@ class TestUpsertAlertTool(BaseTest):
 
         subscription = await sync_to_async(AlertSubscription.objects.get)(alert_configuration=alert)
         assert subscription.user_id == self.user.id
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_an_alert_created_in_a_team_creating_native_alerts_is_only_on_the_platform_and_updates_there(
+        self,
+    ):
+        insight = await self._create_insight()
+        tool = self._setup_tool()
+
+        with mock.patch(
+            "products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True
+        ):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Hourly signups below 100",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                    calculation_interval=AlertCalculationInterval.HOURLY,
+                )
+            )
+
+        assert "created successfully" in content, content
+        alert_id = UUID(artifact["alert_id"])
+        assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+
+        def _stored() -> tuple[PlatformAlertConfigurationView | None, dict[UUID, tuple[int, ...]]]:
+            with team_scope(self.team.id):
+                return (
+                    get_configuration(
+                        team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+                    ),
+                    subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[alert_id]),
+                )
+
+        created, subscribers = await sync_to_async(_stored)()
+        assert created is not None
+        assert (created.name, created.check_interval_minutes, created.created_by_id) == (
+            "Hourly signups below 100",
+            60,
+            self.user.id,
+        )
+        assert subscribers == {alert_id: (self.user.id,)}
+
+        with mock.patch("posthog.event_usage.report_user_action") as report:
+            updated_content, _ = await tool._arun_impl(
+                action=UpdateAlertAction(
+                    alert_id=str(alert_id),
+                    name="Daily signups below 50",
+                    lower_threshold=50.0,
+                    calculation_interval=AlertCalculationInterval.DAILY,
+                    enabled=False,
+                )
+            )
+
+        assert "updated successfully" in updated_content, updated_content
+        reported = report.call_args.args[2]
+        assert (reported["alert_name"], reported["calculation_interval"], reported["enabled"]) == (
+            "Daily signups below 50",
+            AlertCalculationInterval.DAILY,
+            False,
+        )
+        updated, _ = await sync_to_async(_stored)()
+        assert updated is not None
+        assert (updated.name, updated.check_interval_minutes) == ("Daily signups below 50", 60 * 24)
+        assert updated.source_config["condition"]["threshold"]["bounds"]["lower"] == 50.0
+        assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+
+        def can_view(_access_control: UserAccessControl, obj: object, *_args: object) -> bool:
+            return not isinstance(obj, Insight)
+
+        with mock.patch.object(UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=can_view):
+            hidden_content, hidden = await tool._arun_impl(
+                action=UpdateAlertAction(alert_id=str(alert_id), name="Renamed without insight access")
+            )
+            preview = await tool.format_dangerous_operation_preview(
+                UpdateAlertAction(alert_id=str(alert_id), enabled=True)
+            )
+
+        assert preview == f"**Update** alert (ID: {alert_id})"
+
+        assert hidden.get("error"), hidden_content
+        still_named, _ = await sync_to_async(_stored)()
+        assert still_named is not None
+        assert still_named.name == "Daily signups below 50"
+
+        refused_content, refused = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert_id), upper_threshold=10.0)
+        )
+
+        assert refused == {"error": "validation_failed"}, refused_content
+        unchanged, _ = await sync_to_async(_stored)()
+        assert unchanged is not None
+        assert unchanged.source_config["condition"]["threshold"]["bounds"]["upper"] is None
 
     @parameterized.expand(
         [

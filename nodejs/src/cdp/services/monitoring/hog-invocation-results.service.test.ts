@@ -164,6 +164,7 @@ describe('HogInvocationResultsService', () => {
                 noMessageData,
             ],
             ['a recovery stub of an ordinary run', undefined, {}, messageData],
+            ['an email its send marks sensitive', false, { send: { ...send, sensitive: true } }, noMessageData],
         ])(
             'keeps the message data in a workflow snapshot only for %s',
             async (_name, sensitive, state, expected, stepType = 'function_email') => {

@@ -55,7 +55,11 @@ from products.signals.backend.personal_ranking.logic import (
 )
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
-from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
+from products.signals.backend.personal_ranking_tasks import (
+    build_lock_key,
+    build_personal_inbox_ranking,
+    start_first_summary_build,
+)
 from products.signals.backend.ranking.inbox_sort import PERSONAL_RECOMMENDED_FLAG, RECOMMENDED_INBOX_SORT_FLAG
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
@@ -947,6 +951,43 @@ class TestBuildPersonalRanking(BaseTest):
         assert {str(row_id) for row_id in mine.values_list("id", flat=True)} == set(ranking_ids[-2:])
         assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other_user.id).count() == 1
         assert PersonalInboxRanking.objects.for_team(other_team.id).filter(user_id=self.user.id).count() == 1
+
+    @parameterized.expand(
+        [
+            ("first summary with candidates", {}, True, False, ["first_summary"]),
+            ("already has a list", {}, True, True, ["on_demand"]),
+            ("disabled payload", {"enabled": False}, True, False, []),
+            ("no candidates", {}, False, False, []),
+        ]
+    )
+    def test_a_first_summary_builds_a_list_only_for_a_person_without_one(
+        self, _name: str, payload: dict[str, Any], has_candidates: bool, has_list: bool, triggers: list[str]
+    ) -> None:
+        cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        if has_candidates:
+            self._setup_reports()
+        self.create.return_value = _response(_answer([]))
+        if has_list:
+            self._build()
+        queued: list[tuple[Any, ...]] = []
+
+        with (
+            patch("products.signals.backend.personal_ranking.config.read_flag_payload", return_value=payload),
+            patch(
+                "products.signals.backend.personal_ranking_tasks.build_personal_inbox_ranking.delay",
+                side_effect=lambda *args: queued.append(args),
+            ),
+        ):
+            start_first_summary_build(self.team.id, self.user.id)
+            for args in queued:
+                build_personal_inbox_ranking(*args)
+
+        captured = [call.kwargs["properties"]["trigger"] for call in self.capture.call_args_list]
+        assert captured == triggers
+        assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == len(triggers)
+        assert cache.get(build_lock_key(self.team.id, self.user.id)) is None
 
 
 class TestForMeEndpoint(APIBaseTest):

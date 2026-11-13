@@ -27,6 +27,7 @@ class SesIdentity:
     forced_dkim_status: str | None = None
     checks_paused: bool = False
     feedback_forwarding: bool = True
+    reports_mail_from_status: bool = True
 
 
 class FakeSes:
@@ -166,7 +167,11 @@ class FakeSes:
             "MailFromDomainAttributes": {
                 identity.domain: {
                     "MailFromDomain": identity.mail_from_domain,
-                    "MailFromDomainStatus": self.mail_from_status(identity),
+                    **(
+                        {"MailFromDomainStatus": self.mail_from_status(identity)}
+                        if identity.reports_mail_from_status
+                        else {}
+                    ),
                     "BehaviorOnMXFailure": "UseDefaultValue",
                 }
                 for identity in self._known(Identities)

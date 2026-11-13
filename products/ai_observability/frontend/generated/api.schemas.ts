@@ -1888,6 +1888,87 @@ export interface TraceNodeDetailApi {
     content: TraceNodeContentApi
 }
 
+/**
+ * The step's input value as ingested, or an empty object when it has none.
+ */
+export type TraceNodeDatasetItemApiInput = { [key: string]: unknown } | unknown[] | string | number | boolean
+
+/**
+ * The step's output value as ingested, or null when it has none.
+ */
+export type TraceNodeDatasetItemApiSourceOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+/**
+ * The step's custom event properties, without `$` names. Empty for the root.
+ */
+export type TraceNodeDatasetItemApiMetadata = { [key: string]: unknown }
+
+export interface TraceNodeDatasetItemApi {
+    /** An id that identifies the step among dataset items: the event's uuid, or the trace id for the root. */
+    clientItemId: string
+    /** The id of the trace the step belongs to. */
+    sourceTraceId: string
+    /** The step's event uuid, or the trace id for the root. */
+    sourceEventId: string
+    /** When the trace happened, as given by the timestamp hint. */
+    sourceTimestamp: string
+    /** The step's input value as ingested, or an empty object when it has none. */
+    input: TraceNodeDatasetItemApiInput
+    /** The step's output value as ingested, or null when it has none. */
+    sourceOutput: TraceNodeDatasetItemApiSourceOutput
+    /** The step's custom event properties, without `$` names. Empty for the root. */
+    metadata: TraceNodeDatasetItemApiMetadata
+}
+
+export interface TraceNodeParserTestRequestApi {
+    /**
+     * The parser recipe to test, as raw YAML in the custom parser DSL.
+     * @maxLength 100000
+     */
+    source: string
+}
+
+export type TraceParserTestErrorSourceEnumApi =
+    (typeof TraceParserTestErrorSourceEnumApi)[keyof typeof TraceParserTestErrorSourceEnumApi]
+
+export const TraceParserTestErrorSourceEnumApi = {
+    ExistingRecipes: 'existing_recipes',
+    Candidate: 'candidate',
+} as const
+
+export interface TraceParserTestErrorApi {
+    /** Whose parsers failed on the side: the project's saved ones, so the side fails with or without the parser under test, or the parser under test. */
+    source: TraceParserTestErrorSourceEnumApi
+    /** Why the parsers stopped, such as running out of time or work budget. */
+    message: string
+}
+
+export interface TraceParserTestSideApi {
+    /** The side has content that the project's saved parsers leave unparsed, so it renders as raw JSON or as one message holding its JSON. */
+    neededFixing: boolean
+    /** The side needed fixing, and the parser under test makes it recognized. */
+    fixed: boolean
+    /** The project's saved parsers parse the side, and with the parser under test added it is no longer parsed, for example because the parser uses up the time the side needed. */
+    broken: boolean
+    /** Set when parsing the side failed instead of finishing. */
+    error: TraceParserTestErrorApi | null
+}
+
+export interface TraceNodeParserTestApi {
+    /** The node's input and output as they would render with the parser under test saved. */
+    content: TraceNodeContentApi
+    input: TraceParserTestSideApi
+    output: TraceParserTestSideApi
+    /** At least one side needed fixing, the parser under test fixes every side that did, and it breaks no side. Nothing is saved either way. */
+    passed: boolean
+}
+
 export interface TracePullRequestApi {
     /** The owner of the pull request's repository. */
     repoOwner: string
@@ -1997,6 +2078,8 @@ export interface TraceSummaryFailureApi {
     reason: TraceSummaryFailureReasonEnumApi
     /** Why the summary failed, ready to show to the user. */
     message: string
+    /** Whether a new request could succeed; false when it would fail the same way. */
+    retryable: boolean
 }
 
 export interface TraceSummaryApi {
@@ -6452,6 +6535,20 @@ export type AiObservabilityTracesFeedbackRetrieveParams = {
 }
 
 export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesNodesDatasetItemRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Saved as the dataset item's source timestamp, and lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint: string
+}
+
+export type AiObservabilityTracesNodesParserTestCreateParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

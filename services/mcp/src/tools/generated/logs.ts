@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/logs/api'
+import hooks_logsGroupBy from '@/tools/logs/groupByRedactionHooks'
 import hooks_logsAttributeValuesList from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsFacetValuesCreate from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsImpact from '@/tools/logs/redactCredentialsHooks'
@@ -63,6 +64,9 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
         if (params.labels !== undefined) {
             body['labels'] = params.labels
         }
+        if (params.annotations !== undefined) {
+            body['annotations'] = params.annotations
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -85,6 +89,7 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -299,6 +304,7 @@ const logsAlertsList = (): ToolBase<
                     'schedule_restriction',
                     'grouping',
                     'labels',
+                    'annotations',
                     'platform_owned',
                     'created_at',
                     'updated_at',
@@ -363,6 +369,9 @@ const logsAlertsPartialUpdate = (): ToolBase<
         if (params.labels !== undefined) {
             body['labels'] = params.labels
         }
+        if (params.annotations !== undefined) {
+            body['annotations'] = params.annotations
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
@@ -385,6 +394,7 @@ const logsAlertsPartialUpdate = (): ToolBase<
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -432,6 +442,7 @@ const logsAlertsRetrieve = (): ToolBase<
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -717,20 +728,23 @@ const LogsGroupBySchema = () => {
 const logsGroupBy = (): ToolBase<ReturnType<typeof LogsGroupBySchema>, Schemas._LogsGroupByResponse> => ({
     name: 'logs-group-by',
     schema: LogsGroupBySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsGroupBySchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_logsGroupBy,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsGroupBySchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._LogsGroupByResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/group-by/`,
+                body: await transformRequestBody(hooks_logsGroupBy, context, params, body),
+            })
+            const filtered = omitResponseFields(result, ['groups.*.value']) as typeof result
+            return filtered
         }
-        const result = await context.api.request<Schemas._LogsGroupByResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/group-by/`,
-            body,
-        })
-        const filtered = omitResponseFields(result, ['groups.*.value']) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const LogsImpactSchema = () => {

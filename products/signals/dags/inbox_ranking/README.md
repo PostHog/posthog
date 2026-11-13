@@ -44,13 +44,14 @@ s3://<bucket>/<prefix>/
 ├── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
 ├── inbox_user_vectors/v1/dt=YYYY-MM-DD/       # per-user mean report vectors of past engagement, by kind
 ├── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
-└── inbox_activity_summary_profile_vectors/v1/dt=YYYY-MM-DD/ # the same shape, for the rendering with the profile
+├── inbox_activity_summary_profile_vectors/v1/dt=YYYY-MM-DD/ # the same shape, for the rendering with the profile
+└── inbox_report_scored_facts/v1/dt=YYYY-MM-DD/ # report facts the scoring sweep recorded for each report created during the day
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
 
 `inbox_report_state` also records the report's content columns, and `inbox_report_model_data` passes them through: `chart_count`, `metric_count`, `suggested_prompt_count` and `tag_count`, `content_revision_count` and `corroboration_count`, `user_authored`, and `already_addressed`.
-No model reads them yet.
+Only the `nn_with_prio_ml_features_v1` experiment reads them, and it leaves out `content_revision_count` and `corroboration_count`.
 
 - The list lengths are computed in Postgres, so the job never loads chart or metric definitions. A stored value that is not a list counts as 0. A null counter is stored as 0.
 - `already_addressed` comes from the same actionability artefact as `actionability`, with the same cutoff rules. It is null when that artefact is missing, was edited after the cutoff, or holds no boolean.
@@ -207,6 +208,19 @@ The tick emits it only while `emit_profile_embeddings` is on in the `activity-su
 The activity summary backfill does not emit it.
 Each asset reads only its own rendering.
 
+### Scored report facts
+
+`inbox_report_scored_facts` is a report-grain leaf with its own `SCORED_FACTS_SCHEMA_VERSION`.
+It holds the report facts the scoring sweep recorded when it scored each report (see [Report facts at scoring time](#report-facts-at-scoring-time)), for a model that reads the facts with no train/serve skew.
+
+- **Scoring time against end of day.** `inbox_report_state` holds the same facts as of the end of the report's first day. This asset holds them as the sweep saw them minutes after the report was created, which is the value a served model reads. A count that grows during the first day is lower here than in the state snapshot.
+- `dt=D` has one row per report created on D, of a team in `training_consent_team_ids()`, that has an `inbox_ranking_report_facts_recorded` event of this deployment (`environment`) during D. The row holds the facts of the earliest event by `scored_at`, so a later rescore does not change the partition.
+- The columns are `snapshot_date`, `report_id`, `report_team_id`, `report_created_at`, `scored_at`, `embedding_inserted_at`, `facts_schema_version` and one column per `ReportFacts` field, typed like the state snapshot's column of the same name. `source_products` is a list of strings.
+- `team_id` is an event property, so an event that names another team than the report's own is dropped and counted in `tenant_mismatch_events`. A fact value of the wrong type, or a fact the event does not carry, is null, never 0.
+- **Missing is not zero.** A report scored only after D ended, or created before the facts were first recorded, has no row. There is no backfill from the state snapshot. History starts on the day the sweep began recording facts.
+- The `report_scored_facts` side input (`training/side_inputs.py`) reads the union of the partitions in the training lookback, with `scored_at` as its `as_of_column`, so a moment never reads a fact recorded after it. No feature set reads it yet.
+- **It is a leaf.** Nothing joins it, so a failure here does not fail the training table. A day of newborns is small, so it has no ordering dependency and no heavy tag. The metadata `newborn_coverage` is the share of the day's consenting newborns that got a row.
+
 ## The training dag
 
 `inbox_ranking_training_job` runs daily at 05:00 UTC on the same partition definition (gated like the dataset job).
@@ -281,6 +295,20 @@ Project vectors are per-team data, so this region never copies its own day to th
 
 The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. It loads every model the manifest names through `model_store.py`, reads each report's latest vector once per rendering, builds each model's matrix with its own `FeatureSet.build_matrix`, and writes one `ranking_score` artefact per report plus one `inbox_ranking_report_scored` event per report and model. The dag and the reader decide whether a model can be scored with the same functions, in `products/signals/backend/ranking/model_contract.py`. A served model that cannot load stops the pass. Any other model that cannot load, or has no vector for a report, is a `skipped` result. No scheduled caller runs the reader yet.
 
+### Report facts at scoring time
+
+A reader call that persists scores also captures one `inbox_ranking_report_facts_recorded` event per report it scores, with `team_id`, `report_id`, `scored_at`, `embedding_inserted_at`, `manifest_version`, `facts_schema_version` and one property per fact.
+No model reads the facts yet. They let training later read the values the sweep saw, so a count that grows during the report's first day agrees on both sides.
+
+- The set: `source_products` (the sorted distinct source products of the report's live signals, a list and not one-hot columns), `title_chars`, `summary_chars`, `chart_count`, `metric_count`, `suggested_prompt_count`, `tag_count`, `user_authored`, `signal_count`, `total_weight`, `run_count`, `content_revision_count`, `corroboration_count`, and `priority`, `actionability` and `already_addressed` from the latest judgment artefacts.
+- The recorded value is the value at scoring time. The sweep rescores a report only when its vector or the served model changes, so a fact that moves later is not recorded again.
+- `products/signals/backend/ranking/report_facts.py` holds one definition per fact, and `inbox_report_state` builds its shared columns through the same functions. A test pins that the two give the same value for each shared column.
+- A null judgment value is unknown: the report has no judgment of that kind, or its latest one holds no usable value. A null `content_revision_count` or `corroboration_count` is stored as 0 on both sides, because the columns start from null until the first scout write.
+- A call reads the facts once, with one Postgres read of the reports and one ClickHouse read, both filtered to the call's team. The ClickHouse read has a time limit. A failed read logs `inbox_ranking_report_facts_unreadable` and records no facts event for that call, and the scores still persist.
+- `INBOX_RANKING_RECORD_REPORT_FACTS` (default on) turns off the read and its events. Scoring does not change.
+- Bump `FACTS_SCHEMA_VERSION` when a fact is added, removed or read another way.
+- The dataset dag keeps the facts of each report's first score in [`inbox_report_scored_facts`](#scored-report-facts).
+
 ### Overrides
 
 An owner can change serving without a training run or a Dagster launch, through the payload of the `inbox-ranking-overrides` feature flag in the internal PostHog project. The flag is inert by default. When the flag is off, the payload is empty, or the lookup fails, the sweep and the dag run as they do without the flag. The parser is `products/signals/backend/ranking/overrides.py`, and the sweep and the dag share it.
@@ -310,7 +338,7 @@ The worst result of a bad payload is a warning, never a stopped pass or an unpub
 - A `served` key that is not in the manifest, that did not load (missing files, a feature contract mismatch, an untrained head), that has fewer heads than the manifest's served model is rejected. The sweep logs `inbox_ranking_override_rejected` and scores with the manifest's served model. The override only moves the `served` role among models the pods already load, so it never adds memory.
 - A pinned key whose `metadata.json` or boosters are missing in the dataset bucket, or that fails `model_mismatch`, is dropped before composition. The manifest still publishes, and the asset metadata lists `pinned_keys` and `dropped_pins` with reasons.
 
-During a `served` override, the override model carries the roles `served` and `served_override`, and the manifest's served model carries `manifest_served` in place of `served`. The sweep compares the served key on the latest `ranking_score` with the effective one, so setting or removing an override rescores every report in the window. The `inbox_ranking_sweep_finished` log and each `inbox_ranking_report_scored` event carry `override_served` and `override_expires_at`.
+During a `served` override, the override model carries the roles `served` and `served_override`, and the manifest's served model carries `manifest_served` in place of `served`. Setting or removing an override does not rescore the window: the override model scores only the reports that become due while it is set, because their score is missing or older than their vector. A promotion follows the same rule. Each reader takes the served result through the `served_key` of the artefact it reads, so a window with scores from more than one served model needs no reader change. A rollback therefore does not replace the scores a bad model wrote; those reports keep them until their vector changes or they leave the window. The `inbox_ranking_sweep_finished` log and each `inbox_ranking_report_scored` event carry `override_served` and `override_expires_at`.
 
 Examples, each with an `expires_at` at most 14 days ahead:
 
@@ -475,10 +503,21 @@ An experiment is a `MODEL_FAMILIES` entry with `experiment=True`, a `baseline` s
 - **No new examples.** It reads the day's `inbox_ranking_nn_examples` object. A day without that object is skipped, and so is a family after its `expires` day.
 - **Never served.** The serving manifest reads only `serving_families()`. The pin check refuses an experiment key, so the promote job, the served pointer and the pins cannot name one. To serve the recipe, register it as a serving family under a new `model_name`.
 - **Paired read.** The experiment and its baseline each fit once per seed in `EXPERIMENT_SEEDS`, on the same train rows. `metadata.json` holds a `vs_baseline` block per head: each seed's holdout AUC for both arms, and the mean, min and max of the gaps. The reads are `within_team` (pairs pooled over teams), `within_team_macro` (each team weighs the same), the same two without the dogfood project (`within_team_non_dogfood`, `within_team_non_dogfood_macro`), and `pooled` for reference. The non-dogfood macro delta also gets a team bootstrap interval, the method the pair lane uses. One `inbox_ranking_experiment_compared` event per head carries the gaps of every read and the interval's `low`, `high` and `teams`.
+- **Group importance.** A set with `feature_groups` gets one more read, with no extra fit. For each seed and head, the experiment arm's own seed fit scores the holdout rows again with one group's columns shuffled together across those rows (`GROUP_SHUFFLE_SEED`). `vs_baseline.group_importance` holds the fall in holdout AUC per head and group, as the mean over seeds, `pooled` and `within_team_non_dogfood_macro`. The head's `inbox_ranking_experiment_compared` event carries the same numbers as `group_importance_<group>_<read>`.
 - **A/A control.** `nn_with_prio_aa_v1` is `nn_with_prio_v2` against itself. Its `seed_offset` fits its arm on seeds other than the baseline's, so its deltas show how large a delta from noise alone is. Read an experiment's delta against the A/A deltas of the same days before calling it a win.
 - **Side inputs.** A side input beyond the report vectors needs a loader in `training/side_inputs.py`. The registry refuses a frame without a timezone-aware `as_of_column` and drops the rows known after the partition end. A feature set in the dags reads the frame through `rows_as_of`. A set in `features.py` cannot import the dags, so it applies the same `<= as_of` cut on the loader's column itself.
 
-The live report-grain experiment is `nn_with_prio_sources_v1`, graded against `nn_with_prio_v2` until 2026-11-11. The pair-grain experiments are under [User-history families](#user-history-families). Its set, `report_embeddings_priority_sources`, adds the source products of the report's signals: one column per product in a fixed vocabulary, `source_other`, `source_count` and `has_sources`. The `report_sources` loader reads only the metadata columns of `inbox_signal_embeddings`, from 30 days before the training lookback to dt=D. A moment takes the latest emission per `(team_id, signal_id)` inserted at or before it and drops a retracted signal. It never reads the impression labels' `source_products` column, which holds the latest impression's value. The scoring sweep cannot build this set, so the recipe needs serving work before it can become a serving family.
+`nn_with_prio_sources_v1` was graded against `nn_with_prio_v2` until 2026-11-11, and its set lives on in the report facts experiment below. The pair-grain experiments are under [User-history families](#user-history-families). Its set, `report_embeddings_priority_sources`, adds the source products of the report's signals: one column per product in a fixed vocabulary, `source_other`, `source_count` and `has_sources`. The `report_sources` loader reads only the metadata columns of `inbox_signal_embeddings`, from 30 days before the training lookback to dt=D. A moment takes the latest emission per `(team_id, signal_id)` inserted at or before it and drops a retracted signal. It never reads the impression labels' `source_products` column, which holds the latest impression's value. The scoring sweep cannot build this set, so the recipe needs serving work before it can become a serving family.
+
+`nn_with_prio_ml_features_v1` is graded against `nn_with_prio_v2` until 2026-12-09, with the baseline's network settings. Its set, `report_embeddings_priority_ml_features`, is the sources set plus plain report facts from report state, each a 0 or 1 column, because the network takes the report columns unscaled. The groups are `REPORT_FACT_GROUPS` in `features.py`, and the bucket edges are the `*_EDGES` constants next to them:
+
+- `length`: `title_chars` and `summary_chars` buckets.
+- `judgments`: one column per `actionability` level, and `already_addressed_true` and `already_addressed_false`. A null judgment gives zeros.
+- `signals`: `signal_count` buckets.
+- `content`: 0, 1 and 2+ buckets of `chart_count`, `metric_count`, `suggested_prompt_count` and `tag_count`, `user_authored`, and `content_recorded`.
+- `timing`: the UTC weekday and 4-hour bucket of `report_created_at`.
+
+The `inbox_ranking_nn_examples` object carries these state columns per row, nullable, from the row's own snapshot. The content columns and `already_addressed` are optional state columns (`optional_state_columns`): a row from a snapshot written before they were recorded gets 0 in every content column and `content_recorded` 0, and keeps its other groups. An examples object without one of the other columns skips the family. The content group and `already_addressed` have history only from the day their columns were first recorded, and a report enters the holdout days before it enters the training rows. Until at least `MIN_TRAINED_GROUP_SHARE` of the training rows carry such a group (`late_feature_groups`), training zeroes it on every row, because its weights would still hold their initial random values and add noise to the holdout scores. `vs_baseline.zeroed_feature_groups` and the comparison event name the groups zeroed that day, and a zeroed group's importance is 0. The facts come from the end-of-day snapshot of the report's first day, while the sweep scores minutes after creation, so the counts can be higher in training than at scoring. The set reads `total_weight`, `run_count`, `corroboration_count` and `content_revision_count` nowhere, and the sweep cannot build it yet.
 
 The schedule is a fallback. To read an experiment on a chosen day, launch the job for that partition from the Dagster UI or the CLI:
 
@@ -574,6 +613,7 @@ The dags train only on reports from organizations whose `Organization.is_ai_trai
 
 - `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
 - `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings`, `inbox_activity_summary_vectors` and `inbox_activity_summary_profile_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
+- `inbox_report_scored_facts` writes a row only for a report of those teams, and records `excluded_no_training_consent_reports`.
 - The `nn` examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
 
 The filter follows the current setting, so an organization that opts back in is trained on again.

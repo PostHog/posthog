@@ -145,6 +145,10 @@ def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
 
 
+def is_merge_queue_branch(branch: str) -> bool:
+    return _MERGE_QUEUE_BRANCH_RE.match(branch) is not None
+
+
 def _verified_merge_queue_source_pr(
     github: GitHubIntegration, repo_full_name: str, branch: str, head_ref: str | None = None
 ) -> int | None:
@@ -202,6 +206,20 @@ def _verified_merge_queue_source_pr(
         return None
 
     return pr_number
+
+
+def is_verified_merge_queue_run(repo: Repo, branch: str, commit_sha: str) -> bool:
+    """Whether a run's merge queue branch really tests the pull request its name claims.
+
+    The branch name is client-supplied, so a run only counts as a merge queue run once GitHub
+    confirms that the claimed pull request's head is in the run's commit. False when GitHub cannot say.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        return _verified_merge_queue_source_pr(github, repo.repo_full_name, branch, head_ref=commit_sha) is not None
+    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+        logger.warning("visual_review.merge_queue_run_unverified", repo_id=str(repo.id), branch=branch)
+        return False
 
 
 def get_github_integration_for_repo(repo: Repo):

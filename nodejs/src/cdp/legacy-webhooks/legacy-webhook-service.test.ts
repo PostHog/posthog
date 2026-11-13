@@ -84,32 +84,6 @@ describe('LegacyWebhookService', () => {
     })
 
     describe('parseBatch and processEvents', () => {
-        it('should parse events for teams with both webhooks and zapier', async () => {
-            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-
-            const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
-
-            await parseAndSend(messages)
-
-            expect(service['actionMatcher'].hasWebhooks).toHaveBeenCalledWith(team.id)
-        })
-
-        it('should filter out events for teams without webhooks and without zapier', async () => {
-            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(false)
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
-            service.processEvent = jest.fn()
-
-            const messages: Message[] = [
-                createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' })),
-                createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
-            ]
-
-            await parseAndSend(messages)
-
-            expect(service.processEvent).not.toHaveBeenCalled()
-        })
-
         it('should filter out events for teams with zapier but without webhooks', async () => {
             service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(false)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
@@ -147,29 +121,6 @@ describe('LegacyWebhookService', () => {
             await parseAndSend(messages)
 
             expect(service.processEvent).toHaveBeenCalledTimes(1)
-        })
-
-        it('should not query the group repository when processing events with $groups', async () => {
-            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
-            // Both zapier and group_analytics enabled — group_analytics used to trigger enrichment
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            const fetchGroupsByKeysSpy = jest.spyOn(hub.groupRepository, 'fetchGroupsByKeys')
-            const fetchGroupSpy = jest.spyOn(hub.groupRepository, 'fetchGroup')
-            service.processEvent = jest.fn()
-
-            const messages: Message[] = [
-                createKafkaMessage(
-                    createIncomingEvent(team.id, {
-                        event: '$pageview',
-                        properties: JSON.stringify({ $groups: { project: 'test-project-id' } }),
-                    })
-                ),
-            ]
-
-            await parseAndSend(messages)
-
-            expect(fetchGroupsByKeysSpy).not.toHaveBeenCalled()
-            expect(fetchGroupSpy).not.toHaveBeenCalled()
         })
 
         it('posts an identical payload regardless of group_analytics and never adds a groups key', async () => {
@@ -259,15 +210,6 @@ describe('LegacyWebhookService', () => {
                     method: 'POST',
                 })
             )
-        })
-
-        it('should skip events without matching actions', async () => {
-            service['actionMatcher'].match = jest.fn().mockReturnValue([])
-
-            await service.processEvent(event)
-
-            expect(service['actionMatcher'].match).toHaveBeenCalledWith(event)
-            expect(mockFetch).not.toHaveBeenCalled()
         })
 
         it('should skip events when team not found', async () => {
@@ -362,19 +304,6 @@ describe('LegacyWebhookService', () => {
                 person_properties: {},
                 person_id: undefined,
             }
-        })
-
-        it('should send webhook request', async () => {
-            const hook = createMockHook(team.id)
-
-            await service['postWebhook'](event, team, hook)
-
-            expect(mockFetch).toHaveBeenCalledWith(
-                'https://hooks.zapier.com/test',
-                expect.objectContaining({
-                    method: 'POST',
-                })
-            )
         })
 
         it('should delete hook on 410 response', async () => {

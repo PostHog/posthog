@@ -63,6 +63,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightErrorLayout } from './InsightErrorLayout'
+import { QuillFunnelSingleStepState } from './QuillFunnelSingleStepState'
 import { QuillInsightEmptyStateIcon } from './QuillInsightEmptyStateIcon'
 import { QuillInsightEmptyStateNextSteps } from './QuillInsightEmptyStateNextSteps'
 import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
@@ -993,6 +994,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
     const { reportInsightFilterAdded } = useActions(eventUsageLogic)
+    const quillSurface = useQuillSurface()
 
     const addFunnelStep = (): void => {
         const defaultStep: EventsNode = setLatestVersionsOnQuery({
@@ -1003,6 +1005,10 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
         const nextSeries = [...(series ?? []), defaultStep]
         updateQuerySource({ series: nextSeries })
         reportInsightFilterAdded(nextSeries.length, GraphSeriesAddedSource.Default)
+    }
+
+    if (quillSurface) {
+        return <QuillFunnelSingleStepState actionable={actionable} onAddStep={addFunnelStep} />
     }
 
     return (

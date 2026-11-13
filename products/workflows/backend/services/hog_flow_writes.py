@@ -42,6 +42,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
     strip_content_secrets,
     strip_secrets_from_content,
 )
+from products.workflows.backend.services.sandbox_email.validation import require_sandbox_runtime
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
@@ -61,6 +62,8 @@ def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dic
     with transaction.atomic():
         data = dict(validated_data)
         tags = data.pop("tags", None)
+        if data.get("status") == HogFlow.State.ACTIVE:
+            require_sandbox_runtime(data.get("actions"))
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
         instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
@@ -134,6 +137,8 @@ def _save_live(
         )
     for attr, value in data.items():
         setattr(instance, attr, value)
+    if instance.status == HogFlow.State.ACTIVE:
+        require_sandbox_runtime(instance.actions)
     instance.save()
 
 

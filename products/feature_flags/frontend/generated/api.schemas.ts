@@ -2089,6 +2089,7 @@ export interface FeatureFlagVersionResponseApi {
     readonly filters: FeatureFlagVersionResponseApiFilters
     active?: boolean
     deleted?: boolean
+    archived?: boolean
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -2131,6 +2132,31 @@ export interface FeatureFlagVersionResponseApi {
      * @nullable
      */
     readonly modified_by: number | null
+}
+
+export interface FeatureFlagRestoreVersionRequestApi {
+    /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+    ask_rollback_reason?: boolean
+    /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+     *
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other */
+    rollback_reason?: RollbackReasonEnumApi | null
+    /**
+     * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+     * @maxLength 1000
+     * @nullable
+     */
+    rollback_reason_note?: string | null
+    /**
+     * The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
 }
 
 /**

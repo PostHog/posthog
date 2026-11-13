@@ -1,8 +1,8 @@
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Final, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
@@ -198,6 +198,42 @@ class TraceNodeContent(Contract):
     output: TraceSideContent = Field(description="The node's output, as messages or as JSON.")
 
 
+PARSER_RECIPE_MAX_SOURCE_LENGTH: Final = 100_000
+
+
+class TraceParserTestError(Contract):
+    source: Literal["existing_recipes", "candidate"] = Field(
+        description="Whose parsers failed on the side: the project's saved ones, so the side fails with or without the "
+        "parser under test, or the parser under test."
+    )
+    message: str = Field(description="Why the parsers stopped, such as running out of time or work budget.")
+
+
+class TraceParserTestSide(Contract):
+    needed_fixing: bool = Field(
+        description="The side has content that the project's saved parsers leave unparsed, so it renders as raw JSON "
+        "or as one message holding its JSON."
+    )
+    fixed: bool = Field(description="The side needed fixing, and the parser under test makes it recognized.")
+    broken: bool = Field(
+        description="The project's saved parsers parse the side, and with the parser under test added it is no longer "
+        "parsed, for example because the parser uses up the time the side needed."
+    )
+    error: TraceParserTestError | None = Field(description="Set when parsing the side failed instead of finishing.")
+
+
+class TraceNodeParserTest(Contract):
+    content: TraceNodeContent = Field(
+        description="The node's input and output as they would render with the parser under test saved."
+    )
+    input: TraceParserTestSide
+    output: TraceParserTestSide
+    passed: bool = Field(
+        description="At least one side needed fixing, the parser under test fixes every side that did, and it breaks "
+        "no side. Nothing is saved either way."
+    )
+
+
 class TraceNodeDetail(Contract):
     id: str
     kind: TraceNodeKind
@@ -212,6 +248,33 @@ class TraceNodeRaw(Contract):
     kind: TraceNodeKind
     event: TraceNodeEvent | None = Field(
         description="The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event."
+    )
+
+
+_JSON_VALUE_VARIANTS: list[dict[str, Any]] = [
+    {"type": "object", "additionalProperties": True},
+    {"type": "array", "items": {}},
+    {"type": "string"},
+    {"type": "number"},
+    {"type": "boolean"},
+]
+JSONValue = Annotated[Any, WithJsonSchema({"oneOf": _JSON_VALUE_VARIANTS})]
+NullableJSONValue = Annotated[Any, WithJsonSchema({"oneOf": [*_JSON_VALUE_VARIANTS, {"type": "null"}]})]
+
+
+class TraceNodeDatasetItem(Contract):
+    client_item_id: str = Field(
+        description="An id that identifies the step among dataset items: the event's uuid, or the trace id for the root."
+    )
+    source_trace_id: str = Field(description="The id of the trace the step belongs to.")
+    source_event_id: str = Field(description="The step's event uuid, or the trace id for the root.")
+    source_timestamp: datetime = Field(description="When the trace happened, as given by the timestamp hint.")
+    input: JSONValue = Field(description="The step's input value as ingested, or an empty object when it has none.")
+    source_output: NullableJSONValue = Field(
+        description="The step's output value as ingested, or null when it has none."
+    )
+    metadata: dict[str, Any] = Field(
+        description="The step's custom event properties, without `$` names. Empty for the root."
     )
 
 
@@ -491,6 +554,7 @@ class TraceSummaryContent(Contract):
 class TraceSummaryFailure(Contract):
     reason: TraceSummaryFailureReason
     message: str = Field(description="Why the summary failed, ready to show to the user.")
+    retryable: bool = Field(description="Whether a new request could succeed; false when it would fail the same way.")
 
 
 class TraceSummary(Contract):

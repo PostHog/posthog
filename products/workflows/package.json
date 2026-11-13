@@ -21,6 +21,7 @@
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@testing-library/react": "*",
         "@types/papaparse": "*",
         "kea-test-utils": "catalog:"

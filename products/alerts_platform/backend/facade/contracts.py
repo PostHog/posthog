@@ -428,6 +428,7 @@ class PlatformAlertRuntime:
     next_check_at: datetime | None
     grouping: Grouping
     labels: dict[str, str]
+    annotations: dict[str, str]
 
 
 @frozen
@@ -437,6 +438,8 @@ class PlatformStateChange:
     occurred_at: datetime
     previous_state: PlatformAlertState
     state: PlatformAlertState
+    # The group whose state moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -498,6 +501,8 @@ class PlatformCheckEvent:
     condition: dict[str, Any]
     query_duration_ms: int | None
     error_message: str | None
+    # The group the check moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -556,6 +561,34 @@ class PlatformControlHistory:
     changes: tuple[PlatformControlChange, ...]
     oldest_at: datetime
     toggle_before: ControlChangeKind | None
+
+
+@frozen
+class StateInterval:
+    """A stretch of an alert's recent past with one state and one enabled setting, as alert lists draw it."""
+
+    start: datetime
+    end: datetime
+    state: PlatformAlertState
+    enabled: bool
+
+
+@frozen
+class PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id."""
+
+    last_checks: dict[UUID, PlatformLastCheck]
+    # State changes across every group.
+    histories: dict[UUID, PlatformAlertHistory]
+    controls: dict[UUID, PlatformControlHistory]
+
+
+@frozen
+class PlatformAlertEvents:
+    """A configuration's notable checks across every group and its control-plane changes, newest first."""
+
+    checks: PlatformCheckEventPage
+    changes: PlatformControlChangePage
 
 
 class SkipReason(StrEnum):
@@ -1275,6 +1308,18 @@ class NativeAlertLifecycle:
 
 
 @frozen
+class ActivitySource:
+    """What an alert watches in its source's product, named on its activity log entries so the entry
+    can link there after the alert is gone."""
+
+    id: str
+    name: str
+
+
+ActivitySourceLookup = Callable[[int, Mapping[str, Any]], ActivitySource | None]
+
+
+@frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
@@ -1317,6 +1362,8 @@ class SourceConfigSpec:
     # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
     # without one predates it, so an edit that fills it in does not end the alert's firings.
     kept_source_config_keys: frozenset[str] = frozenset()
+    # What an alert watches, by team and `source_config`, for its activity log entries.
+    activity_source: ActivitySourceLookup | None = None
 
     @property
     def creatable(self) -> bool:

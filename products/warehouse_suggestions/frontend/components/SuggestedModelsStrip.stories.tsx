@@ -2,12 +2,15 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import { DataModelingSyncInterval } from '~/types'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
 import type { MainSavingKind } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { QuillSuggestedModelsStrip } from './QuillSuggestedModelsStrip'
 import { SuggestedModelsStrip } from './SuggestedModelsStrip'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
@@ -159,6 +162,7 @@ interface StripStoryProps {
     width?: 'normal' | 'narrow'
     openDialogWithInterval?: DataModelingSyncInterval
     confirmSuggestionId?: string
+    catalogDialogs?: boolean
 }
 
 function StripStory({
@@ -169,6 +173,7 @@ function StripStory({
     width,
     openDialogWithInterval,
     confirmSuggestionId,
+    catalogDialogs,
 }: StripStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
@@ -196,7 +201,7 @@ function StripStory({
         if (stripState !== 'active') {
             return
         }
-        if (reviewOpen || openDialogWithInterval || confirmSuggestionId) {
+        if (reviewOpen || (!catalogDialogs && (openDialogWithInterval || confirmSuggestionId))) {
             logic.actions.openReview()
         }
         if (confirmSuggestionId) {
@@ -207,11 +212,17 @@ function StripStory({
         }
         logic.actions.openMaterializeModal(results[0].id)
         logic.actions.setMaterializeInterval(openDialogWithInterval)
-    }, [reviewOpen, openDialogWithInterval, confirmSuggestionId, stripState, logic, results])
+    }, [reviewOpen, openDialogWithInterval, confirmSuggestionId, catalogDialogs, stripState, logic, results])
 
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
-            <SuggestedModelsStrip />
+            {catalogDialogs ? (
+                <div data-quill>
+                    <QuillSuggestedModelsStrip />
+                </div>
+            ) : (
+                <SuggestedModelsStrip />
+            )}
         </div>
     )
 }
@@ -285,4 +296,60 @@ export const BannerOnlyUnusedViews: Story = {
 export const DeprecateDialog: Story = {
     args: { confirmSuggestionId: '5' },
     parameters: DIALOG_SNAPSHOT,
+}
+
+const CATALOG_DIALOG_SNAPSHOT: Story['parameters'] = {
+    ...DIALOG_SNAPSHOT,
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { ...DIALOG_SNAPSHOT.testOptions, snapshotBrowsers: [] },
+}
+
+export const CatalogBanner: Story = { args: { catalogDialogs: true }, parameters: CATALOG_DIALOG_SNAPSHOT }
+
+export const CatalogBannerNarrow: Story = {
+    args: { catalogDialogs: true, width: 'narrow' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogWarmingUp: Story = {
+    args: { catalogDialogs: true, results: [], statusOverrides: { days_with_data: 12 } },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogReviewDialogWithUnusedViews: Story = {
+    args: { catalogDialogs: true, reviewOpen: true },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogDeprecateDialog: Story = {
+    args: { catalogDialogs: true, confirmSuggestionId: '5' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogReviewDialog: Story = {
+    args: { catalogDialogs: true, reviewOpen: true, results: manySuggestions },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogMaterializeDialogIncrementalProposal: Story = {
+    args: {
+        catalogDialogs: true,
+        results: [materialize('1', 'sessions_by_plan_daily', 2400, { incremental: true })],
+        openDialogWithInterval: '24hour',
+    },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogMaterializeDialogLongerScheduleUnknownSources: Story = {
+    args: {
+        catalogDialogs: true,
+        results: [materialize('3', 'stripe_invoices_enriched', 1080, { unknownSources: true })],
+        openDialogWithInterval: '7day',
+    },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogStopMaterializingDialog: Story = {
+    args: { catalogDialogs: true, confirmSuggestionId: '4' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
 }

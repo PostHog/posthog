@@ -3102,6 +3102,28 @@
                   "table": null,
                   "type": "string"
               },
+              "mode": {
+                  "chain": null,
+                  "description": "How the engine answered: 'web_search' with its search tool, or 'no_search' from training data alone. No-search answers never cite, so filter mode = 'web_search' for citation rates.",
+                  "fields": null,
+                  "hogql_value": "mode",
+                  "id": null,
+                  "name": "mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "mode_config": {
+                  "chain": null,
+                  "description": "JSON object of settings the mode ran with, such as a locale. Empty when the mode used its defaults.",
+                  "fields": null,
+                  "hogql_value": "mode_config",
+                  "id": null,
+                  "name": "mode_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
               "check_failed": {
                   "chain": null,
                   "description": "The engine did not answer, so the row is not evidence that citations disappeared.",
@@ -19834,6 +19856,28 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "mode": {
+                  "chain": null,
+                  "description": "How the engine answered: 'web_search' with its search tool, or 'no_search' from training data alone. No-search answers never cite, so filter mode = 'web_search' for citation rates.",
+                  "fields": null,
+                  "hogql_value": "mode",
+                  "id": null,
+                  "name": "mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "mode_config": {
+                  "chain": null,
+                  "description": "JSON object of settings the mode ran with, such as a locale. Empty when the mode used its defaults.",
+                  "fields": null,
+                  "hogql_value": "mode_config",
+                  "id": null,
+                  "name": "mode_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
               },
               "check_failed": {
                   "chain": null,
