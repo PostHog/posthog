@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
+import { evaluationSupportsReportHistory } from '../evaluationCapabilities'
 import { EvaluationBackfillHint } from './EvaluationBackfillHint'
 import { EvaluationDrawerEmptyState } from './EvaluationDrawerEmptyState'
+import { EvaluationLatestReportCard } from './EvaluationLatestReportCard'
 import { describeAttention, hasIsolatedPoints } from './evaluationOverviewDisplay'
 import { EvaluationPausedNotice } from './EvaluationPausedNotice'
 import { EvaluationResultCards } from './EvaluationResultCards'
@@ -16,7 +18,8 @@ export function EvaluationResultExpanded({ row }: { row: EvaluationResultApi }):
     const { openDetails } = useValues(evaluationResultDrawerLogic)
     const { loadDetails } = useActions(evaluationResultDrawerLogic)
     const errored = row.attentionReasons.includes('errored')
-    const enabled = configById.get(row.id)?.enabled ?? row.enabled
+    const config = configById.get(row.id)
+    const enabled = config?.enabled ?? row.enabled
 
     const notice = errored ? (
         <LemonBanner type="error">
@@ -34,6 +37,12 @@ export function EvaluationResultExpanded({ row }: { row: EvaluationResultApi }):
     return (
         <div className="@container flex flex-col gap-3">
             {notice}
+            {evaluationSupportsReportHistory(config) && (
+                <EvaluationLatestReportCard
+                    evaluationId={row.id}
+                    reportUrl={(params) => evaluationUrl(row.id, params)}
+                />
+            )}
             <EvaluationResultCards
                 row={row}
                 buckets={buckets}

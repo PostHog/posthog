@@ -13,7 +13,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames, describe_bucketing_value
 from products.experiments.backend.health.checks.change_wording import (
     delay,
     duration,
@@ -24,6 +26,7 @@ from products.experiments.backend.health.checks.change_wording import (
 )
 from products.experiments.backend.health.context import (
     MIN_EXPOSED_UNITS_TO_WARN,
+    FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
@@ -32,10 +35,19 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
     CheckOutcome,
+    CheckRows,
     CheckSkip,
     flag_to_check,
     not_applicable,
     not_checked,
+)
+from products.experiments.backend.health.split_changes import split_value
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    BucketingSetting,
+    ConditionsChange,
+    ReleaseCondition,
+    SplitChange,
 )
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
@@ -95,6 +107,92 @@ def changes_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
     if isinstance(history, FlagHistoryNotChecked) and history.reason in _HISTORY_NOT_READ:
         return not_checked(f"Couldn't check because {not_checked_because(history.reason)}")
     return history
+
+
+def change_rows(ctx: HealthContext, kind: type[FlagChange]) -> CheckRows:
+    """The changes of one kind since the start date, each with whether anyone was exposed before it."""
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return ()
+    return tuple(
+        {
+            ExperimentHealthValueKey.CHANGED_AT: change.changed_at.astimezone(UTC).isoformat(),
+            **_described(change, history.group_type_names),
+            ExperimentHealthValueKey.BEFORE_EXPOSURE: _before_exposure(history, change.changed_at),
+        }
+        for change in history.of_kind(kind)
+    )
+
+
+# The settings as the flag page labels them.
+_SETTING_LABELS = {
+    BucketingSetting.KEY: "Flag key",
+    BucketingSetting.AGGREGATION: "Match by",
+    BucketingSetting.BUCKETING_IDENTIFIER: "Match by",
+    BucketingSetting.EXPERIENCE_CONTINUITY: "Persist flag across authentication steps",
+}
+
+
+def _described(change: FlagChange, group_type_names: GroupTypeNames) -> dict[ExperimentHealthValueKey, str]:
+    match change:
+        case SplitChange():
+            return {
+                ExperimentHealthValueKey.BEFORE: split_value(change.before),
+                ExperimentHealthValueKey.AFTER: split_value(change.after),
+            }
+        case BucketingChange():
+            return {
+                ExperimentHealthValueKey.CHANGED_SETTING: _SETTING_LABELS[change.setting],
+                ExperimentHealthValueKey.BEFORE: _sentence_case(
+                    describe_bucketing_value(change.setting, change.before, group_type_names=group_type_names)
+                ),
+                ExperimentHealthValueKey.AFTER: _sentence_case(
+                    describe_bucketing_value(change.setting, change.after, group_type_names=group_type_names)
+                ),
+            }
+        case ConditionsChange():
+            return {
+                ExperimentHealthValueKey.BEFORE: _describe_conditions(change.before),
+                ExperimentHealthValueKey.AFTER: _describe_conditions(change.after),
+            }
+
+
+def _describe_conditions(conditions: tuple[ReleaseCondition, ...]) -> str:
+    """The release conditions in the flag page's order, one set per line, for example 'Set 1: 100%, filters on plan'."""
+    if not conditions:
+        return "None"
+    sets = []
+    for number, condition in enumerate(conditions, start=1):
+        parts = [f"Set {number}: {condition.rollout:g}%"]
+        if condition.property_keys:
+            parts.append(f"filters on {', '.join(sorted({_filter_name(key) for key in condition.property_keys}))}")
+        if condition.variant:
+            parts.append(f'forces "{condition.variant}"')
+        sets.append(", ".join(parts))
+    return "\n".join(sets)
+
+
+def _sentence_case(text: str) -> str:
+    # The findings use these words mid-sentence, so they start lowercase. A quoted flag key keeps its case.
+    return text[:1].upper() + text[1:]
+
+
+def _filter_name(property_key: str) -> str:
+    # The facade keys a filter as "<type>:<key>", and a cohort filter's key is the cohort id.
+    kind, _, key = property_key.partition(":")
+    return "cohort" if kind == "cohort" else key
+
+
+def _before_exposure(history: FlagHistory | FlagHistoryNotChecked, changed_at: datetime) -> bool | None:
+    """Whether nobody was exposed before the change. None when unknown."""
+    # A history that wasn't compared with the exposures can't tell.
+    if isinstance(history, FlagHistoryNotChecked):
+        return None
+    if history.counted_since is None or changed_at < history.counted_since:
+        return True
+    # The counting starts at the first change with an exposure before it, or with an unknown answer. After an unknown
+    # answer, nobody may have been exposed before any of the changes that follow.
+    return None if history.exposed_before_first is None else False
 
 
 def flag_history_not_readable(ctx: HealthContext) -> CheckOutcome:

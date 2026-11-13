@@ -2582,6 +2582,26 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert expected_detail in response.json()["detail"].lower()
         assert not TaskRun.objects.exists()
 
+    @parameterized.expand([("fix", False), ("agent_request", True)])
+    def test_requests_on_a_done_authoring_task_are_refused(self, _name, agent_request):
+        canvas_id, build_id, task = self._authored_canvas(agent_requests=agent_request)
+        CanvasBuild.objects.unscoped().filter(id=build_id).update(status=CanvasBuild.STATUS_FAILED)
+        Task.objects.filter(id=task.id).update(profile="user", status=Task.Status.DONE)
+
+        with patch(
+            "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+            return_value={"user": "enforce"},
+        ):
+            response = (
+                self._request_agent(canvas_id, "Make it blue.")
+                if agent_request
+                else self._request_fix(canvas_id, build_id)
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert "done" in response.json()["detail"].lower()
+        assert not TaskRun.objects.exists()
+
     def test_request_fix_prompt_never_carries_unsafe_error_type(self):
         # The requester's error_type flows into the agent prompt; a hostile
         # value must be coerced, not interpolated.

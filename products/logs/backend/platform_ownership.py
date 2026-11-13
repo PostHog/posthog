@@ -158,6 +158,7 @@ def on_updated(
         snooze_until=alert.snooze_until,
         snooze_changed=snooze_changed,
         at=at,
+        first_enabled_at=alert.first_enabled_at,
     )
 
 

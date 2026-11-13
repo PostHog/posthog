@@ -6,11 +6,18 @@ export class StallingValkeyProxy {
     private server: Server | undefined
     private readonly connections = new Set<Connection>()
     private newConnectionsAnswer = true
+    private refusing = false
+    refusedConnections = 0
 
     constructor(private readonly target: { host: string; port: number }) {}
 
     async start(): Promise<number> {
         this.server = createServer((client) => {
+            if (this.refusing) {
+                this.refusedConnections++
+                client.resetAndDestroy()
+                return
+            }
             const connection: Connection = {
                 client,
                 upstream: connect(this.target.port, this.target.host),
@@ -49,7 +56,12 @@ export class StallingValkeyProxy {
         this.stopAnsweringOpenConnections()
     }
 
+    refuseNewConnections(): void {
+        this.refusing = true
+    }
+
     answerNewConnections(): void {
+        this.refusing = false
         this.newConnectionsAnswer = true
     }
 
@@ -59,5 +71,15 @@ export class StallingValkeyProxy {
             client.destroy()
         })
         this.server?.close()
+    }
+
+    stopLeavingClientsSilent(): void {
+        this.stopAnswering()
+        this.connections.forEach(({ client, upstream }) => {
+            upstream.destroy()
+            client.unref()
+        })
+        this.server?.close()
+        this.server?.unref()
     }
 }
