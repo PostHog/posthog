@@ -28,6 +28,28 @@ ADDRESS_VERDICTS = [
     ("jane..doe@example.com", False),
 ]
 
+CONTENT_TYPE_VERDICTS = [
+    ("application/pdf", True),
+    ("text/calendar; charset=utf-8; method=REQUEST", True),
+    ("text/calendar;method=REQUEST", True),
+    ('text/plain; charset="utf-8"', True),
+    ('application/octet-stream; name="report \\"final\\".bin"', True),
+    ("pdf", False),
+    ("text/calendar;", False),
+    ("text/calendar; method", False),
+    ("text/calendar; method=", False),
+    ("text/calendar; =REQUEST", False),
+    ("text/calendar method=REQUEST", False),
+    ("text/calendar; method=REQUEST\r\nBcc: jane@example.com", False),
+    ("text/calendar; method=REQUEST\nBcc: jane@example.com", False),
+    ("text/calendar; method=REQUEST, text/html", False),
+    ("text/calendar; method=REQUEST; Bcc: jane@example.com", False),
+    ('text/plain; charset="utf-8', False),
+    ('text/plain; charset="utf\r\n-8"', False),
+    ("text/plain; charset=utf-8\x7f", False),
+    ("text/plain; charset=ütf-8", False),
+]
+
 
 INVOICE = "a" * 64
 
@@ -85,12 +107,6 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
                 {"attachments": [_attachment(filename="invoice\r\n.pdf")]},
                 ("attachments", 0, "filename"),
                 "unsafe_filename",
-            ),
-            (
-                "content_type_that_is_not_a_mime_type",
-                {"attachments": [_attachment(content_type="pdf")]},
-                ("attachments", 0, "content_type"),
-                "not_mime_type",
             ),
             (
                 "content_id_with_brackets",
@@ -304,6 +320,16 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             assert serializer.validated_data[field] == [address]
         else:
             assert _refusal_code({field: [address]}, field, 0) == "invalid"
+
+    @parameterized.expand(CONTENT_TYPE_VERDICTS)
+    def test_takes_the_content_types_a_mail_part_header_takes(self, content_type: str, accepted: bool) -> None:
+        fields = {"attachments": [_attachment(content_type=content_type)]}
+        if accepted:
+            serializer = _code_send(fields)
+            assert serializer.is_valid(), serializer.errors
+            assert serializer.validated_data["attachments"][0]["content_type"] == content_type
+        else:
+            assert _refusal_code(fields, "attachments", 0, "content_type") == "not_mime_type"
 
 
 class TestAttachmentSize(SimpleTestCase):

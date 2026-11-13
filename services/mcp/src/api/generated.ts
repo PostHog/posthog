@@ -40199,7 +40199,7 @@ export namespace Schemas {
          */
       filename: string;
       /**
-         * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+         * MIME type of the file, such as `application/pdf`, with any parameters, such as `text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name.
          * @maxLength 78
          */
       content_type?: string;

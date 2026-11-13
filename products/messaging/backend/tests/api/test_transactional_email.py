@@ -738,6 +738,28 @@ class TestTransactionalEmail(APIBaseTest):
                     ],
                 },
             ),
+            (
+                "calendar_invite_with_mime_parameters",
+                {
+                    "attachments": [
+                        {
+                            "sha256": NOTES,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; charset=utf-8; method=REQUEST",
+                        }
+                    ]
+                },
+                {
+                    **WELCOME_DELIVERED,
+                    "attachments": [
+                        {
+                            "sha256": NOTES,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; charset=utf-8; method=REQUEST",
+                        }
+                    ],
+                },
+            ),
         ]
     )
     def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, delivered):
