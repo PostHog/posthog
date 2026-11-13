@@ -1291,6 +1291,13 @@ describe('cloud controller', () => {
             'reader above 1 ACU before T0',
         ],
         [
+            'a series that ends before T0',
+            { readerAcu: minutes(-3, -1, 1, 1) },
+            () => undefined,
+            'invalid',
+            'no reader capacity from T0 on',
+        ],
+        [
             'no capacity before T0',
             { readerAcu: [...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)] },
             () => undefined,
@@ -1353,6 +1360,14 @@ describe('cloud controller', () => {
         const hours = (Date.parse(String(properties.ended_at)) - Date.parse(createdAt)) / HOUR_MS
         const t0 = Date.parse(String(properties.t0_at))
         const minuteAt = (offset: number): string => new Date(t0 - (t0 % 60_000) + offset * 60_000).toISOString()
+        const runnerKey = [...cloud.objects.keys()].find(
+            (key) => key.startsWith(`runs/${runId}/evidence/run/`) && key.endsWith('/scorecard.json')
+        )!
+        const cardEnd = Date.parse(
+            (parseJSON(cloud.objects.get(runnerKey)!) as { event: { ended_at: string } }).event.ended_at
+        )
+        const cardEndOffset = Math.floor((cardEnd - (t0 - (t0 % 60_000))) / 60_000)
+        const gapOffsets = [10, 11, ...Array.from({ length: cardEndOffset - 29 }, (_, i) => 30 + i)]
         expect(properties).toMatchObject({
             run_id: runId,
             origin: 'cloud-manual',
@@ -1371,7 +1386,7 @@ describe('cloud controller', () => {
             runner_profile_hash: sha256(readFileSync(path.join(dir, 'runner.yaml'), 'utf8')),
             teardown_clean: true,
             teardown_leftovers: [],
-            acu_gaps: [minuteAt(10), minuteAt(11), minuteAt(30)],
+            acu_gaps: gapOffsets.map(minuteAt),
             enhanced_monitoring_events: 6,
             cost_estimate_excluded: ['data transfer', 'S3 requests', 'Enhanced Monitoring log ingestion'],
         })
@@ -1379,7 +1394,7 @@ describe('cloud controller', () => {
         expect(properties.cost_estimate_items).toEqual(
             expect.arrayContaining([
                 `writer db.r8g.2xlarge, ${hours.toFixed(2)} h: $${hours.toFixed(2)}`,
-                'reader, 2.83 ACU-hours, 3 minutes missing: $0.28',
+                `reader, 2.83 ACU-hours, ${gapOffsets.length} minutes missing: $0.28`,
             ])
         )
         const items = properties.cost_estimate_items as string[]
@@ -1392,6 +1407,20 @@ describe('cloud controller', () => {
             .flatMap((key) => parseJSON(cloud.objects.get(key)!) as { message: string }[])
             .map(({ message }) => (parseJSON(message) as { instanceID: string }).instanceID)
         expect(kept.sort()).toEqual([...Array(3).fill(`scn-${runId}-reader`), ...Array(3).fill(`scn-${runId}-writer`)])
+    })
+
+    it('counts every minute from T0 on as missing when CloudWatch returns no reader capacity', async () => {
+        const { controller } = prepare({ cloud: { readerAcu: [] }, env: api.credentials })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const t0 = Date.parse(String(published().t0_at))
+        const gaps = published().acu_gaps as string[]
+        expect(published().status_reason).toContain('no reader capacity before T0')
+        expect(gaps[0]).toBe(new Date(t0 - (t0 % 60_000)).toISOString())
+        expect(published().cost_estimate_items).toContainEqual(
+            expect.stringContaining(`reader, 0.00 ACU-hours, ${gaps.length} minutes missing`)
+        )
     })
 
     it('fingerprints runs alike only when their environment matches', async () => {

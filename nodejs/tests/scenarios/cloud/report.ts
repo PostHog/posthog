@@ -61,7 +61,7 @@ async function hostScorecardOf(
     return HostScorecard.parse(parseJSON(await evidence.get(keys[0])))
 }
 
-async function capacityOf(aws: Aws, readerId: string, from: number, to: number): Promise<Capacity> {
+async function capacityOf(aws: Aws, readerId: string, from: number, to: number, expected: number[]): Promise<Capacity> {
     const queries = Object.entries({ max: 'Maximum', avg: 'Average' }).map(([Id, Stat]) => ({
         Id,
         MetricStat: {
@@ -96,8 +96,9 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number):
         })
     }
     const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
+    const ends = [...minutes.map(({ at }) => at), ...expected.filter(Number.isFinite).map(minuteOf)]
     const gaps: number[] = []
-    for (let at = minutes[0]?.at ?? 0; at <= (minutes.at(-1)?.at ?? -1); at += MINUTE_MS) {
+    for (let at = Math.min(...ends); at <= Math.max(...ends); at += MINUTE_MS) {
         const minute = byMinute.get(at)
         if (minute?.max === undefined || minute.avg === undefined) {
             gaps.push(at)
@@ -164,6 +165,9 @@ function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<str
     if (before.length === 0) {
         return { scalars, reason: 'no reader capacity before T0' }
     }
+    if (after.length === 0) {
+        return { scalars, reason: 'no reader capacity from T0 on' }
+    }
     const above = before.filter(({ max }) => max > MIN_ACU)
     return above.length === 0
         ? { scalars }
@@ -228,7 +232,13 @@ export async function report(
         reasons.push(`the runner recorded no ${FAILOVER_VALVE}, so the reader was not judged`)
     }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
-        capacityOf(controller.aws, `scn-${runId}-reader`, from, to)
+        capacityOf(
+            controller.aws,
+            `scn-${runId}-reader`,
+            from,
+            to,
+            [t0, host?.event.ended_at].map((at) => Date.parse(String(at)))
+        )
     )
     const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0)) : undefined
     if (judged?.reason) {
