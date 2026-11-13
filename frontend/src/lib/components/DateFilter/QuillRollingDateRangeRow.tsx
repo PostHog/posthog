@@ -7,7 +7,6 @@ import { dayjs } from 'lib/dayjs'
 import { RelativeRangeInput, type RelativeRangeUnit } from './RelativeRangeInput'
 import { rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
-// A menu treats typed keys as item navigation, which would steal them from the count input
 function keepKeysInField(event: React.KeyboardEvent): void {
     if (event.key !== 'Escape') {
         event.stopPropagation()
@@ -61,7 +60,6 @@ export function QuillRollingDateRangeRow({
                         }
                     }}
                     units={units}
-                    // No max means no limit, as in the Lemon control; the input otherwise caps at 999
                     max={max ?? Number.MAX_SAFE_INTEGER}
                 />
             </div>

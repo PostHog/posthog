@@ -167,7 +167,6 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
     return (
         <>
             <DropdownMenu
-                // The unit select and exclusions flyout open their own popups, which a modal menu would block
                 modal={false}
                 open={isVisible && view === DateFilterView.QuickList}
                 onOpenChange={(nextOpen) => (nextOpen ? open() : close())}
@@ -193,7 +192,6 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                         <DropdownMenuRadioGroup value={selectedValue}>
                             <ScrollArea
                                 hideScrollbars
-                                // Overhangs the menu edge, where the list clips it, so the shadows' tapered ends don't show
                                 className="-mx-3 -mt-2"
                                 viewportClassName="max-h-80 px-3 pt-2 scroll-py-4"
                             >
@@ -201,7 +199,6 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                     <DropdownMenuRadioItem
                                         key={optionKey}
                                         value={optionKey}
-                                        // pinned: data-attr values feed autocapture dashboards and tests
                                         data-attr={`date-filter-${optionKey.toLowerCase().replace(/\s+/g, '-')}`}
                                         onClick={() =>
                                             setDate(values[0] || null, values[1] || null, false, explicitDate)
@@ -297,12 +294,10 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                 </div>
                             )}
                             <DateTimePicker
-                                // The picker reads `value` at mount only, so remount it when time is switched on or off
                                 key={fixedRangeWithTime ? 'time' : 'day'}
                                 ranges={[]}
                                 showHeader={false}
                                 showTime={fixedRangeWithTime}
-                                // The Lemon calendar this replaces has no upper limit
                                 maxDate={null}
                                 weekStartsOn={weekStartsOn}
                                 value={{
