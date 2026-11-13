@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PROGRESS_MESSAGE_MARKER = "*On it* :hedgehog:"
+PROGRESS_MESSAGE_MARKER = "*Hedgehog on the job* :hedgehog:"
 # Cards posted before the copy change still carry this text and must stay editable.
 LEGACY_PROGRESS_MESSAGE_MARKER = "Working on task..."
 UPSTREAM_PROVIDER_FAILURE_MESSAGE = (

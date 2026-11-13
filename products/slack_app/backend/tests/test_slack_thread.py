@@ -169,7 +169,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         handler = SlackThreadHandler(context)
 
         handler.post_or_update_progress(
-            "Working on your request", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
+            "Paws on the keyboard", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
         )
 
         mock_client.chat_postMessage.assert_called_once()
@@ -213,7 +213,7 @@ class TestSlackThreadHandler(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("current_card", "*On it* :hedgehog:\nWorking on your request"),
+            ("current_card", "*Hedgehog on the job* :hedgehog:\nPaws on the keyboard"),
             ("card_posted_before_copy_change", "*Working on task...* :hourglass_flowing_sand:\nStage: In progress..."),
         ]
     )
