@@ -338,7 +338,7 @@ Curve,,,,,,curve
 Custom,manifest_json auth_token auth_api_key auth_password auth_oauth2_client_secret auth_oauth2_refresh_token auth_oauth2_integration_id,,,,,
 CustomerIO,app_api_key region,,,,,customer-io
 Customerly,access_token,,,,,customerly
-Cyberimpact,,,,,,cyberimpact
+Cyberimpact,api_token,,,,,cyberimpact
 Cybersource,,,,,,cybersource
 D2lBrightspace,,,,,,d2l-brightspace
 DagsterCloud,organization deployment api_token,,,,,dagster-cloud
