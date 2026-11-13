@@ -1929,7 +1929,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
                     hog_function_ids=hog_function_ids,
                 )
-                copied = delete_source_destination_rows(
+                deleted = delete_source_destination_rows(
                     team_id=self.team_id,
                     public_id=alert.id,
                     destination_ids=destination_ids,
@@ -1940,7 +1940,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     team_id=self.team_id,
                     alert_id=str(alert.id),
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                    hog_function_ids=copied.difference(hog_function_ids),
+                    hog_function_ids=deleted.copied_hog_function_ids.difference(hog_function_ids),
                 )
                 if remaining:
                     soft_delete_alert_destinations(

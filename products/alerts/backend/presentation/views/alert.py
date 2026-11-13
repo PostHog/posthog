@@ -1828,6 +1828,9 @@ class AlertCreateUrlDestinationSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
+        # Python and the sender parse these differently, so a URL with them could hide its path from redaction.
+        if any(character == "\\" or character.isspace() for character in attrs["webhook_url"]):
+            raise ValidationError({"webhook_url": "Enter the URL without backslashes or spaces."})
         data = cast(AlertDestinationData, attrs)
         data["type"] = DestinationType(attrs["type"])
         try:
@@ -2824,7 +2827,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
                     hog_function_ids=hog_function_ids,
                 )
-                copied = delete_source_destination_rows(
+                deleted = delete_source_destination_rows(
                     team_id=self.team_id,
                     public_id=alert.id,
                     destination_ids=destination_ids,
@@ -2835,7 +2838,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     team_id=self.team_id,
                     alert_id=str(alert.id),
                     allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
-                    hog_function_ids=copied.difference(hog_function_ids),
+                    hog_function_ids=deleted.copied_hog_function_ids.difference(hog_function_ids),
                 )
                 if remaining:
                     removed |= soft_delete_alert_destinations(
@@ -2853,7 +2856,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             actor_id=request.user.id,
             was_impersonated=is_impersonated(request),
             action="deleted",
-            destination_types=removed,
+            # A destination whose HogFunctions were already gone is logged by its row's id.
+            destination_types=removed or deleted.row_types,
         )
 
         posthoganalytics.capture(

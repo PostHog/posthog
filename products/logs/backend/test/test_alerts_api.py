@@ -230,9 +230,10 @@ class TestLogsAlertAPI(APIBaseTest):
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
         # Settings, runtime, history ids and control-change ids, whatever the page size. A list also
-        # reads which alerts the platform owns and the alerts with no logs row.
+        # reads which alerts the platform owns and the alerts with no logs row; a single alert also
+        # reads its destinations.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == (6 if action == "list" else 4)
+        assert len(platform_reads) == (6 if action == "list" else 5)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)

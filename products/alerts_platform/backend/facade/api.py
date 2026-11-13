@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertReceiverEdit,
     AlertRouteEdit,
     ControlChangeKind,
+    DeletedSourceDestinations,
     DestinationSend,
     DestinationType,
     EnabledNativeConfiguration,
@@ -775,8 +776,8 @@ def list_source_destinations(
 
 def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
-) -> frozenset[UUID]:
-    """Deletes the alert's rows named or copying `hog_function_ids`, and returns the HogFunctions they copied."""
+) -> DeletedSourceDestinations:
+    """Deletes the alert's rows named or copying `hog_function_ids`, and returns what went."""
     return alert_destinations.delete_source_destination_rows(
         team_id=team_id, public_id=public_id, destination_ids=destination_ids, hog_function_ids=hog_function_ids
     )
