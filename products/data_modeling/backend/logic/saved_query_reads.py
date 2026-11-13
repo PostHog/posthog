@@ -288,11 +288,14 @@ def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str 
     writes to (``_build_model_table_uri``), so a reader lands on the table that run produced.
     """
     saved_query = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .select_related("table")
+        .first()
     )
     if saved_query is None or not saved_query.is_materialized:
         return None
-    return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.normalized_name}"
+    return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.storage_name}"
 
 
 def get_node_ids_for_saved_queries(team_id: int, saved_query_ids: Iterable[UUID | str]) -> dict[str, str]:
