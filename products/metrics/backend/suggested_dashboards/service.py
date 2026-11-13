@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
@@ -85,20 +86,23 @@ def create_from_suggestion(team: Team, user: User, suggestion_id: str) -> int:
 
 
 def dismiss_suggestion(team: Team, user: User, suggestion_id: str) -> None:
-    suggestion = (
-        MetricsDashboardSuggestion.objects.for_team(team.id).filter(id=suggestion_id).select_related("template").first()
-    )
-    if suggestion is None:
-        raise SuggestedDashboardNotFound("This suggestion does not exist.")
-    # The filter makes a repeated or concurrent call a no-op, so the first dismissal keeps its time and sends the
-    # only event.
-    dismissed = (
-        MetricsDashboardSuggestion.objects.for_team(team.id)
-        .filter(id=suggestion.id, dismissed_at__isnull=True)
-        .update(dismissed_at=timezone.now(), updated_at=timezone.now())
-    )
-    if not dismissed:
-        return
+    with transaction.atomic():
+        # An analysis deletes the suggestions that no longer fit, under the same row locks. With the lock, either
+        # the analysis waits and then keeps the dismissed row, or this call finds the row gone and reports that.
+        suggestion = (
+            MetricsDashboardSuggestion.objects.for_team(team.id)
+            .select_for_update(of=("self",))
+            .filter(id=suggestion_id)
+            .select_related("template")
+            .first()
+        )
+        if suggestion is None:
+            raise SuggestedDashboardNotFound("This suggestion does not exist.")
+        if suggestion.dismissed_at is not None:
+            # A repeated call keeps the time of the first dismissal and sends no second event.
+            return
+        suggestion.dismissed_at = timezone.now()
+        suggestion.save(update_fields=["dismissed_at", "updated_at"])
     report_user_action(
         user,
         "metrics suggested dashboard dismissed",

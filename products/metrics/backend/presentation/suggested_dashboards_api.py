@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 from typing import Any, cast
+from uuid import UUID
 
 from django.http import HttpResponse
 
@@ -106,6 +107,8 @@ class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
     posthog_feature_flag = METRICS_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     lookup_value_regex = UUID_REGEX
+    # The regex also matches text that is not a UUID, such as 36 hyphens. The type answers 404 for it.
+    path_parameters = {"pk": UUID}
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action == "dashboard":
@@ -146,7 +149,7 @@ class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         },
     )
     @action(detail=True, methods=["POST"])
-    def dashboard(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+    def dashboard(self, request: Request, pk: UUID | None = None, *args: Any, **kwargs: Any) -> Response:
         """Create the suggested dashboard in this project, with only the charts whose metrics the project sends.
         A second call returns the dashboard that the first one created."""
         self._require_flag(request)
@@ -172,7 +175,7 @@ class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         },
     )
     @action(detail=True, methods=["POST"])
-    def dismiss(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+    def dismiss(self, request: Request, pk: UUID | None = None, *args: Any, **kwargs: Any) -> Response:
         """Remove the suggestion from this project's suggested dashboards, for every user of the project.
         The suggestion does not come back. A dashboard that was created from it stays.
         A second call does nothing."""

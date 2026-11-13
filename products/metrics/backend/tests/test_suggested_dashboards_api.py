@@ -181,6 +181,18 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert listed.json() == []
         assert created.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("dismissing_a_suggestion_that_an_analysis_removed", "dismiss", "0b5e7c3a-2f1d-4c8e-9a6b-3d2f1e0c9b8a"),
+            ("dismissing_with_an_id_that_is_not_a_uuid", "dismiss", "-" * 36),
+            ("creating_with_an_id_that_is_not_a_uuid", "dashboard", "-" * 36),
+        ]
+    )
+    def test_a_suggestion_that_does_not_exist_returns_not_found(self, _name: str, action: str, pk: str) -> None:
+        response = self.client.post(f"{self.base_url}/suggested_dashboards/{pk}/{action}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_a_suggested_dashboard_gets_the_variables_of_its_tiles(self) -> None:
         template = _template("mixed", "approved", "orders_total", "unknown_total")
         _with_variable_filter(template.panels[0], "instance")
