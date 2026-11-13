@@ -1606,6 +1606,8 @@ export namespace Schemas {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -1679,14 +1681,12 @@ export namespace Schemas {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
-     * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -1734,6 +1734,8 @@ export namespace Schemas {
       Billing: 'billing',
       BusinessKnowledge: 'business_knowledge',
       Canvas: 'canvas',
+      CodeReview: 'code_review',
+      CodeReviewApproval: 'code_review_approval',
       Cohort: 'cohort',
       Comment: 'comment',
       Conversation: 'conversation',
@@ -1807,14 +1809,12 @@ export namespace Schemas {
       Query: 'query',
       QueryPerformance: 'query_performance',
       ReplayScanner: 'replay_scanner',
-      ReviewHog: 'review_hog',
       RevenueAnalytics: 'revenue_analytics',
       SessionRecording: 'session_recording',
       SessionRecordingPlaylist: 'session_recording_playlist',
       SharingConfiguration: 'sharing_configuration',
       SignalScout: 'signal_scout',
       SignalUsage: 'signal_usage',
-      Stamphog: 'stamphog',
       StreamlitApp: 'streamlit_app',
       Subscription: 'subscription',
       SupportTicket: 'support_ticket',
@@ -1862,6 +1862,8 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `code_review` - code_review
+       * * `code_review_approval` - code_review_approval
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -1935,14 +1937,12 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
-       * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
-       * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -2113,6 +2113,8 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `code_review` - code_review
+       * * `code_review_approval` - code_review_approval
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -2186,14 +2188,12 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
-       * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
-       * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -2311,6 +2311,7 @@ export namespace Schemas {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -2350,7 +2351,6 @@ export namespace Schemas {
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
      * * `survey` - survey
      * * `tagger` - tagger
      * * `ticket` - ticket
@@ -2372,6 +2372,7 @@ export namespace Schemas {
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
       BusinessKnowledge: 'business_knowledge',
+      CodeReviewApproval: 'code_review_approval',
       CustomerAnalytics: 'customer_analytics',
       CustomerJourney: 'customer_journey',
       CustomerTask: 'customer_task',
@@ -2411,7 +2412,6 @@ export namespace Schemas {
       SessionRecording: 'session_recording',
       SessionRecordingPlaylist: 'session_recording_playlist',
       SharingConfiguration: 'sharing_configuration',
-      Stamphog: 'stamphog',
       Survey: 'survey',
       Tagger: 'tagger',
       Ticket: 'ticket',
@@ -2436,6 +2436,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -2475,7 +2476,6 @@ export namespace Schemas {
        * * `session_recording` - session_recording
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
-       * * `stamphog` - stamphog
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -2533,6 +2533,8 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `code_review` - code_review
+       * * `code_review_approval` - code_review_approval
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -2606,14 +2608,12 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
-       * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
-       * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -2710,6 +2710,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -2749,7 +2750,6 @@ export namespace Schemas {
        * * `session_recording` - session_recording
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
-       * * `stamphog` - stamphog
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -2799,6 +2799,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -2838,7 +2839,6 @@ export namespace Schemas {
        * * `session_recording` - session_recording
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
-       * * `stamphog` - stamphog
        * * `survey` - survey
        * * `tagger` - tagger
        * * `ticket` - ticket
@@ -28436,6 +28436,656 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for turning reviews on for a repository from a connected installation.
+     */
+    export interface CodeReviewApprovalAddRepository {
+      /** Repository full name, e.g. 'PostHog/posthog'. It must be in one of the project's connected GitHub installations, as available_repositories lists them. A repository the project already has is turned back on. */
+      repository: string;
+    }
+
+    /**
+     * Repositories from the team's connected GitHub installations that are not added to auto-approval yet.
+     */
+    export interface CodeReviewApprovalAvailableRepositories {
+      /** Repository full names the team can add, sorted by name and capped by limit. Only repositories a project member proved access to on GitHub are listed, and never one another project already holds under the same installation. */
+      readonly repositories: readonly string[];
+      /** How many repositories match the search in total, before limit applies. */
+      readonly total_count: number;
+      /** Whether a project member connected a GitHub installation yet. False means GitHub must be connected before any repository can be added. True with a total_count of 0 and no search means no repository is left to add. */
+      readonly has_installation: boolean;
+    }
+
+    /**
+     * One installation of the App the authorizing user can reach, offered for an explicit pick.
+     */
+    export interface CodeReviewApprovalDiscoveredInstallation {
+      /** GitHub installation id, as a string. */
+      readonly id: string;
+      /** Login of the org or user account the installation lives on. */
+      readonly account_login: string;
+    }
+
+    /**
+     * Static info the frontend needs to render the 'Connect a repository' button.
+     */
+    export interface CodeReviewApprovalInstallInfo {
+      /** URL-friendly slug of the Stamphog GitHub app, or blank if unconfigured. */
+      readonly app_slug: string;
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The user picks a GitHub account there and chooses which repositories the App can reach, including an account where the App is already installed. Blank if the App slug is unconfigured. */
+      readonly install_url: string;
+      /** GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an existing installation carries no OAuth code, so the client passes through this URL once: an installed App redirects straight back with a code, which sync_installation uses to prove ownership. Blank if the App client id is unconfigured. */
+      readonly authorize_url: string;
+    }
+
+    /**
+     * * `found` - Found
+     * * `missing` - Missing
+     * * `unavailable` - Unavailable
+     */
+    export type OwnersFileStatusEnum = typeof OwnersFileStatusEnum[keyof typeof OwnersFileStatusEnum];
+
+
+    export const OwnersFileStatusEnum = {
+      Found: 'found',
+      Missing: 'missing',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * Whether a repository can use reviewer requests, which read ownership from its owners.yaml.
+     */
+    export interface CodeReviewApprovalOwnersFile {
+      /** Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when the check could not ask GitHub (no installation, or GitHub answered with an error).
+       *
+       * * `found` - Found
+       * * `missing` - Missing
+       * * `unavailable` - Unavailable */
+      owners_file: OwnersFileStatusEnum;
+    }
+
+    /**
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When auto-approval does not approve
+     */
+    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
+
+
+    export const RoutingModeEnum = {
+      Off: 'off',
+      Always: 'always',
+      Fallback: 'fallback',
+    } as const;
+
+    /**
+     * * `waiting` - Waiting for auto-approval's verdict
+     * * `routing` - Routing
+     * * `requested` - Requested
+     * * `done` - Done
+     */
+    export type RoutingStatusEnum = typeof RoutingStatusEnum[keyof typeof RoutingStatusEnum];
+
+
+    export const RoutingStatusEnum = {
+      Waiting: 'waiting',
+      Routing: 'routing',
+      Requested: 'requested',
+      Done: 'done',
+    } as const;
+
+    /**
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only
+     */
+    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
+
+
+    export const RoutingScopeEnum = {
+      Full: 'full',
+      Pinned: 'pinned',
+    } as const;
+
+    export interface CodeReviewApprovalPullRequestRouting {
+      /** The phase of the latest routing record: 'waiting' (fallback mode, the head waits for auto-approval's verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
+       *
+       * * `waiting` - Waiting for auto-approval's verdict
+       * * `routing` - Routing
+       * * `requested` - Requested
+       * * `done` - Done */
+      readonly status: RoutingStatusEnum;
+      /** The repository's routing_mode when the record was written. Compare with the pull request's routing_mode.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When auto-approval does not approve */
+      readonly mode: RoutingModeEnum;
+      /** 'full', or 'pinned' when an auto-approval asks only the owners of sensitive and new paths. Null while the record waits.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum | null;
+      /** The head commit the record is for. It can be older than the pull request head. */
+      readonly head_sha: string;
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+      readonly trigger: string;
+      /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
+      readonly claim_expired: boolean;
+      /**
+         * When the head started to wait for auto-approval's verdict. Null unless waiting.
+         * @nullable
+         */
+      readonly waiting_since: string | null;
+      /**
+         * When a task claimed the pull request for this record.
+         * @nullable
+         */
+      readonly claimed_at: string | null;
+      /**
+         * When the claim planned its requests. Null until the plan is saved.
+         * @nullable
+         */
+      readonly routed_at: string | null;
+      /** The head that a full routing of this pull request requested owners for, blank if none. Fallback mode routes in full at most once per pull request. */
+      readonly full_routed_head: string;
+      /** The latest approved head whose pinned owners were requested, blank if none. */
+      readonly pinned_routed_head: string;
+    }
+
+    export interface CodeReviewApprovalPullRequest {
+      readonly id: string;
+      /** Full name of the repository this pull request belongs to. */
+      readonly repository: string;
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Pull request title, refreshed on every relevant webhook delivery. */
+      readonly title: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
+      /** Full URL to the pull request on GitHub. */
+      readonly pr_url: string;
+      /** Branch name of the PR head. */
+      readonly head_branch: string;
+      /** Whether this pull request has merged (merged_at is set). */
+      readonly merged: boolean;
+      /**
+         * When the pull request merged, null if it hasn't.
+         * @nullable
+         */
+      readonly merged_at: string | null;
+      /** Merge commit SHA, blank until the pull request merges. */
+      readonly merge_commit_sha: string;
+      /** Lines added, recorded when the pull request merges. */
+      readonly additions: number;
+      /** Lines deleted, recorded when the pull request merges. */
+      readonly deletions: number;
+      /** Files changed, recorded when the pull request merges. */
+      readonly changed_files: number;
+      /** The repository's routing_mode now. 'off' means reviewer routing does not run for new events.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When auto-approval does not approve */
+      readonly routing_mode: RoutingModeEnum;
+      /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
+      readonly routing: CodeReviewApprovalPullRequestRouting | null;
+      /** When this pull request was first captured. */
+      readonly created_at: string;
+      /** When this pull request was last updated. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual.
+     */
+    export type CodeReviewApprovalRepositoryRoutingForkLabels = {[key: string]: string};
+
+    /**
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests
+     */
+    export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
+
+
+    export const ReviewModeEnum = {
+      All: 'all',
+      Label: 'label',
+    } as const;
+
+    export interface CodeReviewApprovalRepository {
+      readonly id: string;
+      /** SCM provider this config talks to. Defaults to 'github'. */
+      provider?: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. */
+      repository: string;
+      /** Whether auto-approval actively reviews pull requests for this repo. */
+      enabled: boolean;
+      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
+      readonly installation_id: string;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what auto-approval approved. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
+       *
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
+      readonly review_mode: ReviewModeEnum;
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
+      trigger_label?: string;
+      /** When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when auto-approval does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When auto-approval does not approve */
+      readonly routing_mode: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
+      readonly routing_fork_labels: CodeReviewApprovalRepositoryRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
+      readonly review_on_clean_external_review: boolean;
+      /**
+         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+     */
+    export type CodeReviewApprovalRepositoryWriteRoutingForkLabels = {[key: string]: string};
+
+    /**
+     * Input shape for creating/updating a repo config.
+     *
+     * Separate from the read serializer because the contract is an output shape: it carries a
+     * required id, which a create request has no way to supply. Same split as visual_review's
+     * input serializers.
+     *
+     * installation_id is deliberately absent: it may only ever be set by the verified
+     * sync_installation flow, which proves the caller owns the installation before binding it. A
+     * client-supplied value on this path is ignored, so a manually created config carries no
+     * installation and simply won't resolve webhooks until synced.
+     */
+    export interface CodeReviewApprovalRepositoryWrite {
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
+      provider?: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
+      repository: string;
+      /** Whether auto-approval actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
+       *
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
+      review_mode?: ReviewModeEnum;
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
+      trigger_label?: string;
+      /** When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when auto-approval does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When auto-approval does not approve */
+      routing_mode?: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+      routing_fork_labels?: CodeReviewApprovalRepositoryWriteRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
+      review_on_clean_external_review?: boolean;
+    }
+
+    export interface CodeReviewApprovalRoutingFile {
+      /** The changed path. */
+      path: string;
+      /**
+         * The path before a rename. Null for any other change.
+         * @nullable
+         */
+      previous_path?: string | null;
+      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+      status?: string;
+      /** Added lines. */
+      additions?: number;
+      /** Deleted lines. */
+      deletions?: number;
+      /**
+         * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
+         * @nullable
+         */
+      owners_source?: string | null;
+    }
+
+    /**
+     * * `sensitive` - Sensitive path
+     * * `new_path` - New path
+     */
+    export type PinReasonEnum = typeof PinReasonEnum[keyof typeof PinReasonEnum];
+
+
+    export const PinReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+    } as const;
+
+    export interface CodeReviewApprovalRoutingPin {
+      /** Why the path pins its owner.
+       *
+       * * `sensitive` - Sensitive path
+       * * `new_path` - New path */
+      readonly reason: PinReasonEnum;
+      /** The changed path, or the new directory, that pinned the owner. */
+      path: string;
+    }
+
+    /**
+     * * `single_candidate` - Single candidate
+     * * `fork` - Fork
+     * * `nothing_cuttable` - Nothing cuttable
+     * * `no_answer` - No answer
+     * * `stamphog_approved` - Auto-approved
+     * * `files_truncated` - Files truncated
+     */
+    export type LlmSkipReasonEnum = typeof LlmSkipReasonEnum[keyof typeof LlmSkipReasonEnum];
+
+
+    export const LlmSkipReasonEnum = {
+      SingleCandidate: 'single_candidate',
+      Fork: 'fork',
+      NothingCuttable: 'nothing_cuttable',
+      NoAnswer: 'no_answer',
+      StamphogApproved: 'stamphog_approved',
+      FilesTruncated: 'files_truncated',
+    } as const;
+
+    /**
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     */
+    export type RoutingOwnerOutcomeEnum = typeof RoutingOwnerOutcomeEnum[keyof typeof RoutingOwnerOutcomeEnum];
+
+
+    export const RoutingOwnerOutcomeEnum = {
+      Requested: 'requested',
+      Labeled: 'labeled',
+      Refused: 'refused',
+      Cut: 'cut',
+      NotRequested: 'not_requested',
+      AlreadyRequested: 'already_requested',
+    } as const;
+
+    /**
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Auto-approved
+     */
+    export type RoutingOwnerReasonEnum = typeof RoutingOwnerReasonEnum[keyof typeof RoutingOwnerReasonEnum];
+
+
+    export const RoutingOwnerReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+      LargestOwner: 'largest_owner',
+      DiffNotSeen: 'diff_not_seen',
+      CutSkipped: 'cut_skipped',
+      ModelKept: 'model_kept',
+      ModelCut: 'model_cut',
+      StamphogApproved: 'stamphog_approved',
+    } as const;
+
+    /**
+     * * `team` - Team
+     * * `person` - Person
+     */
+    export type OwnerKindEnum = typeof OwnerKindEnum[keyof typeof OwnerKindEnum];
+
+
+    export const OwnerKindEnum = {
+      Team: 'team',
+      Person: 'person',
+    } as const;
+
+    export interface CodeReviewApprovalRoutingRunOwner {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Auto-approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly CodeReviewApprovalRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface CodeReviewApprovalRoutingRun {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When auto-approval does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when an auto-approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Auto-approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code. */
+      readonly owners: readonly CodeReviewApprovalRoutingRunOwner[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
+    export interface CodeReviewApprovalRoutingRunOwnerDetail {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Auto-approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly CodeReviewApprovalRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+      readonly files: readonly CodeReviewApprovalRoutingFile[];
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface CodeReviewApprovalRoutingRunDetail {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When auto-approval does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when an auto-approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Auto-approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code, with the files each owner owns. */
+      readonly owners: readonly CodeReviewApprovalRoutingRunOwnerDetail[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
+    /**
+     * Request body for binding a GitHub App installation to the current team.
+     *
+     * Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
+     * ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
+     * is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
+     * installations are discovered server-side from the code, so the client never has to supply a
+     * forgeable id.
+     */
+    export interface CodeReviewApprovalSyncInstallationRequest {
+      /** GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code. */
+      installation_id?: string;
+      /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
+      code: string;
+      /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
+      state: string;
+    }
+
+    /**
+     * Result of syncing an installation: the team's rows bound to it, and what the team can add now.
+     */
+    export interface CodeReviewApprovalSyncInstallationResponse {
+      /** Repo configs this team already had for the installation's repositories, now bound to it. A sync creates no repo config: use add_repository to turn reviews on for a repository. */
+      readonly synced: readonly CodeReviewApprovalRepository[];
+      /** Repository full names skipped because another team already owns them under this installation. */
+      readonly skipped: readonly string[];
+      /** How many repositories this team can add after the sync, across all its connected installations. List them with available_repositories. */
+      readonly available_count: number;
+      /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
+      readonly app_not_installed: boolean;
+      /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
+      readonly installations: readonly CodeReviewApprovalDiscoveredInstallation[];
+    }
+
+    export interface ReviewProjectRef {
+      /**
+         * Id of the other project. Null when it belongs to another organization.
+         * @nullable
+         */
+      id: number | null;
+      /**
+         * Name of the other project. Null when it belongs to another organization.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface CodeReviewSettingsError {
+      /** Why the request was rejected. */
+      error: string;
+      /** The project that already holds the repository or the installation, if any. */
+      conflicting_project: ReviewProjectRef | null;
+    }
+
+    /**
      * * `connected` - Connected
      * * `reauth_required` - Reauth Required
      * * `not_connected` - Not Connected
@@ -38576,102 +39226,6 @@ export namespace Schemas {
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
-    }
-
-    /**
-     * * `manual` - MANUAL
-     * * `slack_name_match` - SLACK_NAME_MATCH
-     * * `stamphog_config` - STAMPHOG_CONFIG
-     * * `owners_contact` - OWNERS_CONTACT
-     */
-    export type ResolutionSourceEnum = typeof ResolutionSourceEnum[keyof typeof ResolutionSourceEnum];
-
-
-    export const ResolutionSourceEnum = {
-      Manual: 'manual',
-      SlackNameMatch: 'slack_name_match',
-      StamphogConfig: 'stamphog_config',
-      OwnersContact: 'owners_contact',
-    } as const;
-
-    /**
-     * * `pending` - PENDING
-     * * `completed` - COMPLETED
-     * * `failed` - FAILED
-     */
-    export type DigestRunStatusEnum = typeof DigestRunStatusEnum[keyof typeof DigestRunStatusEnum];
-
-
-    export const DigestRunStatusEnum = {
-      Pending: 'pending',
-      Completed: 'completed',
-      Failed: 'failed',
-    } as const;
-
-    /**
-     * One merged pull request as the digest listed it.
-     */
-    export interface _DigestSummaryPR {
-      /** Pull request number on GitHub. */
-      readonly pr_number: number;
-      /** Pull request title. */
-      readonly title: string;
-      /** Full URL to the pull request on GitHub. */
-      readonly url: string;
-      /** GitHub login of the pull request author. */
-      readonly author_login: string;
-      /** The one-line summary of the change that the digest posted. */
-      readonly summary: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. Blank on older runs. */
-      readonly repository: string;
-    }
-
-    /**
-     * What the digest posted to Slack: the headline and the pull requests it listed.
-     */
-    export interface _DigestSummary {
-      /** Prose about the merges with real consequence. Blank when the digest led with its first line. */
-      readonly headline: string;
-      /** The merged pull requests the digest listed, in the order it listed them. */
-      readonly prs: readonly _DigestSummaryPR[];
-    }
-
-    export interface DigestRun {
-      readonly id: string;
-      /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
-      readonly audience_key: string;
-      /** Slack channel this digest was posted to, e.g. 'C012AB3CD'. */
-      readonly slack_channel_id: string;
-      /** Human-readable name of that channel, for display. */
-      readonly slack_channel_name: string;
-      /** Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a root owners.yaml named it), or 'manual' (no longer produced).
-       *
-       * * `manual` - MANUAL
-       * * `slack_name_match` - SLACK_NAME_MATCH
-       * * `stamphog_config` - STAMPHOG_CONFIG
-       * * `owners_contact` - OWNERS_CONTACT */
-      readonly resolution_source: ResolutionSourceEnum;
-      /** Current state of the digest run (pending, completed, failed).
-       *
-       * * `pending` - PENDING
-       * * `completed` - COMPLETED
-       * * `failed` - FAILED */
-      readonly status: DigestRunStatusEnum;
-      /** Number of merged PRs included in the posted digest. */
-      readonly pr_count: number;
-      /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format. */
-      readonly summary: _DigestSummary;
-      /** Slack message timestamp of the posted digest, if posted. */
-      readonly slack_message_ts: string;
-      /** Error message if the run failed, blank otherwise. */
-      readonly error: string;
-      /** When the digest run was created. */
-      readonly created_at: string;
-      /**
-         * When the digest was posted to Slack, if it was.
-         * @nullable
-         */
-      readonly posted_at: string | null;
     }
 
     /**
@@ -67132,26 +67686,6 @@ export namespace Schemas {
       provider?: string | null;
     }
 
-    /**
-     * * `single_candidate` - Single candidate
-     * * `fork` - Fork
-     * * `nothing_cuttable` - Nothing cuttable
-     * * `no_answer` - No answer
-     * * `stamphog_approved` - Stamphog approved
-     * * `files_truncated` - Files truncated
-     */
-    export type LlmSkipReasonEnum = typeof LlmSkipReasonEnum[keyof typeof LlmSkipReasonEnum];
-
-
-    export const LlmSkipReasonEnum = {
-      SingleCandidate: 'single_candidate',
-      Fork: 'fork',
-      NothingCuttable: 'nothing_cuttable',
-      NoAnswer: 'no_answer',
-      StamphogApproved: 'stamphog_approved',
-      FilesTruncated: 'files_truncated',
-    } as const;
-
     export interface LlmsTxtFetchRequest {
       /**
          * Public HTTP or HTTPS URL of the llms.txt file to load.
@@ -71273,6 +71807,8 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
+       * * `code_review` - code_review
+       * * `code_review_approval` - code_review_approval
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -71346,14 +71882,12 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
-       * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
-       * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -76020,32 +76554,6 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
-    /**
-     * * `team` - Team
-     * * `person` - Person
-     */
-    export type OwnerKindEnum = typeof OwnerKindEnum[keyof typeof OwnerKindEnum];
-
-
-    export const OwnerKindEnum = {
-      Team: 'team',
-      Person: 'person',
-    } as const;
-
-    /**
-     * * `found` - Found
-     * * `missing` - Missing
-     * * `unavailable` - Unavailable
-     */
-    export type OwnersFileStatusEnum = typeof OwnersFileStatusEnum[keyof typeof OwnersFileStatusEnum];
-
-
-    export const OwnersFileStatusEnum = {
-      Found: 'found',
-      Missing: 'missing',
-      Unavailable: 'unavailable',
-    } as const;
-
     export interface WorkflowCost {
       /** GitHub Actions workflow name this cost is for. */
       workflow_name: string;
@@ -76710,6 +77218,33 @@ export namespace Schemas {
       results: ClusteringJob[];
     }
 
+    export interface PaginatedCodeReviewApprovalPullRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CodeReviewApprovalPullRequest[];
+    }
+
+    export interface PaginatedCodeReviewApprovalRepositoryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CodeReviewApprovalRepository[];
+    }
+
+    export interface PaginatedCodeReviewApprovalRoutingRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CodeReviewApprovalRoutingRun[];
+    }
+
     export interface PaginatedCohortList {
       count: number;
       /** @nullable */
@@ -77005,15 +77540,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DatasetRevisionRead[];
-    }
-
-    export interface PaginatedDigestRunList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DigestRun[];
     }
 
     export interface PaginatedEarlyAccessFeatureList {
@@ -79146,17 +79672,17 @@ export namespace Schemas {
      *
      * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
      * and default-branch policy file contents, none of which the API returns. The reviewer's reasoning,
-     * the text stamphog posts on GitHub, is parsed out of the stdout and returned as ``reasoning``.
+     * the text auto-approval posts on GitHub, is parsed out of the stdout and returned as ``reasoning``.
      */
     export interface _ReviewOutputSummary {
-      /** Version of the stamphog engine that produced this review, if it reported one. */
-      readonly stamphog_version: string;
+      /** Version of the auto-approval engine that produced this review, if it reported one. */
+      readonly engine_version: string;
       /** Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage. */
       readonly reviewer_exit_code: number;
     }
 
     /**
-     * The reviewer's reasoning for one run, the same text stamphog posts as its GitHub review.
+     * The reviewer's reasoning for one run, the same text auto-approval posts as its GitHub review.
      */
     export interface _ReviewReasoning {
       /**
@@ -79170,7 +79696,7 @@ export namespace Schemas {
          */
       readonly showstoppers: readonly string[] | null;
       /**
-         * The review text stamphog posts on GitHub: the reasoning, the judgment points, and the gate outcome.
+         * The review text auto-approval posts on GitHub: the reasoning, the judgment points, and the gate outcome.
          * @nullable
          */
       readonly review_body: string | null;
@@ -79232,9 +79758,9 @@ export namespace Schemas {
       readonly verdict: ReviewRunVerdictEnum;
       /** Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read. */
       readonly gate_result: _GateResultSummary;
-      /** Allowlisted subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are excluded. The reviewer's reasoning, the text stamphog posts on GitHub, is in `reasoning` instead. */
+      /** Allowlisted subset of the reviewer output blob (engine version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are excluded. The reviewer's reasoning, the text auto-approval posts on GitHub, is in `reasoning` instead. */
       readonly output: _ReviewOutputSummary;
-      /** The reviewer's reasoning, the same text stamphog posts as its GitHub review. Returned only when retrieving a single run, and null in list results. Its fields are null until the reviewer has run. */
+      /** The reviewer's reasoning, the same text auto-approval posts as its GitHub review. Returned only when retrieving a single run, and null in list results. Its fields are null until the reviewer has run. */
       readonly reasoning: _ReviewReasoning | null;
       /** Error message if the run failed, blank otherwise. */
       readonly error: string;
@@ -81084,373 +81610,6 @@ export namespace Schemas {
       results: Snapshot[];
       /** Count of this run's snapshots that match the other filters and whose identifier is quarantined now. Excluded from results unless include_quarantined=true is passed. This can differ from the run's own counts, which use the quarantines at gating time. */
       quarantined_count?: number;
-    }
-
-    /**
-     * * `off` - Off
-     * * `always` - Always
-     * * `fallback` - When stamphog does not approve
-     */
-    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
-
-
-    export const RoutingModeEnum = {
-      Off: 'off',
-      Always: 'always',
-      Fallback: 'fallback',
-    } as const;
-
-    /**
-     * * `waiting` - Waiting for stamphog's verdict
-     * * `routing` - Routing
-     * * `requested` - Requested
-     * * `done` - Done
-     */
-    export type RoutingStatusEnum = typeof RoutingStatusEnum[keyof typeof RoutingStatusEnum];
-
-
-    export const RoutingStatusEnum = {
-      Waiting: 'waiting',
-      Routing: 'routing',
-      Requested: 'requested',
-      Done: 'done',
-    } as const;
-
-    /**
-     * * `full` - Every owner
-     * * `pinned` - Pinned owners only
-     */
-    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
-
-
-    export const RoutingScopeEnum = {
-      Full: 'full',
-      Pinned: 'pinned',
-    } as const;
-
-    export interface StamphogPullRequestRouting {
-      /** The phase of the latest routing record: 'waiting' (fallback mode, the head waits for stamphog's verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
-       *
-       * * `waiting` - Waiting for stamphog's verdict
-       * * `routing` - Routing
-       * * `requested` - Requested
-       * * `done` - Done */
-      readonly status: RoutingStatusEnum;
-      /** The repository's routing_mode when the record was written. Compare with the pull request's routing_mode.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      readonly mode: RoutingModeEnum;
-      /** 'full', or 'pinned' when a stamphog approval asks only the owners of sensitive and new paths. Null while the record waits.
-       *
-       * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
-      readonly scope: RoutingScopeEnum | null;
-      /** The head commit the record is for. It can be older than the pull request head. */
-      readonly head_sha: string;
-      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
-      readonly trigger: string;
-      /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
-      readonly claim_expired: boolean;
-      /**
-         * When the head started to wait for stamphog's verdict. Null unless waiting.
-         * @nullable
-         */
-      readonly waiting_since: string | null;
-      /**
-         * When a task claimed the pull request for this record.
-         * @nullable
-         */
-      readonly claimed_at: string | null;
-      /**
-         * When the claim planned its requests. Null until the plan is saved.
-         * @nullable
-         */
-      readonly routed_at: string | null;
-      /** The head that a full routing of this pull request requested owners for, blank if none. Fallback mode routes in full at most once per pull request. */
-      readonly full_routed_head: string;
-      /** The latest approved head whose pinned owners were requested, blank if none. */
-      readonly pinned_routed_head: string;
-    }
-
-    export interface StamphogPullRequest {
-      readonly id: string;
-      /** Full name of the repository this pull request belongs to. */
-      readonly repository: string;
-      /** Pull request number on GitHub. */
-      readonly pr_number: number;
-      /** Pull request title, refreshed on every relevant webhook delivery. */
-      readonly title: string;
-      /** GitHub login of the pull request author. */
-      readonly author_login: string;
-      /** Full URL to the pull request on GitHub. */
-      readonly pr_url: string;
-      /** Branch name of the PR head. */
-      readonly head_branch: string;
-      /** Whether this pull request has merged (merged_at is set). */
-      readonly merged: boolean;
-      /**
-         * When the pull request merged, null if it hasn't.
-         * @nullable
-         */
-      readonly merged_at: string | null;
-      /** Merge commit SHA, blank until the pull request merges. */
-      readonly merge_commit_sha: string;
-      /** Lines added, recorded when the pull request merges. */
-      readonly additions: number;
-      /** Lines deleted, recorded when the pull request merges. */
-      readonly deletions: number;
-      /** Files changed, recorded when the pull request merges. */
-      readonly changed_files: number;
-      /** The repository's routing_mode now. 'off' means reviewer routing does not run for new events.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      readonly routing_mode: RoutingModeEnum;
-      /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
-      readonly routing: StamphogPullRequestRouting | null;
-      /** When this pull request was first captured. */
-      readonly created_at: string;
-      /** When this pull request was last updated. */
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedStamphogPullRequestList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: StamphogPullRequest[];
-    }
-
-    /**
-     * * `all` - All pull requests
-     * * `label` - Labeled pull requests
-     */
-    export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
-
-
-    export const ReviewModeEnum = {
-      All: 'all',
-      Label: 'label',
-    } as const;
-
-    /**
-     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual.
-     */
-    export type StamphogRepoConfigRoutingForkLabels = {[key: string]: string};
-
-    export interface StamphogRepoConfig {
-      readonly id: string;
-      /** SCM provider this config talks to. Defaults to 'github'. */
-      provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. */
-      repository: string;
-      /** Whether stamphog actively reviews pull requests for this repo. */
-      enabled: boolean;
-      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
-      readonly installation_id: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
-      digest_enabled?: boolean;
-      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
-       *
-       * * `all` - All pull requests
-       * * `label` - Labeled pull requests */
-      readonly review_mode: ReviewModeEnum;
-      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
-      trigger_label?: string;
-      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      readonly routing_mode: RoutingModeEnum;
-      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
-      readonly routing_fork_labels: StamphogRepoConfigRoutingForkLabels;
-      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
-      readonly review_on_clean_external_review: boolean;
-      /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedStamphogRepoConfigList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: StamphogRepoConfig[];
-    }
-
-    /**
-     * * `requested` - Requested
-     * * `labeled` - Labeled
-     * * `refused` - Refused by GitHub
-     * * `cut` - Cut
-     * * `not_requested` - Not requested
-     * * `already_requested` - Already requested
-     */
-    export type RoutingOwnerOutcomeEnum = typeof RoutingOwnerOutcomeEnum[keyof typeof RoutingOwnerOutcomeEnum];
-
-
-    export const RoutingOwnerOutcomeEnum = {
-      Requested: 'requested',
-      Labeled: 'labeled',
-      Refused: 'refused',
-      Cut: 'cut',
-      NotRequested: 'not_requested',
-      AlreadyRequested: 'already_requested',
-    } as const;
-
-    /**
-     * * `sensitive` - Owns a sensitive path
-     * * `new_path` - Owns a new path
-     * * `largest_owner` - Has the largest part
-     * * `diff_not_seen` - Diff not shown to the model
-     * * `cut_skipped` - Cut step skipped
-     * * `model_kept` - Kept by the model
-     * * `model_cut` - Cut by the model
-     * * `stamphog_approved` - Stamphog approved
-     */
-    export type RoutingOwnerReasonEnum = typeof RoutingOwnerReasonEnum[keyof typeof RoutingOwnerReasonEnum];
-
-
-    export const RoutingOwnerReasonEnum = {
-      Sensitive: 'sensitive',
-      NewPath: 'new_path',
-      LargestOwner: 'largest_owner',
-      DiffNotSeen: 'diff_not_seen',
-      CutSkipped: 'cut_skipped',
-      ModelKept: 'model_kept',
-      ModelCut: 'model_cut',
-      StamphogApproved: 'stamphog_approved',
-    } as const;
-
-    /**
-     * * `sensitive` - Sensitive path
-     * * `new_path` - New path
-     */
-    export type PinReasonEnum = typeof PinReasonEnum[keyof typeof PinReasonEnum];
-
-
-    export const PinReasonEnum = {
-      Sensitive: 'sensitive',
-      NewPath: 'new_path',
-    } as const;
-
-    export interface StamphogRoutingPin {
-      /** Why the path pins its owner.
-       *
-       * * `sensitive` - Sensitive path
-       * * `new_path` - New path */
-      readonly reason: PinReasonEnum;
-      /** The changed path, or the new directory, that pinned the owner. */
-      path: string;
-    }
-
-    export interface StamphogRoutingRunOwner {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
-       *
-       * * `requested` - Requested
-       * * `labeled` - Labeled
-       * * `refused` - Refused by GitHub
-       * * `cut` - Cut
-       * * `not_requested` - Not requested
-       * * `already_requested` - Already requested */
-      readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
-       *
-       * * `sensitive` - Owns a sensitive path
-       * * `new_path` - Owns a new path
-       * * `largest_owner` - Has the largest part
-       * * `diff_not_seen` - Diff not shown to the model
-       * * `cut_skipped` - Cut step skipped
-       * * `model_kept` - Kept by the model
-       * * `model_cut` - Cut by the model
-       * * `stamphog_approved` - Stamphog approved */
-      readonly reason: RoutingOwnerReasonEnum;
-      /** The changed paths that pinned the owner, so no cut could remove them. */
-      readonly pins: readonly StamphogRoutingPin[];
-      /** Whether the owner is a GitHub team or a person.
-       *
-       * * `team` - Team
-       * * `person` - Person */
-      readonly kind: OwnerKindEnum;
-      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
-      owner: string;
-      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
-      model_reason?: string;
-      /** Changed lines in the files this owner owns. */
-      lines?: number;
-      /** Changed files this owner owns. */
-      file_count?: number;
-    }
-
-    export interface StamphogRoutingRun {
-      /** ID of the routing run. */
-      id: string;
-      /** Full name of the repository. */
-      repository: string;
-      /** Pull request number. */
-      pr_number: number;
-      /** The head commit the run routed. */
-      head_sha: string;
-      /** The repository's routing_mode when the run made its requests.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
-      trigger: string;
-      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
-       *
-       * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
-      readonly scope: RoutingScopeEnum;
-      /** Whether the pull request came from a fork, which skips the model. */
-      fork?: boolean;
-      /** Why the cut step made no model call. Null when it made one.
-       *
-       * * `single_candidate` - Single candidate
-       * * `fork` - Fork
-       * * `nothing_cuttable` - Nothing cuttable
-       * * `no_answer` - No answer
-       * * `stamphog_approved` - Stamphog approved
-       * * `files_truncated` - Files truncated */
-      readonly llm_skipped: LlmSkipReasonEnum | null;
-      /** The model the cut request reached. Blank when no request reached the gateway. */
-      model?: string;
-      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
-      files_truncated?: boolean;
-      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
-      additions_resolved?: boolean;
-      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
-      owners_sha?: string;
-      /** The run's decision for every owner of the changed code. */
-      readonly owners: readonly StamphogRoutingRunOwner[];
-      /**
-         * When the run made its requests.
-         * @nullable
-         */
-      created_at?: string | null;
-    }
-
-    export interface PaginatedStamphogRoutingRunList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: StamphogRoutingRun[];
     }
 
     /**
@@ -86781,6 +86940,51 @@ export namespace Schemas {
       tags?: string[];
       /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
       source_url?: string | null;
+    }
+
+    /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+     */
+    export type PatchedCodeReviewApprovalRepositoryWriteRoutingForkLabels = {[key: string]: string};
+
+    /**
+     * Input shape for creating/updating a repo config.
+     *
+     * Separate from the read serializer because the contract is an output shape: it carries a
+     * required id, which a create request has no way to supply. Same split as visual_review's
+     * input serializers.
+     *
+     * installation_id is deliberately absent: it may only ever be set by the verified
+     * sync_installation flow, which proves the caller owns the installation before binding it. A
+     * client-supplied value on this path is ignored, so a manually created config carries no
+     * installation and simply won't resolve webhooks until synced.
+     */
+    export interface PatchedCodeReviewApprovalRepositoryWrite {
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
+      provider?: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
+      repository?: string;
+      /** Whether auto-approval actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
+       *
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
+      review_mode?: ReviewModeEnum;
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
+      trigger_label?: string;
+      /** When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when auto-approval does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When auto-approval does not approve */
+      routing_mode?: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+      routing_fork_labels?: PatchedCodeReviewApprovalRepositoryWriteRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
+      review_on_clean_external_review?: boolean;
     }
 
     export interface PatchedCohort {
@@ -93370,19 +93574,6 @@ export namespace Schemas {
       readonly kind: ReviewRepositoryPersonKindEnum;
     }
 
-    export interface ReviewProjectRef {
-      /**
-         * Id of the other project. Null when it belongs to another organization.
-         * @nullable
-         */
-      id: number | null;
-      /**
-         * Name of the other project. Null when it belongs to another organization.
-         * @nullable
-         */
-      name: string | null;
-    }
-
     export interface ReviewInstallation {
       /** The GitHub App installation id. */
       installation_id: string;
@@ -93501,12 +93692,12 @@ export namespace Schemas {
        * * `project` - Project default
        * * `default` - Built-in default */
       review_inbox_prs: PreferenceSourceEnum;
-      /** Where the effective stamphog_review_inbox_prs comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+      /** Where the effective approval_review_inbox_prs comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
        *
        * * `user` - Set by the user
        * * `project` - Project default
        * * `default` - Built-in default */
-      stamphog_review_inbox_prs: PreferenceSourceEnum;
+      approval_review_inbox_prs: PreferenceSourceEnum;
     }
 
     export interface ReviewProjectDefaults {
@@ -93541,14 +93732,14 @@ export namespace Schemas {
       celebrate_clean_reviews?: boolean;
       /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
-      /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
-      stamphog_review_inbox_prs?: boolean;
+      /** Also have auto-approval review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled auto-approval repository (see approval_connected). */
+      approval_review_inbox_prs?: boolean;
       /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
       readonly sources?: ReviewPreferenceSources;
       /** The project defaults the Deep review preferences fall back to. */
       readonly project_defaults?: ReviewProjectDefaults;
-      /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
-      readonly stamphog_connected?: boolean;
+      /** Whether this project has at least one synced, enabled auto-approval repository. When false, the approval_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub app. */
+      readonly approval_connected?: boolean;
     }
 
     export interface PatchedReviewValidatorConfigSelect {
@@ -94126,51 +94317,6 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status?: SignalSourceSyncStatusEnum | null;
-    }
-
-    /**
-     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
-     */
-    export type PatchedStamphogRepoConfigWriteRoutingForkLabels = {[key: string]: string};
-
-    /**
-     * Input shape for creating/updating a repo config.
-     *
-     * Separate from the read serializer because the contract is an output shape: it carries a
-     * required id, which a create request has no way to supply. Same split as visual_review's
-     * input serializers.
-     *
-     * installation_id is deliberately absent: it may only ever be set by the verified
-     * sync_installation flow, which proves the caller owns the installation before binding it. A
-     * client-supplied value on this path is ignored, so a manually created config carries no
-     * installation and simply won't resolve webhooks until synced.
-     */
-    export interface PatchedStamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
-      provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
-      repository?: string;
-      /** Whether stamphog actively reviews pull requests for this repo. */
-      enabled?: boolean;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
-      digest_enabled?: boolean;
-      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
-       *
-       * * `all` - All pull requests
-       * * `label` - Labeled pull requests */
-      review_mode?: ReviewModeEnum;
-      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
-      trigger_label?: string;
-      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      routing_mode?: RoutingModeEnum;
-      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
-      routing_fork_labels?: PatchedStamphogRepoConfigWriteRoutingForkLabels;
-      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
-      review_on_clean_external_review?: boolean;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -109026,13 +109172,6 @@ export namespace Schemas {
       dropped_findings: ReviewDroppedFinding[];
     }
 
-    export interface ReviewHogSettingsError {
-      /** Why the request was rejected. */
-      error: string;
-      /** The project that already holds the repository or the installation, if any. */
-      conflicting_project: ReviewProjectRef | null;
-    }
-
     export interface ReviewInstallationClaim {
       /** Id of the claim. */
       readonly id: string;
@@ -109085,7 +109224,7 @@ export namespace Schemas {
     } as const;
 
     export interface ReviewPRStatusLatestReview {
-      /** The review's id, for `review-hog-reviews-get`. */
+      /** The review's id, for `code-review-reviews-get`. */
       id: string;
       /** What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.
        *
@@ -109097,7 +109236,7 @@ export namespace Schemas {
          * @nullable
          */
       head_sha: string | null;
-      /** The turn's index, for `review-hog-reviews-get`. */
+      /** The turn's index, for `code-review-reviews-get`. */
       run_index: number;
       /**
          * When the turn completed.
@@ -109152,12 +109291,12 @@ export namespace Schemas {
          */
       reason: string | null;
       /**
-         * The review to read with `review-hog-reviews-get`; null before the PR has one.
+         * The review to read with `code-review-reviews-get`; null before the PR has one.
          * @nullable
          */
       review_id: string | null;
       /**
-         * The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for 'resolve_only' and while pending.
+         * The review turn that answered or failed the request, for `code-review-reviews-get`. Null for 'resolve_only' and while pending.
          * @nullable
          */
       run_index: number | null;
@@ -109169,7 +109308,7 @@ export namespace Schemas {
       /** The pull request number. */
       pr_number: number;
       /**
-         * The PR's review id, for `review-hog-reviews-get`; null before its first run.
+         * The PR's review id, for `code-review-reviews-get`; null before its first run.
          * @nullable
          */
       report_id: string | null;
@@ -109608,10 +109747,10 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for asking stamphog to review one pull request.
+     * Request body for asking auto-approval to review one pull request.
      */
     export interface ReviewRequest {
-      /** Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled in Stamphog. */
+      /** Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled for auto-approval. */
       repository: string;
       /**
          * Pull request number on GitHub.
@@ -109740,13 +109879,13 @@ export namespace Schemas {
        * * `flash` - Standard */
       review_mode: ReviewTriggerReviewModeEnum | null;
       /**
-         * Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull request's first run, which creates the review later.
+         * Id of the pull request's existing review, for `code-review-reviews-get`. Null on the pull request's first run, which creates the review later.
          * @nullable
          */
       report_id: string | null;
       /** Server time when the request was accepted. */
       requested_at: string;
-      /** Whether this request plans to run the resolution stage, which can push fix commits to the pull request. It is the plan at request time: a request queued behind a running turn on the same head can be skipped as already published. `review-hog-reviews-pr-status` reports what actually ran. */
+      /** Whether this request plans to run the resolution stage, which can push fix commits to the pull request. It is the plan at request time: a request queued behind a running turn on the same head can be skipped as already published. `code-review-reviews-pr-status` reports what actually ran. */
       resolve_will_run: boolean;
       /** Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and 'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving comments), 'already_reviewed' (no run starts). Null when it runs.
        *
@@ -109777,14 +109916,14 @@ export namespace Schemas {
       celebrate_clean_reviews?: boolean;
       /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
-      /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
-      stamphog_review_inbox_prs?: boolean;
+      /** Also have auto-approval review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled auto-approval repository (see approval_connected). */
+      approval_review_inbox_prs?: boolean;
       /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
       readonly sources: ReviewPreferenceSources;
       /** The project defaults the Deep review preferences fall back to. */
       readonly project_defaults: ReviewProjectDefaults;
-      /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
-      readonly stamphog_connected: boolean;
+      /** Whether this project has at least one synced, enabled auto-approval repository. When false, the approval_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub app. */
+      readonly approval_connected: boolean;
     }
 
     export interface ReviewValidatorConfig {
@@ -116841,250 +116980,6 @@ export namespace Schemas {
     export interface StaffWarmRunResponse {
       /** Most recent warm-all run, or null when none has been recorded (or the dedicated flags cache is not configured). */
       run: StaffWarmRun | null;
-    }
-
-    /**
-     * Request body for turning reviews on for a repository from a connected installation.
-     */
-    export interface StamphogAddRepository {
-      /** Repository full name, e.g. 'PostHog/posthog'. It must be in one of the project's connected GitHub installations, as available_repositories lists them. A repository the project already has is turned back on. */
-      repository: string;
-    }
-
-    /**
-     * Repositories from the team's connected GitHub installations that are not added to stamphog yet.
-     */
-    export interface StamphogAvailableRepositories {
-      /** Repository full names the team can add, sorted by name and capped by limit. Only repositories a project member proved access to on GitHub are listed, and never one another project already holds under the same installation. */
-      readonly repositories: readonly string[];
-      /** How many repositories match the search in total, before limit applies. */
-      readonly total_count: number;
-      /** Whether a project member connected a GitHub installation yet. False means GitHub must be connected before any repository can be added. True with a total_count of 0 and no search means no repository is left to add. */
-      readonly has_installation: boolean;
-    }
-
-    /**
-     * One installation of the App the authorizing user can reach, offered for an explicit pick.
-     */
-    export interface StamphogDiscoveredInstallation {
-      /** GitHub installation id, as a string. */
-      readonly id: string;
-      /** Login of the org or user account the installation lives on. */
-      readonly account_login: string;
-    }
-
-    /**
-     * Static info the frontend needs to render the 'Connect a repository' button.
-     */
-    export interface StamphogInstallInfo {
-      /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
-      readonly app_slug: string;
-      /** GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The user picks a GitHub account there and chooses which repositories the App can reach, including an account where the App is already installed. Blank if the App slug is unconfigured. */
-      readonly install_url: string;
-      /** GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an existing installation carries no OAuth code, so the client passes through this URL once: an installed App redirects straight back with a code, which sync_installation uses to prove ownership. Blank if the App client id is unconfigured. */
-      readonly authorize_url: string;
-    }
-
-    /**
-     * Whether a repository can use reviewer requests, which read ownership from its owners.yaml.
-     */
-    export interface StamphogOwnersFile {
-      /** Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when the check could not ask GitHub (no installation, or GitHub answered with an error).
-       *
-       * * `found` - Found
-       * * `missing` - Missing
-       * * `unavailable` - Unavailable */
-      owners_file: OwnersFileStatusEnum;
-    }
-
-    /**
-     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
-     */
-    export type StamphogRepoConfigWriteRoutingForkLabels = {[key: string]: string};
-
-    /**
-     * Input shape for creating/updating a repo config.
-     *
-     * Separate from the read serializer because the contract is an output shape: it carries a
-     * required id, which a create request has no way to supply. Same split as visual_review's
-     * input serializers.
-     *
-     * installation_id is deliberately absent: it may only ever be set by the verified
-     * sync_installation flow, which proves the caller owns the installation before binding it. A
-     * client-supplied value on this path is ignored, so a manually created config carries no
-     * installation and simply won't resolve webhooks until synced.
-     */
-    export interface StamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
-      provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
-      repository: string;
-      /** Whether stamphog actively reviews pull requests for this repo. */
-      enabled?: boolean;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
-      digest_enabled?: boolean;
-      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
-       *
-       * * `all` - All pull requests
-       * * `label` - Labeled pull requests */
-      review_mode?: ReviewModeEnum;
-      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
-      trigger_label?: string;
-      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      routing_mode?: RoutingModeEnum;
-      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
-      routing_fork_labels?: StamphogRepoConfigWriteRoutingForkLabels;
-      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
-      review_on_clean_external_review?: boolean;
-    }
-
-    export interface StamphogRoutingFile {
-      /** The changed path. */
-      path: string;
-      /**
-         * The path before a rename. Null for any other change.
-         * @nullable
-         */
-      previous_path?: string | null;
-      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
-      status?: string;
-      /** Added lines. */
-      additions?: number;
-      /** Deleted lines. */
-      deletions?: number;
-      /**
-         * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
-         * @nullable
-         */
-      owners_source?: string | null;
-    }
-
-    export interface StamphogRoutingRunOwnerDetail {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
-       *
-       * * `requested` - Requested
-       * * `labeled` - Labeled
-       * * `refused` - Refused by GitHub
-       * * `cut` - Cut
-       * * `not_requested` - Not requested
-       * * `already_requested` - Already requested */
-      readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
-       *
-       * * `sensitive` - Owns a sensitive path
-       * * `new_path` - Owns a new path
-       * * `largest_owner` - Has the largest part
-       * * `diff_not_seen` - Diff not shown to the model
-       * * `cut_skipped` - Cut step skipped
-       * * `model_kept` - Kept by the model
-       * * `model_cut` - Cut by the model
-       * * `stamphog_approved` - Stamphog approved */
-      readonly reason: RoutingOwnerReasonEnum;
-      /** The changed paths that pinned the owner, so no cut could remove them. */
-      readonly pins: readonly StamphogRoutingPin[];
-      /** Whether the owner is a GitHub team or a person.
-       *
-       * * `team` - Team
-       * * `person` - Person */
-      readonly kind: OwnerKindEnum;
-      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
-      readonly files: readonly StamphogRoutingFile[];
-      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
-      owner: string;
-      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
-      model_reason?: string;
-      /** Changed lines in the files this owner owns. */
-      lines?: number;
-      /** Changed files this owner owns. */
-      file_count?: number;
-    }
-
-    export interface StamphogRoutingRunDetail {
-      /** ID of the routing run. */
-      id: string;
-      /** Full name of the repository. */
-      repository: string;
-      /** Pull request number. */
-      pr_number: number;
-      /** The head commit the run routed. */
-      head_sha: string;
-      /** The repository's routing_mode when the run made its requests.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
-      trigger: string;
-      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
-       *
-       * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
-      readonly scope: RoutingScopeEnum;
-      /** Whether the pull request came from a fork, which skips the model. */
-      fork?: boolean;
-      /** Why the cut step made no model call. Null when it made one.
-       *
-       * * `single_candidate` - Single candidate
-       * * `fork` - Fork
-       * * `nothing_cuttable` - Nothing cuttable
-       * * `no_answer` - No answer
-       * * `stamphog_approved` - Stamphog approved
-       * * `files_truncated` - Files truncated */
-      readonly llm_skipped: LlmSkipReasonEnum | null;
-      /** The model the cut request reached. Blank when no request reached the gateway. */
-      model?: string;
-      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
-      files_truncated?: boolean;
-      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
-      additions_resolved?: boolean;
-      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
-      owners_sha?: string;
-      /** The run's decision for every owner of the changed code, with the files each owner owns. */
-      readonly owners: readonly StamphogRoutingRunOwnerDetail[];
-      /**
-         * When the run made its requests.
-         * @nullable
-         */
-      created_at?: string | null;
-    }
-
-    /**
-     * Request body for binding a GitHub App installation to the current team.
-     *
-     * Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
-     * ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
-     * is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
-     * installations are discovered server-side from the code, so the client never has to supply a
-     * forgeable id.
-     */
-    export interface StamphogSyncInstallationRequest {
-      /** GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code. */
-      installation_id?: string;
-      /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
-      code: string;
-      /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
-      state: string;
-    }
-
-    /**
-     * Result of syncing an installation: the team's rows bound to it, and what the team can add now.
-     */
-    export interface StamphogSyncInstallationResponse {
-      /** Repo configs this team already had for the installation's repositories, now bound to it. A sync creates no repo config: use add_repository to turn reviews on for a repository. */
-      readonly synced: readonly StamphogRepoConfig[];
-      /** Repository full names skipped because another team already owns them under this installation. */
-      readonly skipped: readonly string[];
-      /** How many repositories this team can add after the sync, across all its connected installations. List them with available_repositories. */
-      readonly available_count: number;
-      /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
-      readonly app_not_installed: boolean;
-      /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
-      readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
     export interface StartProviderImport {
@@ -133181,6 +133076,387 @@ export namespace Schemas {
     state?: string[];
     };
 
+    export type CodeReviewApprovalsPullRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Filter by merge state: true for merged pull requests, false for unmerged.
+     */
+    merged?: boolean;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    };
+
+    export type CodeReviewApprovalsRepositoriesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CodeReviewApprovalsRepositoriesAvailableRepositoriesRetrieveParams = {
+    /**
+     * Maximum number of repositories to return. Defaults to 50, at most 200.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring to match against the repository full name, e.g. 'posthog'.
+     */
+    search?: string;
+    };
+
+    export type CodeReviewApprovalsReviewerRoutingListParams = {
+    /**
+     * Keep only runs created at or after this time (ISO 8601).
+     */
+    created_after?: string;
+    /**
+     * Keep only runs created before this time (ISO 8601).
+     */
+    created_before?: string;
+    /**
+     * Keep only runs on this head commit. Pass the full 40-character SHA.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     *
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     * @minLength 1
+     */
+    outcome?: CodeReviewApprovalsReviewerRoutingListOutcome;
+    /**
+     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
+     * @minLength 1
+     */
+    owner?: string;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    /**
+     * Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.
+     *
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Auto-approved
+     * @minLength 1
+     */
+    reason?: CodeReviewApprovalsReviewerRoutingListReason;
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     * @minLength 1
+     */
+    repository?: string;
+    };
+
+    export type CodeReviewApprovalsReviewerRoutingListOutcome = typeof CodeReviewApprovalsReviewerRoutingListOutcome[keyof typeof CodeReviewApprovalsReviewerRoutingListOutcome];
+
+
+    export const CodeReviewApprovalsReviewerRoutingListOutcome = {
+      Requested: 'requested',
+      Labeled: 'labeled',
+      Refused: 'refused',
+      Cut: 'cut',
+      NotRequested: 'not_requested',
+      AlreadyRequested: 'already_requested',
+    } as const;
+
+    export type CodeReviewApprovalsReviewerRoutingListReason = typeof CodeReviewApprovalsReviewerRoutingListReason[keyof typeof CodeReviewApprovalsReviewerRoutingListReason];
+
+
+    export const CodeReviewApprovalsReviewerRoutingListReason = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+      LargestOwner: 'largest_owner',
+      DiffNotSeen: 'diff_not_seen',
+      CutSkipped: 'cut_skipped',
+      ModelKept: 'model_kept',
+      ModelCut: 'model_cut',
+      StamphogApproved: 'stamphog_approved',
+    } as const;
+
+    export type CodeReviewApprovalsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     */
+    repository?: string;
+    /**
+     * Filter by review run status.
+     */
+    status?: string;
+    /**
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (auto-approval reviewed a bot-authored PR from the inbox).
+     */
+    trigger?: CodeReviewApprovalsRunsListTrigger;
+    };
+
+    export type CodeReviewApprovalsRunsListTrigger = typeof CodeReviewApprovalsRunsListTrigger[keyof typeof CodeReviewApprovalsRunsListTrigger];
+
+
+    export const CodeReviewApprovalsRunsListTrigger = {
+      All: 'all',
+      Label: 'label',
+      Manual: 'manual',
+      ReviewhogClean: 'reviewhog_clean',
+      SelfDriving: 'self_driving',
+    } as const;
+
+    export type CodeReviewRepositoryOverviewRetrieveParams = {
+    /**
+     * The GitHub App installation to list.
+     * @minLength 1
+     * @maxLength 64
+     */
+    installation_id: string;
+    /**
+     * Entries per page (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Entries to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only repositories whose name contains this text.
+     */
+    search?: string;
+    /**
+     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), 'mine' (with the requesting user's own choice), or 'differs' (every repository except the ones this project reviews with no exception and no own choice, which the response counts as 'folded').
+     *
+     * * `all` - All repositories
+     * * `in_project` - In this project
+     * * `exceptions` - With exceptions
+     * * `mine` - My choices
+     * * `differs` - Different from the project
+     * @minLength 1
+     */
+    view?: CodeReviewRepositoryOverviewRetrieveView;
+    };
+
+    export type CodeReviewRepositoryOverviewRetrieveView = typeof CodeReviewRepositoryOverviewRetrieveView[keyof typeof CodeReviewRepositoryOverviewRetrieveView];
+
+
+    export const CodeReviewRepositoryOverviewRetrieveView = {
+      All: 'all',
+      InProject: 'in_project',
+      Exceptions: 'exceptions',
+      Mine: 'mine',
+      Differs: 'differs',
+    } as const;
+
+    export type CodeReviewReviewsListParams = {
+    /**
+     * Maximum rows to return. The list grows this instead of paging by offset — in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: CodeReviewReviewsListScope;
+    };
+
+    export type CodeReviewReviewsListScope = typeof CodeReviewReviewsListScope[keyof typeof CodeReviewReviewsListScope];
+
+
+    export const CodeReviewReviewsListScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
+    export type CodeReviewReviewsRetrieveParams = {
+    /**
+     * The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings.
+     */
+    run_index?: number;
+    };
+
+    export type CodeReviewReviewsPerspectiveStatsRetrieveParams = {
+    /**
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project, `own_deep` for the last 10 Deep reviews the requesting user started. The review skills in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.
+     *
+     * * `mine` - Mine
+     * * `everyone` - Everyone
+     * * `own_deep` - Own Deep reviews
+     * @minLength 1
+     */
+    scope?: CodeReviewReviewsPerspectiveStatsRetrieveScope;
+    };
+
+    export type CodeReviewReviewsPerspectiveStatsRetrieveScope = typeof CodeReviewReviewsPerspectiveStatsRetrieveScope[keyof typeof CodeReviewReviewsPerspectiveStatsRetrieveScope];
+
+
+    export const CodeReviewReviewsPerspectiveStatsRetrieveScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+      OwnDeep: 'own_deep',
+    } as const;
+
+    export type CodeReviewReviewsPrStatusRetrieveParams = {
+    /**
+     * The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.
+     * @minLength 1
+     */
+    head_sha?: string;
+    /**
+     * GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.
+     * @minLength 1
+     */
+    pr_url: string;
+    /**
+     * The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.
+     */
+    requested_at?: string;
+    /**
+     * The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.
+     *
+     * * `review` - Review
+     * * `review_only` - Review only
+     * * `resolve_only` - Resolve only
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    run_mode?: CodeReviewReviewsPrStatusRetrieveRunMode;
+    };
+
+    export type CodeReviewReviewsPrStatusRetrieveRunMode = typeof CodeReviewReviewsPrStatusRetrieveRunMode[keyof typeof CodeReviewReviewsPrStatusRetrieveRunMode];
+
+
+    export const CodeReviewReviewsPrStatusRetrieveRunMode = {
+      Review: 'review',
+      ReviewOnly: 'review_only',
+      ResolveOnly: 'resolve_only',
+      Flash: 'flash',
+    } as const;
+
+    export type CodeReviewReviewsTableRetrieveParams = {
+    /**
+     * Rows per page. Defaults to 25, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many rows to skip, for paging through the table.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
+    /**
+     * Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.
+     * @nullable
+     */
+    published?: boolean | null;
+    /**
+     * Only reviews of this repository, as `owner/repo`. Matched case-insensitively.
+     * @minLength 1
+     */
+    repository?: string;
+    /**
+     * Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' (Standard). Turns that did not record their mode match neither value.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    review_mode?: CodeReviewReviewsTableRetrieveReviewMode;
+    /**
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - Mine
+     * * `everyone` - Everyone
+     * @minLength 1
+     */
+    scope?: CodeReviewReviewsTableRetrieveScope;
+    /**
+     * Only reviews in this state: 'running' for reviews with a run in flight (activity within the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * @minLength 1
+     */
+    status?: CodeReviewReviewsTableRetrieveStatus;
+    };
+
+    export type CodeReviewReviewsTableRetrieveReviewMode = typeof CodeReviewReviewsTableRetrieveReviewMode[keyof typeof CodeReviewReviewsTableRetrieveReviewMode];
+
+
+    export const CodeReviewReviewsTableRetrieveReviewMode = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
+    export type CodeReviewReviewsTableRetrieveScope = typeof CodeReviewReviewsTableRetrieveScope[keyof typeof CodeReviewReviewsTableRetrieveScope];
+
+
+    export const CodeReviewReviewsTableRetrieveScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
+    export type CodeReviewReviewsTableRetrieveStatus = typeof CodeReviewReviewsTableRetrieveStatus[keyof typeof CodeReviewReviewsTableRetrieveStatus];
+
+
+    export const CodeReviewReviewsTableRetrieveStatus = {
+      Running: 'running',
+      Completed: 'completed',
+    } as const;
+
     export type CohortsListParams = {
     /**
      * Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.
@@ -142541,215 +142817,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type ReviewHogRepositoryOverviewRetrieveParams = {
-    /**
-     * The GitHub App installation to list.
-     * @minLength 1
-     * @maxLength 64
-     */
-    installation_id: string;
-    /**
-     * Entries per page (max 200).
-     * @minimum 1
-     * @maximum 200
-     */
-    limit?: number;
-    /**
-     * Entries to skip.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Only repositories whose name contains this text.
-     */
-    search?: string;
-    /**
-     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), 'mine' (with the requesting user's own choice), or 'differs' (every repository except the ones this project reviews with no exception and no own choice, which the response counts as 'folded').
-     *
-     * * `all` - All repositories
-     * * `in_project` - In this project
-     * * `exceptions` - With exceptions
-     * * `mine` - My choices
-     * * `differs` - Different from the project
-     * @minLength 1
-     */
-    view?: ReviewHogRepositoryOverviewRetrieveView;
-    };
-
-    export type ReviewHogRepositoryOverviewRetrieveView = typeof ReviewHogRepositoryOverviewRetrieveView[keyof typeof ReviewHogRepositoryOverviewRetrieveView];
-
-
-    export const ReviewHogRepositoryOverviewRetrieveView = {
-      All: 'all',
-      InProject: 'in_project',
-      Exceptions: 'exceptions',
-      Mine: 'mine',
-      Differs: 'differs',
-    } as const;
-
-    export type ReviewHogReviewsListParams = {
-    /**
-     * Maximum rows to return. The list grows this instead of paging by offset — in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
-     *
-     * * `mine` - mine
-     * * `everyone` - everyone
-     * @minLength 1
-     */
-    scope?: ReviewHogReviewsListScope;
-    };
-
-    export type ReviewHogReviewsListScope = typeof ReviewHogReviewsListScope[keyof typeof ReviewHogReviewsListScope];
-
-
-    export const ReviewHogReviewsListScope = {
-      Mine: 'mine',
-      Everyone: 'everyone',
-    } as const;
-
-    export type ReviewHogReviewsRetrieveParams = {
-    /**
-     * The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings.
-     */
-    run_index?: number;
-    };
-
-    export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
-    /**
-     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project, `own_deep` for the last 10 Deep reviews the requesting user started. The review skills in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.
-     *
-     * * `mine` - Mine
-     * * `everyone` - Everyone
-     * * `own_deep` - Own Deep reviews
-     * @minLength 1
-     */
-    scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope;
-    };
-
-    export type ReviewHogReviewsPerspectiveStatsRetrieveScope = typeof ReviewHogReviewsPerspectiveStatsRetrieveScope[keyof typeof ReviewHogReviewsPerspectiveStatsRetrieveScope];
-
-
-    export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
-      Mine: 'mine',
-      Everyone: 'everyone',
-      OwnDeep: 'own_deep',
-    } as const;
-
-    export type ReviewHogReviewsPrStatusRetrieveParams = {
-    /**
-     * The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.
-     * @minLength 1
-     */
-    head_sha?: string;
-    /**
-     * GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.
-     * @minLength 1
-     */
-    pr_url: string;
-    /**
-     * The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.
-     */
-    requested_at?: string;
-    /**
-     * The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.
-     *
-     * * `review` - Review
-     * * `review_only` - Review only
-     * * `resolve_only` - Resolve only
-     * * `flash` - Standard
-     * @minLength 1
-     */
-    run_mode?: ReviewHogReviewsPrStatusRetrieveRunMode;
-    };
-
-    export type ReviewHogReviewsPrStatusRetrieveRunMode = typeof ReviewHogReviewsPrStatusRetrieveRunMode[keyof typeof ReviewHogReviewsPrStatusRetrieveRunMode];
-
-
-    export const ReviewHogReviewsPrStatusRetrieveRunMode = {
-      Review: 'review',
-      ReviewOnly: 'review_only',
-      ResolveOnly: 'resolve_only',
-      Flash: 'flash',
-    } as const;
-
-    export type ReviewHogReviewsTableRetrieveParams = {
-    /**
-     * Rows per page. Defaults to 25, at most 100.
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * How many rows to skip, for paging through the table.
-     * @minimum 0
-     * @maximum 1000000
-     */
-    offset?: number;
-    /**
-     * Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.
-     * @nullable
-     */
-    published?: boolean | null;
-    /**
-     * Only reviews of this repository, as `owner/repo`. Matched case-insensitively.
-     * @minLength 1
-     */
-    repository?: string;
-    /**
-     * Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' (Standard). Turns that did not record their mode match neither value.
-     *
-     * * `full` - Deep
-     * * `flash` - Standard
-     * @minLength 1
-     */
-    review_mode?: ReviewHogReviewsTableRetrieveReviewMode;
-    /**
-     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
-     *
-     * * `mine` - Mine
-     * * `everyone` - Everyone
-     * @minLength 1
-     */
-    scope?: ReviewHogReviewsTableRetrieveScope;
-    /**
-     * Only reviews in this state: 'running' for reviews with a run in flight (activity within the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.
-     *
-     * * `running` - Running
-     * * `completed` - Completed
-     * @minLength 1
-     */
-    status?: ReviewHogReviewsTableRetrieveStatus;
-    };
-
-    export type ReviewHogReviewsTableRetrieveReviewMode = typeof ReviewHogReviewsTableRetrieveReviewMode[keyof typeof ReviewHogReviewsTableRetrieveReviewMode];
-
-
-    export const ReviewHogReviewsTableRetrieveReviewMode = {
-      Full: 'full',
-      Flash: 'flash',
-    } as const;
-
-    export type ReviewHogReviewsTableRetrieveScope = typeof ReviewHogReviewsTableRetrieveScope[keyof typeof ReviewHogReviewsTableRetrieveScope];
-
-
-    export const ReviewHogReviewsTableRetrieveScope = {
-      Mine: 'mine',
-      Everyone: 'everyone',
-    } as const;
-
-    export type ReviewHogReviewsTableRetrieveStatus = typeof ReviewHogReviewsTableRetrieveStatus[keyof typeof ReviewHogReviewsTableRetrieveStatus];
-
-
-    export const ReviewHogReviewsTableRetrieveStatus = {
-      Running: 'running',
-      Completed: 'completed',
-    } as const;
-
     export type SandboxCustomImagesListParams = {
     /**
      * Number of results to return per page.
@@ -144093,193 +144160,6 @@ export namespace Schemas {
     export const SlackAppWorkspaceSetupRetrieveEntry = {
       SlackPage: 'slack_page',
       Other: 'other',
-    } as const;
-
-    export type StamphogDigestRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.
-     */
-    slack_channel_id?: string;
-    };
-
-    export type StamphogPullRequestsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Filter by merge state: true for merged pull requests, false for unmerged.
-     */
-    merged?: boolean;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter by pull request number.
-     */
-    pr_number?: number;
-    };
-
-    export type StamphogRepoConfigsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type StamphogRepoConfigsAvailableRepositoriesRetrieveParams = {
-    /**
-     * Maximum number of repositories to return. Defaults to 50, at most 200.
-     * @minimum 1
-     * @maximum 200
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring to match against the repository full name, e.g. 'posthog'.
-     */
-    search?: string;
-    };
-
-    export type StamphogReviewRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter by pull request number.
-     */
-    pr_number?: number;
-    /**
-     * Filter by repository full name, e.g. 'PostHog/posthog'.
-     */
-    repository?: string;
-    /**
-     * Filter by review run status.
-     */
-    status?: string;
-    /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
-     */
-    trigger?: StamphogReviewRunsListTrigger;
-    };
-
-    export type StamphogReviewRunsListTrigger = typeof StamphogReviewRunsListTrigger[keyof typeof StamphogReviewRunsListTrigger];
-
-
-    export const StamphogReviewRunsListTrigger = {
-      All: 'all',
-      Label: 'label',
-      Manual: 'manual',
-      ReviewhogClean: 'reviewhog_clean',
-      SelfDriving: 'self_driving',
-    } as const;
-
-    export type StamphogRoutingRunsListParams = {
-    /**
-     * Keep only runs created at or after this time (ISO 8601).
-     */
-    created_after?: string;
-    /**
-     * Keep only runs created before this time (ISO 8601).
-     */
-    created_before?: string;
-    /**
-     * Keep only runs on this head commit. Pass the full 40-character SHA.
-     * @minLength 1
-     * @maxLength 64
-     */
-    head_sha?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
-     *
-     * * `requested` - Requested
-     * * `labeled` - Labeled
-     * * `refused` - Refused by GitHub
-     * * `cut` - Cut
-     * * `not_requested` - Not requested
-     * * `already_requested` - Already requested
-     * @minLength 1
-     */
-    outcome?: StamphogRoutingRunsListOutcome;
-    /**
-     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
-     * @minLength 1
-     */
-    owner?: string;
-    /**
-     * Filter by pull request number.
-     */
-    pr_number?: number;
-    /**
-     * Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.
-     *
-     * * `sensitive` - Owns a sensitive path
-     * * `new_path` - Owns a new path
-     * * `largest_owner` - Has the largest part
-     * * `diff_not_seen` - Diff not shown to the model
-     * * `cut_skipped` - Cut step skipped
-     * * `model_kept` - Kept by the model
-     * * `model_cut` - Cut by the model
-     * * `stamphog_approved` - Stamphog approved
-     * @minLength 1
-     */
-    reason?: StamphogRoutingRunsListReason;
-    /**
-     * Filter by repository full name, e.g. 'PostHog/posthog'.
-     * @minLength 1
-     */
-    repository?: string;
-    };
-
-    export type StamphogRoutingRunsListOutcome = typeof StamphogRoutingRunsListOutcome[keyof typeof StamphogRoutingRunsListOutcome];
-
-
-    export const StamphogRoutingRunsListOutcome = {
-      Requested: 'requested',
-      Labeled: 'labeled',
-      Refused: 'refused',
-      Cut: 'cut',
-      NotRequested: 'not_requested',
-      AlreadyRequested: 'already_requested',
-    } as const;
-
-    export type StamphogRoutingRunsListReason = typeof StamphogRoutingRunsListReason[keyof typeof StamphogRoutingRunsListReason];
-
-
-    export const StamphogRoutingRunsListReason = {
-      Sensitive: 'sensitive',
-      NewPath: 'new_path',
-      LargestOwner: 'largest_owner',
-      DiffNotSeen: 'diff_not_seen',
-      CutSkipped: 'cut_skipped',
-      ModelKept: 'model_kept',
-      ModelCut: 'model_cut',
-      StamphogApproved: 'stamphog_approved',
     } as const;
 
     export type StreamlitAppsListParams = {
