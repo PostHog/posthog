@@ -22,7 +22,6 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async_pool
-from posthog.tasks.email import matview_view_path, send_matview_failure_immediate_email
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.api import get_node_ids_for_saved_queries
@@ -32,6 +31,7 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
 )
+from products.data_modeling.backend.tasks.failure_emails import matview_view_path, send_matview_failure_immediate_email
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,

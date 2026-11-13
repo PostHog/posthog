@@ -130,10 +130,6 @@ data_catalog.TableCertification products.data_catalog.backend.facade.api.depreca
 data_catalog.TableCertification products.data_catalog.backend.facade.api.deprecate facade-returns 1
 data_catalog.TableCertification products.data_catalog.backend.facade.api.propose_certification facade-returns 1
 data_catalog.TableCertification products.data_catalog.backend.facade.api.revoke_certification facade-accepts(cert) 1
-data_modeling.DataModelingJob posthog.tasks.email instance-many(distinct) 1
-data_modeling.DataModelingJob posthog.tasks.email instance-many(filter) 1
-data_modeling.DataModelingJob posthog.tasks.email instance-many(order_by) 1
-data_modeling.DataModelingJob posthog.tasks.email instance-single 1
 data_modeling.DataModelingJob products.data_warehouse.backend.logic.data_load.create_table instance-many(aget) 1
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.data_modeling_job drf-model-serializer 2
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.data_modeling_job instance-many(all) 1
@@ -163,8 +159,6 @@ data_modeling.DataWarehouseSavedQuery posthog.api.search in-collection 1
 data_modeling.DataWarehouseSavedQuery posthog.hogql.database.database instance-many(all) 1
 data_modeling.DataWarehouseSavedQuery posthog.hogql.database.database instance-many(filter) 1
 data_modeling.DataWarehouseSavedQuery posthog.hogql.database.database instance-many(select_related) 1
-data_modeling.DataWarehouseSavedQuery posthog.tasks.email instance-many(annotate) 1
-data_modeling.DataWarehouseSavedQuery posthog.tasks.email instance-single 1
 data_modeling.DataWarehouseSavedQuery posthog.tasks.usage_report instance-many(annotate) 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
 data_modeling.DataWarehouseSavedQuery products.data_catalog.backend.logic.certifications instance-many(filter) 1
