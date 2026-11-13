@@ -743,11 +743,24 @@ class TestSpanTree:
         assert root.attributes["ci.workflow.conclusion"] == conclusion
 
     @pytest.mark.parametrize(
-        "conclusion,expected",
-        [("failure", "ERROR"), ("timed_out", "ERROR"), ("cancelled", "UNSET"), ("skipped", "UNSET")],
+        "conclusion,step_conclusions,expected",
+        [
+            ("failure", [], "ERROR"),
+            ("timed_out", [], "ERROR"),
+            ("cancelled", [], "UNSET"),
+            ("skipped", [], "UNSET"),
+            ("failure", ["success", "failure", "skipped"], "ERROR"),
+            # Seen when the merge queue cancels a run mid-step: the job concludes failure, no step failed.
+            ("failure", ["success", "cancelled", "skipped"], "UNSET"),
+            # A timeout cancels the running step, and is still an error.
+            ("timed_out", ["success", "cancelled"], "ERROR"),
+        ],
     )
-    def test_job_status_reflects_only_the_failure_family(self, conclusion: str, expected: str) -> None:
-        run = reporter.parse_run(_raw_run(), [_raw_job(conclusion=conclusion, steps=[])])
+    def test_job_status_reflects_only_the_failure_family(
+        self, conclusion: str, step_conclusions: list[str], expected: str
+    ) -> None:
+        steps = [_raw_step(number=i, conclusion=c, start=5 + i, end=6 + i) for i, c in enumerate(step_conclusions)]
+        run = reporter.parse_run(_raw_run(), [_raw_job(conclusion=conclusion, steps=steps)])
         assert run is not None
         job = next(span for span in self._emit(run) if span.name == "build")
         assert job.status.status_code.name == expected
@@ -762,6 +775,19 @@ class TestSpanTree:
         assert statuses["boom"] == "ERROR"
         assert statuses["build"] == "ERROR"
         assert statuses["Container Images CD"] == "ERROR"
+
+    def test_skip_steps_leaves_one_error_span_per_failed_job(self) -> None:
+        # A step named like its job would otherwise count twice in an error_count alert grouped by name.
+        run = reporter.parse_run(
+            _raw_run(conclusion="cancelled"),
+            [_raw_job(name="build", conclusion="failure", steps=[_raw_step(name="build", conclusion="failure")])],
+        )
+        assert run is not None
+        exporter = InMemorySpanExporter()
+        reported = reporter.emit_trace(run, "http://unused", "token", exporter=exporter, include_steps=False)
+        spans = exporter.get_finished_spans()
+        assert reported == len(spans)
+        assert [span.name for span in spans if span.status.status_code.name == "ERROR"] == ["build"]
 
     def test_reusable_job_records_caller_and_callee(self) -> None:
         run = reporter.parse_run(_raw_run(), [_raw_job(name="build-images / build cymbal", steps=[])])

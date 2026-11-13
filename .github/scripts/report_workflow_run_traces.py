@@ -148,6 +148,16 @@ class Job:
     def queued_seconds(self) -> float:
         return (self.start - self.created).total_seconds()
 
+    @property
+    def is_error(self) -> bool:
+        # Cancelling a run mid-step can conclude the job `failure` while its steps show only
+        # `cancelled`, as when the merge queue drops an attempt. That job did not fail.
+        if self.conclusion == "failure" and self.steps:
+            step_conclusions = {step.conclusion for step in self.steps}
+            if "cancelled" in step_conclusions and not step_conclusions & STEP_ERROR_CONCLUSIONS:
+                return False
+        return self.conclusion in JOB_ERROR_CONCLUSIONS
+
 
 @dataclass(frozen=True)
 class WorkflowRun:
@@ -741,7 +751,7 @@ class _FailureRecordingExporter(SpanExporter):
         self.inner.shutdown()
 
 
-def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None) -> int:
+def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None, *, include_steps: bool = True) -> int:
     """Emit the run's whole span tree over OTLP HTTP. Returns the span count."""
     id_generator = _FixedIdGenerator()
     provider = TracerProvider(
@@ -758,7 +768,7 @@ def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None
     id_generator.trace_id = deterministic_trace_id(run.id, run.attempt)
 
     try:
-        span_count = _emit_run_span(tracer, id_generator, run)
+        span_count = _emit_run_span(tracer, id_generator, run, include_steps=include_steps)
     finally:
         # Drains the queue, so a rejected batch is recorded by the time this returns.
         provider.shutdown()
@@ -767,10 +777,10 @@ def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None
     return span_count
 
 
-def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun) -> int:
+def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, *, include_steps: bool) -> int:
     ids.next_span_id = deterministic_span_id(run.id, run.attempt, "run")
     root = tracer.start_span(run.name or run.path, start_time=_to_ns(run.start))
-    failed = sum(1 for job in run.jobs if job.conclusion in JOB_ERROR_CONCLUSIONS)
+    failed = sum(1 for job in run.jobs if job.is_error)
     skipped = sum(1 for job in run.jobs if job.conclusion == "skipped")
     for key, value in (
         ("ci.workflow.status", run.status),
@@ -793,12 +803,14 @@ def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRu
     span_count = 1
     with trace.use_span(root, end_on_exit=False):
         for job in run.jobs:
-            span_count += _emit_job_span(tracer, ids, run, job)
+            span_count += _emit_job_span(tracer, ids, run, job, include_steps=include_steps)
     root.end(end_time=_to_ns(run.end))
     return span_count
 
 
-def _emit_job_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, job: Job) -> int:
+def _emit_job_span(
+    tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, job: Job, *, include_steps: bool
+) -> int:
     ids.next_span_id = deterministic_span_id(run.id, run.attempt, "job", job.id)
     span = tracer.start_span(job.name, start_time=_to_ns(job.start))
     for key, value in (
@@ -822,7 +834,7 @@ def _emit_job_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRu
     if caller:
         span.set_attribute("ci.job.caller", caller)
         span.set_attribute("ci.job.callee", callee)
-    if job.conclusion in JOB_ERROR_CONCLUSIONS:
+    if job.is_error:
         span.set_status(Status(StatusCode.ERROR))
 
     span_count = 1
@@ -836,7 +848,7 @@ def _emit_job_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRu
             queued.set_attribute("ci.job.id", job.id)
             queued.end(end_time=_to_ns(job.start))
             span_count += 1
-        for step in job.steps:
+        for step in job.steps if include_steps else ():
             ids.next_span_id = deterministic_span_id(run.id, run.attempt, "step", job.id, step.number)
             step_span = tracer.start_span(step.name, start_time=_to_ns(step.start))
             step_span.set_attribute("ci.step.number", step.number)
@@ -893,6 +905,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--otlp-endpoint", default=os.environ.get("POSTHOG_OTLP_TRACES_ENDPOINT") or DEFAULT_OTLP_ENDPOINT
     )
     parser.add_argument("--dry-run", action="store_true", help="print the span tree without emitting")
+    parser.add_argument(
+        "--skip-steps",
+        action="store_true",
+        help="emit run and job spans only; a failed step otherwise adds a second error span, often under the job's own name",
+    )
     return parser.parse_args(argv)
 
 
@@ -984,7 +1001,7 @@ def main(argv: list[str] | None = None) -> int:
         for run in collection.runs:
             # Per-run isolation: one malformed run must not cost the rest of the batch.
             try:
-                emitted += emit_trace(run, args.otlp_endpoint, token)
+                emitted += emit_trace(run, args.otlp_endpoint, token, include_steps=not args.skip_steps)
             except Exception:
                 logger.exception("failed to emit trace for run %s attempt %s", run.id, run.attempt)
                 complete = False
