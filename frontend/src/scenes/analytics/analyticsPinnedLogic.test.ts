@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
@@ -14,6 +17,14 @@ describe('analyticsPinnedLogic', () => {
         requests = []
         useMocks({
             get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const type = params.get('type') ?? params.get('type__startswith')
+                    if (type) {
+                        requests.push(`list ${type}`)
+                    }
+                    return { results: [], count: 0, next: null }
+                },
                 '/api/projects/:team_id/file_system_shortcut/': {
                     results: [
                         { id: 'sc-product', type: 'session_replay', path: 'Session replay', href: '/replay' },
@@ -122,5 +133,45 @@ describe('analyticsPinnedLogic', () => {
         )
             .toDispatchActions(projectTreeDataLogic, ['addShortcutItem'])
             .toMatchValues({ pinHintVisible: false })
+    })
+
+    it('checks only the types View all lists, and tries a failed check again on the next navigation', async () => {
+        let failList = true
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system_shortcut/': { results: [] },
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const type = params.get('type') ?? params.get('type__startswith')
+                    if (!type) {
+                        return { results: [], count: 0, next: null }
+                    }
+                    requests.push(`list ${type}`)
+                    if (failList) {
+                        return [500, { detail: 'Server error' }]
+                    }
+                    const results = type === 'insight' ? [{ id: 'fs-1', type: 'insight/trends', ref: 'abc123' }] : []
+                    return { results, count: results.length, next: null }
+                },
+            },
+        })
+        userLogic.actions.loadUserSuccess({
+            ...userLogic.values.user!,
+            ui_configuration: { version: 1, analytics_list: { hide_insights: true } },
+        })
+        const logic = analyticsPinnedLogic()
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadHasAnalyticsItemsFailure'])
+        expect(logic.values.hasAnalyticsItems).toBeNull()
+
+        failList = false
+        requests = []
+        await expectLogic(logic, () => router.actions.push('/analytics/all'))
+            .toDispatchActions(['loadHasAnalyticsItemsSuccess'])
+            .toMatchValues({ hasAnalyticsItems: false })
+        expect(requests).not.toContain('list insight')
+        expect(requests.length).toBeGreaterThan(0)
     })
 })

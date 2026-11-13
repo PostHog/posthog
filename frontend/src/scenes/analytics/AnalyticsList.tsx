@@ -39,7 +39,6 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { pinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
@@ -92,7 +91,6 @@ function AnalyticsListContent(): JSX.Element {
     const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
-    const { pinHintVisible } = useValues(analyticsPinnedLogic)
     const { hidePinHint } = useActions(analyticsPinnedLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
     const { ref: tableEndRef, inView: tableEndInView } = useInView({
@@ -109,10 +107,9 @@ function AnalyticsListContent(): JSX.Element {
             : urls.analyticsList(analyticsListUrlParams(filters))
     const showSpace = mode === 'feed'
     const showOwner = scope !== 'mine'
-    const pinHintKey = pinHintVisible && items.length > 0 ? pinKey(items[0].type, items[0].id) : null
     const columns = useMemo(
-        () => analyticsListColumns({ backUrl, showSpace, showOwner, pinHintKey }),
-        [backUrl, showSpace, showOwner, pinHintKey]
+        () => analyticsListColumns({ backUrl, showSpace, showOwner }),
+        [backUrl, showSpace, showOwner]
     )
     const rows = useMemo<AnalyticsListRow[]>(
         () => [

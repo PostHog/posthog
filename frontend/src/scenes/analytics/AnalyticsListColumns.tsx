@@ -33,7 +33,6 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { pinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
 
 import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
@@ -171,9 +170,13 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
     )
 }
 
-function ItemMenuCell({ item, pinHint }: { item: AnalyticsItem; pinHint: boolean }): JSX.Element {
+function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
     const { openShareToSpace } = useActions(analyticsShareLogic)
+    // Read here, not passed in by the column factory: new columns would remount this cell and close its open menu.
+    const { pinHintVisible } = useValues(analyticsPinnedLogic)
+    const { items } = useValues(analyticsListLogic)
     const { hidePinHint } = useActions(analyticsPinnedLogic)
+    const pinHint = pinHintVisible && items[0]?.type === item.type && items[0]?.id === item.id
     const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null)
     return (
         <DropdownMenu onOpenChange={(open) => open && pinHint && hidePinHint()}>
@@ -345,13 +348,10 @@ export function analyticsListColumns({
     backUrl,
     showSpace,
     showOwner,
-    pinHintKey = null,
 }: {
     backUrl: string
     showSpace: boolean
     showOwner: boolean
-    /** The pin key of the item whose menu shows the pin hint. */
-    pinHintKey?: string | null
 }): AnalyticsListColumns {
     const draggable = !showSpace
     return [
@@ -435,10 +435,7 @@ export function analyticsListColumns({
             meta: { align: 'right' },
             cell: ({ row }) =>
                 row.original.kind === 'item' ? (
-                    <ItemMenuCell
-                        item={row.original.item}
-                        pinHint={pinHintKey === pinKey(row.original.item.type, row.original.item.id)}
-                    />
+                    <ItemMenuCell item={row.original.item} />
                 ) : (
                     <FolderMenuCell folder={row.original.folder} />
                 ),
