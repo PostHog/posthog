@@ -1196,12 +1196,15 @@ export class CdpApi {
                 error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
             })
         }
+        const allowedTeamIds = this.scheduledRunsTeamIds(req)
+        if (!allowedTeamIds) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid scheduled runs token' })
+        }
         const parsed = ScheduledRunsRequestSchema.safeParse(req.body)
         if (!parsed.success) {
             return res.status(400).json({ error: parsed.error.issues })
         }
-        const allowedTeamIds = this.scheduledRunsTeamIds(req)
-        if (!allowedTeamIds || parsed.data.runs.some((run) => !allowedTeamIds.has(run.team_id))) {
+        if (parsed.data.runs.some((run) => !allowedTeamIds.has(run.team_id))) {
             return res.status(401).json({ error: 'Unauthorized: Invalid scheduled runs token' })
         }
         try {

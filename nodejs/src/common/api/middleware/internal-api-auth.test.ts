@@ -200,7 +200,6 @@ describe('createInternalApiAuthMiddleware', () => {
             ['/api/projects/1/transactional_emails/some-uuid/cancel'],
             ['/api/projects/1/transactional_emails/some-uuid/reschedule'],
             ['/api/projects/1/hog_flows/some-uuid/manual_invocations'],
-            ['/api/hog_flows/scheduled_invocations'],
         ])('should skip auth for scoped-JWT route %s, which authenticates in its handler', (path) => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
             const req = mockRequest(path, {})
@@ -222,8 +221,6 @@ describe('createInternalApiAuthMiddleware', () => {
             ['/api/projects/1/hog_flows/some-uuid/transactional_email/send/extra'],
             ['/api/projects/1/transactional_emails/some-uuid/cancel/extra'],
             ['/api/projects/1/hog_flows/some-uuid/manual_invocations/extra'],
-            ['/api/projects/1/hog_flows/some-uuid/scheduled_invocations'],
-            ['/api/hog_flows/scheduled_invocations/extra'],
         ])('should still require the secret for %s despite resembling a scoped route', (path) => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
             const req = mockRequest(path, {})
@@ -264,7 +261,7 @@ describe('createInternalApiAuthMiddleware', () => {
         })
     })
 
-    describe('attachment upload route on a real express app', () => {
+    describe('scoped-token routes on a real express app', () => {
         const uploadsPath = '/api/projects/1/transactional_email/attachments/uploads'
         let app: Application
         let server: ReturnType<Application['listen']>
@@ -276,6 +273,9 @@ describe('createInternalApiAuthMiddleware', () => {
             }
             app.post('/api/projects/:team_id/transactional_email/attachments/uploads', reached)
             app.post('/api/projects/:team_id/transactional_email/attachments/uploads/extra', reached)
+            app.post('/api/hog_flows/scheduled_invocations', reached)
+            app.post('/api/hog_flows/scheduled_invocations/extra', reached)
+            app.post('/api/projects/:team_id/hog_flows/:id/scheduled_invocations', reached)
             server = app.listen(0, () => {})
         })
 
@@ -292,6 +292,23 @@ describe('createInternalApiAuthMiddleware', () => {
 
         it('answers 401 without the shared secret for a path that only starts with the upload route', async () => {
             const res = await supertest(app).post(`${uploadsPath}/extra`).send({})
+
+            expect(res.status).toEqual(401)
+            expect(res.body).toEqual({ error: 'Unauthorized: Missing authentication header' })
+        })
+
+        it('lets a scheduled runs batch without the shared secret reach its handler, which checks its own token', async () => {
+            const res = await supertest(app).post('/api/hog_flows/scheduled_invocations').send({})
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ reached: '/api/hog_flows/scheduled_invocations' })
+        })
+
+        it.each([
+            ['/api/hog_flows/scheduled_invocations/extra'],
+            ['/api/projects/1/hog_flows/some-uuid/scheduled_invocations'],
+        ])('answers 401 without the shared secret for %s, which has no token of its own', async (path) => {
+            const res = await supertest(app).post(path).send({})
 
             expect(res.status).toEqual(401)
             expect(res.body).toEqual({ error: 'Unauthorized: Missing authentication header' })
