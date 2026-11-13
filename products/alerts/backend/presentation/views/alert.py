@@ -114,6 +114,8 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
     INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     MovedAlertCheck,
+    MovedAlertCheckPage,
+    MovedAlertHistoryUnavailable,
     PlatformCannotOwn,
 )
 from products.alerts.backend.facade.destinations import (
@@ -123,6 +125,7 @@ from products.alerts.backend.facade.destinations import (
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    log_destination_changes,
     soft_delete_alert_destinations,
     validate_destination_data,
 )
@@ -138,6 +141,7 @@ from products.alerts.backend.facade.platform import (
     hand_over_new_alert,
     moved_alert_check_page,
     moved_alert_fired_checks,
+    moved_alert_settings,
     moved_alert_statuses,
     native_insight_alert_matches,
     native_insight_alert_view,
@@ -1120,7 +1124,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if not resulting_enabled:
             apply_disable(instance)
 
-        if snooze_changed:
+        # The platform records a snooze of an alert it owns in its own history.
+        if snooze_changed and not instance.platform_owned:
             AlertCheck.objects.create(
                 alert_configuration=instance,
                 calculated_value=None,
@@ -1815,12 +1820,40 @@ def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
             alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
 
 
+def _show_copy_settings(alerts: list[AlertConfiguration]) -> None:
+    """Shows each alert the platform owns through a copy with the settings the copy holds, in place.
+    The alerts are only for showing: one saved afterwards would write the copy's settings to its row."""
+    copies = {alert.id: alert for alert in alerts if not alert.has_no_insight_row}
+    if not copies:
+        return
+    for alert_id, settings in moved_alert_settings(team_id=alerts[0].team_id, alert_ids=list(copies)).items():
+        alert = copies[alert_id]
+        for field, value in settings.fields.items():
+            setattr(alert, field, value)
+        alert.schedule_start_time = settings.schedule_start_time
+        if settings.threshold is None:
+            alert.threshold = None
+        elif alert.threshold is None:
+            # Stable across reads, as for an alert with no insight row.
+            alert.threshold = Threshold(
+                id=alert.id,
+                team_id=alert.team_id,
+                insight_id=alert.insight_id,
+                configuration=settings.threshold,
+                created_at=alert.created_at,
+            )
+        else:
+            alert.threshold.configuration = settings.threshold
+
+
 def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
-    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
-    moving once the insight stack stops checking it."""
+    """Shows each alert the platform owns as the platform has it, in place: its settings, snooze, state
+    and last check. Its own row stops moving once the insight stack stops checking it."""
     moved = {alert.id: alert for alert in alerts if alert.platform_owned}
     if not moved:
         return
+    # Before the state, which reads the snooze.
+    _show_copy_settings(list(moved.values()))
     statuses = moved_alert_statuses(
         team_id=next(iter(moved.values())).team_id,
         snoozed_until={alert_id: alert.snoozed_until for alert_id, alert in moved.items()},
@@ -1836,6 +1869,12 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
             alert.last_checked_at = moved_status.last_check.checked_at
             # Annotated from the alert's own checks, which stop once the shadow ends.
             alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
+
+
+class AlertCheckHistoryUnavailable(APIException):
+    status_code = 503
+    default_code = "alert_check_history_unavailable"
+    default_detail = "Couldn't load this alert's check history. Try again in a moment."
 
 
 @frozen
@@ -2091,18 +2130,22 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         _show_platform_status([instance], now=timezone.now())
         _show_platform_subscribers([instance])
-        platform_page = (
-            moved_alert_check_page(
-                team_id=instance.team_id,
-                alert_id=instance.id,
-                since=checks_since,
-                until=checks_until,
-                limit=limit,
-                offset=offset,
-            )
-            if instance.platform_owned
-            else None
-        )
+        platform_page = None
+        if instance.platform_owned:
+            try:
+                platform_page = moved_alert_check_page(
+                    team_id=instance.team_id,
+                    alert_id=instance.id,
+                    since=checks_since,
+                    until=checks_until,
+                    limit=limit,
+                    offset=offset,
+                )
+            except MovedAlertHistoryUnavailable:
+                # The row's checks stopped at the move. A read that asked for none, like Terraform's, succeeds.
+                if has_date_filter or raw_limit is not None or raw_offset is not None:
+                    raise AlertCheckHistoryUnavailable from None
+                platform_page = MovedAlertCheckPage(total=0, checks=())
         if platform_page is not None:
             instance.checks_total = platform_page.total
             instance.checks = [_as_alert_check(instance, check) for check in platform_page.checks]
@@ -2573,6 +2616,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=user.id,
+            was_impersonated=is_impersonated(request),
+            action="created",
+            destination_types=dict.fromkeys(hog_function_ids, data["type"]),
+        )
         posthoganalytics.capture(
             distinct_id=str(user.distinct_id),
             event="insight alert destination created",
@@ -2599,7 +2650,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
         try:
-            soft_delete_alert_destinations(
+            removed = soft_delete_alert_destinations(
                 team_id=self.team_id,
                 alert_id=str(alert.id),
                 allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
@@ -2607,6 +2658,15 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
+
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=request.user.id,
+            was_impersonated=is_impersonated(request),
+            action="deleted",
+            destination_types=removed,
+        )
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),

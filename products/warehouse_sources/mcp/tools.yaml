@@ -235,7 +235,16 @@ tools:
             a table stopped syncing, check `incremental_sync_blocked`: it names why the last run could not merge on the
             table's primary key, and the table is disabled until that is resolved. A retry with nothing changed fails
             the same way; a later run that succeeds, or fails for another reason, clears it. That field's description
-            lists the resolutions, which are applied with 'external-data-schemas-partial-update'.
+            lists the resolutions, which are applied with 'external-data-schemas-partial-update'. By default (`compact:
+            true`) each row has only id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated
+            latest_error; pass `compact: false` for the full sync configuration, including `incremental_sync_blocked`.
+        param_overrides:
+            compact:
+                description: >
+                    Return one short health row per table (id, name, source_id, should_sync, sync_type, status,
+                    last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full
+                    sync configuration of each table.
+                default: true
         response:
             exclude:
                 - table.columns
@@ -686,12 +695,20 @@ tools:
             Check what external data is already connected before answering any revenue, billing, subscription, CRM,
             support-ticket, or product-database question — call this first so you JOIN against an existing source
             instead of telling the user the data isn't available. Lists every configured import source with its type
-            (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync
-            timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each
-            schema is summarized (name, label, status, sync type, last sync, error, table name, row count) — column
-            definitions and full sync configuration (sync frequency, incremental field, primary keys, row filters,
-            column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use
+            (Postgres, Stripe, Hubspot, etc.), prefix, health status, latest error, and last sync timestamp. If nothing
+            relevant is connected, offer to set one up with 'data-warehouse-source-setup'. By default (`compact: true`)
+            each table is one summary row (id, name, should_sync, status, last_synced_at, latest_error), and errors are
+            cut to 500 characters. Pass `include_schemas: false` to get source-level health only, which keeps the
+            response small for projects with many tables. Pass `compact: false` only when you need connection settings
+            or source configuration. Column definitions and full sync configuration are on
+            external-data-schemas-retrieve. To look up a single table's sync status by name use
             external-data-schemas-list with a search.
+        param_overrides:
+            compact:
+                description: >
+                    Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults
+                    to true. Set to false for connection settings and full source configuration.
+                default: true
     external-data-sources-partial-update:
         operation: external_data_sources_partial_update
         enabled: true
@@ -830,15 +847,22 @@ tools:
             idempotent: true
         title: Get data warehouse source
         description: >
-            Get a single data warehouse source by ID. Returns full details including source type, connection status,
-            prefix, all table schemas with their sync statuses, latest error, and last sync timestamp. Per-schema column
-            definitions are omitted to keep the payload small — use external-data-schemas-retrieve for a single table's
-            columns.
+            Get a single data warehouse source by ID. By default (`compact: true`) it returns source health: source
+            type, prefix, status, latest error, last sync timestamp, and one summary row per table (id, name,
+            should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Pass `include_schemas:
+            false` to leave out the tables. Pass `compact: false` for connection settings (secrets redacted) and the
+            full sync configuration of each table; per-table column definitions are still omitted — use
+            external-data-schemas-retrieve for a single table's columns.
         param_overrides:
             id:
                 aliases:
                     - source_id
                     - sourceId
+            compact:
+                description: >
+                    Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults
+                    to true. Set to false for connection settings and the full sync configuration of each table.
+                default: true
         response:
             exclude:
                 - schemas.*.table.columns

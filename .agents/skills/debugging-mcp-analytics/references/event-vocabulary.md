@@ -88,7 +88,7 @@ refusals into tool error rates, which is also why the status has its own field. 
 `distinct_id` is the token hash, not a user id, so it joins to other MCP events by client and
 time, never by person.
 
-Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
+Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's error code from a validation error or another 4xx body, kept only when it looks like an identifier, or the exec rejection reason), and `$mcp_error_field` (the API error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
 `$mcp_validation_fields` (which fields failed validation), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
 verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). These properties are
 stamped in `tool-executor.ts` and registered in `posthog/taxonomy/taxonomy.py`.

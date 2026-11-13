@@ -5775,6 +5775,7 @@
                 "estimate_replay_vision_scanner",
                 "label_replay_vision_observation",
                 "analyze_replay_vision_impact",
+                "get_replay_vision_observation_stats",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -44145,6 +44146,11 @@
                     "$ref": "#/definitions/MetricsReducer",
                     "default": "last",
                     "description": "How scalar panels and legend calcs collapse a series to one number."
+                },
+                "statSparkline": {
+                    "default": true,
+                    "description": "`stat` display only: whether a graph of the series shows under the value.",
+                    "type": "boolean"
                 },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",

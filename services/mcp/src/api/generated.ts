@@ -1102,6 +1102,172 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    export interface AEOSetupConflict {
+      /** Why the request was refused. */
+      detail: string;
+      /** The setup job already running. Poll GET aeo_setup/<id>/ with it. */
+      job_id: string;
+    }
+
+    /**
+     * * `own_brand` - Own Brand
+     * * `app_urls` - App Urls
+     * * `recording_domains` - Recording Domains
+     * * `pageviews` - Pageviews
+     */
+    export type WebsiteSourceEnum = typeof WebsiteSourceEnum[keyof typeof WebsiteSourceEnum];
+
+
+    export const WebsiteSourceEnum = {
+      OwnBrand: 'own_brand',
+      AppUrls: 'app_urls',
+      RecordingDomains: 'recording_domains',
+      Pageviews: 'pageviews',
+    } as const;
+
+    export interface AEOWebsiteCandidate {
+      /** A registrable domain the project may be about, for example example.com. */
+      domain: string;
+      /** Where PostHog found it: own_brand (an own brand in the catalog), app_urls (the project's authorized URLs), recording_domains (the domains allowed to record sessions) or pageviews (hosts with pageviews in the last 7 days).
+       *
+       * * `own_brand` - Own Brand
+       * * `app_urls` - App Urls
+       * * `recording_domains` - Recording Domains
+       * * `pageviews` - Pageviews */
+      source: WebsiteSourceEnum;
+      /**
+         * Pageviews on the domain in the last 7 days. Null unless source is pageviews.
+         * @nullable
+         */
+      pageviews?: number | null;
+    }
+
+    export interface AEOSetupContext {
+      /** Up to 5 domains the project may be about, the most likely first. */
+      websites: AEOWebsiteCandidate[];
+      /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
+      engines: AEOEngineSetting[];
+      /** Domains already set as the project's own brands. */
+      own_domains: string[];
+      /** Active, unarchived prompts the project tracks. */
+      active_prompts: number;
+      /** Unarchived prompts that are turned off. No run checks them. */
+      paused_prompts: number;
+      /** Keywords in the project's keyword list. */
+      keywords: number;
+      /** Whether any citation check has been recorded for the project. */
+      has_checks: boolean;
+      /** Whether the organization approved AI data processing. Setup needs it. */
+      ai_data_processing_approved: boolean;
+      /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+      first_run_available: boolean;
+      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      prompt_target: number;
+      /** The window, in days, that pageview hosts among the websites cover. */
+      website_days: number;
+    }
+
+    /**
+     * * `brand` - Brand
+     * * `prompts` - Prompts
+     * * `keywords` - Keywords
+     * * `first_run` - First Run
+     */
+    export type SetupStepEnum = typeof SetupStepEnum[keyof typeof SetupStepEnum];
+
+
+    export const SetupStepEnum = {
+      Brand: 'brand',
+      Prompts: 'prompts',
+      Keywords: 'keywords',
+      FirstRun: 'first_run',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `done` - Done
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type SetupStepStatusEnum = typeof SetupStepStatusEnum[keyof typeof SetupStepStatusEnum];
+
+
+    export const SetupStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOSetupStep {
+      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+       *
+       * * `brand` - Brand
+       * * `prompts` - Prompts
+       * * `keywords` - Keywords
+       * * `first_run` - First Run */
+      step: SetupStepEnum;
+      /** pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `done` - Done
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: SetupStepStatusEnum;
+      /** How many brands, prompts or keywords the step added. */
+      added?: number;
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      detail?: string;
+    }
+
+    export interface AEOSetupJob {
+      /** The setup steps in the order they run. */
+      steps: AEOSetupStep[];
+      /** Job id. Poll GET aeo_setup/<id>/ with it. */
+      id: string;
+      /** pending while PostHog works, then completed or failed. A failed keywords step does not fail the job.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
+    }
+
+    export interface AEOSetupRequest {
+      /**
+         * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.
+         * @maxLength 200
+         */
+      domain?: string;
+      /**
+         * The brand name. Inferred from the site when empty.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      engines?: string[];
+      /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts. */
+      run_first_check?: boolean;
+      /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
+      only_first_run?: boolean;
+      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      activate_paused_prompts?: boolean;
+    }
+
     export interface AEOVisibilityDashboard {
       /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
       id: number;
@@ -3810,6 +3976,29 @@ export namespace Schemas {
       account_first_seen: string;
       /** Latest account activity across current distinct IDs, in UTC. */
       account_last_seen: string;
+    }
+
+    export interface PersonAccount {
+      /** Accessible account ID. */
+      id: string;
+      /** Account display name. */
+      name: string;
+    }
+
+    export interface AccountPersonMemberships {
+      /** Current person ID from the requested account. */
+      person_id: string;
+      /** Accessible accounts this person belongs to. */
+      accounts: PersonAccount[];
+    }
+
+    export interface AccountPersonMembershipsRequest {
+      /**
+         * Loaded person IDs to enrich, up to 500.
+         * @minItems 1
+         * @maxItems 500
+         */
+      person_ids: string[];
     }
 
     export interface PersonPropertyFilter {
@@ -13690,7 +13879,7 @@ export namespace Schemas {
       /** When the agent ran the query. */
       occurred_at: string;
       /**
-         * Agent session of the query, when known.
+         * Agent conversation of the query, when known: the session id of the conversation's first piece. Every query in one conversation carries the same id.
          * @nullable
          */
       session_id: string | null;
@@ -43710,6 +43899,280 @@ export namespace Schemas {
     }
 
     /**
+     * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix.
+     */
+    export type EvalSuggestionDraft = { [key: string]: unknown };
+
+    /**
+     * * `new_hog` - New Hog eval
+     * * `new_llm_judge` - New LLM judge
+     * * `fix_eval` - Fix an evaluation
+     */
+    export type EvalSuggestionKindEnum = typeof EvalSuggestionKindEnum[keyof typeof EvalSuggestionKindEnum];
+
+
+    export const EvalSuggestionKindEnum = {
+      NewHog: 'new_hog',
+      NewLlmJudge: 'new_llm_judge',
+      FixEval: 'fix_eval',
+    } as const;
+
+    /**
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired
+     */
+    export type EvalSuggestionStatusEnum = typeof EvalSuggestionStatusEnum[keyof typeof EvalSuggestionStatusEnum];
+
+
+    export const EvalSuggestionStatusEnum = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+      Expired: 'expired',
+    } as const;
+
+    export interface EvalSuggestionFilter {
+      /** Event property the suggested evaluation filters on. */
+      key: string;
+      /** Values that match. Any of them matches. */
+      value: string[];
+      /** Property filter operator, such as 'exact'. */
+      operator: string;
+      /** Property filter type, such as 'event'. */
+      type: string;
+    }
+
+    export interface EvalSuggestionEvidence {
+      /** Trace that shows the problem. Open it to read the example. */
+      trace_id: string;
+      /** One line on what this trace shows. */
+      reason: string;
+    }
+
+    /**
+     * * `not_relevant` - Not relevant
+     * * `already_covered` - Already covered
+     * * `too_noisy` - Too noisy
+     * * `fixed_cause` - Fixed the cause
+     */
+    export type EvalSuggestionDismissReasonEnum = typeof EvalSuggestionDismissReasonEnum[keyof typeof EvalSuggestionDismissReasonEnum];
+
+
+    export const EvalSuggestionDismissReasonEnum = {
+      NotRelevant: 'not_relevant',
+      AlreadyCovered: 'already_covered',
+      TooNoisy: 'too_noisy',
+      FixedCause: 'fixed_cause',
+    } as const;
+
+    export interface EvalSuggestion {
+      /** Suggestion identifier. */
+      readonly id: string;
+      /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results.
+       *
+       * * `new_hog` - New Hog eval
+       * * `new_llm_judge` - New LLM judge
+       * * `fix_eval` - Fix an evaluation */
+      readonly kind: EvalSuggestionKindEnum;
+      /** proposed until someone accepts or dismisses it.
+       *
+       * * `proposed` - Proposed
+       * * `accepted` - Accepted
+       * * `dismissed` - Dismissed
+       * * `expired` - Expired */
+      readonly status: EvalSuggestionStatusEnum;
+      /** False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo that change. Always true for other kinds. */
+      readonly applies: boolean;
+      /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
+      readonly template_key: string;
+      /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
+      readonly headline: string;
+      /** What adding the evaluation does and what it costs, in one or two plain sentences. */
+      readonly outcome: string;
+      /** How the problem was measured or found, for people who want the detail. */
+      readonly reason: string;
+      /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. */
+      readonly draft: EvalSuggestionDraft;
+      /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
+      readonly filters: readonly EvalSuggestionFilter[];
+      /** Percentage (0-100) of matching units the evaluation runs on. */
+      readonly rollout_percentage: number;
+      /**
+         * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+         * @nullable
+         */
+      readonly measured_failure_rate: number | null;
+      /**
+         * Traces the failure rate was measured on. Null when there is no rate.
+         * @nullable
+         */
+      readonly sample_size: number | null;
+      /** Up to 5 example traces, each with a one-line reason. */
+      readonly evidence: readonly EvalSuggestionEvidence[];
+      /**
+         * Runs a week at the suggested rollout, for judges.
+         * @nullable
+         */
+      readonly estimated_weekly_runs: number | null;
+      /**
+         * Estimated weekly cost in USD on the project's own provider key, for judges. Null when unknown.
+         * @nullable
+         */
+      readonly estimated_weekly_cost_usd: number | null;
+      /** Model the weekly cost assumes, for LLM judges. Empty for Hog checks and fixes. */
+      readonly judge_model: string;
+      /**
+         * Evaluation that accepting this suggestion created.
+         * @nullable
+         */
+      readonly created_evaluation: string | null;
+      /**
+         * Evaluation a fix_eval suggestion repairs.
+         * @nullable
+         */
+      readonly target_evaluation: string | null;
+      /**
+         * Name of the evaluation a fix_eval suggestion repairs.
+         * @nullable
+         */
+      readonly target_evaluation_name: string | null;
+      /**
+         * Existing evaluation that may already cover this suggestion.
+         * @nullable
+         */
+      readonly similar_evaluation: string | null;
+      /**
+         * Name of an existing evaluation that may already cover this suggestion.
+         * @nullable
+         */
+      readonly similar_evaluation_name: string | null;
+      /** Reason given when the suggestion was dismissed, if any.
+       *
+       * * `not_relevant` - Not relevant
+       * * `already_covered` - Already covered
+       * * `too_noisy` - Too noisy
+       * * `fixed_cause` - Fixed the cause */
+      readonly dismiss_reason: EvalSuggestionDismissReasonEnum | null;
+      /** When the run that produced the suggestion published it. */
+      readonly created_at: string;
+    }
+
+    export interface EvalSuggestionAccept {
+      /** The accepted suggestion. */
+      suggestion: EvalSuggestion;
+      /** The evaluation the suggestion created, enabled. */
+      evaluation_id: string;
+      /**
+         * Backfill that runs the new evaluation on recent data. Null when recent data holds no matching unit.
+         * @nullable
+         */
+      backfill_id: string | null;
+      /**
+         * Units the backfill evaluates: at most 500 for a Hog check and 50 for a judge.
+         * @nullable
+         */
+      backfill_units: number | null;
+    }
+
+    export interface EvalSuggestionDismiss {
+      /** Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.
+       *
+       * * `not_relevant` - Not relevant
+       * * `already_covered` - Already covered
+       * * `too_noisy` - Too noisy
+       * * `fixed_cause` - Fixed the cause */
+      reason?: EvalSuggestionDismissReasonEnum | null;
+    }
+
+    /**
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session
+     */
+    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
+
+
+    export const EvaluationTargetEnum = {
+      Generation: 'generation',
+      Trace: 'trace',
+      Session: 'session',
+    } as const;
+
+    export interface EvalSuggestionEstimate {
+      /** What one unit is: a generation, a trace, or a session.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      target: EvaluationTargetEnum;
+      /** Units accept would evaluate on recent data. */
+      units: number;
+      /**
+         * Start of the recent window accept covers.
+         * @nullable
+         */
+      window_start: string | null;
+      /**
+         * End of the recent window accept covers.
+         * @nullable
+         */
+      window_end: string | null;
+      /**
+         * Model a judge runs on: the default for the project's active key. Null for Hog checks.
+         * @nullable
+         */
+      judge_model: string | null;
+      /**
+         * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    /**
+     * * `scheduled` - Scheduled
+     * * `first_visit` - First visit
+     * * `manual` - Manual
+     */
+    export type EvalSuggestionRunTriggerEnum = typeof EvalSuggestionRunTriggerEnum[keyof typeof EvalSuggestionRunTriggerEnum];
+
+
+    export const EvalSuggestionRunTriggerEnum = {
+      Scheduled: 'scheduled',
+      FirstVisit: 'first_visit',
+      Manual: 'manual',
+    } as const;
+
+    export interface EvalSuggestionRun {
+      /** Run identifier. */
+      readonly id: string;
+      /** scheduled (weekly), first_visit, or manual.
+       *
+       * * `scheduled` - Scheduled
+       * * `first_visit` - First visit
+       * * `manual` - Manual */
+      readonly trigger: EvalSuggestionRunTriggerEnum;
+      /** When the run started. */
+      readonly created_at: string;
+      /**
+         * When the run published its suggestions.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+    }
+
+    export interface EvalSuggestionList {
+      /** The latest completed run, which the suggestions come from. Null before the first one. */
+      run: EvalSuggestionRun | null;
+      /** True while a run for this project is in progress. */
+      pending: boolean;
+      /** Open suggestions of the latest run, best first. At most 3. */
+      results: EvalSuggestion[];
+    }
+
+    /**
      * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type EvaluationEvaluationConfig = {
@@ -43956,20 +44419,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `generation` - Generation
-     * * `trace` - Trace
-     * * `session` - Session
-     */
-    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
-
-
-    export const EvaluationTargetEnum = {
-      Generation: 'generation',
-      Trace: 'trace',
-      Session: 'session',
-    } as const;
-
-    /**
      * * `openai` - Openai
      * * `anthropic` - Anthropic
      * * `gemini` - Gemini
@@ -44135,6 +44584,11 @@ export namespace Schemas {
       readonly conditions: readonly EvaluationBackfillCondition[];
       /** Whether units with an existing result are evaluated again. */
       readonly rerun_existing: boolean;
+      /**
+         * Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap.
+         * @nullable
+         */
+      readonly max_units: number | null;
       /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
       readonly total_count: number;
       /** Units the backfill has started an evaluation for so far. */
@@ -59627,6 +60081,8 @@ export namespace Schemas {
       nullMode?: MetricsNullMode | null;
       /** How scalar panels and legend calcs collapse a series to one number. */
       reduce?: MetricsReducer | null;
+      /** `stat` display only: whether a graph of the series shows under the value. */
+      statSparkline?: boolean | null;
       /** `stat` display only: which summary the headline value shows. */
       statSummary?: MetricsStatSummary | null;
       /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
@@ -62043,6 +62499,11 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /**
+         * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+         * @nullable
+         */
+      readonly id_jag_registered_by_application_name: string | null;
     }
 
     /**
@@ -62294,6 +62755,8 @@ export namespace Schemas {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -62415,6 +62878,8 @@ export namespace Schemas {
       Helpscout: 'helpscout',
       Decagon: 'decagon',
       Vitally: 'vitally',
+      IntercomTickets: 'intercom_tickets',
+      Pylon: 'pylon',
       Usersnap: 'usersnap',
       Typeform: 'typeform',
       Qualtrics: 'qualtrics',
@@ -62586,6 +63051,8 @@ export namespace Schemas {
        * * `helpscout` - Help Scout
        * * `decagon` - Decagon
        * * `vitally` - Vitally
+       * * `intercom_tickets` - Intercom tickets
+       * * `pylon` - Pylon
        * * `usersnap` - Usersnap
        * * `typeform` - Typeform
        * * `qualtrics` - Qualtrics
@@ -64238,6 +64705,14 @@ export namespace Schemas {
       state: string | null;
       priority: string | null;
       admin_assignee_id: string | null;
+      created_at: string | null;
+    }
+
+    export interface IntercomTicketsTicketSignalExtra {
+      ticket_id: string | null;
+      category: string | null;
+      ticket_state_category: string | null;
+      ticket_type_name: string | null;
       created_at: string | null;
     }
 
@@ -78055,6 +78530,11 @@ export namespace Schemas {
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor: number;
       /**
+         * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+         * @nullable
+         */
+      readonly sweep_interval_minutes: number | null;
+      /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable
          */
@@ -89043,6 +89523,11 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /**
+         * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+         * @nullable
+         */
+      readonly id_jag_registered_by_application_name?: string | null;
     }
 
     /**
@@ -92258,6 +92743,11 @@ export namespace Schemas {
       readonly limit_reached?: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor?: number;
+      /**
+         * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+         * @nullable
+         */
+      readonly sweep_interval_minutes?: number | null;
       /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable
@@ -100996,6 +101486,14 @@ export namespace Schemas {
       failed_distinct_ids: string[];
     }
 
+    export interface PylonTicketSignalExtra {
+      number: string | null;
+      state: string | null;
+      type: string | null;
+      link: string | null;
+      created_at: string | null;
+    }
+
     export interface QualtricsFeedbackSignalExtra {
       survey_id: string | null;
       recorded_date: string | null;
@@ -105892,6 +106390,8 @@ export namespace Schemas {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -106013,6 +106513,8 @@ export namespace Schemas {
       Helpscout: 'helpscout',
       Decagon: 'decagon',
       Vitally: 'vitally',
+      IntercomTickets: 'intercom_tickets',
+      Pylon: 'pylon',
       Usersnap: 'usersnap',
       Typeform: 'typeform',
       Qualtrics: 'qualtrics',
@@ -106360,7 +106862,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106477,6 +106979,8 @@ export namespace Schemas {
        * * `helpscout` - helpscout
        * * `decagon` - decagon
        * * `vitally` - vitally
+       * * `intercom_tickets` - intercom_tickets
+       * * `pylon` - pylon
        * * `usersnap` - usersnap
        * * `typeform` - typeform
        * * `qualtrics` - qualtrics
@@ -117137,6 +117641,15 @@ export namespace Schemas {
       history_table: HistoryTableRef | null;
     }
 
+    export interface TableSource {
+      /** Name of the table or view, as the agent's search returned it. */
+      name: string;
+      /** Sessions in the window that found its description and then queried it. */
+      sessions: number;
+      /** Distinct people behind those sessions. */
+      people: number;
+    }
+
     export interface TaggerUpdate {
       /** @maxLength 400 */
       name: string;
@@ -120517,27 +121030,32 @@ export namespace Schemas {
     }
 
     export interface TopicCoverage {
-      /** Sessions that ran a catalog metric directly. */
-      canonical: number;
-      /** Sessions that read a catalog metric, then changed it. */
-      adapted: number;
-      /** Sessions that re-derived a catalog metric without consulting it. */
-      silent: number;
-      /** Sessions that ran SQL that matches no catalog metric. */
-      raw_sql_only: number;
-      /** Sessions that ran no query. */
-      no_sql: number;
+      /** Sessions that asked for a metric and found one that fits. */
+      metric: number;
+      /** Sessions that asked for a metric, found none, and found a table or view description that fits. */
+      table: number;
+      /** Sessions that asked for a metric and found neither. */
+      nothing: number;
     }
 
     export interface TopicCluster {
-      /** Short name of the topic, written by a model from sample intents. */
+      /** Short name of the subject. 'Other' holds the sessions that fit no topic. */
       title: string;
-      /** Agent sessions in the topic. Scout sessions are not clustered. */
+      /** One sentence on what the topic covers. */
+      description: string;
+      /** Agent sessions in the topic. Scout sessions are not included. */
       session_count: number;
-      /** How the topic's sessions got their numbers. */
+      /** Distinct people behind the topic's sessions. */
+      people: number;
+      /** What the sessions that asked for a metric ended up with. */
       coverage: TopicCoverage;
-      /** A few intents from the topic's sessions. */
-      sample_intents: string[];
+    }
+
+    export interface TopicDefinition {
+      /** Short name of the subject. */
+      title: string;
+      /** One sentence on what the topic covers. */
+      description: string;
     }
 
     /**
@@ -120555,6 +121073,21 @@ export namespace Schemas {
       all_marketing: boolean | null;
       /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
       topics: TopicPreferencesTopics;
+    }
+
+    export interface TopicSessionCounts {
+      /** Sampled sessions that calculated or compared data. */
+      analysis: number;
+      /** Sampled sessions that read or checked specific things. */
+      lookup: number;
+      /** Sampled sessions from a scheduled or repeated job. */
+      automation: number;
+      /** Sampled sessions whose intents did not show what they did with data. */
+      unclear: number;
+      /** Sampled sessions that the model failed to read. */
+      unread: number;
+      /** Analysis sessions whose coverage check failed. They count as a metric only after a direct run. */
+      coverage_unchecked: number;
     }
 
     export type TraceNodeIdsByAlias = {[key: string]: string};
@@ -121965,10 +122498,22 @@ export namespace Schemas {
          */
       adjusted_runs: AdjustedRun[] | null;
       /**
-         * Agent session topics. Null until clustered.
+         * Agent session topics. Null until grouped.
          * @nullable
          */
       topics: TopicCluster[] | null;
+      /**
+         * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
+         * @nullable
+         */
+      topic_definitions: TopicDefinition[] | null;
+      /** What the sampled sessions were about, by kind. Null until grouped. */
+      topic_sessions: TopicSessionCounts | null;
+      /**
+         * Tables and views that agents found by description and then queried. Null until counted.
+         * @nullable
+         */
+      table_sources: TableSource[] | null;
       /**
          * Recurring query shapes and their catalog outcome. Null until grouped.
          * @nullable
@@ -136091,6 +136636,10 @@ export namespace Schemas {
 
     export type ExternalDataSchemasListParams = {
     /**
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     */
+    compact?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -136167,6 +136716,14 @@ export namespace Schemas {
 
     export type ExternalDataSourcesListParams = {
     /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean;
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -136180,6 +136737,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSourcesRetrieveParams = {
+    /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean;
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean;
+    };
+
     export type ExternalDataSourcesJobsListParams = {
     /**
      * ISO timestamp — only return jobs created after this date.
@@ -136189,6 +136757,10 @@ export namespace Schemas {
      * ISO timestamp — only return jobs created before this date.
      */
     before?: string;
+    /**
+     * Maximum number of jobs to return, from 1 to 100 (default 50). Jobs are newest first. To get the next page, pass the `created_at` of the last job as `before`.
+     */
+    limit?: number;
     /**
      * Filter jobs by table schema names.
      */
