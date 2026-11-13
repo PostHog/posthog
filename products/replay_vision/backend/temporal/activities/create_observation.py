@@ -65,7 +65,7 @@ def _build_scanner_snapshot(
     return snapshot.model_dump(mode="json")
 
 
-def _capture_scan_blocked(
+def capture_scan_blocked(
     *,
     scanner: ReplayScanner,
     reason: Literal["quota", "free_credits", "consent"],
@@ -213,7 +213,7 @@ def _skip_for_quota(
             "credits_used": quota.credits_used,
         },
     )
-    _capture_scan_blocked(
+    capture_scan_blocked(
         scanner=scanner,
         reason="free_credits" if free_credits else "quota",
         triggered_by=inputs.triggered_by,
@@ -343,7 +343,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             "Skipping observation: AI data processing not approved for organization",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
         )
-        _capture_scan_blocked(scanner=scanner, reason="consent", triggered_by=inputs.triggered_by)
+        capture_scan_blocked(scanner=scanner, reason="consent", triggered_by=inputs.triggered_by)
         return CreateObservationOutput(
             observation_id=None,
             was_created=False,

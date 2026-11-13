@@ -456,6 +456,6 @@ class TestFlagCalledDuringRun(BaseTest):
         )
 
         with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"), time_machine.travel(NOW, tick=False):
-            ctx = load_health_context(experiment)
+            ctx = load_health_context(experiment, can_read_flag_calls=True)
 
         self.assertEqual((ctx.flag_called_during_run, ctx.flag_called_after_end), (during_run, after_end))

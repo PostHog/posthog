@@ -57,6 +57,7 @@ class TestRefusalNotices(BaseTest):
         destination: str = "destination-1",
         now: datetime = NOW,
         can_view: bool = True,
+        refusal: DestinationRefused = REFUSAL,
     ) -> list[UUID]:
         looked_up: list[UUID] = []
 
@@ -76,7 +77,7 @@ class TestRefusalNotices(BaseTest):
             patch.dict(refusal_notices._creators, {SourceKind.LOGS: creator_of}),
             patch.dict(source_access._viewers, {SourceKind.LOGS: viewer_of}),
         ):
-            notify_refused(team_id=self.team.id, message=message, destination=destination, refusal=REFUSAL, now=now)
+            notify_refused(team_id=self.team.id, message=message, destination=destination, refusal=refusal, now=now)
         return looked_up
 
     def _recipients(self) -> list[list[int]]:
@@ -103,6 +104,30 @@ class TestRefusalNotices(BaseTest):
         # `posthog.email` sends one campaign key to a recipient once, so a key per notice is one email per notice.
         assert len({kwargs["campaign_key"] for _, kwargs in self.email.call_args_list}) == 3
         assert {call.args[0] for call in self.email.return_value.add_user_recipient.call_args_list} == {self.user}
+
+    @parameterized.expand(
+        [
+            ("webhook", REFUSAL, "Check the destination's URL and the format it accepts"),
+            (
+                "slack",
+                DestinationRefused(
+                    "Slack refused the message: not_in_channel. The PostHog app is not in this channel.",
+                    remedy="Invite it with /invite @PostHog in the channel.",
+                ),
+                "Invite it with /invite @PostHog in the channel.",
+            ),
+        ]
+    )
+    def test_the_notice_says_what_was_refused_and_how_to_fix_it(
+        self, _name: str, refusal: DestinationRefused, remedy: str
+    ) -> None:
+        self._notify(self.user, refusal=refusal)
+
+        event = stored_notifications_for_team(self.team.id)[0]
+        assert event.body == f"{refusal} Every notification sent there will fail until the destination is fixed."
+        context = self.email.call_args.kwargs["template_context"]
+        assert context["refusal"] == str(refusal)
+        assert context["remedy"].startswith(remedy)
 
     @parameterized.expand(
         [

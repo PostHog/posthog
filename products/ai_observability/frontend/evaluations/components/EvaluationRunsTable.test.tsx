@@ -6,7 +6,6 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -132,7 +131,6 @@ describe('EvaluationRunsTable', () => {
     })
 
     describe('opening the trace drawer', () => {
-        const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
         const PATH = urls.aiObservabilityEvaluation('eval-123')
         const olderRun: EvaluationRun = {
             ...passingRun,
@@ -153,7 +151,6 @@ describe('EvaluationRunsTable', () => {
         function renderRuns(url: string = PATH): void {
             localStorage.clear()
             featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })
             router.actions.push(url)
             logic.actions.loadEvaluationRunsSuccess([olderRun, passingRun, sessionRun])
             renderTable()
