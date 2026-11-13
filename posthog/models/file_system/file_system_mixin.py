@@ -45,9 +45,7 @@ class FileSystemSyncMixin(Model):
     class Meta:
         abstract = True
 
-    # The model fields that `get_file_system_representation` reads. A save whose `update_fields` names none of
-    # them skips the sync, so frequent partial saves send no file row queries. None syncs on every save.
-    file_system_fields: ClassVar[frozenset[str] | None] = None
+    fields_the_file_row_reads: ClassVar[frozenset[str] | None] = None
 
     def __init__(self, *args: Any, _create_in_folder: object = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -61,8 +59,8 @@ class FileSystemSyncMixin(Model):
         def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, update_fields=None, **kwargs):
             if not _file_system_sync_enabled.get():
                 return
-            if update_fields is not None and instance.file_system_fields is not None:
-                if not instance.file_system_fields & update_fields:
+            if update_fields is not None and instance.fields_the_file_row_reads is not None:
+                if not instance.fields_the_file_row_reads & update_fields:
                     return
             instance.sync_file_system()
 
