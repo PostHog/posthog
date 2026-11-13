@@ -8,7 +8,7 @@ a cohort that is off.
 from collections.abc import Callable
 from functools import partial
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 import structlog
@@ -61,9 +61,14 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
         raise RealtimeTurnOnRefused("Realtime cohorts aren't available for this project.")
 
     with transaction.atomic():
-        # Locked before the traversal, so an edit that adds an included cohort either commits first and is
-        # traversed here, or waits for this commit and then finds the cohort on.
-        cohort = Cohort.objects.select_for_update(of=("self",)).get(id=cohort_id, team_id=team_id)
+        # Turn-ons of one team run one at a time, so an edit's turn-on of the cohorts it now includes reads the
+        # cohort after a concurrent turn-on commits, and finds it on. A row lock on the cohort would also do that,
+        # but it is taken out of id order, so two turn-ons where one includes the other's cohort could deadlock.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"cohort-realtime-turn-on:{team_id}"]
+            )
+        cohort = Cohort.objects.get(id=cohort_id, team_id=team_id)
         if not including_cohort and not cohort.realtime_enabled:
             return []
         # A static cohort's criteria are a snapshot nothing evaluates, so the cohorts behind it stay as they are.
@@ -74,8 +79,8 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
         }
         if including_cohort:
             ids.add(cohort_id)
-        # Past the root, only rows that change are locked, and in id order, because the finalizer locks the
-        # cohorts of a team run one at a time in no fixed order.
+        # Only rows that change are locked, and in id order, because the finalizer locks the cohorts of a team
+        # run one at a time in no fixed order.
         turned_on = list(
             Cohort.objects.select_for_update(of=("self",))
             .filter(team_id=team_id, id__in=ids, realtime_enabled_at__isnull=True)

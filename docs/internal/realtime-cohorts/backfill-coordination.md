@@ -135,7 +135,7 @@ The save path, both run creators, the team runs and `realtime_cohort_team_access
   The seeder parses trigger kinds, so a new kind would need a seeder deploy first.
 - **Off.** It clears the stamps and, on commit, supersedes the cohort's active runs of both kinds.
   It leaves the cohorts it includes on.
-  The cohort API refuses it while a flag that is not deleted or archived reaches the cohort and the cohort has event criteria, while an active workflow relies on the cohort, or while a cohort that is on includes it.
+  The cohort API refuses it while a flag that is not deleted or archived reaches the cohort and the cohort has event criteria, while an active workflow relies on the cohort, or while a cohort that is on and not static includes it.
 
 Migration `0023` turned realtime on for every realtime cohort of the teams the pipeline processed when it ran.
 It dated each switch at the cohort's creation, so the runs already in flight could still stamp.

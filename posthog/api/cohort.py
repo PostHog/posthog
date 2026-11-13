@@ -3285,7 +3285,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             )
 
         # Turning a cohort on turns on everything it includes, so a direct parent that is on is the only one to check.
-        parents = get_cohorts_using_cohort(cohort).filter(realtime_enabled_at__isnull=False)
+        # A static parent keeps its switch, but nothing evaluates its criteria.
+        parents = get_cohorts_using_cohort(cohort).filter(realtime_enabled_at__isnull=False, is_static=False)
         count = parents.count()
         if count:
             visible = self.user_access_control.filter_queryset_by_access_level(parents, include_all_if_admin=True)
