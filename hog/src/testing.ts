@@ -21,6 +21,7 @@ export interface FakeRuntimeOptions {
     // Without a date the build never checks for updates, so tests that don't pass one send no update requests.
     build?: { version: string; date?: string }
     execPath?: string
+    noHome?: boolean
     musl?: boolean
     commandExitCode?: number
     stdoutIsTTY?: boolean
@@ -209,7 +210,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         }) as typeof fetch,
         now: clock.now,
         sleep: clock.sleep,
-        homeDir: () => '/home/test',
+        homeDir: () => (options.noHome ? undefined : '/home/test'),
         cwd: () => options.cwd ?? '/work',
         // A path exists when it is a file, or a folder some file sits under.
         exists: async (path) =>

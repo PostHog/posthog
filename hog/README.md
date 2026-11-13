@@ -33,6 +33,7 @@ npx @posthog/hog setup                                              # run once w
 
 `--version <version>` installs that version instead of the latest one, except for Homebrew, which installs only the latest.
 `hog upgrade` refuses to run with `--skip-ssl-verification` or `HOG_SKIP_SSL_VERIFICATION`, because the manifest is the only check on what it installs.
+It downloads only over HTTPS, from `releases.posthog.com/hog/` (or the folder `HOG_RELEASES_URL` names) and PostHog's GitHub releases, and checks the size and checksum of each file against the manifest.
 On Windows, the running `hog.exe` can't be replaced, so hog renames it to `hog.old.exe` and the next run deletes it.
 
 hog reads the latest release from `https://releases.posthog.com/hog/latest/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder. After a failed request it waits an hour before it asks again. With TLS verification off it doesn't check at all.
@@ -42,7 +43,7 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 - `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
 - `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
 - When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
-- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
+- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Homebrew, npm, pnpm and bun get a release after the manifest names it, so for those installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
 
 ## Commands
 
