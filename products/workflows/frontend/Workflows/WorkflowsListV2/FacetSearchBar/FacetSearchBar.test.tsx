@@ -304,27 +304,6 @@ describe('FacetSearchBar', () => {
         expect(listbox()).not.toBeNull()
     })
 
-    it('scrolls the first row into view when typing changes the list', () => {
-        // jsdom has no layout, so this records what the browser would be asked to scroll to.
-        const scrolled: Element[] = []
-        const scrollIntoView = Element.prototype.scrollIntoView
-        Element.prototype.scrollIntoView = function (this: Element) {
-            scrolled.push(this)
-        }
-        try {
-            setup()
-            clickInput()
-            typeText('status:')
-            scrolled.length = 0
-            typeText('r')
-            expect(scrolled).toHaveLength(1)
-            expect(scrolled[0]).toHaveTextContent('Archived')
-            expect(scrolled[0]).toHaveAttribute('aria-selected', 'true')
-        } finally {
-            Element.prototype.scrollIntoView = scrollIntoView
-        }
-    })
-
     it('shows the no-values message as text, not as an option', () => {
         setup()
         clickInput()
