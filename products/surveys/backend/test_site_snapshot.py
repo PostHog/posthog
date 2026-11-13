@@ -21,7 +21,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import Survey, SurveyMatchType
 from products.surveys.backend.site_snapshot import (
     PAINT_DELAY_SECONDS,
     SiteSnapshot,
@@ -292,6 +292,33 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["page_url"] == expected_url
+
+    @patch("products.surveys.backend.site_snapshot.COLD_SNAPSHOTS_PER_TEAM_PER_HOUR", 2)
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_cold_snapshots_share_a_team_budget_across_url_targets(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+
+        statuses = [
+            get_site_snapshot(
+                self.team,
+                survey,
+                SnapshotDevice.DESKTOP,
+                self.user,
+                UrlTarget(url=url, match_type=SurveyMatchType.ICONTAINS),
+            ).status
+            for url in ["docs", "pricing", "example.com"]
+        ]
+        cached = get_site_snapshot(
+            self.team,
+            survey,
+            SnapshotDevice.DESKTOP,
+            self.user,
+            UrlTarget(url="docs", match_type=SurveyMatchType.ICONTAINS),
+        )
+
+        assert statuses == [SnapshotStatus.RENDERING, SnapshotStatus.RENDERING, SnapshotStatus.UNAVAILABLE]
+        assert ExportedAsset.objects.count() == 2
+        assert cached.status == SnapshotStatus.RENDERING
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_a_changed_url_condition_renders_a_new_snapshot(self, _async_connect: AsyncMock) -> None:

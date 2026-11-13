@@ -36,6 +36,9 @@ SNAPSHOT_WINDOW = timedelta(days=7)
 LONGEST_RECORDING = timedelta(days=1)
 NO_SNAPSHOT_TTL = timedelta(minutes=10)
 RENDER_CLAIM_TTL = timedelta(minutes=1)
+# Each cold snapshot runs a ClickHouse query and a browser render. Callers choose the URL targeting, so a budget per
+# team, not per target, bounds how many they can start.
+COLD_SNAPSHOTS_PER_TEAM_PER_HOUR = 30
 # The first pageview often fires before the recorder sends its first snapshot.
 RECORDER_START_DELAY_SECONDS = 60
 # The image exporter's own size caps. The viewport comes from ingested events, so a larger one is not rendered.
@@ -391,6 +394,12 @@ def get_site_snapshot(
         cache.delete(render_claim_key)
 
 
+def _spend_cold_snapshot_budget(team: Team) -> bool:
+    key = _snapshot_cache_key("cold", team, timezone.now().strftime("%Y%m%d%H"))
+    cache.add(key, 0, timeout=timedelta(hours=1).total_seconds())
+    return cache.incr(key) <= COLD_SNAPSHOTS_PER_TEAM_PER_HOUR
+
+
 def _start_snapshot(
     team: Team,
     target: UrlTarget,
@@ -400,6 +409,8 @@ def _start_snapshot(
     key: str,
     no_snapshot_key: str,
 ) -> SiteSnapshot:
+    if not _spend_cold_snapshot_budget(team):
+        return UNAVAILABLE
     moment = find_snapshot_moment(team, target, device)
     if moment is None:
         cache.set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
