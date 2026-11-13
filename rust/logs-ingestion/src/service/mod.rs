@@ -221,6 +221,7 @@ pub fn named_health_router(
     liveness: lifecycle::LivenessHandler,
     render_metrics: Arc<dyn Fn() -> String + Send + Sync>,
 ) -> Router {
+    let metrics = move || ready(render_metrics());
     Router::new()
         .route("/", get(move || async move { service_name }))
         .route(
@@ -237,7 +238,9 @@ pub fn named_health_router(
                 async move { readiness.check().await }
             }),
         )
-        .route("/metrics", get(move || ready(render_metrics())))
+        // Node serves both paths, and the deployment scrapes `/_metrics`.
+        .route("/_metrics", get(metrics.clone()))
+        .route("/metrics", get(metrics))
 }
 
 /// A failed batch ends the process with an error, as the Node consumer crashes, so the restart replays from the last commit.

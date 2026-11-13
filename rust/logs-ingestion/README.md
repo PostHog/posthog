@@ -20,7 +20,7 @@ Every setting the Node servers read keeps its Node name, default and parse: the 
 The defaults that depend on `NODE_ENV` (limiter, metric rules, retention and backfill allowlists, Redis TLS, `_test` topic suffix) follow Node's `isProdEnv`.
 The Kafka consumer follows `consumer-v1.ts` and `consumer-v2.ts`: `auto.offset.reset` defaults to `earliest` (`KAFKA_CONSUMER_AUTO_OFFSET_RESET` overrides it), and with `KAFKA_CONSUMER_GROUP_PROTOCOL=consumer` the classic-protocol keys (`session.timeout.ms`, `heartbeat.interval.ms`, `partition.assignment.strategy`, `group.protocol.type`) are removed, as `stripClassicProtocolConfig` does.
 
-HTTP: `/_health` (liveness), `/_ready` (503 once shutdown starts) and `/metrics` on `HTTP_SERVER_PORT`.
+HTTP: `/_health` (liveness), `/_ready` (503 once shutdown starts), and the Prometheus metrics on both `/_metrics` and `/metrics`, on `HTTP_SERVER_PORT`.
 
 ### Batches and offsets
 
