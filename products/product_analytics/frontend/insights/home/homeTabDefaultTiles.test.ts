@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
-import { DateRange, NodeKind } from '~/queries/schema/schema-general'
+import { DateRange, NodeKind, RetentionResult } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
     ChartDisplayType,
@@ -11,6 +11,7 @@ import {
     PropertyMathType,
     PropertyOperator,
     RetentionDashboardDisplayType,
+    RetentionPeriod,
     TrendResult,
 } from '~/types'
 
@@ -21,12 +22,29 @@ import {
     getHomeTabDashboardTemplate,
     getHomeTabExploreUrl,
     getHomeTabInterval,
+    getHomeTabRetentionRange,
     getHomeTabStatInsightQuery,
     getHomeTabStatQueries,
     getHomeTabStatValue,
     isHomeTabStatBucketInProgress,
 } from './homeTabDefaultTiles'
 import { homeTabStatTrendKey } from './homeTabQueryKeys'
+import {
+    getHomeTabRetentionSummary,
+    getHomeTabViewLayout,
+    type HomeTabViewChart,
+    type HomeTabViewLayout,
+} from './homeTabViewCharts'
+
+function layoutCharts({ headlines, sections }: HomeTabViewLayout): HomeTabViewChart[] {
+    const headlineCharts =
+        headlines.kind === 'trend'
+            ? Object.values(headlines.charts)
+            : [...new Set(headlines.stats.map(({ chart }) => chart))]
+    return [...headlineCharts, ...sections.flatMap(({ rows }) => rows.flat())].filter(
+        (chart): chart is HomeTabViewChart => !!chart
+    )
+}
 
 describe('homeTabDefaultTiles', () => {
     const dateRange: DateRange = { date_from: '-14d', date_to: null }
@@ -140,7 +158,7 @@ describe('homeTabDefaultTiles', () => {
             }
         }
 
-        for (const chart of charts) {
+        for (const chart of charts.filter(({ key }) => key !== 'retention')) {
             expect(chart.query.source.dateRange).toEqual(dateRange)
             if (chart.query.source.kind === NodeKind.TrendsQuery) {
                 expect(chart.query.source.compareFilter?.compare).toBe(false)
@@ -150,8 +168,9 @@ describe('homeTabDefaultTiles', () => {
         const retentionQuery = charts.find(({ key }) => key === 'retention')?.query.source
         expect(retentionQuery).toMatchObject({
             kind: NodeKind.RetentionQuery,
+            dateRange: { date_from: '-8w', date_to: null },
             retentionFilter: {
-                totalIntervals: 3,
+                totalIntervals: 8,
                 dashboardDisplay: RetentionDashboardDisplayType.TableOnly,
                 retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             },
@@ -170,10 +189,22 @@ describe('homeTabDefaultTiles', () => {
         const retentionFilter = retentionQuery?.kind === NodeKind.RetentionQuery ? retentionQuery.retentionFilter : null
         expect(retentionFilter?.targetEntity).toEqual(activityEntity)
         expect(retentionFilter?.returningEntity).toEqual(activityEntity)
-        expect(
-            getHomeTabChartOptions({ date_from: '-30d', date_to: null }, true).find(({ key }) => key === 'retention')
-                ?.query.source
-        ).toMatchObject({ retentionFilter: { totalIntervals: 6 } })
+    })
+
+    it.each([
+        ['a short range', { date_from: '-7d', date_to: null }, { date_from: '-8w', date_to: null }, 8],
+        [
+            'a short exact range',
+            { date_from: '2026-08-01', date_to: '2026-08-31', explicitDate: true },
+            { date_from: '2026-07-06', date_to: '2026-08-31', explicitDate: true },
+            8,
+        ],
+        ['a long range', { date_from: '-90d', date_to: null }, { date_from: '-90d', date_to: null }, 12],
+    ])('gives weekly retention at least 8 cohorts for %s', (_, homeRange, expectedRange, totalIntervals) => {
+        expect(getHomeTabRetentionRange(homeRange, RetentionPeriod.Week)).toEqual({
+            dateRange: expectedRange,
+            totalIntervals,
+        })
     })
 
     it('offers a matching trend for every selectable summary metric', () => {
@@ -276,7 +307,10 @@ describe('homeTabDefaultTiles', () => {
         }
     })
 
-    it.each(['active_users', 'retention'])('opens %s in the insight editor with its selected range', (key) => {
+    it.each([
+        ['active_users', dateRange],
+        ['retention', { date_from: '-8w', date_to: null }],
+    ])('opens %s in the insight editor with its chart range', (key, expectedRange) => {
         const chart = getHomeTabChartOptions(dateRange, true).find((chart) => chart.key === key)
         expect(chart).toBeTruthy()
 
@@ -286,7 +320,7 @@ describe('homeTabDefaultTiles', () => {
         expect(editorQuery.kind).toBe(NodeKind.InsightVizNode)
         expect(editorQuery.embedded).toBeUndefined()
         expect(editorQuery.source).toEqual(JSON.parse(JSON.stringify(chart!.query.source)))
-        expect(editorQuery.source.dateRange).toEqual(dateRange)
+        expect(editorQuery.source.dateRange).toEqual(expectedRange)
     })
 
     it.each([
@@ -299,6 +333,53 @@ describe('homeTabDefaultTiles', () => {
             kind: NodeKind.InsightVizNode,
             source: { dateRange, compareFilter: { compare: true }, trendsFilter },
         })
+    })
+
+    it.each(['new_users', 'engagement', 'retention'] as const)(
+        'gives every %s chart its own key so charts in the view do not share results',
+        (view) => {
+            const keys = layoutCharts(getHomeTabViewLayout(view, dateRange, true)).map(({ option }) => option.key)
+
+            expect(keys.length).toBeGreaterThan(0)
+            expect(new Set(keys).size).toBe(keys.length)
+        }
+    )
+
+    it.each([
+        'new_user_activation',
+        'first_custom_events',
+        'activated_users',
+        'custom_event_adoption',
+        'custom_events_over_time',
+        'custom_event_users',
+    ])('leaves SDK events out of the %s custom event chart', (key) => {
+        const option = (['new_users', 'engagement'] as const)
+            .flatMap((view) => layoutCharts(getHomeTabViewLayout(view, dateRange, false)))
+            .find(({ option }) => option.key === key)?.option
+        const query = JSON.stringify(option?.query)
+
+        expect(query).toContain('Application Opened')
+        expect(query).toContain('survey shown')
+    })
+
+    it('averages retention over the cohorts that had the full interval to come back, weighted by size', () => {
+        const cohort = (date: string, counts: number[]): RetentionResult => ({
+            date,
+            label: date,
+            values: counts.map((count) => ({ count })),
+        })
+        const results = [
+            cohort('2026-06-01', [100, 40, 20]),
+            cohort('2026-06-08', [300, 60, 30]),
+            cohort('2026-06-15', [200, 0]),
+        ]
+
+        expect(getHomeTabRetentionSummary(results, 1, 'week', dayjs('2026-06-22'))).toEqual({
+            value: 25,
+            trend: [40, 20],
+            labels: ['2026-06-01', '2026-06-08'],
+        })
+        expect(getHomeTabRetentionSummary(results, 1, 'week', dayjs('2026-06-10'))).toBeNull()
     })
 
     it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {
