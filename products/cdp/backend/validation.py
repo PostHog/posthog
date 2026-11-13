@@ -15,6 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -52,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
+MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
 MAX_WORKFLOW_EMAIL_SENDERS = 10
 # Matches the cap the tasks API puts on a task's repositories.
 MAX_TASK_REPOSITORIES = 20
@@ -1646,6 +1648,8 @@ def compile_hog(
 
         if hog_type == "destination":
             supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
+        elif hog_type == "workflow_code":
+            supported_functions = set(CORE_SUPPORTED_FUNCTIONS)
         elif hog_type == "tagger":
             # Taggers classify; they must not perform side effects, so we deliberately exclude
             # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
@@ -1687,13 +1691,16 @@ def compile_hog(
 
         # The compiler only records unknown-function calls as context errors; the call still
         # compiles and fails at runtime. Log transformations run in a synchronous VM with no
-        # async functions registered, so surface the error at save time instead.
-        if hog_type == "transformation_log" and context.errors:
+        # async functions registered, and workflow code has a fixed allowlist, so surface the
+        # error at save time instead.
+        if hog_type in ("transformation_log", "workflow_code") and context.errors:
             raise serializers.ValidationError({"hog": context.errors[0].message})
 
         return bytecode
     except serializers.ValidationError:
         raise
+    except ExposedHogQLError as e:
+        raise serializers.ValidationError({"hog": f"Hog code has errors: {e}"})
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

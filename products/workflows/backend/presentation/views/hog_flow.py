@@ -101,7 +101,9 @@ from products.cdp.backend.presentation.hog_functions import (
     COHORT_NOT_READY_CODE,
     DATA_WAREHOUSE_SOURCES,
     FLAG_GATED_TEMPLATE_IDS,
+    MAX_HOG_CODE_SIZE_BYTES,
     compile_filters_expr,
+    compile_hog,
     filter_action_ids,
     filter_cohort_ids,
     gated_template_enabled,
@@ -705,6 +707,35 @@ _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
 # The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
 # 400, which fails the step on every run, so a strict save applies the same limits.
 _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
+
+# The "Code" step runs the author's own Hog, compiled here and stored on the action config.
+WORKFLOW_CODE_TEMPLATE_ID = "template-posthog-code"
+# Part of every stored bytecode_hash. Bump it when the workflow_code allowlist or the compiler output
+# changes, so that the next save of each code step recompiles instead of reusing old bytecode.
+WORKFLOW_CODE_COMPILER_FINGERPRINT = "workflow_code:v1"
+
+
+def workflow_code_hash(hog: str) -> str:
+    return hashlib.sha256((WORKFLOW_CODE_COMPILER_FINGERPRINT + hog).encode("utf-8")).hexdigest()
+
+
+def _stored_code_bytecode(instance: Optional[WorkflowEditState]) -> dict[tuple[Any, str], list]:
+    """Bytecode this serializer compiled for the flow's code steps, live and draft, keyed by action id and hash."""
+    if instance is None:
+        return {}
+    stored: dict[tuple[Any, str], list] = {}
+    for step in [*(instance.actions or []), *((instance.draft or {}).get("actions") or [])]:
+        config = step.get("config") if isinstance(step, dict) else None
+        if (
+            isinstance(config, dict)
+            and step.get("type") == "function"
+            and config.get("template_id") == WORKFLOW_CODE_TEMPLATE_ID
+            and isinstance(config.get("bytecode_hash"), str)
+            and isinstance(config.get("bytecode"), list)
+        ):
+            stored[(step.get("id"), config["bytecode_hash"])] = config["bytecode"]
+    return stored
+
 
 # The scan runs as the workflow's owner, but whoever saves the step chooses which sessions it reads and
 # where the answers go, so the editor needs recording access too.
@@ -1695,6 +1726,12 @@ class HogFlowActionSerializer(serializers.Serializer):
             "all_roles_unassigned remains accepted for workflows saved before assignment_status was added. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
+            "A code step is a function with template_id 'template-posthog-code' and hog: '<Hog source>' "
+            "(at most 100KB). The code can call fetch and postHogCapture, and reads the globals event, person, "
+            "groups and variables. It reads its inputs as inputs.params.<key> (the params dictionary, templated) "
+            "and inputs.secrets.<key> (the secrets dictionary, encrypted and not templated). Its return value is "
+            "stored in output_variable. The server compiles hog and sets bytecode and bytecode_hash, so any "
+            "bytecode sent with it is discarded. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
             "pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, "
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
@@ -2054,6 +2091,40 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"inputs": {"category_id": "Transactional messages ignore opt-outs. Choose a marketing category."}}
             )
 
+    def _validate_code_action(self, data: dict, enabled: bool, strict: bool) -> None:
+        config = data["config"]
+        # The worker runs the bytecode it finds, so only bytecode compiled here may be stored.
+        config.pop("bytecode", None)
+        config.pop("bytecode_hash", None)
+        if data.get("type") != "function":
+            raise serializers.ValidationError({"template_id": "Code can only run in a function step."})
+        if not enabled:
+            raise serializers.ValidationError({"template_id": "Code steps are not available for this project."})
+
+        hog = config.get("hog")
+        if hog is None or hog == "":
+            if strict:
+                raise serializers.ValidationError({"hog": "Add the Hog code for this step to run."})
+            return
+        if not isinstance(hog, str):
+            raise serializers.ValidationError({"hog": "hog must be a string of Hog code."})
+        if len(hog.encode("utf-8")) > MAX_HOG_CODE_SIZE_BYTES:
+            raise serializers.ValidationError(
+                {"hog": f"Hog code exceeds the maximum size of {MAX_HOG_CODE_SIZE_BYTES // 1024}KB."}
+            )
+
+        bytecode_hash = workflow_code_hash(hog)
+        bytecode = (self.context.get("stored_code_bytecode") or {}).get((data.get("id"), bytecode_hash))
+        if bytecode is None:
+            try:
+                bytecode = compile_hog(hog, "workflow_code")
+            except serializers.ValidationError:
+                if strict:
+                    raise
+                return
+        config["bytecode"] = bytecode
+        config["bytecode_hash"] = bytecode_hash
+
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
         the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
@@ -2371,6 +2442,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None and not gated_template_enabled(gating_flag, get_team()):
                     template = None
+            if template_id == WORKFLOW_CODE_TEMPLATE_ID:
+                self._validate_code_action(data, enabled=template is not None, strict=strict)
             if not template:
                 if strict:
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
@@ -3763,6 +3836,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             ]
             if isinstance(action, dict) and action.get("id") and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
         }
+
+        self.context["stored_code_bytecode"] = _stored_code_bytecode(instance)
 
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
         self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)

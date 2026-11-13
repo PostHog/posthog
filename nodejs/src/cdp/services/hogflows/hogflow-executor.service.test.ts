@@ -15,6 +15,7 @@ import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
+import { template as codeTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-code.template'
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
@@ -3558,6 +3559,97 @@ describe('Hogflow Executor', () => {
                 ['email', 'email_sandbox_sent'],
                 ['success', 'succeeded'],
             ])
+        })
+
+        describe('code steps', () => {
+            const runCodeStep = async (code: string, bytecode?: unknown[]) => {
+                const usageIngestion = new FakeUsageIngestion()
+                const usageReporter = new CdpUsageReporterService(await usageIngestion.start(), () => true)
+                executor = new HogFlowExecutorService(
+                    hogFlowFunctionsService,
+                    recipientPreferencesService,
+                    emailValidationService,
+                    cohortMembershipRepository,
+                    hub.integrationManager,
+                    null,
+                    undefined,
+                    usageReporter
+                )
+                await insertHogFunctionTemplate(hub.postgres, codeTemplate)
+                const hogFlow = createHogFlow({
+                    actions: {
+                        code: {
+                            type: 'function',
+                            config: {
+                                template_id: codeTemplate.id,
+                                inputs: {
+                                    params: { value: { name: 'Ada' } },
+                                    secrets: { value: { token: 'tok' } },
+                                },
+                                hog: code,
+                                bytecode: bytecode ?? (await compileHog(code)),
+                            },
+                            output_variable: { key: 'code_result', result_path: null },
+                        } as any,
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'code', type: 'continue' },
+                        { from: 'code', to: 'exit', type: 'continue' },
+                    ],
+                })
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                let result = await executor.execute(invocation)
+                const metrics = [...result.metrics]
+                const logs = [...result.logs]
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    metrics.push(...result.metrics)
+                    logs.push(...result.logs)
+                }
+                await usageReporter.shutdown()
+                await usageIngestion.stop()
+                return { invocation, result, metrics, logs, accepted: usageIngestion.accepted }
+            }
+
+            it.each([
+                {
+                    label: 'no fetch bills once',
+                    code: `return {'name': inputs.params.name, 'token': inputs.secrets.token}`,
+                    expected: { name: 'Ada', token: 'tok' },
+                    billed: 1,
+                },
+                {
+                    label: 'two fetches bill twice',
+                    code: `
+                    let a := fetch('https://example.com/a')
+                    let b := fetch('https://example.com/b')
+                    return {'statuses': [a.status, b.status]}`,
+                    expected: { statuses: [200, 200] },
+                    billed: 2,
+                },
+            ])('runs the step bytecode and a code step with $label', async ({ code, expected, billed }) => {
+                const { invocation, result, metrics, accepted } = await runCodeStep(code)
+
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.variables?.code_result).toEqual(expected)
+                expect(
+                    metrics.filter((m) => m.metric_name === 'billable_invocation').map((m) => [m.metric_kind, m.count])
+                ).toEqual([['fetch', billed]])
+                // The code step is the run's first step, so its actionStepCount is 0.
+                expect(accepted.map(({ usageKey, recordId }) => [usageKey, recordId])).toEqual(
+                    Array.from({ length: billed }, (_, index) => [
+                        'workflow_billable_invocations',
+                        `flow:${invocation.id}:0:fetch:${index + 1}`,
+                    ])
+                )
+            })
+
+            it('fails a code step that has no compiled bytecode', async () => {
+                const { logs, metrics } = await runCodeStep(`return 1`, [])
+
+                expect(logs.map((log) => log.message).join('\n')).toContain('This code step has no compiled bytecode')
+                expect(metrics.filter((m) => m.metric_name === 'billable_invocation')).toEqual([])
+            })
         })
 
         const suspendEmailSending = async (): Promise<void> => {

@@ -16,6 +16,7 @@ FLAG_GATED_TEMPLATE_IDS = {
     "template-posthog-classify": "workflow-classify-action",
     "template-posthog-add-to-static-cohort": "workflow-add-to-static-cohort-action",
     "template-posthog-opt-out-of-messages": "workflow-opt-out-of-messages-action",
+    "template-posthog-code": "workflows-code-step",
 }
 
 

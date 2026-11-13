@@ -13,6 +13,8 @@ import { HogFunctionTemplateManagerService } from '../managers/hog-function-temp
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
+export const WORKFLOW_CODE_TEMPLATE_ID = 'template-posthog-code'
+
 // Helper class that can turn a hog flow action into a hog function
 export class HogFlowFunctionsService {
     constructor(
@@ -32,7 +34,22 @@ export class HogFlowFunctionsService {
             throw new Error(`Template '${configuration.template_id}' not found`)
         }
 
-        const { inputs, mappings, ...config } = configuration
+        const {
+            inputs,
+            mappings,
+            hog: _hog,
+            bytecode: actionBytecode,
+            bytecode_hash: _hash,
+            ...config
+        } = configuration as Action['config'] & { hog?: string; bytecode?: any[]; bytecode_hash?: string }
+
+        let bytecode = template.bytecode
+        if (configuration.template_id === WORKFLOW_CODE_TEMPLATE_ID) {
+            if (!actionBytecode?.length) {
+                throw new Error('This code step has no compiled bytecode. Save it with valid Hog code to run it.')
+            }
+            bytecode = actionBytecode
+        }
 
         const hogFunction: HogFunctionType = {
             id: hogFlow.id,
@@ -42,7 +59,7 @@ export class HogFlowFunctionsService {
             type: template.type,
             deleted: false,
             hog: '<<TEMPLATE>>',
-            bytecode: template.bytecode,
+            bytecode,
             inputs,
             inputs_schema: template.inputs_schema,
             template_id: template.template_id,

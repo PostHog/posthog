@@ -24,7 +24,7 @@ import { EmailValidationService } from '../../messaging/email-validation.service
 import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
-import { HogFlowFunctionsService } from '../hogflow-functions.service'
+import { HogFlowFunctionsService, WORKFLOW_CODE_TEMPLATE_ID } from '../hogflow-functions.service'
 import { isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
@@ -306,19 +306,33 @@ export class HogFunctionHandler implements ActionHandler {
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
             if (this.isBillable(functionResult)) {
+                const isCodeStep = action.config.template_id === WORKFLOW_CODE_TEMPLATE_ID
+                // A code step bills per fetch it made, and at least once like any other step. fetch is the
+                // only async function the workflow_code allowlist compiles, so the VM's asyncSteps counts
+                // fetches, and it survives the step pausing and resuming between fetches.
+                const billableCount = isCodeStep
+                    ? Math.max(1, functionResult.invocation.state.vmState?.asyncSteps ?? 0)
+                    : 1
                 trackHogFlowBillableInvocation(result, {
                     invocation: functionResult.invocation,
                     billingMetricType: this.hogFlowActionBillingType,
+                    count: billableCount,
                 })
 
                 if (!hogExecutorOptions?.isTest || !hogExecutorOptions.functions) {
                     // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                    const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`
+                    const recordIds = isCodeStep
+                        ? Array.from({ length: billableCount }, (_, index) => `${recordId}:${index + 1}`)
+                        : [recordId]
                     for (const usageKey of WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType]) {
-                        this.usageReporter?.reportBillableInvocation({
-                            teamId: invocation.teamId,
-                            usageKey,
-                            recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-                        })
+                        for (const id of recordIds) {
+                            this.usageReporter?.reportBillableInvocation({
+                                teamId: invocation.teamId,
+                                usageKey,
+                                recordId: id,
+                            })
+                        }
                     }
                 }
             }

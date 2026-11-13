@@ -306,6 +306,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_id: z.string(),
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
+            // Code steps only: the author's Hog and the bytecode the API compiled from it.
+            hog: z.string().optional(),
+            bytecode: z.array(z.any()).optional(),
+            bytecode_hash: z.string().optional(),
         }),
     }),
     z.object({

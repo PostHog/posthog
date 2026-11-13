@@ -81,6 +81,7 @@ from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
     DUPLICATE_INPUT_KEYS_ERROR,
+    MAX_HOG_CODE_SIZE_BYTES,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -95,8 +96,6 @@ from products.cdp.backend.validation import (
     reserved_functions_used,
 )
 
-# Maximum size of HOG code as a string in bytes (100KB)
-MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
 # Maximum number of transformation functions per team
 MAX_TRANSFORMATIONS_PER_TEAM = 20
 # Log transformations execute per log record; volume is orders of magnitude higher than
