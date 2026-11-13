@@ -26,6 +26,8 @@ import {
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
+const FLUSH_ROUND_MS = 1_000
+
 const counterTotal = async (counter: { get: () => Promise<{ values: { value: number }[] }> }): Promise<number> =>
     (await counter.get()).values.reduce((sum, entry) => sum + entry.value, 0)
 
@@ -3203,6 +3205,117 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         await expect(bound.flush()).rejects.toThrow('leader unreachable')
+    })
+
+    describe('a write that fails on the transport after the gRPC retries', () => {
+        const transportFailure = () =>
+            Object.assign(new ConnectError('http/2 stream closed with error code CANCEL', Code.Canceled), {
+                isRetriable: true as const,
+            })
+
+        it('is written again on the next round and the flush acks', async () => {
+            jest.useFakeTimers()
+            try {
+                repository.updatePersonProperties.mockRejectedValueOnce(transportFailure())
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(FLUSH_ROUND_MS)
+                await expect(flushing).resolves.toEqual([])
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(0)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('fails the flush with the transport error once the retry budget is spent', async () => {
+            jest.useFakeTimers()
+            try {
+                repository.updatePersonProperties.mockRejectedValue(transportFailure())
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                const settled = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: unknown) => error
+                )
+                await jest.advanceTimersByTimeAsync(31_000)
+                expect(await settled).toBeInstanceOf(ConnectError)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        const personWithId = (id: number): InternalPerson => ({ ...person, id: String(id), uuid: `person-uuid-${id}` })
+
+        it('starts no queued write once the budget is spent, and keeps those lanes for redelivery', async () => {
+            jest.useFakeTimers()
+            try {
+                const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
+                repository.updatePersonProperties.mockImplementation(
+                    () => new Promise((_, reject) => setTimeout(() => reject(transportFailure()), 20_000))
+                )
+                const bound = narrowStore.forBatch(0)
+                const ids = [11, 12, 13, 14, 15]
+                for (const id of ids) {
+                    await bound.applyEventOps(personWithId(id), ops({ $set: { a: '1' } }), `d${id}`)
+                }
+                const settled = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: unknown) => error
+                )
+                await jest.advanceTimersByTimeAsync(60_000)
+                expect(await settled).toBeInstanceOf(ConnectError)
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(3)
+                for (const id of ids) {
+                    const entry = (narrowStore as any).entries.get(`1:${id}`)
+                    expect(entry.segments).toHaveLength(1)
+                    expect(entry.inFlight).toBe(false)
+                }
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('measures the budget from the first failure, so a long healthy flush still retries', async () => {
+            jest.useFakeTimers()
+            try {
+                const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
+                repository.updatePersonProperties
+                    .mockImplementationOnce(
+                        () => new Promise((resolve) => setTimeout(() => resolve({ updated: true } as any), 40_000))
+                    )
+                    .mockRejectedValueOnce(transportFailure())
+                const bound = narrowStore.forBatch(0)
+                await bound.applyEventOps(personWithId(11), ops({ $set: { a: '1' } }), 'd11')
+                await bound.applyEventOps(personWithId(12), ops({ $set: { a: '1' } }), 'd12')
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(40_000 + FLUSH_ROUND_MS)
+                await expect(flushing).resolves.toEqual([])
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(3)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('retries a transport failure and a fence bounced in the same pass', async () => {
+            jest.useFakeTimers()
+            try {
+                repository.updatePersonProperties
+                    .mockRejectedValueOnce(new PersonhogFencedError('held by a lifecycle op', '11', 'op-1'))
+                    .mockRejectedValueOnce(transportFailure())
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(personWithId(11), ops({ $set: { a: '1' } }), 'd11')
+                await bound.applyEventOps(personWithId(12), ops({ $set: { a: '1' } }), 'd12')
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(FLUSH_ROUND_MS)
+                await expect(flushing).resolves.toEqual([])
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(4)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     describe('concurrent batches share one flush', () => {
