@@ -17,9 +17,9 @@ export async function deleteTemplateWithUndo({
     callback: (undo: boolean) => void
     retry: () => void
 }): Promise<boolean> {
-    let folderPathTheUndoRestores: string | undefined
+    let filePathTheUndoRestores: string | undefined
     try {
-        folderPathTheUndoRestores = await storedFilePathOf(teamId, template.id)
+        filePathTheUndoRestores = await storedFilePathOf(teamId, template.id)
     } catch {
         keepTheTemplateAndOfferRetry(retry)
         return false
@@ -28,9 +28,7 @@ export async function deleteTemplateWithUndo({
         endpoint: `environments/${teamId}/messaging_templates`,
         object: { id: template.id, name: template.name },
         restore: () =>
-            api.fileSystem.undoDelete([
-                { type: 'message_template', ref: template.id, path: folderPathTheUndoRestores },
-            ]),
+            api.fileSystem.undoDelete([{ type: 'message_template', ref: template.id, path: filePathTheUndoRestores }]),
         callback,
     })
     return true
