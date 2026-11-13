@@ -69,7 +69,10 @@ class TestDeliverRoutes(APIBaseTest):
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
                 side_effect=feature_enabled,
             ),
-            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(
+                "products.alerts_platform.backend.logic.platform_alert_events.announcement",
+                return_value=_announcement(_transition(AlertEventKind.FIRING)),
+            ),
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
         ):

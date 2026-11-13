@@ -16,6 +16,8 @@ import hashlib
 from collections.abc import Collection, Sequence
 from dataclasses import field, fields
 from datetime import UTC, datetime
+from enum import StrEnum
+from time import sleep
 from typing import Any, Final
 from uuid import UUID
 
@@ -284,6 +286,85 @@ def announcement(
         consecutive_failures=consecutive_failures,
         transitions=transitions,
     )
+
+
+_ANNOUNCEMENT_RETRY_DELAYS_SECONDS: Final = (1, 2)
+
+# Any row of the evaluation, `CHECK` included. `record_outcomes` writes one row per group it
+# records, and a group a mute held is written as a `CHECK`, so an evaluation that was recorded
+# always has a row here even when it has nothing to announce.
+_EVALUATION_RECORDED_SQL = f"""
+SELECT 1
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id = %(configuration_id)s
+  AND evaluation_key = %(evaluation_key)s
+LIMIT 1
+"""
+
+
+class AnnouncementStatus(StrEnum):
+    FOUND = "found"
+    """This part has transitions to announce."""
+    EMPTY = "empty"
+    """The evaluation is recorded and this part has nothing to announce, as when a mute held it."""
+    MISSING = "missing"
+    """No record of the evaluation was found."""
+
+
+@frozen
+class AnnouncementRead:
+    status: AnnouncementStatus
+    announcement: EvaluationAnnouncement | None = None
+    """Set only when `status` is `FOUND`."""
+
+
+def _evaluation_recorded(team_id: int, configuration_id: str, evaluation_key: str) -> bool:
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = _execute(
+        _EVALUATION_RECORDED_SQL,
+        {"team_id": team_id, "configuration_id": configuration_id, "evaluation_key": evaluation_key},
+        team_id=team_id,
+    )
+    return bool(rows)
+
+
+def read_announcement(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    source: SourceKind,
+    incident_grouping_keys: Collection[str] = (),
+    part: int = 0,
+    parts: int = 1,
+) -> AnnouncementRead:
+    """`announcement` for a delivery, which must tell a quiet evaluation from one whose record it
+    cannot see.
+
+    A recorded evaluation with nothing to announce comes back `EMPTY` at once. One with no row at
+    all is read again after each delay in `_ANNOUNCEMENT_RETRY_DELAYS_SECONDS`, and comes back
+    `MISSING` if it is still not there: at most 3s inside the 10s activity, enough for a lagging
+    replica or asynchronous Distributed insert, though no retry brings back a failed insert. The
+    reads use no consistency setting: without `insert_quorum` on the write, none would help.
+    """
+    for delay in (0, *_ANNOUNCEMENT_RETRY_DELAYS_SECONDS):
+        if delay:
+            sleep(delay)
+        found = announcement(
+            team_id,
+            configuration_id,
+            evaluation_key,
+            source=source,
+            incident_grouping_keys=incident_grouping_keys,
+            part=part,
+            parts=parts,
+        )
+        if found is not None:
+            return AnnouncementRead(status=AnnouncementStatus.FOUND, announcement=found)
+        if _evaluation_recorded(team_id, configuration_id, evaluation_key):
+            return AnnouncementRead(status=AnnouncementStatus.EMPTY)
+    return AnnouncementRead(status=AnnouncementStatus.MISSING)
 
 
 def announced_kinds(

@@ -5,11 +5,13 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.utils import absolute_uri
 
@@ -40,6 +42,8 @@ from products.alerts_platform.backend.facade.contracts import (
     DeliveryPath,
     DestinationType,
     EvaluationAnnouncement,
+    FiringEpisode,
+    GroupOutcome,
     IncidentAction,
     LateImageResult,
     LegacyEventEmission,
@@ -47,13 +51,17 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageImage,
     MessageLink,
     NewAlertDestination,
+    PlatformAlertOutcome,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
+from products.alerts_platform.backend.logic.platform_lifecycle import record_outcomes
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
+_EVENTS = "products.alerts_platform.backend.logic.platform_alert_events"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
 _WEBHOOK_URL_MODULE = "products.alerts_platform.backend.delivery.webhook_url"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
@@ -220,7 +228,8 @@ class TestDeliverEvaluation(APIBaseTest):
             return by_event.get(allowed_event_ids[0], [])
 
         with (
-            patch(f"{_MODULE}.announcement", return_value=announced),
+            patch(f"{_EVENTS}.announcement", return_value=announced),
+            patch(f"{_EVENTS}._evaluation_recorded", return_value=True),
             patch(f"{_MODULE}.announced_kinds", return_value=kinds or {}),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
@@ -681,7 +690,7 @@ class TestDeliverEvaluation(APIBaseTest):
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
                 side_effect=flag,
             ),
-            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_EVENTS}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK), _group(SECOND_WEBHOOK)]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
             # The path is covered by `TestDeliveryPath`. Without an emitter every alert delivers natively.
@@ -835,7 +844,7 @@ class TestDeliveryPath(APIBaseTest):
         real_thread_store: bool = False,
     ) -> Any:
         with ExitStack() as stack:
-            stack.enter_context(patch(f"{_MODULE}.announcement", return_value=announced))
+            stack.enter_context(patch(f"{_EVENTS}.announcement", return_value=announced))
             stack.enter_context(
                 patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups or [HOG_FUNCTION_SLACK])
             )
@@ -1062,3 +1071,123 @@ class TestDeliveryPath(APIBaseTest):
             )
 
         assert self.emitted == []
+
+
+class TestMissingAnnouncement(ClickhouseTestMixin, APIBaseTest):
+    """A delivery reads its announcement back from ClickHouse right after the Postgres commit, so a
+    None there is either an evaluation that announced nothing or a row it cannot see yet."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        RecordingTransport.sends = []
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {SHARDED_PLATFORM_ALERT_EVENTS_TABLE}")
+        self.at = datetime(2026, 9, 16, 10, tzinfo=UTC)
+        with team_scope(self.team.id):
+            self.configuration = PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name="API errors",
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                check_interval_minutes=10,
+                next_check_at=self.at - timedelta(minutes=1),
+                owner=PlatformAlertOwner.PLATFORM,
+            )
+
+    def _deliver(self, *, announcements: list[Any] | None = None, recorded: bool | None = None) -> Any:
+        with ExitStack() as stack:
+            if announcements is not None:
+                stack.enter_context(patch(f"{_EVENTS}.announcement", side_effect=announcements))
+            if recorded is not None:
+                stack.enter_context(patch(f"{_EVENTS}._evaluation_recorded", return_value=recorded))
+            self.sleep = stack.enter_context(patch(f"{_EVENTS}.sleep"))
+            self.metrics = stack.enter_context(recorded_metrics())
+            stack.enter_context(patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]))
+            stack.enter_context(patch(f"{_MODULE}.DatabaseThreadStore"))
+            stack.enter_context(patch.dict(delivery_paths._emitters, clear=True))
+            stack.enter_context(patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}))
+            request = _request(self.team.id, configuration_id=str(self.configuration.id))
+            return deliver_evaluation(replace(request, evaluation_key=f"window:{self.at.isoformat()}"))
+
+    def _counted(self, outcome: str) -> float:
+        return sum(
+            m.value
+            for m in self.metrics
+            if m.name == "alerts_platform_deliveries_total" and m.attributes.get("outcome") == outcome
+        )
+
+    def test_missing_announcement_retries_then_sends(self) -> None:
+        outcome = self._deliver(
+            announcements=[None, None, _announcement(_transition(AlertEventKind.FIRING))], recorded=False
+        )
+
+        assert len(RecordingTransport.sends) == 1
+        assert outcome.sent == 1
+        assert [c.args for c in self.sleep.call_args_list] == [(1,), (2,)]
+        assert self._counted("announcement_missing") == 0
+
+    def test_missing_announcement_retries_then_counts(self) -> None:
+        outcome = self._deliver(announcements=[None, None, None], recorded=False)
+
+        assert outcome.sent == 0
+        assert RecordingTransport.sends == []
+        assert [c.args for c in self.sleep.call_args_list] == [(1,), (2,)]
+        assert self._counted("announcement_missing") == 1
+        assert [m.attributes for m in self.metrics if m.attributes.get("outcome") == "announcement_missing"] == [
+            {"source": "logs", "provider": "-", "path": "native", "outcome": "announcement_missing"}
+        ]
+
+    def test_mute_held_evaluation_is_empty_not_missing(self) -> None:
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                snooze_until=self.at + timedelta(hours=1)
+            )
+        with self.captureOnCommitCallbacks(execute=True):
+            record_outcomes(
+                self.team.id,
+                [
+                    PlatformAlertOutcome(
+                        configuration_id=self.configuration.id,
+                        evaluation_key=f"window:{self.at.isoformat()}",
+                        consecutive_failures=0,
+                        groups=(
+                            GroupOutcome(
+                                grouping_key="",
+                                kind=AlertEventKind.FIRING,
+                                new_state="firing",
+                                notified=True,
+                                firing_episode=FiringEpisode(started_at=self.at, ended=False),
+                            ),
+                        ),
+                    )
+                ],
+                self.at,
+            )
+
+        outcome = self._deliver()
+
+        assert outcome.sent == 0
+        assert RecordingTransport.sends == []
+        self.sleep.assert_not_called()
+        assert self._counted("announcement_empty") == 1
+        assert self._counted("announcement_missing") == 0
+
+    def test_missing_after_handover_is_superseded(self) -> None:
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(owner=PlatformAlertOwner.SOURCE)
+
+        outcome = self._deliver()
+
+        assert outcome.sent == 0
+        assert self._counted("announcement_superseded") == 1
+        assert self._counted("announcement_missing") == 0
+
+    def test_late_image_reads_without_retry(self) -> None:
+        with (
+            patch(f"{_MODULE}.announcement", return_value=None) as read,
+            patch(f"{_EVENTS}.sleep") as sleep,
+        ):
+            result = add_late_image(_request(self.team.id, configuration_id=str(self.configuration.id)), {"chart": 7})
+
+        assert result == LateImageResult(edited=0, waiting=0)
+        read.assert_called_once()
+        sleep.assert_not_called()
