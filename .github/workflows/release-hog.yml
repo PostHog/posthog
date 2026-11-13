@@ -156,7 +156,9 @@ jobs:
                   ref: master
                   fetch-depth: 0
                   filter: blob:none
-                  token: ${{ steps.app-token.outputs.token }}
+                  # The steps that write get the App token explicitly, so the dependencies, sampo and the
+                  # changelog formatters that run here can't read it from the git config.
+                  persist-credentials: false
 
             - name: Update to latest master before preparing release
               run: git pull --ff-only origin master
