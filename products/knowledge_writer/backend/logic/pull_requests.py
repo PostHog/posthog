@@ -224,15 +224,6 @@ def log_skipped_publication(task_run_id: UUID, team_id: int, reason: str) -> Non
     logger.info("knowledge_writer_publish_skipped", task_run_id=str(task_run_id), team_id=team_id, reason=reason)
 
 
-def settle_publication(task_run_id: UUID, *, team_id: int, has_failed: bool) -> None:
-    run = tasks_facade.get_task_run(task_run_id, team_id)
-    if run is None:
-        return
-    if has_failed:
-        record_pull_request_failure(run.task_id, team_id, "publish_failed")
-    release_publication_claim(run.task_id, team_id, task_run_id)
-
-
 def claim_publication(task_id: UUID, team_id: int, task_run_id: UUID) -> bool:
     def claim(current: object) -> tuple[object, bool]:
         is_held_by_another_run = publication_claim_owner(current) != str(task_run_id)

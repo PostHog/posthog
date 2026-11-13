@@ -9,7 +9,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from ..logic.pull_requests import open_or_join_pull_request, settle_publication
+from ..logic.publication import settle_publication
+from ..logic.pull_requests import open_or_join_pull_request
 from ..logic.records import PUBLICATION_LEASE
 
 PUBLISH_ATTEMPTS = 3

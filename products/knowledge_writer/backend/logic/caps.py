@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 
 from django.db import connection
 from django.utils import timezone
@@ -24,7 +25,9 @@ class WriterCapReached(Exception):
 
 
 class WriterSectionBusy(Exception):
-    pass
+    def __init__(self, section: str, busy_task_id: UUID) -> None:
+        super().__init__(section)
+        self.busy_task_id = busy_task_id
 
 
 class WriterRerunTaken(Exception):
@@ -45,7 +48,7 @@ def daily_run_cap_reached(writer: WriterSettings) -> bool:
 @frozen
 class InFlightWriterRuns:
     unpublished_runs: int
-    busy_sections: frozenset[str]
+    busy_task_id_by_section: dict[str, UUID]
 
 
 def in_flight_writer_runs(writer: WriterSettings) -> InFlightWriterRuns:
@@ -69,14 +72,14 @@ def in_flight_writer_runs(writer: WriterSettings) -> InFlightWriterRuns:
     }
     in_flight_task_ids = running_task_ids | publishing_task_ids
     unpublished_runs = 0
-    busy_sections: set[str] = set()
+    busy_task_id_by_section: dict[str, UUID] = {}
     for task_id in in_flight_task_ids:
         if tasks_facade.read_task_state_entry(task_id, writer.team_id, JOIN_STATE_KEY) is None:
             unpublished_runs += 1
         section = tasks_facade.read_task_state_entry(task_id, writer.team_id, SECTION_STATE_KEY)
         if isinstance(section, str) and section:
-            busy_sections.add(section)
-    return InFlightWriterRuns(unpublished_runs=unpublished_runs, busy_sections=frozenset(busy_sections))
+            busy_task_id_by_section[section] = task_id
+    return InFlightWriterRuns(unpublished_runs=unpublished_runs, busy_task_id_by_section=busy_task_id_by_section)
 
 
 def claim_section(writer: WriterSettings, section: str) -> None:
@@ -85,8 +88,9 @@ def claim_section(writer: WriterSettings, section: str) -> None:
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             [f"knowledge-writer-section:{writer.team_id}:{section}"],
         )
-    if section in in_flight_writer_runs(writer).busy_sections:
-        raise WriterSectionBusy(section)
+    busy_task_id = in_flight_writer_runs(writer).busy_task_id_by_section.get(section)
+    if busy_task_id is not None:
+        raise WriterSectionBusy(section, busy_task_id)
 
 
 def alert_cap_reached(cap: str, *, team_id: int, dedupe_id: str) -> None:

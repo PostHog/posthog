@@ -18,6 +18,7 @@ from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsR
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
+from products.knowledge_writer.backend.logic.publication import settle_publication
 from products.knowledge_writer.backend.logic.pull_requests import (
     COMPARE_FILE_LIMIT,
     DRAFT_EVENT,
@@ -26,7 +27,6 @@ from products.knowledge_writer.backend.logic.pull_requests import (
     open_or_join_pull_request,
     section_label,
     section_marker,
-    settle_publication,
 )
 from products.knowledge_writer.backend.logic.records import (
     HEAD_BRANCH_STATE_KEY,
@@ -431,7 +431,7 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
 
 
 @pytest.mark.django_db
-def test_a_section_stays_busy_after_its_run_finishes_until_its_publication_settles(
+def test_a_section_stays_busy_until_its_publication_settles_then_starts_the_request_it_held(
     team, writer_env, django_capture_on_commit_callbacks, monkeypatch
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
@@ -448,13 +448,14 @@ def test_a_section_stays_busy_after_its_run_finishes_until_its_publication_settl
         writer = writer_settings()
         assert writer is not None
         with time_machine.travel(timezone.now() + PUBLICATION_LEASE, tick=False):
-            busy_after_lease = caps.in_flight_writer_runs(writer).busy_sections
+            busy_after_lease = caps.in_flight_writer_runs(writer).busy_task_id_by_section
         settle_publication(TaskRun.objects.get(task_id=started.task_id).id, team_id=team.id, has_failed=True)
-        after_settling = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        resubmitted_after_settling = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
 
     assert while_publishing.status == "section_busy"
-    assert busy_after_lease == frozenset()
-    assert after_settling.status == "started"
+    assert busy_after_lease == {}
+    assert resubmitted_after_settling.status == "duplicate"
+    assert resubmitted_after_settling.task_id not in (None, started.task_id)
 
 
 @pytest.mark.django_db

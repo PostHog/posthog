@@ -15,6 +15,7 @@ HEAD_BRANCH_STATE_KEY = "knowledge_writer_head_branch"
 PULL_REQUEST_STATE_KEY = "knowledge_writer_pull_request"
 PULL_REQUEST_FAILURE_STATE_KEY = "knowledge_writer_pull_request_failure"
 PUBLICATION_CLAIM_STATE_KEY = "knowledge_writer_publication_claim"
+HELD_REQUESTS_STATE_KEY = "knowledge_writer_held_requests"
 PUBLICATION_LEASE = timedelta(minutes=30)
 BRANCH_REFUSALS = frozenset({"changed_paths_outside_docs", "too_many_changed_files"})
 

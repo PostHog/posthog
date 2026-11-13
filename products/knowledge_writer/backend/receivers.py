@@ -32,19 +32,23 @@ def open_docs_pull_request(sender: type, instance: Any, created: bool, **kwargs:
 def schedule_docs_pull_request(instance: Any, *, created: bool, update_fields: Any) -> None:
     if created or instance.origin_product != TaskOriginProduct.KNOWLEDGE_WRITER:
         return
-    if instance.status != instance.Status.COMPLETED:
-        return
     if update_fields is not None and "status" not in update_fields and "output" not in update_fields:
+        return
+    task_run_id, task_id, team_id = instance.id, instance.task_id, instance.team_id
+    if instance.status in (instance.Status.FAILED, instance.Status.CANCELLED):
+        transaction.on_commit(lambda: start_held_requests(team_id), robust=True)
+        return
+    if instance.status != instance.Status.COMPLETED:
         return
     if not (instance.output or {}).get("head_branches"):
         logger.warning(
             "knowledge_writer_run_without_docs_branch",
-            task_id=str(instance.task_id),
-            task_run_id=str(instance.id),
-            team_id=instance.team_id,
+            task_id=str(task_id),
+            task_run_id=str(task_run_id),
+            team_id=team_id,
         )
+        transaction.on_commit(lambda: start_held_requests(team_id), robust=True)
         return
-    task_run_id, task_id, team_id = instance.id, instance.task_id, instance.team_id
     transaction.on_commit(lambda: start_publish_or_record_failure(task_run_id, task_id, team_id), robust=True)
 
 
@@ -64,3 +68,11 @@ def start_publish_or_record_failure(task_run_id: UUID, task_id: UUID, team_id: i
         )
         capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
         pull_requests.record_pull_request_failure(task_id, team_id, "publish_not_started")
+        pull_requests.release_publication_claim(task_id, team_id, task_run_id)
+        start_held_requests(team_id)
+
+
+def start_held_requests(team_id: int) -> None:
+    from .logic import intake  # noqa: PLC0415 — keeps the GitHub client off the setup import path
+
+    intake.start_held_requests(team_id)

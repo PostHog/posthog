@@ -85,7 +85,7 @@ def docs_result(finished: FinishedDocsCheck, follow_up: FollowUp) -> str:
         "no_docs": f"The docs check found nothing in {subject} that changes the docs, so the knowledge writer won't run.",
         "shadow": f"The docs check finished on {subject}, but the knowledge writer isn't starting runs yet.",
         "capped": f"The docs check finished on {subject}, but the knowledge writer hit its run limit. Try `docs` again tomorrow.",
-        "section_busy": f"The knowledge writer is already updating the docs section {subject} changes. Try `docs` again once that pull request is up.",
+        "section_busy": f"The knowledge writer is already updating the docs section {subject} changes. It will write these docs once that update finishes.",
         "docs_in_source_repo": f"The docs pages {subject} changes live in its own repository, so update them there.",
         "unconfigured": f"The knowledge writer isn't set up, so it won't write docs for {subject}.",
     }

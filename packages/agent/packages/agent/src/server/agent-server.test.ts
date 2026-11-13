@@ -8271,7 +8271,7 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     it.each([undefined, null, "https://github.com/org/repo/pull/1"])(
-      "disables publishing when createPr is false and prUrl is %s",
+      "keeps createPr false runs review-first without a publishing ban when prUrl is %s",
       async (prUrl) => {
         process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
         server = new AgentServer({
@@ -8294,8 +8294,8 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("stop with local changes ready for review");
         expect(prompt).not.toContain("gh pr checkout");
         expect(prompt).not.toContain("Push to the existing PR branch");
-        expect(prompt).toContain("Publishing is disabled for this run.");
-        expect(prompt).toContain("even if the user invokes a skill");
+        expect(prompt).toContain("unless the user explicitly asks");
+        expect(prompt).not.toContain("Publishing is disabled for this run.");
         expect(prompt).not.toContain(
           "A skill explicitly invoked in the user's own message counts as that ask",
         );
@@ -8602,10 +8602,11 @@ describe("AgentServer HTTP Mode", () => {
       ).buildDetectedPrContext(prUrl);
       expect(context).toContain("stop with local changes ready for review");
       expect(context).not.toContain("gh pr checkout");
-      expect(context).toContain(
-        "Publishing is disabled for this run. Do NOT create commits, push to the PR branch",
+      expect(context).toContain("unless the user explicitly asks");
+      expect(context).not.toContain("Publishing is disabled for this run.");
+      expect(context).not.toContain(
+        "A skill explicitly invoked in the user's own message counts as that ask",
       );
-      expect(context).toContain("even if the user invokes a skill");
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
   });
