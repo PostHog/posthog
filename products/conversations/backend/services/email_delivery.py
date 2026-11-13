@@ -222,10 +222,11 @@ def _pending_confirmation_message_id(ticket: Ticket) -> str | None:
 
 
 def confirm_email_delivery(
-    ticket: Ticket, *, sender_email: str, thread_message_ids: Iterable[str], auto_generated: bool
+    ticket: Ticket, *, sender_email: str, thread_message_ids: Iterable[str | None], auto_generated: bool
 ) -> bool:
     """Activate email delivery when the customer replies to the confirmation email.
 
+    Activation also queues the team replies that were posted while the confirmation was pending.
     The caller holds the row lock on `ticket`. The reply must name the Message-ID of the latest
     confirmation email, which only the address on the ticket received. Any other message in the
     thread is not proof: earlier ones reached an address the ticket may no longer carry. The
@@ -271,6 +272,7 @@ def confirm_email_delivery(
         )
     except Exception as e:
         capture_exception(e, {"ticket_id": str(ticket.id)})
+    enqueue_replies_awaiting_confirmation(ticket)
     return True
 
 

@@ -656,6 +656,7 @@ class WidgetMessagesView(APIView):
 
         after = query_serializer.validated_data.get("after")
         limit = query_serializer.validated_data["limit"]
+        verified_email: str | None = None
 
         # Get ticket
         try:
@@ -670,7 +671,6 @@ class WidgetMessagesView(APIView):
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
-        verified_email: str | None = None
         if verified_distinct_id is not None:
             verified_email = _verify_identity_claim(
                 query_serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
@@ -688,10 +688,9 @@ class WidgetMessagesView(APIView):
 
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
-        use_cache = limit == 50  # Only cache the limit used by widget polling
-        if reads_emails and ticket.channel_source != Channel.EMAIL:
-            # The cache is keyed by ticket and holds what a widget session reads.
-            use_cache = False
+        # Only cache the limit used by widget polling. The cache is keyed by ticket and holds what
+        # a widget session reads, so a viewer who also reads a widget ticket's emails bypasses it.
+        use_cache = limit == 50 and (ticket.channel_source == Channel.EMAIL or not reads_emails)
         if use_cache:
             cached = get_cached_messages(team.id, ticket_id, after_str)
             if cached is not None:

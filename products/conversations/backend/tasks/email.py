@@ -144,6 +144,17 @@ def _threading_headers(ticket_id: UUID, team_id: int) -> dict[str, str]:
     return {"In-Reply-To": message_ids[-1], "References": " ".join(message_ids)}
 
 
+def _email_delivery_blocked_reason(ticket: Ticket, is_confirmation: bool) -> str | None:
+    """Why this ticket's email delivery state does not allow the send, or None when it does."""
+    if ticket.channel_source == Channel.EMAIL:
+        return None
+    # Until the customer confirms the address, only the confirmation email may go to it.
+    required_state = EmailDelivery.PENDING if is_confirmation else EmailDelivery.ACTIVE
+    if ticket.email_delivery == required_state:
+        return None
+    return f"email delivery is not {required_state.value}"
+
+
 def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     """Render and send one already-claimed outbox row, recording the outcome.
 
@@ -172,13 +183,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         _mark_outbox_failed(outbox, "no customer email")
         return
 
-    # Until the customer confirms the address, only the confirmation email may go to it.
     is_confirmation = is_email_confirmation(comment.item_context)
-    if ticket.channel_source != Channel.EMAIL:
-        required_state = EmailDelivery.PENDING if is_confirmation else EmailDelivery.ACTIVE
-        if ticket.email_delivery != required_state:
-            _mark_outbox_failed(outbox, f"email delivery is not {required_state.value}")
-            return
+    if blocked_reason := _email_delivery_blocked_reason(ticket, is_confirmation):
+        _mark_outbox_failed(outbox, blocked_reason)
+        return
 
     # Defense-in-depth: never send out a comment that itself arrived via inbound
     # email — mirrors the from_email signal guard at the last mile, so a future

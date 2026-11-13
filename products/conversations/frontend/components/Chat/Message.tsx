@@ -21,6 +21,7 @@ import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliver
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 import { richContentToHtml } from '../Editor/richContentToHtml'
 import { aiDraftAction } from './aiDraftAction'
+import { messageDeliveryLabel } from './messageDeliveryLabel'
 import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
@@ -80,6 +81,7 @@ export function Message({
     const profileType = isAgent ? 'bot' : 'person'
     const isPrivate = message.isPrivate
     const draftAction = aiDraftAction(message)
+    const delivery = messageDeliveryLabel(message, deliveryStatus)
     const citations = (message.citations ?? []).filter((item) => item.trim())
     const [feedbackText, setFeedbackText] = useState('')
     const [feedbackTextSubmitted, setFeedbackTextSubmitted] = useState(false)
@@ -347,30 +349,15 @@ export function Message({
                             </div>
                         )}
                         <div className="flex items-center justify-end gap-1">
-                            {message.emailDeliveryStatus === 'failed' ? (
-                                <Tooltip
-                                    title={
-                                        message.isEmailConfirmation
-                                            ? "We couldn't deliver the confirmation email, so replies on this ticket are not emailed. Check the email channel settings and the customer's email address."
-                                            : "We couldn't deliver this email reply. Please check the email channel settings and contact support if the issue persists."
-                                    }
-                                >
+                            {delivery?.failureReason ? (
+                                <Tooltip title={delivery.failureReason}>
                                     <span className="inline-flex items-center gap-0.5 text-xs text-danger">
                                         <IconWarning className="text-xs" />
-                                        Failed to send
+                                        {delivery.text}
                                     </span>
                                 </Tooltip>
-                            ) : message.emailDeliveryStatus === 'sending' ? (
-                                <span className="text-xs text-muted-alt">Sending…</span>
-                            ) : message.isEmailConfirmation && message.emailDeliveryStatus === 'sent' ? (
-                                // A private note has no read receipt, so the email status is its only delivery signal.
-                                <span className="text-xs text-muted-alt">Sent</span>
                             ) : (
-                                deliveryStatus && (
-                                    <span className="text-xs text-muted-alt">
-                                        {deliveryStatus === 'read' ? 'Read' : 'Sent'}
-                                    </span>
-                                )
+                                delivery && <span className="text-xs text-muted-alt">{delivery.text}</span>
                             )}
                         </div>
                     </div>

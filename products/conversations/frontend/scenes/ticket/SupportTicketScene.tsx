@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
-import { IconCheckCircle, IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -40,6 +40,7 @@ import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { SupportTicketSidebarWidgets } from '../../components/SupportTicketSidebarWidgets/SupportTicketSidebarWidgets'
+import { TicketEmailDelivery } from '../../components/TicketEmailDelivery/TicketEmailDelivery'
 import { TicketTags } from '../../components/TicketTags'
 import {
     type Ticket,
@@ -495,31 +496,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
-                            {ticket?.email_delivery && ticket.email_from && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">Email delivery</span>
-                                    {ticket.email_delivery === 'active' ? (
-                                        <span className="flex items-center justify-end gap-1 min-w-0">
-                                            <span className="text-xs truncate" title={ticket.email_from}>
-                                                {ticket.email_from}
-                                            </span>
-                                            <Tooltip title="Email confirmed. The customer replied to the confirmation email from this address, and replies on this ticket are also emailed to it.">
-                                                <IconCheckCircle
-                                                    className="text-success text-base shrink-0"
-                                                    aria-label="Email confirmed"
-                                                />
-                                            </Tooltip>
-                                        </span>
-                                    ) : (
-                                        <span
-                                            className="text-xs truncate text-right"
-                                            title={`A confirmation email was sent to ${ticket.email_from}. Replies are emailed after the customer replies to it.`}
-                                        >
-                                            Waiting for confirmation
-                                        </span>
-                                    )}
-                                </div>
-                            )}
+                            <TicketEmailDelivery ticket={ticket} />
                             {ticket?.channel_source === 'github' &&
                                 ticket?.github_repo &&
                                 ticket?.github_issue_number && (

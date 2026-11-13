@@ -462,6 +462,17 @@ def handle_ticket_get(
     return Response(payload)  # nosemgrep: api-response-must-match-schema
 
 
+def _email_delivery_changes(ticket: Ticket, turn_on: bool | None) -> list[Change]:
+    """Turn email delivery on or off when asked to, and return what changed for the activity log."""
+    if turn_on is None:
+        return []
+    before = ticket.email_delivery_state
+    after = request_email_delivery(ticket) if turn_on else stop_email_delivery(ticket)
+    if before == after:
+        return []
+    return [Change(type="Ticket", field="email_delivery", before=before, after=after, action="changed")]
+
+
 def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:
     """Apply a ticket update for an already-authenticated team."""
     # When a HogFlow workflow step makes the change, it forwards its identity via
@@ -602,27 +613,10 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                     )
 
     # Last of the checks that can refuse the request, so a refusal here leaves nothing saved.
-    if "email_delivery" in serializer.validated_data:
-        old_email_delivery = ticket.email_delivery_state
-        try:
-            new_email_delivery = (
-                request_email_delivery(ticket)
-                if serializer.validated_data["email_delivery"]
-                else stop_email_delivery(ticket)
-            )
-        except EmailDeliveryUnavailable as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        if old_email_delivery != new_email_delivery:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="email_delivery",
-                    before=old_email_delivery,
-                    after=new_email_delivery,
-                    action="changed",
-                )
-            )
+    try:
+        changes.extend(_email_delivery_changes(ticket, serializer.validated_data.get("email_delivery")))
+    except EmailDeliveryUnavailable as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     if update_fields:
         ticket.save(update_fields=[*update_fields, "updated_at"])
