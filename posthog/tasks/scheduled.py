@@ -25,7 +25,7 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
-from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
@@ -820,6 +820,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         refresh_integrations.s(),
         name="refresh integrations",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="37"),
+        expire_unverified_email_senders.s(),
+        name="expire unverified email senders",
     )
 
     sender.add_periodic_task(

@@ -168,15 +168,29 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    def test_paginates_via_cursor(self):
+    @pytest.mark.parametrize(
+        "endpoint, object_name",
+        [
+            ("companies", "companies"),
+            ("activities", "timelineActivities"),
+            ("note_targets", "noteTargets"),
+            ("task_targets", "taskTargets"),
+            ("workspace_members", "workspaceMembers"),
+        ],
+    )
+    def test_paginates_via_cursor(self, endpoint, object_name):
         result = _run(
             [
-                _page([{"id": "1"}, {"id": "2"}], has_next_page=True, end_cursor="cursor-a"),
-                _page([{"id": "3"}], has_next_page=False, end_cursor="cursor-b"),
-            ]
+                _page([{"id": "1"}, {"id": "2"}], object_name=object_name, has_next_page=True, end_cursor="cursor-a"),
+                _page([{"id": "3"}], object_name=object_name, has_next_page=False, end_cursor="cursor-b"),
+            ],
+            endpoint=endpoint,
         )
 
         assert [r["id"] for r in result.rows] == ["1", "2", "3"]
+        assert {request.url.split("?")[0] for request in result.requests} == {
+            f"https://api.twenty.com/rest/{object_name}"
+        }
         assert result.params("starting_after") == [None, "cursor-a"]
         assert result.requests[0].param("limit") == "200"
 
