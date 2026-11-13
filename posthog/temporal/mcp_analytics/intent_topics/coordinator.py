@@ -34,7 +34,7 @@ def _empty_results() -> dict[str, Any]:
     return {"teams_succeeded": 0, "teams_failed": 0, "teams_skipped": 0, "failed_team_ids": []}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class IntentTopicsCoordinatorInputs:
     kind: str = "sync"
     max_concurrent_teams: int = COORDINATOR_DEFAULT_MAX_CONCURRENT_TEAMS

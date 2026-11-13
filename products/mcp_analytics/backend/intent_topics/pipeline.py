@@ -59,6 +59,28 @@ def _query_tags(team: Team):  # noqa: ANN202
     return tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.pk, kind="temporal")
 
 
+DEFAULT_SYNC_LOOKBACK = timedelta(hours=1, minutes=15)
+SYNC_RESUME_OVERLAP = timedelta(minutes=15)
+MAX_SYNC_CATCH_UP = timedelta(days=3)
+
+
+def sync_window_start(team: Team, *, now: datetime) -> datetime:
+    """Where the next sync starts: just before the last successful sync's end, so missed runs are drained.
+
+    The catch-up is bounded; a longer outage drops intents older than MAX_SYNC_CATCH_UP that never recur.
+    """
+    last = (
+        MCPIntentClusteringRun.objects.filter(team=team, kind=Kind.SYNC, status=Status.SUCCEEDED)
+        .exclude(window_end=None)
+        .order_by("-window_end")
+        .values_list("window_end", flat=True)
+        .first()
+    )
+    if last is None:
+        return now - DEFAULT_SYNC_LOOKBACK
+    return max(last - SYNC_RESUME_OVERLAP, now - MAX_SYNC_CATCH_UP)
+
+
 def _run_id(kind: str, now: datetime) -> str:
     # A retry of the same window must get a fresh id: (team, run_id) is unique in Postgres.
     return f"{kind}-{now.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:6]}"

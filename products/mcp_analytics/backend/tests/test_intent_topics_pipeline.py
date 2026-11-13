@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 
-from datetime import UTC, datetime, timedelta  # noqa: E402
+from datetime import timedelta  # noqa: E402
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
 from unittest.mock import patch  # noqa: E402
@@ -13,12 +13,13 @@ from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
 from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
 from products.mcp_analytics.backend.intent_topics import pipeline  # noqa: E402
+from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel  # noqa: E402
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic  # noqa: E402
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin  # noqa: E402
-from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding  # noqa: E402
+from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour
 from products.mcp_analytics.backend.tests.test_intent_topics_clustering import skip_without_umap  # noqa: E402
 
-NOW = datetime(2026, 10, 20, 2, 0, tzinfo=UTC)
+NOW = recent_hour(days_ago=0)
 
 
 def _blob_vectors(axis: int, n: int, seed: int) -> list[list[float]]:
@@ -97,7 +98,7 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
     @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics")
     def test_refit_creates_labelled_topics_and_assign_fills_the_table(self, mock_labels) -> None:
         mock_labels.side_effect = lambda team, candidates: {
-            c.topic_id: (f"Label {i}", f"Summary {i}") for i, c in enumerate(candidates)
+            c.topic_id: TopicLabel(label=f"Label {i}", summary=f"Summary {i}") for i, c in enumerate(candidates)
         }
 
         refit = pipeline.run_refit(self.team, now=NOW)
@@ -144,3 +145,35 @@ class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, API
 
         assert outcome.status == "skipped_too_few"
         assert outcome.n_intents == 1
+
+
+class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def _succeeded_sync(self, window_end, status=MCPIntentClusteringRun.Status.SUCCEEDED) -> None:
+        MCPIntentClusteringRun.objects.create(
+            team=self.team,
+            run_id=f"sync-{window_end.isoformat()}",
+            kind="sync",
+            status=status,
+            window_start=window_end - timedelta(hours=1),
+            window_end=window_end,
+        )
+
+    def test_first_run_covers_the_default_window(self) -> None:
+        start = pipeline.sync_window_start(self.team, now=NOW)
+
+        assert start == NOW - pipeline.DEFAULT_SYNC_LOOKBACK
+
+    def test_resumes_from_the_last_successful_sync_after_missed_runs(self) -> None:
+        self._succeeded_sync(NOW - timedelta(hours=5))
+        self._succeeded_sync(NOW - timedelta(hours=3), status=MCPIntentClusteringRun.Status.FAILED)
+
+        start = pipeline.sync_window_start(self.team, now=NOW)
+
+        assert start == NOW - timedelta(hours=5) - pipeline.SYNC_RESUME_OVERLAP
+
+    def test_catch_up_is_bounded(self) -> None:
+        self._succeeded_sync(NOW - timedelta(days=10))
+
+        start = pipeline.sync_window_start(self.team, now=NOW)
+
+        assert start == NOW - pipeline.MAX_SYNC_CATCH_UP

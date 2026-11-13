@@ -30,15 +30,28 @@ def _unit_rows(matrix: np.ndarray) -> np.ndarray:
     return matrix / norms
 
 
-def fit_pca_2d(vectors: np.ndarray, weights: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-    """Return (mean, components) for a 2D PCA basis; components has shape (2, d)."""
+@dataclass(frozen=True)
+class PcaFit:
+    mean: np.ndarray  # (d,)
+    components: np.ndarray  # (2, d)
+
+
+@dataclass(frozen=True)
+class NearestCentroid:
+    topic_index: np.ndarray  # (n,)
+    distance: np.ndarray  # (n,) cosine distance to the chosen centroid
+    is_outlier: np.ndarray  # (n,) bool
+
+
+def fit_pca_2d(vectors: np.ndarray, weights: np.ndarray | None = None) -> PcaFit:
+    """A weighted 2D PCA basis for the map."""
     if weights is None:
         weights = np.ones(len(vectors), dtype=np.float32)
     weights = np.asarray(weights, dtype=np.float32)
     mean = (vectors * weights[:, None]).sum(axis=0) / weights.sum()
     centered = (vectors - mean) * np.sqrt(weights)[:, None]
     _, _, vt = np.linalg.svd(centered, full_matrices=False)
-    return mean.astype(np.float32), vt[:2].astype(np.float32)
+    return PcaFit(mean=mean.astype(np.float32), components=vt[:2].astype(np.float32))
 
 
 def project_2d(vectors: np.ndarray, pca_mean: np.ndarray, pca_components: np.ndarray) -> np.ndarray:
@@ -78,7 +91,8 @@ def fit_topics(vectors: np.ndarray, weights: np.ndarray | None, *, random_state:
     relabel = {cluster_id: idx for idx, cluster_id in enumerate(cluster_ids)}
     dense_labels = np.array([relabel.get(int(label), -1) for label in labels], dtype=np.int64)
 
-    pca_mean, pca_components = fit_pca_2d(unit, weights)
+    pca = fit_pca_2d(unit, weights)
+    pca_mean, pca_components = pca.mean, pca.components
     return FitOutput(
         labels=dense_labels,
         centroids=np.stack(centroids).astype(np.float32) if centroids else np.zeros((0, unit.shape[1]), np.float32),
@@ -91,15 +105,12 @@ def fit_topics(vectors: np.ndarray, weights: np.ndarray | None, *, random_state:
 
 def assign_by_nearest_centroid(
     vectors: np.ndarray, centroids: np.ndarray, outlier_distances: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Numpy twin of the ClickHouse assignment SQL, used to pin its semantics in tests.
-
-    Returns (topic_index, cosine_distance, is_outlier) per vector.
-    """
+) -> NearestCentroid:
+    """Numpy twin of the ClickHouse assignment SQL, used to pin its semantics in tests."""
     unit = _unit_rows(vectors)
     unit_centroids = _unit_rows(centroids)
     distances = 1.0 - unit @ unit_centroids.T
     topic_index = distances.argmin(axis=1)
     distance = distances[np.arange(len(unit)), topic_index]
     is_outlier = distance > np.asarray(outlier_distances, dtype=np.float32)[topic_index]
-    return topic_index, distance.astype(np.float32), is_outlier
+    return NearestCentroid(topic_index=topic_index, distance=distance.astype(np.float32), is_outlier=is_outlier)

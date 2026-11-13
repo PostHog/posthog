@@ -39,6 +39,12 @@ class TopicLabelInput:
     sample_intents: list[str]
 
 
+@dataclass(frozen=True)
+class TopicLabel:
+    label: str
+    summary: str
+
+
 class _TopicLabel(BaseModel):
     number: int
     label: str
@@ -77,8 +83,8 @@ def fallback_label(topic_id: str) -> str:
     return f"Topic {topic_id[:8]}"
 
 
-def label_topics(team: Team, candidates: list[TopicLabelInput]) -> dict[str, tuple[str, str]]:
-    """Return ``{topic_id: (label, summary)}`` for every candidate. Blank answers fall back to a neutral label."""
+def label_topics(team: Team, candidates: list[TopicLabelInput]) -> dict[str, TopicLabel]:
+    """A label and summary for every candidate. Blank answers fall back to a neutral label."""
     if not candidates:
         return {}
     _ensure_llm_available(team, api_key=settings.GEMINI_API_KEY, key_name="GEMINI_API_KEY")
@@ -114,12 +120,12 @@ def label_topics(team: Team, candidates: list[TopicLabelInput]) -> dict[str, tup
         raise IntentGenerationUnavailable("LLM returned malformed labels") from e
 
     answers = {item.number: item for item in parsed.topics}
-    labels: dict[str, tuple[str, str]] = {}
+    labels: dict[str, TopicLabel] = {}
     for number, candidate in enumerate(candidates, start=1):
         answer = answers.get(number)
         label = (answer.label if answer else "").strip()[:MAX_LABEL_LENGTH]
         summary = (answer.summary if answer else "").strip()[:MAX_SUMMARY_LENGTH]
         if not label:
             label = candidate.existing_label.strip() or fallback_label(candidate.topic_id)
-        labels[candidate.topic_id] = (label, summary)
+        labels[candidate.topic_id] = TopicLabel(label=label, summary=summary)
     return labels

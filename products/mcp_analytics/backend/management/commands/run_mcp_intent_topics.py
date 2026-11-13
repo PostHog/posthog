@@ -16,7 +16,11 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.mcp_analytics.intent_topics.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
-from posthog.temporal.mcp_analytics.intent_topics.models import RUN_KINDS, IntentTopicsWorkflowInputs
+from posthog.temporal.mcp_analytics.intent_topics.models import (
+    RUN_KINDS,
+    IntentTopicsWorkflowInputs,
+    IntentTopicsWorkflowResult,
+)
 
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 
@@ -45,7 +49,11 @@ class Command(BaseCommand):
         async def _run() -> Any:
             client = await async_connect()
             return await client.execute_workflow(
-                WORKFLOW_NAME, inputs, id=workflow_id, task_queue=settings.MCPA_TASK_QUEUE
+                WORKFLOW_NAME,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.MCPA_TASK_QUEUE,
+                result_type=IntentTopicsWorkflowResult,
             )
 
         result = asyncio.run(_run())

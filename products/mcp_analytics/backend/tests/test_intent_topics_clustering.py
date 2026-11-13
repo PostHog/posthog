@@ -80,7 +80,8 @@ class TestAssignByNearestCentroid:
         outlier_distances = np.array([0.05, 0.05], dtype=np.float32)
         vectors = np.array([[0.99, 0.1], [0.1, 0.99], [0.7, 0.7]], dtype=np.float32)
 
-        topic_index, distance, is_outlier = assign_by_nearest_centroid(vectors, centroids, outlier_distances)
+        nearest = assign_by_nearest_centroid(vectors, centroids, outlier_distances)
+        topic_index, distance, is_outlier = nearest.topic_index, nearest.distance, nearest.is_outlier
 
         assert topic_index.tolist() == [0, 1, 0]
         assert is_outlier.tolist() == [False, False, True]

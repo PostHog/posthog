@@ -1,14 +1,14 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from products.mcp_analytics.backend.intent_hash import intent_hash
 from products.mcp_analytics.backend.intent_topics.corpus import fetch_distinct_intents, fetch_seen_hashes
-from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding
+from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour
 
 OTHER_TEAM_ID = 10**9  # never a real team in the test database, so rows cannot collide with the next test
-WINDOW_START = datetime(2026, 10, 19, 10, 0, tzinfo=UTC)
-WINDOW_END = datetime(2026, 10, 19, 11, 0, tzinfo=UTC)
+WINDOW_START = recent_hour(days_ago=2)
+WINDOW_END = WINDOW_START + timedelta(hours=1)
 
 
 class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
@@ -47,6 +47,16 @@ class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
 
         assert [(i.text, i.top_tool) for i in intents] == [("run sql", "execute-sql")]
 
+    def test_pages_through_more_intents_than_one_query_returns(self) -> None:
+        for i in range(5):
+            for _ in range(5 - i):
+                self._call(f"intent {i}")
+        flush_persons_and_events()
+
+        intents = fetch_distinct_intents(self.team, since=WINDOW_START, until=WINDOW_END, page_size=2)
+
+        assert [(i.text, i.calls) for i in intents] == [(f"intent {n}", 5 - n) for n in range(5)]
+
     def test_limit_keeps_the_most_called_intents(self) -> None:
         for _ in range(3):
             self._call("popular")
@@ -71,6 +81,15 @@ class TestFetchSeenHashes(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert seen == {fresh}
+
+    def test_returns_every_seen_hash_beyond_the_default_row_limit(self) -> None:
+        hashes = [intent_hash(f"seen {i}") for i in range(150)]
+        for i, h in enumerate(hashes):
+            insert_intent_embedding(self.team.pk, h, f"seen {i}", at=WINDOW_START - timedelta(days=1))
+
+        seen = fetch_seen_hashes(self.team, [*hashes, intent_hash("never")], now=WINDOW_START)
+
+        assert seen == set(hashes)
 
     def test_empty_input_makes_no_query(self) -> None:
         assert fetch_seen_hashes(self.team, [], now=WINDOW_START) == set()
