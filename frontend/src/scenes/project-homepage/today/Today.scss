@@ -1103,7 +1103,11 @@ html[data-today-transition]::view-transition-new(root) {
 
     // The wrapper's padding is the focus ring here, so it fills the whole tray instead of a thinner ring inside it.
     &:focus-within {
-        background: color-mix(in oklab, var(--ring) 30%, transparent);
+        background: color-mix(in oklab, var(--ring) 15%, transparent);
+
+        [theme='dark'] & {
+            background: color-mix(in oklab, var(--ring) 30%, transparent);
+        }
     }
 
     // QuillComposerLayout's focus-within utilities are !important in the utilities layer. Important declarations
