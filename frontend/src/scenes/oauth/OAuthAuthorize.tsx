@@ -22,6 +22,7 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
+import { OAuthAuthorizeEmaIssuer } from './OAuthAuthorizeEmaIssuer'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
@@ -165,6 +166,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         newProjectLoading,
         newOrganizationLoading,
         selectedOrganization,
+        emaIssuerConsent,
         user,
     } = useValues(oauthAuthorizeLogic)
     const {
@@ -268,6 +270,14 @@ export const OAuthAuthorize = (): JSX.Element => {
         return (
             <OAuthAuthorizeLayout>
                 <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
+            </OAuthAuthorizeLayout>
+        )
+    }
+
+    if (emaIssuerConsent) {
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeEmaIssuer consent={emaIssuerConsent} />
             </OAuthAuthorizeLayout>
         )
     }

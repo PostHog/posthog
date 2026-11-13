@@ -123,6 +123,7 @@ class HogQLContext:
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
     referenced_saved_query_ids: set[str] = field(default_factory=set)
+    materialized_saved_query_ids: set[str] = field(default_factory=set)
     referenced_warehouse_table_ids: set[str] = field(default_factory=set)
     directly_read_ids: set[str] = field(default_factory=set)
     view_body_depth: int = 0
@@ -299,6 +300,7 @@ class HogQLContext:
 
     def clear_reads(self) -> None:
         self.referenced_saved_query_ids.clear()
+        self.materialized_saved_query_ids.clear()
         self.referenced_warehouse_table_ids.clear()
         self.directly_read_ids.clear()
         self.flag_calls_read.clear()

@@ -5324,6 +5324,8 @@ export interface AppContext {
     oauth_consent_access_controls_apply?: boolean
     /** The scope set `/authorize` resolved for this request; the consent screen must render this, not the URL's `scope`. */
     oauth_scope_resolution?: OAuthScopeResolution
+    /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
+    oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -7989,6 +7991,19 @@ export interface ProjectTreeRef {
      * "null" opens the "new" page
      */
     ref: string | null
+}
+
+export type OAuthEmaIssuerConsentOrganization = {
+    id: string
+    name: string
+    verified_domains: string[]
+    /** Why this organization can't trust the client's issuer, or null when it can. */
+    disabled_reason: string | null
+}
+
+export type OAuthEmaIssuerConsent = {
+    scope: string
+    organizations: OAuthEmaIssuerConsentOrganization[]
 }
 
 export type OAuthMcpConsentContext = {

@@ -112,6 +112,11 @@ export class SourceWebhookError extends Error {
     }
 }
 
+// A 4xx rejection is the API answering the caller as designed, so it stays out of error tracking.
+export function isUnexpectedWebhookError(error: unknown): boolean {
+    return !(error instanceof SourceWebhookError && error.status < 500)
+}
+
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpSourceWebhooksConsumer'
     private hogQueue: JobQueue
@@ -576,7 +581,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         return result
     }
 
-    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
+    @instrumented({
+        key: 'cdpSourceWebhooksConsumer.processWebhook',
+        shouldCaptureException: isUnexpectedWebhookError,
+    })
     public async processWebhook(
         identifier: string,
         req: ModifiedRequest
@@ -613,7 +621,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     }
 
     // The caller must check that the user may edit the workflow: this method trusts `userId`.
-    @instrumented('cdpSourceWebhooksConsumer.processManualTrigger')
+    @instrumented({
+        key: 'cdpSourceWebhooksConsumer.processManualTrigger',
+        shouldCaptureException: isUnexpectedWebhookError,
+    })
     public async processManualTrigger(
         teamId: number,
         hogFlowId: string,
