@@ -109,7 +109,7 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> Ru
 
 _ASSIGNMENT_COUNTS_SQL = """
 SELECT count(), countIf(is_outlier = 1)
-FROM mcp_intent_assignments
+FROM posthog.mcp_intent_assignments
 WHERE run_id = {run_id}
 """
 

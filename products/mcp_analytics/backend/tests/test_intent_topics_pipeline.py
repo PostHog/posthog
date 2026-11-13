@@ -91,7 +91,7 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
     def _assignments(self) -> list[tuple]:
         return execute_hogql_query(
-            query="SELECT topic_id, count(), countIf(is_outlier = 1) FROM mcp_intent_assignments GROUP BY topic_id ORDER BY count() DESC",
+            query="SELECT topic_id, count(), countIf(is_outlier = 1) FROM posthog.mcp_intent_assignments GROUP BY topic_id ORDER BY count() DESC",
             team=self.team,
         ).results
 

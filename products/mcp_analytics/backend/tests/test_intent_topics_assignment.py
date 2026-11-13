@@ -40,7 +40,7 @@ class TestAssignmentInsert(ClickhouseTestMixin, APIBaseTest):
             query="""
                 SELECT intent_hash, topic_id, is_outlier, round(toFloat(distance), 3), round(toFloat(x), 3), round(toFloat(y), 3),
                        intent_text, calls_in_run, run_id
-                FROM mcp_intent_assignments ORDER BY intent_hash
+                FROM posthog.mcp_intent_assignments ORDER BY intent_hash
             """,
             team=self.team,
         )
