@@ -120,14 +120,15 @@ def test_projects_on_the_events_table_connect_to_the_events_cluster(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("table", ["person", "events_json"])
 @pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.OFFLINE])
-def test_raw_reads_of_a_native_events_project_keep_the_legacy_hosts(settings, workload):
+def test_raw_reads_of_a_native_events_project_keep_the_legacy_hosts(settings, workload, table):
     settings.CLICKHOUSE_EVENTS_ONLINE_HOST = "events-cluster.invalid"
     settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = "events-cluster.invalid"
 
     with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "1"):
         rows = sync_execute(
-            "SELECT count() FROM person WHERE team_id = %(team_id)s", {"team_id": 1}, workload=workload, team_id=1
+            f"SELECT count() FROM {table} WHERE team_id = %(team_id)s", {"team_id": 1}, workload=workload, team_id=1
         )
 
     assert rows == [(0,)]
