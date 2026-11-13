@@ -1,74 +1,27 @@
 import './TextCard.scss'
 
-import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
-import React, { memo, useEffect, useMemo } from 'react'
+import React from 'react'
 
 import 'lib/components/Cards/CardMeta.scss'
-import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
-import { useRichContentEditor } from 'lib/components/RichContentEditor'
+import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
+import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { DashboardPlacement, DashboardTile } from '~/types'
-
-import { TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS, textCardConverter } from './textCardMarkdown'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     textTile: DashboardTile
     placement: DashboardPlacement
     children?: JSX.Element
-    /** Whether hovering near the card edge should hint that edit mode is available. */
-    canEnterEditModeFromEdge?: boolean
-    /** Called when the user clicks an edge hint to enter edit mode. */
-    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     moreButtonOverlay?: MoreProps['overlay']
-    /** Called when the user mousedowns on the card body (drag handle) in view mode to enter edit mode. */
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
+    quillMenuItems?: JSX.Element
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
 }
-
-interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
-    text: string
-    closeDetails?: () => void
-}
-
-function TextContentImpl({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
-    const initialDoc = useMemo(() => textCardConverter.markdownToDoc(text), [text])
-
-    const editor = useRichContentEditor({
-        extensions: TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,
-        initialContent: initialDoc,
-        disabled: true,
-    })
-
-    useEffect(() => {
-        if (!editor) {
-            return
-        }
-
-        editor.commands.setContent(initialDoc, { emitUpdate: false })
-    }, [editor, initialDoc])
-
-    return (
-        <div className={clsx('w-full', className)} onClick={() => closeDetails?.()}>
-            {editor ? (
-                <div className="RichMarkdownEditor overflow-auto">
-                    <EditorContent editor={editor} className="RichMarkdownEditor__content px-0 py-0" />
-                </div>
-            ) : (
-                <LemonMarkdown className="overflow-auto">{text}</LemonMarkdown>
-            )}
-        </div>
-    )
-}
-
-export const TextContent = memo(TextContentImpl)
-TextContent.displayName = 'TextContent'
 
 function TextCardInternal(
     {
@@ -77,10 +30,8 @@ function TextCardInternal(
         children,
         className,
         moreButtonOverlay,
+        quillMenuItems,
         placement,
-        canEnterEditModeFromEdge,
-        onEnterEditModeFromEdge,
-        onDragHandleMouseDown,
         showEditingControls,
         ...divProps
     }: TextCardProps,
@@ -100,32 +51,26 @@ function TextCardInternal(
             className={clsx(
                 'DashboardTileCard TextCard rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
-                isTransparent && showResizeHandles && 'border border-dashed border-border',
                 className
             )}
             data-attr="text-card"
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && (
+            {(quillMenuItems || moreButtonOverlay) && !shouldHideMoreButton && (
                 <div className="absolute right-4 top-4">
-                    <More overlay={moreButtonOverlay} />
+                    {quillMenuItems ? (
+                        <QuillCardMoreMenu items={quillMenuItems} />
+                    ) : (
+                        <More overlay={moreButtonOverlay} />
+                    )}
                 </div>
             )}
 
-            <div
-                className={clsx(
-                    'DashboardTileCard__body TextCard__body w-full',
-                    onDragHandleMouseDown && 'cursor-grab'
-                )}
-                onMouseDown={onDragHandleMouseDown}
-            >
-                <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
+            <div className="DashboardTileCard__body TextCard__body w-full">
+                <LazyTextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
             </div>
 
-            {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (
-                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
-            )}
             {showResizeHandles && <DashboardResizeHandles />}
             {children /* Extras, such as resize handles */}
         </div>

@@ -21,6 +21,8 @@ from .email_thread import (
 )
 from .github_comment_mapping import GithubCommentMapping
 from .inbound_event import ConversationInboundEvent, ConversationInboundEventSource, InboundPayloadTooLargeError
+from .intercom_import_job import IntercomImportJob
+from .mailgun_domain_registration import MailgunDomainRegistration
 from .purged_ticket_thread import PurgedTicketThread
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
@@ -30,6 +32,7 @@ from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannel
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
 from .team_conversations_ticket_config import TeamConversationsTicketConfig
 from .ticket import Ticket
+from .ticket_macro import TicketMacro
 from .ticket_view import TicketView
 from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
@@ -61,6 +64,8 @@ __all__ = [
     "EmailThreadParticipantKind",
     "GithubCommentMapping",
     "InboundPayloadTooLargeError",
+    "IntercomImportJob",
+    "MailgunDomainRegistration",
     "Priority",
     "PurgedTicketThread",
     "RuleType",
@@ -72,6 +77,7 @@ __all__ = [
     "TeamConversationsTicketConfig",
     "Ticket",
     "TicketAssignment",
+    "TicketMacro",
     "TicketView",
     "TicketViewFavorite",
     "ZendeskImportJob",

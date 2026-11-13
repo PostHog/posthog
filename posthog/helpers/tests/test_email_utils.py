@@ -1,26 +1,20 @@
 from datetime import timedelta
 from typing import Optional, cast
 
-from unittest.mock import MagicMock, patch
+import pytest
 
 from django.db import connection
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
-import requests
 from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
 from posthog.helpers.email_utils import (
-    ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS,
-    ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS,
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
-    ESPSuppressionReason,
-    _get_esp_suppression_cache_key,
-    check_esp_suppression,
     reject_lookalike_email_characters,
     reject_plus_addressed_email,
     sanitize_display_name,
@@ -229,9 +223,15 @@ class TestStripEmailAlias(SimpleTestCase):
 
 
 class TestRejectPlusAddressedEmail(SimpleTestCase):
-    def test_rejects_plus_in_local_part(self):
+    @parameterized.expand(
+        [
+            ("plain", "someuser+alias@domain.com"),
+            ("quoted_local_part_holding_an_at", '"some@user+alias"@domain.com'),
+        ]
+    )
+    def test_rejects_plus_in_local_part(self, _name: str, email: str) -> None:
         with self.assertRaises(serializers.ValidationError) as ctx:
-            reject_plus_addressed_email("someuser+alias@domain.com")
+            reject_plus_addressed_email(email)
         self.assertEqual(ctx.exception.get_codes(), ["plus_addressing_not_allowed"])
 
     def test_allows_email_without_plus(self):
@@ -349,220 +349,6 @@ class TestUserExistsWithGmailCanonical(TestCase):
             user.delete()
 
 
-class TestESPSuppressionCheck(SimpleTestCase):
-    def test_returns_not_suppressed_for_empty_email(self):
-        result = check_esp_suppression("")
-
-        self.assertFalse(result.is_suppressed)
-        self.assertEqual(result.reason, ESPSuppressionReason.EMPTY_EMAIL)
-
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.cache")
-    def test_cache_hit_returns_cached_value_without_api_call(self, mock_cache):
-        mock_cache.get.return_value = True
-
-        with patch("posthog.helpers.email_utils.requests.get") as mock_get:
-            result = check_esp_suppression("test@example.com")
-
-            mock_get.assert_not_called()
-            self.assertTrue(result.is_suppressed)
-            self.assertTrue(result.from_cache)
-
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
-    def test_cache_miss_triggers_api_call_and_caches_result(self, mock_get, mock_cache):
-        mock_cache.get.return_value = None
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "category": "bounces",
-            "suppressions": [{"email": "test@example.com", "reason": "hard bounce"}],
-        }
-        mock_get.return_value = mock_response
-
-        result = check_esp_suppression("test@example.com")
-
-        mock_get.assert_called_once()
-        mock_cache.set.assert_called_once()
-        self.assertTrue(result.is_suppressed)
-        self.assertFalse(result.from_cache)
-
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
-    def test_cache_set_with_correct_ttl(self, mock_get, mock_cache):
-        mock_cache.get.return_value = None
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"suppressions": None}
-        mock_get.return_value = mock_response
-
-        check_esp_suppression("test@example.com")
-
-        call_args = mock_cache.set.call_args
-        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS)
-
-    @parameterized.expand(
-        [
-            ("timeout", requests.Timeout(), True, ESPSuppressionReason.API_FAILURE_FALLBACK),
-            ("network_error", requests.ConnectionError(), True, ESPSuppressionReason.API_FAILURE_FALLBACK),
-            ("500_error", None, True, ESPSuppressionReason.API_FAILURE_FALLBACK),
-            ("429_rate_limited", None, False, None),
-        ]
-    )
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
-    def test_api_failures_use_fallback_to_allow_login(
-        self, name, exception, expected_suppressed, expected_reason, mock_get, mock_cache
-    ):
-        mock_cache.get.return_value = None
-
-        if exception:
-            mock_get.side_effect = exception
-        else:
-            mock_response = MagicMock()
-            mock_response.status_code = 500 if expected_suppressed else 429
-            mock_response.text = "Error"
-            mock_get.return_value = mock_response
-
-        result = check_esp_suppression("test@example.com")
-
-        self.assertEqual(result.is_suppressed, expected_suppressed)
-        self.assertFalse(result.from_cache)
-        self.assertEqual(result.reason, expected_reason)
-
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    def test_email_hash_is_case_insensitive_and_anonymized(self):
-        key_lower = _get_esp_suppression_cache_key("test@example.com")
-        key_upper = _get_esp_suppression_cache_key("TEST@EXAMPLE.COM")
-        key_other = _get_esp_suppression_cache_key("other@example.com")
-
-        self.assertTrue(key_lower.startswith("code_based_verification_suppressed:"))
-        self.assertEqual(key_lower, key_upper)
-        self.assertNotEqual(key_lower, key_other)
-        self.assertNotIn("@", key_lower)
-
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
-    def test_api_error_caches_error_state_with_short_ttl(self, mock_get, mock_cache):
-        mock_cache.get.return_value = None
-        mock_get.side_effect = requests.Timeout()
-
-        check_esp_suppression("test@example.com")
-
-        # Verify error was cached with short TTL
-        set_calls = list(mock_cache.set.call_args_list)
-        error_cache_call = [c for c in set_calls if "error" in c[0][0]]
-        self.assertEqual(len(error_cache_call), 1)
-        self.assertEqual(error_cache_call[0][0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
-
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
-    def test_429_rate_limit_caches_with_short_ttl(self, mock_get, mock_cache):
-        mock_cache.get.return_value = None
-        mock_response = MagicMock()
-        mock_response.status_code = 429
-        mock_get.return_value = mock_response
-
-        check_esp_suppression("test@example.com")
-
-        # Verify result was cached with short TTL (not the default 1 day)
-        call_args = mock_cache.set.call_args
-        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
-
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.cache")
-    def test_cached_error_returns_fallback_without_api_call(self, mock_cache):
-        # Simulate: normal cache miss, but error cache hit
-        def cache_get_side_effect(key):
-            if "error" in key:
-                return True
-            return None
-
-        mock_cache.get.side_effect = cache_get_side_effect
-
-        with patch("posthog.helpers.email_utils.requests.get") as mock_get:
-            result = check_esp_suppression("test@example.com")
-
-            mock_get.assert_not_called()
-            self.assertTrue(result.is_suppressed)
-            self.assertTrue(result.from_cache)
-            self.assertEqual(result.reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
-
-
-class TestESPSuppressionAnalytics(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("success_cache_suppressed", True, "suppressed", "success_cache", False, None, None),
-            ("success_cache_not_suppressed", False, "not_suppressed", "success_cache", False, None, None),
-            ("error_cache", None, "api_failure_fallback", "error_cache", False, None, None),
-            ("api_200_suppressed", None, "suppressed", None, True, 200, None),
-            ("api_200_not_suppressed", None, "not_suppressed", None, True, 200, None),
-            ("api_429", None, "not_suppressed", None, True, 429, None),
-            ("api_500", None, "api_failure_fallback", None, True, 500, "http_error"),
-            ("api_timeout", None, "api_failure_fallback", None, True, None, "timeout"),
-        ]
-    )
-    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
-    @patch("posthog.helpers.email_utils.posthoganalytics.capture")
-    @patch("posthog.helpers.email_utils.cache")
-    @patch("posthog.helpers.email_utils.requests.get")
-    def test_analytics_captured_for_each_scenario(
-        self,
-        name,
-        cached_value,
-        expected_outcome,
-        expected_cache_type,
-        expected_api_called,
-        expected_status_code,
-        expected_error_type,
-        mock_get,
-        mock_cache,
-        mock_capture,
-    ):
-        def cache_get_side_effect(key):
-            if "error" in key:
-                return True if expected_cache_type == "error_cache" else None
-            return cached_value if expected_cache_type == "success_cache" else None
-
-        mock_cache.get.side_effect = cache_get_side_effect
-
-        if expected_api_called:
-            if expected_error_type == "timeout":
-                mock_get.side_effect = requests.Timeout()
-            else:
-                mock_response = MagicMock()
-                mock_response.status_code = expected_status_code or 200
-                mock_response.text = "error"
-                if expected_status_code == 200:
-                    if expected_outcome == "suppressed":
-                        mock_response.json.return_value = {
-                            "category": "bounces",
-                            "suppressions": [{"email": "test@example.com", "reason": "hard bounce"}],
-                        }
-                    else:
-                        mock_response.json.return_value = {"suppressions": None}
-                mock_get.return_value = mock_response
-
-        check_esp_suppression("test@example.com")
-
-        mock_capture.assert_called()
-        call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "esp_suppression_check")
-        self.assertEqual(call_kwargs["properties"]["outcome"], expected_outcome)
-        self.assertEqual(call_kwargs["properties"]["cache_type"], expected_cache_type)
-        self.assertEqual(call_kwargs["properties"]["api_called"], expected_api_called)
-        if expected_status_code:
-            self.assertEqual(call_kwargs["properties"]["api_status_code"], expected_status_code)
-        if expected_error_type:
-            self.assertEqual(call_kwargs["properties"]["error_type"], expected_error_type)
-
-
 class TestValidateDisplayName(SimpleTestCase):
     @parameterized.expand(
         [
@@ -654,6 +440,8 @@ class TestValidateMessageBody(SimpleTestCase):
             ("bracket", "hello <there>", "invalid_bracket"),
             ("invisible", "foo\u200bbar", "invalid_invisible_char"),
             ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+            ("lone_surrogate", "foo\ud83dbar", "invalid_invisible_char"),
+            ("long_scheme_of_digits", "a" + "1" * 40 + "://x", "invalid_url"),
             ("non_newline_control", "foo\x01bar", "invalid_control_char"),
             ("carriage_return", "foo\rbar", "invalid_control_char"),
             ("del", "foo\x7fbar", "invalid_control_char"),
@@ -801,6 +589,16 @@ class TestSanitizeEmailString(SimpleTestCase):
                 '<img src="x" onerror="javascript:alert(1)">',
                 "&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
             ),
+            ("uppercase_domain", "join EVIL.COM now", "join EVIL.\u200bCOM now"),
+            ("long_domain_chain", "pad." * 200 + "evil.com", "pad.\u200b" * 200 + "evil.\u200bcom"),
+            ("long_scheme", "a" * 100 + "://x", "a" * 100 + ":\u200b//x"),
+            ("long_scheme_of_digits", "a" + "1" * 40 + "://x", "a" + "1" * 40 + ":\u200b//x"),
+            ("dotless_i_in_label", "paypa\u0131.com", "paypa\u0131.\u200bcom"),
+            ("dotless_i_only_label", "\u0131\u0131.com", "\u0131\u0131.\u200bcom"),
+            ("dotted_capital_i_in_tld", "evil.\u0130\u0130", "evil.\u200b\u0130\u0130"),
+            ("cjk_before_keyword", "\u65e5data:x", "\u65e5data:x"),
+            ("accented_letter_before_domain", "\u00e9vil.com", "\u00e9vil.\u200bcom"),
+            ("lone_surrogate", "evil.com \ud83d", "evil.\u200bcom "),
         ]
     )
     def test_sanitizes(self, _name: str, value: str, expected: str) -> None:
@@ -814,3 +612,17 @@ class TestSanitizeEmailString(SimpleTestCase):
         # the entity, which is the existing trade-off of running sanitize_email_string
         # over already-sanitized data. Documented as a guardrail.
         self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")
+
+
+# A regex that backtracks quadratically cannot finish these inputs inside this limit.
+@pytest.mark.timeout(60)
+class TestEmailTextChecksOnLongInput(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dotted_run", "a." * 500_000),
+            ("letter_run", "a" * 1_000_000 + "."),
+        ]
+    )
+    def test_returns_long_input_unchanged(self, _name: str, value: str) -> None:
+        self.assertTrue(sanitize_email_string(value) == value)
+        self.assertTrue(validate_message_body(value) == value)

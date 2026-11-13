@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -22,6 +22,14 @@ PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "queuejob", "queuejobs
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
 DEFAULT_PARTITION_DELETE_BATCH_SIZE = 10_000
+
+# Creating or dropping a partition takes an ACCESS EXCLUSIVE lock on the parent table. While that
+# request waits behind any open reader, Postgres queues every later query on the table behind it,
+# so an unbounded wait stops the whole sync queue. Partitions exist PARTITIONS_AHEAD days ahead,
+# so giving up and leaving the work for the next run is safe.
+PARTITION_DDL_LOCK_TIMEOUT = "3s"
+PARTITION_DDL_ATTEMPTS = 3
+PARTITION_DDL_RETRY_DELAY_SECONDS = 2.0
 
 # Rows in these tables change state in place two or three times, and each change leaves a dead
 # entry in the partial indexes on latest_state. A scale factor waits for 10% of a partition to be
@@ -45,20 +53,10 @@ RETENTION_STRANDED_ERROR = "batches aged out of retention without being processe
 _NON_TERMINAL_BATCH_STATES = ("pending", "waiting", "waiting_retry", "executing")
 
 
-@dataclass(frozen=True, slots=True)
-class PartitionResult:
-    ensured: list[str]
-    dropped: list[str]
-    errors: list[str]
-
-    @property
-    def success(self) -> bool:
-        return len(self.errors) == 0
-
-
 @frozen
 class _PartitionChanges:
-    ensured: list[str]
+    created: list[str]
+    already_existed: list[str]
     dropped: list[str]
     alerts: list[str]
 
@@ -68,19 +66,22 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     errors: list[str] = []
     today = datetime.now(UTC).date()
 
-    # The connection sets no lock_timeout, so partition DDL can wait on a lock for an unbounded time.
-    # Run the database work on the general thread pool so that the wait blocks neither the worker's
-    # event loop nor the single thread shared by all thread-sensitive work in the process.
+    # Partition DDL waits on locks and sleeps between retries. Run the database work on the general
+    # thread pool so that the waits block neither the worker's event loop nor the single thread shared
+    # by all thread-sensitive work in the process.
     changes = await database_sync_to_async_pool(_manage_database_partitions)(today, errors)
-
-    result = PartitionResult(ensured=changes.ensured, dropped=changes.dropped, errors=errors)
+    success = not errors
 
     logger.info(
         "Partition management completed",
-        ensured_count=len(result.ensured),
-        dropped_count=len(result.dropped),
+        created_count=len(changes.created),
+        already_existed_count=len(changes.already_existed),
+        dropped_count=len(changes.dropped),
         error_count=len(errors),
-        success=result.success,
+        success=success,
+        created=changes.created,
+        dropped=changes.dropped,
+        errors=errors,
         alerts=changes.alerts,
     )
 
@@ -88,30 +89,44 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
         await sync_to_async(_send_slack_alert, thread_sensitive=False)(changes.alerts)
 
     return {
-        "ensured": result.ensured,
-        "dropped": result.dropped,
-        "errors": result.errors,
+        "created": changes.created,
+        "already_existed": changes.already_existed,
+        "dropped": changes.dropped,
+        "errors": errors,
         "alerts": changes.alerts,
-        "success": result.success,
+        "success": success,
     }
 
 
 def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionChanges:
-    ensured: list[str] = []
+    created: list[str] = []
+    already_existed: list[str] = []
     dropped: list[str] = []
 
     with psycopg.Connection.connect(_partition_ddl_database_url(), autocommit=True) as conn:
         for table in PARTITIONED_TABLES:
+            existing = set(_list_partitions(conn, table))
             for offset in range(PARTITIONS_AHEAD):
                 d = today + timedelta(days=offset)
                 partition_name = f"{table}_{d.strftime('%Y%m%d')}"
+                if partition_name in existing:
+                    already_existed.append(partition_name)
+                    if table in _IN_PLACE_UPDATE_TABLES:
+                        _tune_partition_autovacuum(conn, partition_name, errors)
+                    continue
                 try:
-                    conn.execute(
+                    _execute_partition_ddl(
+                        conn,
                         f"CREATE TABLE IF NOT EXISTS {partition_name} "
                         f"PARTITION OF {table} "
-                        f"FOR VALUES FROM ('{d.isoformat()}') TO ('{(d + timedelta(days=1)).isoformat()}')"
+                        f"FOR VALUES FROM ('{d.isoformat()}') TO ('{(d + timedelta(days=1)).isoformat()}')",
                     )
-                    ensured.append(partition_name)
+                    created.append(partition_name)
+                except psycopg.errors.LockNotAvailable as e:
+                    # The parent table stays locked, so the later days of this table would only wait again.
+                    errors.append(f"Failed to create {partition_name}: {e}")
+                    logger.exception("Failed to create partition", partition=partition_name)
+                    break
                 except Exception as e:
                     errors.append(f"Failed to create {partition_name}: {e}")
                     logger.exception("Failed to create partition", partition=partition_name)
@@ -152,7 +167,7 @@ def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionCha
 
         alerts = _find_partition_alerts(conn, today, failed_default_expiries)
 
-    return _PartitionChanges(ensured=ensured, dropped=dropped, alerts=alerts)
+    return _PartitionChanges(created=created, already_existed=already_existed, dropped=dropped, alerts=alerts)
 
 
 def _tune_partition_autovacuum(conn: psycopg.Connection, partition_name: str, errors: list[str]) -> None:
@@ -200,16 +215,31 @@ def _partition_date(partition_name: str) -> date | None:
         return None
 
 
+def _execute_partition_ddl(conn: psycopg.Connection, statement: str) -> None:
+    conn.execute(f"SET lock_timeout = '{PARTITION_DDL_LOCK_TIMEOUT}'")
+    try:
+        for attempt in range(1, PARTITION_DDL_ATTEMPTS + 1):
+            try:
+                conn.execute(statement)
+                return
+            except psycopg.errors.LockNotAvailable:
+                if attempt == PARTITION_DDL_ATTEMPTS:
+                    raise
+                time.sleep(PARTITION_DDL_RETRY_DELAY_SECONDS * attempt)
+    finally:
+        conn.execute("RESET lock_timeout")
+
+
 def _drop_partition(conn: psycopg.Connection, partition_name: str) -> None:
     try:
-        conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
+        _execute_partition_ddl(conn, f"DROP TABLE IF EXISTS {partition_name}")
     except psycopg.errors.InsufficientPrivilege:
         # Only a table's owner can drop it. Partitions created before this job used the
         # migration role are owned by the worker's own role, so drop those with that role.
         if not settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL:
             raise
         with psycopg.Connection.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as owner_conn:
-            owner_conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
+            _execute_partition_ddl(owner_conn, f"DROP TABLE IF EXISTS {partition_name}")
 
 
 def _expire_default_partition_rows(

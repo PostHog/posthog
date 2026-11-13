@@ -1,64 +1,37 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, Suspense, lazy, useEffect, useMemo } from 'react'
+import { Fragment, useEffect, useMemo } from 'react'
 
 import { IconArrowRight, IconChevronRight, IconExternal } from '@posthog/icons'
 import { Badge, Item, ItemContent, ItemSeparator, ItemTitle, Skeleton } from '@posthog/quill'
 
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { retryImport } from 'lib/utils/retryImport'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { baseObjectType } from 'scenes/library/libraryUtils'
 import { todayNumber } from 'scenes/project-homepage/today/todayNumbers'
 
+import { TodayGlance } from './TodayGlance'
 import { TodayHoverCardFact } from './TodayHoverCardFact'
 import { cardMenuParts } from './todayMenuParts'
 import { todayObjectGlanceLogic } from './todayObjectGlanceLogic'
-
-// The charts are most of the code the home page adds, and this card opens only on hover.
-const TodaySparkline = lazy(() =>
-    retryImport(() =>
-        import('scenes/project-homepage/today/TodaySparkline').then((m) => ({ default: m.TodaySparkline }))
-    )
-)
-import { GLANCE_TYPES, TodayObjectGlance } from './todayObjectGlances'
+import { GLANCE_TYPES } from './todayObjectGlances'
 import { TodayObjectIcon } from './TodayObjectIcon'
 import { TodayObjectPreview } from './todayPreviewCards'
 import { activityDetail } from './todayWorkItems'
 
-function Glance({ glance }: { glance: TodayObjectGlance }): JSX.Element {
-    const { headline } = glance
+function TodayFolderPath({ folder }: { folder: string[] }): JSX.Element {
     return (
-        <>
-            {headline && (
-                <div className="flex flex-col gap-1">
-                    <div className="flex min-w-0 items-baseline gap-1.5">
-                        <span className="text-lg leading-6 font-semibold tabular-nums">{headline.value}</span>
-                        <span className="min-w-0 truncate text-xs text-muted-foreground">{headline.caption}</span>
-                    </div>
-                    {headline.series.length > 1 && (
-                        <div className="h-10">
-                            <Suspense fallback={null}>
-                                <TodaySparkline
-                                    values={headline.series}
-                                    labels={headline.labels}
-                                    tone="neutral"
-                                    emphasizeLast={1}
-                                    formatValue={headline.formatValue ?? todayNumber}
-                                />
-                            </Suspense>
-                        </div>
-                    )}
-                </div>
+        <span className="flex min-w-0 items-center gap-0.5" title={folder.join(' / ')}>
+            {folder.length === 0 ? (
+                <span>Project root</span>
+            ) : (
+                folder.map((segment, index) => (
+                    <Fragment key={index}>
+                        {index > 0 && <IconChevronRight className="size-3 shrink-0" />}
+                        <span className={index === folder.length - 1 ? 'truncate' : 'shrink-0'}>{segment}</span>
+                    </Fragment>
+                ))
             )}
-            {glance.description && (
-                <p className="m-0 line-clamp-2 text-xs text-muted-foreground">{glance.description}</p>
-            )}
-            {glance.facts.map(([label, value]) => (
-                <TodayHoverCardFact key={label} label={label}>
-                    {value}
-                </TodayHoverCardFact>
-            ))}
-        </>
+        </span>
     )
 }
 
@@ -69,15 +42,15 @@ export function TodayObjectHoverCard({
     preview: TodayObjectPreview
     onAction: () => void
 }): JSX.Element {
-    const { href, ref, type } = preview
+    const { href, ref, type, surface } = preview
     const { glanceFor } = useValues(todayObjectGlanceLogic)
     const { showGlance } = useActions(todayObjectGlanceLogic)
     const glanceRef = ref && GLANCE_TYPES.includes(baseObjectType(type)) ? ref : null
     useEffect(() => {
         if (glanceRef) {
-            showGlance(type, glanceRef)
+            showGlance(type, glanceRef, surface)
         }
-    }, [glanceRef, type, showGlance])
+    }, [glanceRef, type, surface, showGlance])
     const glance = glanceRef ? glanceFor(type, glanceRef) : null
     const opened = activityDetail(preview.lastViewedAt)
     const { Item: ActionItem } = useMemo(() => cardMenuParts(onAction), [onAction])
@@ -102,24 +75,7 @@ export function TodayObjectHoverCard({
                             {preview.typeLabel && (
                                 <span className="shrink-0">{capitalizeFirstLetter(preview.typeLabel)} in</span>
                             )}
-                            <span className="flex min-w-0 items-center gap-0.5" title={preview.folder.join(' / ')}>
-                                {preview.folder.length === 0 ? (
-                                    <span>Project root</span>
-                                ) : (
-                                    preview.folder.map((segment, index) => (
-                                        <Fragment key={index}>
-                                            {index > 0 && <IconChevronRight className="size-3 shrink-0" />}
-                                            <span
-                                                className={
-                                                    index === preview.folder.length - 1 ? 'truncate' : 'shrink-0'
-                                                }
-                                            >
-                                                {segment}
-                                            </span>
-                                        </Fragment>
-                                    ))
-                                )}
-                            </span>
+                            <TodayFolderPath folder={preview.folder} />
                         </div>
                         {glance === undefined ? (
                             <div className="flex flex-col gap-1.5" aria-busy="true">
@@ -127,7 +83,7 @@ export function TodayObjectHoverCard({
                                 <Skeleton className="h-4 w-1/2" />
                             </div>
                         ) : (
-                            glance && <Glance glance={glance} />
+                            glance && <TodayGlance glance={glance} formatNumber={todayNumber} />
                         )}
                         {opened && (
                             <TodayHoverCardFact label="Opened">

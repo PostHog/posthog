@@ -6,6 +6,6 @@ Queued messages and Beat entries resolve products.conversations.backend.tasks.<f
 
 # Import modules so autodiscover registers every @shared_task. Do not re-export
 # task symbols here: that double-binds them and breaks test patches.
-from . import email, github, maintenance, slack, teams
+from . import email, github, maintenance, slack, teams, ticket_events
 
-__all__ = ["email", "github", "maintenance", "slack", "teams"]
+__all__ = ["email", "github", "maintenance", "slack", "teams", "ticket_events"]

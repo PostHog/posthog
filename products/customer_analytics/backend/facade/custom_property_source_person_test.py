@@ -8,12 +8,22 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import PropertyDefinition
+from posthog.paging import PageRequest
 
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition, create_saved_query
+from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    Node,
+    NodeType,
+)
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -514,7 +524,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         source = self._create(user_access_control=self._uac(allowed=True))
         with self.assertRaises(api.ResourceForbiddenError):
             api.list_custom_property_sync_runs(
-                self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=False)
+                self.team.id, source.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=False)
             )
 
     @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
@@ -587,9 +597,9 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             started_at=timezone.now() - age,
         )
 
-        views, _ = api.list_custom_property_sync_runs(
-            self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=True)
-        )
+        views = api.list_custom_property_sync_runs(
+            self.team.id, source.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=True)
+        ).results
 
         assert views[0].status == expected_status
         run.refresh_from_db()
@@ -609,11 +619,15 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             started_at=timezone.now() - (api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1)),
         )
 
-        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=False))
+        api.list_custom_property_sources(
+            self.team.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=False)
+        )
         run.refresh_from_db()
         assert run.status == "running"
 
-        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=True))
+        api.list_custom_property_sources(
+            self.team.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=True)
+        )
         run.refresh_from_db()
         assert run.status == "failed"
 
@@ -688,6 +702,33 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
 
         row = CustomPropertySource.objects.unscoped().get(id=view.id)
         assert row.saved_query_id == self.saved_query.id and row.external_data_schema_id is None
+
+    def test_view_backed_person_source_reports_the_views_next_scheduled_run(self):
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.get_or_create_default(self.team),
+            saved_query=self.saved_query,
+            type=NodeType.MAT_VIEW,
+        )
+        set_declared_target(node, timedelta(hours=6))
+        finished_at = timezone.now() - timedelta(hours=1)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJobStatus.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            last_run_at=finished_at,
+        )
+
+        view = self._create_view_source(user_access_control=self._uac(allowed=True))
+
+        assert view.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
+        assert view.next_sync_at == finished_at + timedelta(hours=6)
+
+    def test_view_backed_person_source_has_no_schedule_without_a_dag_node(self):
+        view = self._create_view_source(user_access_control=self._uac(allowed=True))
+
+        assert view.sync_frequency_interval_seconds is None and view.next_sync_at is None
 
     def test_view_backed_person_source_rejects_an_unmaterialized_view(self):
         # A view with no materialization has no Delta table, so the source could never sync — an

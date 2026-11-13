@@ -7,6 +7,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.fields import EnumField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import PageLinksSerializer
 from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.api.offline_experiment_serializers import (
@@ -16,6 +17,7 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
 )
 from products.ai_observability.backend.api.query import validate_query_parameters
 from products.ai_observability.backend.api.resource_tags import ResourceTagFilterField
+from products.ai_observability.backend.composite_scorers import CompositeConfigSerializer
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
@@ -275,6 +277,12 @@ class OfflineExperimentReadSerializer(serializers.Serializer):
 
 
 class OfflineScorerVersionReadSerializer(serializers.Serializer):
+    calculation = serializers.ChoiceField(
+        choices=ScoreDefinition.Calculation.choices, help_text="Reported or computed from other item scores."
+    )
+    composition = CompositeConfigSerializer(
+        allow_null=True, help_text="Immutable formula and exact input versions for a composite."
+    )
     id = serializers.UUIDField(help_text="Exact immutable scorer-version UUID.")
     definition_id = serializers.UUIDField(help_text="Stable scorer definition UUID.")
     version = serializers.IntegerField(help_text="Version number within the definition.")
@@ -287,6 +295,11 @@ class OfflineScorerVersionReadSerializer(serializers.Serializer):
 
 
 class OfflineResultFieldsSerializer(serializers.Serializer):
+    input_result_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_null=True,
+        help_text="Input result UUIDs for a computed score, in formula input order. Null for reported scores.",
+    )
     id = serializers.UUIDField(help_text="Stable result UUID.")
     item_id = serializers.UUIDField(help_text="Item evaluated by this result.")
     status = serializers.ChoiceField(choices=OfflineEvaluationResult.Status.choices, help_text="Evaluation outcome.")
@@ -398,6 +411,9 @@ class OfflineCategorySummarySerializer(serializers.Serializer):
 
 
 class OfflineScorerSummarySerializer(serializers.Serializer):
+    not_requested_count = serializers.IntegerField(
+        help_text="Items without a composite request. These are excluded from missing results and pass rates."
+    )
     scorer = OfflineScorerVersionReadSerializer(help_text="Exact scorer version summarized.")
     observed_item_count = serializers.IntegerField(
         help_text="All observed experiment items, independent of scorer selection or item pagination."
@@ -454,7 +470,7 @@ class OfflineHistoryPointSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
-class OfflinePageSerializer(serializers.Serializer):
+class OfflinePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="Total authorized rows matching the filters, independent of this page.")
     next_cursor = serializers.CharField(allow_null=True, help_text="Continuation cursor, or null after the final page.")
 

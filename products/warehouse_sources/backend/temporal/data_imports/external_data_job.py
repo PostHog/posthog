@@ -20,6 +20,7 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import strip_null_bytes
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
@@ -40,6 +41,7 @@ from products.managed_warehouse.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.billing import billed_usage_for_job
+from products.warehouse_sources.backend.facade.contracts import SOURCE_CREDENTIALS_MISSING_ERROR
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -52,6 +54,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySyncActivityInputs,
@@ -69,6 +72,12 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_warehouse_bucket_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -93,6 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
@@ -135,7 +145,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     RepartitionActivityInputs,
     maybe_repartition_table_activity,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -176,6 +185,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # entry: a config problem only the customer can fix, so retrying just re-hits the same
     # rejection. Match the stable prefix and exclude the volatile host details that follow it.
     DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    # Raised by the shared HTTP adapter when a request targets an out-of-band interaction domain.
+    # The host is in the source's config, so every retry replays the same refusal.
+    SOURCE_HOST_NOT_ALLOWED_ERROR: (
+        "PostHog rejected this source's host because it belongs to a blocked domain. "
+        "Point the source at a host on a domain you control, then re-enable the sync."
+    ),
     # Raised by `_pinned_ssh_host` for the bastion, the same class of config problem as the entry
     # above: the tunnel host doesn't resolve, or resolves to a private/internal address.
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR: (
@@ -202,6 +217,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # integration id back at the customer.
     "Integration not found:": MISSING_INTEGRATION_MESSAGE,
     "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
+    # Raised by `SourceInputsStore.load` when a source has no copy of its connection fields in `job_inputs` and
+    # its credentials row is missing or unreadable. A retry reads the same row, so only new credentials help.
+    SOURCE_CREDENTIALS_MISSING_ERROR: (
+        "The saved credentials of this source are missing or cannot be read. Enter the credentials of the "
+        "source again, or reconnect its account, then re-enable the sync."
+    ),
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
@@ -230,6 +251,10 @@ Any_Source_Errors: dict[str, str | None] = {
     # it here so every other source stops retrying too. The enriched message names the offending column
     # and shows example cells, so keep the raw error rather than replacing it with a generic one.
     "must be real number, not str": None,
+    # Raised before extraction, and again before the table changes, when a migration source must not
+    # adopt a self-managed table because the access rules changed. Only a person can fix the rules,
+    # and the message names the table and the next step, so keep it.
+    ADOPTION_ACCESS_ERROR: None,
     # Raised by botocore (`is_valid_endpoint_url`) when the object storage endpoint URL has a
     # hostname it rejects — most often an underscore, invalid in a DNS hostname but common in a
     # self-hosted deployment's OBJECT_STORAGE_ENDPOINT (e.g. a docker service name). The endpoint is
@@ -270,6 +295,17 @@ LIBPQ_CONNECT_FAILURE_MARKER = "connection to server at"
 TRANSIENT_CONNECT_DROPPED_MESSAGE = (
     "Your database closed the connection while PostHog was connecting. Check that it's running and "
     "allows PostHog's IP addresses; the next sync runs on schedule."
+)
+
+# A tunneled source connects to the local end of the SSH tunnel, which `SSHTunnel.get_tunnel` binds
+# to loopback, so libpq names that address instead of the customer's host. The local end accepts the
+# connection and closes it when the SSH server cannot reach the database behind it, so an IP
+# allowlist is not the cause. Wording mirrors `_SSH_FORWARD_FAILED_GUIDANCE` in the Postgres source.
+LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER = f'{LIBPQ_CONNECT_FAILURE_MARKER} "127.0.0.1"'
+
+TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE = (
+    "Your SSH server couldn't reach your database through the tunnel. Check the database host and "
+    "port set for the tunnel; the next sync runs on schedule."
 )
 
 TRANSIENT_POOLER_MESSAGE = (
@@ -462,6 +498,23 @@ def _is_app_db_failure(internal_error: str) -> bool:
     return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
 
 
+def _non_retryable_error_message(non_retryable_errors: dict[str, str | None], internal_error: str) -> str | None:
+    """Customer-facing copy for a non-retryable failure: the first matching entry that has one.
+
+    A `None` entry only marks the error non-retryable. Temporal prefixes the driver's class name, so
+    a class-name key such as `InsufficientPrivilege` matches the same error as a later key that
+    carries the message, and it must not hide that message.
+    """
+    return next(
+        (
+            message
+            for pattern, message in non_retryable_errors.items()
+            if message is not None and error_message_matches(internal_error, [pattern])
+        ),
+        None,
+    )
+
+
 def _transient_error_message(internal_error: str) -> str | None:
     """Customer-facing copy for a transient failure that outlived its retries, if we have any.
 
@@ -478,6 +531,8 @@ def _transient_error_message(internal_error: str) -> str | None:
     if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
         internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
     ):
+        if error_message_matches(internal_error, [LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER]):
+            return TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE
         return TRANSIENT_CONNECT_DROPPED_MESSAGE
     return message
 
@@ -494,7 +549,9 @@ def _fail_stale_running_schema(
     if schema is None or schema.status != ExternalDataSchema.Status.RUNNING or schema.cdc_halted:
         return
     schema.status = ExternalDataSchema.Status.FAILED
-    schema.latest_error = latest_error
+    # latest_error is raw driver/vendor text and can carry a NUL byte, which Postgres text
+    # columns reject outright.
+    schema.latest_error = strip_null_bytes(latest_error)
     schema.save(update_fields=["status", "latest_error", "updated_at"])
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
@@ -609,7 +666,7 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
         source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
-        source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        source_cls = SourceRegistry.get_source(source.source_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
         if len(non_retryable_errors) == 0:
@@ -621,24 +678,24 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
         # matching it here would disable a sync whose source never failed, and hand the customer a
         # message telling them to go fix a database that is working.
-        platform_failure = _is_app_db_failure(internal_error_normalized)
-        if platform_failure:
+        # The same applies to an error from our own warehouse bucket: its 403 body says "not
+        # authorized", which source maps read as a customer access denial.
+        if _is_app_db_failure(internal_error_normalized):
+            platform_failure = True
             inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+        elif is_warehouse_bucket_error(internal_error_normalized):
+            platform_failure = True
+            inputs.latest_error = OBJECT_STORE_TRANSIENT_MESSAGE
 
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
         )
 
         if has_non_retryable_error:
-            friendly_errors = [
-                friendly_error
-                for error, friendly_error in non_retryable_errors.items()
-                if error_message_matches(internal_error_normalized, [error])
-            ]
-
-            if friendly_errors and friendly_errors[0] is not None:
-                logger.exception(friendly_errors[0])
-                inputs.latest_error = friendly_errors[0]
+            friendly_error = _non_retryable_error_message(non_retryable_errors, internal_error_normalized)
+            if friendly_error is not None:
+                logger.exception(friendly_error)
+                inputs.latest_error = friendly_error
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from
@@ -1150,7 +1207,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             is_resumable_source = False
             if source_type is not None:
-                source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+                source = SourceRegistry.get_source(source_type)
                 # The class can resume, and its mechanism covers a run of this shape. Both halves
                 # matter: a class whose resume is narrower than itself would otherwise hand the
                 # resumable allowance to every one of its runs, including the ones that restart from

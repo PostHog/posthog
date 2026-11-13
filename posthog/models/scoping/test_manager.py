@@ -1,19 +1,38 @@
+import sys
+from collections.abc import Callable, Iterable
+
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
-from posthog.models.scoping import team_scope, unscoped
-from posthog.models.scoping.manager import TeamScopedManager, TeamScopeError
+from django.core.exceptions import FieldFetchBlocked
+
+from parameterized import parameterized
+
+from posthog.models.scoping import peer_lazy_loads, reset_current_team_id, set_current_team_id, team_scope, unscoped
+from posthog.models.scoping.manager import (
+    FETCH_RAISE_ON_PEERS,
+    FETCH_RELATION_PEERS,
+    TeamScopedManager,
+    TeamScopedQuerySet,
+    TeamScopeError,
+    default_fetch_mode,
+)
 from posthog.models.team import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
+def _flag_manager() -> TeamScopedManager[FeatureFlag]:
+    manager: TeamScopedManager[FeatureFlag] = TeamScopedManager()
+    manager.model = FeatureFlag
+    manager._db = "default"
+    return manager
+
+
 class TestTeamScopedManager(BaseTest):
     def _make_manager(self) -> TeamScopedManager[FeatureFlag]:
-        manager: TeamScopedManager[FeatureFlag] = TeamScopedManager()
-        manager.model = FeatureFlag
-        manager._db = "default"
-        return manager
+        return _flag_manager()
 
     def test_no_scope_raises_team_scope_error(self):
         with pytest.raises(TeamScopeError, match="No team context set"):
@@ -57,6 +76,19 @@ class TestTeamScopedManager(BaseTest):
         assert flag is not None
         assert flag.key == "flag-2"
 
+    def test_for_team_resolves_another_team_inside_a_scope_resolved_from_this_one(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)
+        FeatureFlag.objects.create(team=other_team, key="flag-2", created_by=self.user)
+
+        token = set_current_team_id(self.team.id, resolved_from_team_id=self.team.id)
+        try:
+            keys = list(self._make_manager().for_team(other_team.id).values_list("key", flat=True))
+        finally:
+            reset_current_team_id(token)
+
+        assert keys == ["flag-2"]
+
     def test_queryset_chaining_preserves_team_filter(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
 
@@ -71,6 +103,86 @@ class TestTeamScopedManager(BaseTest):
             assert flag is not None
             assert flag.key == "active-flag"
 
+    @parameterized.expand(
+        [
+            (
+                "ambient_scope",
+                lambda manager, team_id: manager.get_queryset().filter(active=True).fetch_mode(FETCH_RELATION_PEERS),
+                2,
+            ),
+            (
+                "unscoped",
+                lambda manager, team_id: manager.unscoped().filter(team_id=team_id).fetch_mode(FETCH_RELATION_PEERS),
+                2,
+            ),
+            (
+                "for_team",
+                lambda manager, team_id: manager.for_team(team_id, canonical=True).fetch_mode(FETCH_RELATION_PEERS),
+                2,
+            ),
+            (
+                "queryset_unscoped",
+                lambda manager, team_id: (
+                    manager.unscoped().unscoped().filter(team_id=team_id).fetch_mode(FETCH_RELATION_PEERS)
+                ),
+                2,
+            ),
+            (
+                "iterator",
+                lambda manager, team_id: (
+                    manager.for_team(team_id, canonical=True).fetch_mode(FETCH_RELATION_PEERS).iterator()
+                ),
+                4,
+            ),
+            ("iterator_test_default", lambda manager, team_id: manager.for_team(team_id, canonical=True).iterator(), 4),
+        ]
+    )
+    def test_related_read_on_every_row_batches_across_peers(
+        self,
+        _name: str,
+        build: Callable[[TeamScopedManager[FeatureFlag], int], Iterable[FeatureFlag]],
+        expected_queries: int,
+    ) -> None:
+        for key in ("flag-1", "flag-2", "flag-3"):
+            FeatureFlag.objects.create(team=self.team, key=key, active=True, created_by=self.user)
+
+        with team_scope(self.team.id):
+            rows = build(self._make_manager(), self.team.id)
+            with self.assertNumQueries(expected_queries):
+                flags = list(rows)
+                assert [flag.created_by for flag in flags] == [self.user] * 3
+
+    def test_deferred_read_keeps_value_assigned_on_peer(self) -> None:
+        for key in ("flag-1", "flag-2"):
+            FeatureFlag.objects.create(team=self.team, key=key, name=key, created_by=self.user)
+
+        first, second = list(
+            self._make_manager()
+            .for_team(self.team.id, canonical=True)
+            .fetch_mode(FETCH_RELATION_PEERS)
+            .only("id")
+            .order_by("key")
+        )
+        first.name = "edited"
+
+        assert second.name == "flag-2"
+        assert first.name == "edited"
+
+    def test_deferred_read_survives_deleted_peer(self) -> None:
+        for key in ("flag-1", "flag-2"):
+            FeatureFlag.objects.create(team=self.team, key=key, name=key, created_by=self.user)
+
+        first, second = list(
+            self._make_manager()
+            .for_team(self.team.id, canonical=True)
+            .fetch_mode(FETCH_RELATION_PEERS)
+            .only("id")
+            .order_by("key")
+        )
+        FeatureFlag.objects.filter(pk=second.pk).delete()
+
+        assert first.name == "flag-1"
+
     def test_unscoped_context_clears_team(self):
         with team_scope(self.team.id):
             from posthog.models.scoping import get_current_team_id
@@ -81,6 +193,80 @@ class TestTeamScopedManager(BaseTest):
                 assert get_current_team_id() is None
 
             assert get_current_team_id() == self.team.id
+
+
+class TestFetchRaiseOnPeers(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        for key in ("flag-0", "flag-1", "flag-2"):
+            FeatureFlag.objects.create(team=self.team, key=key, name=key, created_by=self.user)
+
+    def _flags(self) -> TeamScopedQuerySet[FeatureFlag]:
+        return _flag_manager().for_team(self.team.id, canonical=True).order_by("key")
+
+    @parameterized.expand(
+        [
+            ("relation", lambda qs: qs, lambda flag: flag.created_by, "FeatureFlag.created_by", "select_related"),
+            ("deferred_field", lambda qs: qs.only("id"), lambda flag: flag.name, "FeatureFlag.name", "only"),
+        ]
+    )
+    def test_lazy_load_across_peer_rows_raises(
+        self,
+        _name: str,
+        shape: Callable[[TeamScopedQuerySet[FeatureFlag]], TeamScopedQuerySet[FeatureFlag]],
+        read: Callable[[FeatureFlag], object],
+        model_field: str,
+        fix: str,
+    ) -> None:
+        first, *_ = list(shape(self._flags()))
+
+        with pytest.raises(FieldFetchBlocked, match=rf"{model_field}\b.*{fix}"):
+            read(first)
+
+        [blocked] = peer_lazy_loads.finish_test()
+        assert model_field in blocked
+
+    @parameterized.expand(
+        [
+            ("single_row_relation", lambda qs: [qs.get(key="flag-0")], lambda flag: flag.created_by, 1),
+            ("single_row_deferred_field", lambda qs: [qs.only("id").get(key="flag-0")], lambda flag: flag.name, 1),
+            ("select_related", lambda qs: list(qs.select_related("created_by")), lambda flag: flag.created_by, 0),
+            ("only_includes_field", lambda qs: list(qs.only("id", "name")), lambda flag: flag.name, 0),
+        ]
+    )
+    def test_read_that_costs_no_query_per_row_is_allowed(
+        self,
+        _name: str,
+        load: Callable[[TeamScopedQuerySet[FeatureFlag]], list[FeatureFlag]],
+        read: Callable[[FeatureFlag], object],
+        expected_queries: int,
+    ) -> None:
+        flags = load(self._flags())
+
+        with self.assertNumQueries(expected_queries):
+            for flag in flags:
+                read(flag)
+
+    def test_queryset_that_sets_the_production_mode_batches_across_peer_rows(self) -> None:
+        flags = list(self._flags().fetch_mode(FETCH_RELATION_PEERS))
+
+        with self.assertNumQueries(1):
+            for flag in flags:
+                assert flag.created_by == self.user
+
+    @parameterized.expand(
+        [
+            ("under_pytest", True, FETCH_RAISE_ON_PEERS),
+            ("outside_pytest", False, FETCH_RELATION_PEERS),
+        ]
+    )
+    def test_default_fetch_mode(self, _name: str, under_pytest: bool, expected: object) -> None:
+        default_fetch_mode.cache_clear()
+        try:
+            with patch.dict(sys.modules, {"pytest": pytest if under_pytest else None}):
+                assert default_fetch_mode() is expected
+        finally:
+            default_fetch_mode.cache_clear()
 
 
 class TestTeamScopedQuerySet(BaseTest):

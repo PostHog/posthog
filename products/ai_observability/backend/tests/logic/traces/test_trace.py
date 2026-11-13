@@ -72,6 +72,33 @@ def test_errors_count_every_event_that_failed() -> None:
     assert (failed.error_count, failed.has_error) == (2, True)
 
 
+def test_node_labels_number_repeated_names_across_depths_in_pre_order() -> None:
+    labelled = trace(
+        {"event": "$ai_trace", "trace_name": "support", "parent_id": None, "timestamp": T0},
+        {"uuid": "agent", "span_id": "agent", "span_name": "agent", "timestamp": T0 + timedelta(seconds=1)},
+        {
+            "uuid": "child",
+            "event": "$ai_generation",
+            "span_name": "openai.chat",
+            "parent_id": "agent",
+            "timestamp": T0 + timedelta(seconds=3),
+        },
+        {
+            "uuid": "sibling",
+            "event": "$ai_generation",
+            "span_name": "openai.chat",
+            "timestamp": T0 + timedelta(seconds=2),
+        },
+    )
+
+    assert labelled.node_labels == {
+        "trace-1": "support",
+        "agent": "agent",
+        "child": "openai.chat #1",
+        "sibling": "openai.chat #2",
+    }
+
+
 def test_thread_node_ids_hold_the_user_visible_generation() -> None:
     assert trace(
         {"uuid": "g1", "event": "$ai_generation", "timestamp": T0},
@@ -94,24 +121,38 @@ def test_person_label(_name: str, person: PersonRow | None, expected: str | None
 @parameterized.expand(
     [
         (
-            "a trace event makes the root the default",
-            [{"event": "$ai_trace"}, {"event": "$ai_generation"}],
+            "a trace event with state makes the root the default",
+            [{"event": "$ai_trace", "has_state": True}, {"event": "$ai_generation"}],
             "trace-1",
         ),
         (
-            "otherwise the first top-level generation",
+            "a trace event without state gives way to the user-visible generation",
             [
-                {"event": "$ai_span", "timestamp": T0},
+                {"event": "$ai_trace", "timestamp": T0},
                 {"event": "$ai_generation", "timestamp": T0 + timedelta(seconds=1)},
                 {"event": "$ai_generation", "timestamp": T0 + timedelta(seconds=2)},
             ],
+            "e2",
+        ),
+        (
+            "the user-visible generation wins even when nested",
+            [
+                {"event": "$ai_generation", "timestamp": T0},
+                {"event": "$ai_span", "span_id": "s", "timestamp": T0 + timedelta(seconds=1)},
+                {"event": "$ai_generation", "parent_id": "s", "timestamp": T0 + timedelta(seconds=2)},
+            ],
+            "e2",
+        ),
+        (
+            "a trace event without state and without generations gives way to the first top-level node",
+            [{"event": "$ai_trace", "timestamp": T0}, {"event": "$ai_span", "timestamp": T0 + timedelta(seconds=1)}],
             "e1",
         ),
         (
             "otherwise the first top-level node",
             [
                 {"event": "$ai_span", "span_id": "s", "timestamp": T0},
-                {"event": "$ai_generation", "parent_id": "s", "timestamp": T0 + timedelta(seconds=1)},
+                {"event": "$ai_span", "parent_id": "s", "timestamp": T0 + timedelta(seconds=1)},
             ],
             "e0",
         ),

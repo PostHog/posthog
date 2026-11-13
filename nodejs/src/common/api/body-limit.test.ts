@@ -8,7 +8,7 @@ describe('setupExpressApp JSON body limit', () => {
     let server: ReturnType<Application['listen']>
 
     beforeAll(() => {
-        app = setupExpressApp({ jsonBodyLimit: '1kb' })
+        app = setupExpressApp({ jsonBodyLimit: '1kb', readOnlyPathPrefixes: ['/read-only/'] })
         app.post('/echo', (req: Request, res: Response) => {
             res.status(200).json({ ok: true })
         })
@@ -32,6 +32,14 @@ describe('setupExpressApp JSON body limit', () => {
 
         expect(res.status).toEqual(413)
         expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
+    })
+
+    it('refuses a write to a read-only prefix before parsing its body', async () => {
+        const res = await supertest(app)
+            .post('/read-only/anything')
+            .send({ data: 'x'.repeat(2048) })
+
+        expect(res.status).toEqual(405)
     })
 
     it('accepts a JSON body under the limit', async () => {

@@ -1,13 +1,18 @@
 # Investigation queries
 
-Copy-ready HogQL for each step of the investigation workflow. All of these run via `execute-sql`
-(or `posthog:execute-sql` through MCP). The two views are non-materialized — results are always
-current. Adjust windows to the question; 14 days covers almost every investigation.
+Run these HogQL queries with the `execute-sql` tool.
+Both views compute from current data on every query.
+Adjust the windows to the question.
+Replace `master` with the repo's default branch where it differs.
 
-## 1. Fingerprint a failure (the index query)
+Every query on `engineering_analytics_ci_job_history` pairs the `created_at` bound with a `created_at_raw` string floor.
+The floor is a date one day below the window, and it lets the scan skip old data.
+The parsed `created_at` filter alone forces a full scan, so keep both.
 
-Start here whenever the input is a failing test name or an error string. Loose `ILIKE` beats an
-exact match — test ids get truncated and re-sharded in reports.
+## 1. Fingerprint a failure
+
+Start here when you have a failing test name or an error string.
+Use a loose `ILIKE`, because reports often truncate test ids.
 
 ```sql
 SELECT
@@ -24,15 +29,15 @@ GROUP BY fingerprint
 ORDER BY last_seen DESC
 ```
 
-Shape reading: `branches = 1` → that branch's own problem. `branches` high + `first_seen`/`last_seen`
-tight + `master_hits > 0` → trunk break. `branches` high + window spanning days/weeks with gaps →
-flaky.
+- `branches = 1` means that branch's own problem.
+- Many branches, a tight window, and `master_hits > 0` mean a default-branch break.
+- Many branches over days or weeks with gaps mean a flaky test.
 
-## 2. Boundary query (trunk break → culprit + fix)
+## 2. Find the culprit and the fix
 
-Master-only history for the failing job, around the failure window from query 1. The first
-`failure` row after a `success` run is the culprit; the first `success` after the red streak is the
-fix.
+This query lists the failing job's default-branch history around the window from query 1.
+The first `failure` after a `success` is the culprit.
+The first `success` after the red streak is the fix.
 
 ```sql
 SELECT
@@ -45,23 +50,18 @@ SELECT
     substring(commit_message, 1, 100) AS message
 FROM engineering_analytics_ci_job_history
 WHERE head_branch = 'master'
-  AND job_name = '<failing job name>'          -- e.g. 'Product tests (data-warehouse (1/2))'
+  AND job_name = '<failing job name>'
   AND created_at >= <first_seen - 2h> AND created_at < <last_seen + 2h>
   AND created_at_raw >= '<window start date minus 1 day, YYYY-MM-DD>'
 ORDER BY created_at ASC
 ```
 
-The `created_at_raw` floor lets the warehouse scan prune — the parsed `created_at` filter alone hits
-a computed column and forces a full jobs scan. It's coarse (a whole-day, string floor a day below the
-window), so keep the precise `created_at` bounds too; the raw floor only shrinks what the scan reads.
+`job_name` includes the shard suffix, such as `(1/2)`.
+If the test may have moved shards, match with `job_name LIKE '<job name prefix>%'`.
 
-Shard suffixes matter: `job_name` includes the `(1/2)` shard. If the test moved shards, run once
-per shard or match with `job_name LIKE 'Product tests (data-warehouse%'`.
+## 3. Read the lines behind one fingerprint
 
-## 3. Failure detail for one fingerprint
-
-The actual error lines behind a fingerprint, newest first — for reading the traceback context and
-confirming two occurrences really are the same failure.
+Use this to confirm that two occurrences are the same failure.
 
 ```sql
 SELECT timestamp, branch, substring(head_sha, 1, 11) AS sha, ci_engine, run_id, job_name, error_signature
@@ -72,13 +72,13 @@ ORDER BY timestamp DESC
 LIMIT 50
 ```
 
-Join runs on `(ci_engine, run_id)`. Only `github_actions` IDs link to
-`https://github.com/<owner>/<repo>/actions/runs/<run_id>`. Historical logs with a null engine
-have unknown provenance; do not infer their engine or use them to prove retry recovery.
+Join runs on `(ci_engine, run_id)`.
+Only `github_actions` ids link to `https://github.com/<owner>/<repo>/actions/runs/<run_id>`.
+A row with a null engine has unknown provenance, so do not use it to prove a retry recovery.
 
-## 4. What's new on master (novelty scan)
+## 4. Find new failures on master
 
-Fingerprints first seen recently that have hit master — the "did anything just break" sweep.
+This query returns fingerprints first seen in the last day that have hit master.
 
 ```sql
 SELECT fingerprint, min(timestamp) AS first_seen, count() AS occurrences, uniqExact(branch) AS branches
@@ -89,25 +89,26 @@ HAVING min(timestamp) >= now() - INTERVAL 1 DAY AND countIf(branch = 'master') >
 ORDER BY occurrences DESC
 ```
 
-## 5. Warehouse freshness check
+## 5. Check job history freshness
 
-Run before trusting a boundary during a live incident — a stale warehouse names the wrong commit.
-Logs stream near-real-time; the jobs table arrives via webhook sync.
+Run this before you trust a boundary during a live incident.
+A stale job history names the wrong commit.
 
 ```sql
-SELECT max(created_at) AS newest_job_row, now() - max(created_at) AS lag
+SELECT max(created_at) AS newest_job_row, now() - max(created_at) AS lag_seconds
 FROM engineering_analytics_ci_job_history
+WHERE created_at_raw >= '<7 days ago, YYYY-MM-DD>'
 ```
 
-If `lag` exceeds ~15 minutes, do the classification from `ci_failures` now and defer the
-culprit-naming boundary query until the warehouse catches up (or corroborate the boundary commit
-against `git log` before naming it).
+No rows means the job history is more than a week stale.
+If the lag exceeds about 15 minutes, classify the failure from `engineering_analytics_ci_failures` now.
+Name the culprit after the job history catches up, or confirm the boundary commit against `git log` first.
 
-## 6. Deterministic or retry-passing?
+## 6. Tell a deterministic failure from a retry pass
 
-Track the investigated fingerprint itself across retry attempts, not just the job's conclusion — a
-different failure can keep the job red after this fingerprint cleared. Only runs where the
-fingerprint ever appeared are considered.
+Track the fingerprint across retry attempts, not only the job's conclusion.
+A different failure can keep the job red after this fingerprint cleared.
+The query covers only runs where the fingerprint appeared.
 
 ```sql
 SELECT
@@ -132,20 +133,15 @@ WHERE h.job_name = '<failing job name>'
 ORDER BY h.ci_engine, h.run_id, h.run_attempt
 ```
 
-Reading: `fingerprint_present` dropping on a later attempt while the job goes green = retry-passed
-(flake signal). Fingerprint present through the last attempt = deterministic. Fingerprint absent but
-the job still red = a different failure holds the job red — don't attribute it to this one.
+- The fingerprint disappears on a later attempt and the job goes green: a retry passed, which suggests a flake.
+- The fingerprint is present through the last attempt: the failure is deterministic.
+- The fingerprint is absent but the job is still red: a different failure holds the job red.
 
-The `created_at_raw` floor lets the warehouse scan prune — the parsed `created_at` filter alone hits
-a computed column and forces a full jobs scan. It's coarse (a whole-day, string floor a day below the
-7-day window), so keep the precise `created_at` bound too.
+## 7. Job failure rate, for failures with no test rows
 
-## 7. Job failure rate (for failures with no test rows)
-
-A job that failed _before_ its tests ran (docker setup, a runner port collision, a dependency
-install) writes no `FAILED` line, so `ci_failures` and the span-derived tools are blind to it. Job
-conclusions are the only place it shows up, and they record greens too, so this is the one rate here
-with an honest denominator.
+A job that failed before its tests ran writes no `FAILED` line.
+Job conclusions are the only place it appears.
+They also record passing jobs, so this is the one true rate in this skill.
 
 ```sql
 SELECT
@@ -156,20 +152,16 @@ FROM engineering_analytics_ci_job_history
 WHERE repo_name = '<repo>'
   AND workflow_name = '<failing workflow name>'
   AND job_name = '<failing job name>'
+  AND NOT is_rerun_copy
   AND created_at >= now() - INTERVAL 7 DAY
   AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
 ```
 
-Scope by repository and workflow as well as job: the view unions every connected repository, and job
-names repeat across workflows (`Desktop Tests Pass` fails under two), so a job-only filter pools
-unrelated attempts into the denominator.
+- Filter by repo and workflow as well as job. The view covers every connected repo, and job names repeat across workflows.
+- `NOT is_rerun_copy` drops the rows GitHub lists again for jobs a partial re-run did not execute.
+- The rate leaves out `cancelled`, `skipped`, `neutral`, and `action_required`, because none of them reached a verdict.
 
-`failure`, `timed_out`, `startup_failure`, and `stale` are decisive failures, the same set every
-other workflow-run rate in this product uses. `cancelled`, `skipped`, `neutral`, and `action_required`
-are absent from `ok + fail` on purpose: none reached a pass-or-fail verdict, and they are common
-enough here (superseded pushes, path filters) to halve the rate if counted.
-
-A percentage alone can't tell an old flake from a live outage. Break the same window down by hour:
+A percentage cannot tell an old flake from a live outage, so break the same job down by hour:
 
 ```sql
 SELECT
@@ -180,25 +172,23 @@ FROM engineering_analytics_ci_job_history
 WHERE repo_name = '<repo>'
   AND workflow_name = '<failing workflow name>'
   AND job_name = '<failing job name>'
+  AND NOT is_rerun_copy
   AND created_at >= now() - INTERVAL 12 HOUR
   AND created_at_raw >= '<yesterday, YYYY-MM-DD>'
 GROUP BY hour
 ORDER BY hour DESC
 ```
 
-Reading: a low percentage with recent hours mostly green = transient, so recommend a retry rather
-than a code change. Recent hours entirely red = an outage; stop advising retries. Steady across days
-= a standing defect that looks like noise one run at a time.
-
-Both queries keep the `created_at_raw` string floor for the same pruning reason as query 6.
+- A low rate with recent hours mostly green is transient. Recommend a retry.
+- Recent hours that are all red are an outage. Stop recommending retries.
+- A steady rate across days is a standing defect.
 
 ## 8. What the merge queue ran for a PR
 
-The `trunk-merge/pr-<n>/<uuid>` branch is ephemeral, but the jobs it ran stay in `ci_job_history`
-under that `head_branch`. One row per job attempt, failures first:
+The gate branch is temporary, but its jobs stay in the job history under that `head_branch`.
 
 ```sql
-SELECT head_branch, ci_engine, run_id, workflow_name, job_name, conclusion, created_at
+SELECT head_branch, head_sha, ci_engine, run_id, workflow_name, job_name, conclusion, created_at
 FROM engineering_analytics_ci_job_history
 WHERE startsWith(head_branch, 'trunk-merge/pr-<n>/')
   AND created_at >= now() - INTERVAL 7 DAY
@@ -206,6 +196,7 @@ WHERE startsWith(head_branch, 'trunk-merge/pr-<n>/')
 ORDER BY conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale') DESC, created_at DESC
 ```
 
-Each `<uuid>` is one queue attempt; a PR kicked twice has two. The failing `job_name` feeds query 7.
-The PRs the branch carried are readable off its head: `gh api repos/<owner>/<repo>/compare/master...<head_sha>`
-lists merge commits titled `Merging <sha> into trunk-temp/pr-<m>/…`, one `<m>` per queue-mate.
+Each distinct `head_branch` is one queue attempt.
+Use the failing `job_name` in query 7.
+GitHub's native queue names its branches `gh-readonly-queue/<base>/pr-<n>-<sha>`.
+To list the PRs a Trunk gate branch carried, run `gh api repos/<owner>/<repo>/compare/master...<head_sha>` and read the merge commit titles.

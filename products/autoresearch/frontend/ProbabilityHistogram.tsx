@@ -9,19 +9,23 @@ const BAR_MAX_HEIGHT_PX = 136
 /**
  * Fixed-decile histogram of a scoring run's predicted probabilities, colored by segment. A bar that a cut
  * point splits, or every bar before the cut points load, is neutral. No chart deps, like MetricSparkline.
+ * A hidden lowest bucket drops out of the bars and their scale, but its people still count in each bar's share.
  */
 export function ProbabilityHistogram({
     buckets,
     thresholds,
+    hideLowestBucket = false,
 }: {
     buckets: ProbabilityBucket[]
     thresholds: PredictionSegmentThresholds | null
+    hideLowestBucket?: boolean
 }): JSX.Element {
     const totalUsers = buckets.reduce((sum, bucket) => sum + bucket.users, 0)
-    const maxUsers = Math.max(...buckets.map((bucket) => bucket.users), 1)
+    const shownBuckets = hideLowestBucket ? buckets.slice(1) : buckets
+    const maxUsers = Math.max(...shownBuckets.map((bucket) => bucket.users), 1)
     return (
         <div className="flex items-end gap-2 max-w-4xl">
-            {buckets.map((bucket) => {
+            {shownBuckets.map((bucket) => {
                 const label = `${Math.round(bucket.lower * 100)}-${Math.round((bucket.lower + 0.1) * 100)}%`
                 const share = totalUsers > 0 ? (100 * bucket.users) / totalUsers : 0
                 const segment = thresholds

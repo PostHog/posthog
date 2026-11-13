@@ -28,11 +28,13 @@ from posthog.models.team.team import Team
 
 
 @pytest.mark.django_db(transaction=True)
-def test_sequence_resetting_flush_never_reuses_a_team_id() -> None:
+def test_sequence_resetting_flush_empties_tables_and_never_reuses_a_team_id() -> None:
     team_before_flush = Team.objects.create(organization=Organization.objects.create(name="before"))
 
     _selective_flush(DEFAULT_DB_ALIAS, reset_sequences=True)
 
+    assert not Team.objects.exists()
+    assert not Organization.objects.exists()
     team_after_flush = Team.objects.create(organization=Organization.objects.create(name="after"))
     assert team_after_flush.id > team_before_flush.id
 

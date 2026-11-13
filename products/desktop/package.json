@@ -4,7 +4,7 @@
   "private": true,
   "description": "Monorepo for the PostHog desktop app and agent framework",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.19.0"
   },
   "packageManager": "pnpm@11.28.5",
   "scripts": {
@@ -56,7 +56,7 @@
     "@posthog/shared": "workspace:*",
     "fflate": "^0.8.2",
     "knip": "^5.66.3",
-    "mprocs": "^0.7.1",
+    "mprocs": "^0.9.6",
     "turbo": "^2.9.16"
   },
   "lint-staged": {

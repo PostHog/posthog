@@ -5,8 +5,9 @@ import { IconPlus, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -236,7 +237,7 @@ export function ScannerGoalFlow(): JSX.Element {
                                         />
                                         {budgetValid && goalBudgetInput != null ? (
                                             <span className="text-xs text-muted">
-                                                ≈ {creditsToUsd(goalBudgetInput)} a month
+                                                ≈ <span translate="no">{creditsToUsd(goalBudgetInput)}</span> a month
                                             </span>
                                         ) : null}
                                     </div>

@@ -245,12 +245,112 @@ describe('API request timing', () => {
             expect(observer.disconnect).toHaveBeenCalledTimes(1)
         })
 
+        it('measures how long page code waited for headers after the first response byte arrived', () => {
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
+            recorder.startFetch(url)
+            now = 260
+            recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
+            pending = [resource()]
+            now = 320
+            expect(recorder.finish().resource_headers_delay_ms).toBe(50)
+        })
+
         it('disconnects after a request fails before receiving an identity', () => {
             const recorder = new ApiRequestTimingRecorder({ now: () => now })
             recorder.startFetch(url)
             recorder.recordFailure({})
             expect(recorder.finish().resource_timing_status).toBe('missing_request_id')
             expect(observer.disconnect).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('long animation frames during a request', () => {
+        const frame = (
+            startTime: number,
+            duration: number,
+            scripts: object[],
+            blockingDuration = 0
+        ): PerformanceEntry =>
+            ({
+                entryType: 'long-animation-frame',
+                startTime,
+                duration,
+                blockingDuration,
+                scripts,
+            }) as unknown as PerformanceEntry
+
+        afterEach(() => {
+            delete (ResourceObserver as { supportedEntryTypes?: string[] }).supportedEntryTypes
+        })
+
+        it('attributes blocking script time to extensions, app code, and other sources', () => {
+            Object.defineProperty(ResourceObserver, 'supportedEntryTypes', {
+                configurable: true,
+                value: ['resource', 'long-animation-frame'],
+            })
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
+            observer.deliver([
+                frame(
+                    20,
+                    120,
+                    [
+                        { sourceURL: 'chrome-extension://grammar/content.js', duration: 60 },
+                        { sourceURL: 'chrome-extension://grammar/other.js', duration: 10 },
+                        { sourceURL: 'chrome-extension://passwords/content.js', duration: 30 },
+                        {
+                            sourceURL: `${location.origin}/static/app.js`,
+                            duration: 15,
+                            forcedStyleAndLayoutDuration: 12,
+                        },
+                        { sourceURL: 'https://cdn.example.com/lib.js', duration: 5 },
+                    ],
+                    70
+                ),
+                frame(1000, 300, [{ sourceURL: 'chrome-extension://outside/content.js', duration: 300 }], 250),
+            ])
+            now = 320
+            expect(recorder.finish()).toEqual(
+                expect.objectContaining({
+                    long_frame_count: 1,
+                    long_frame_blocking_ms: 70,
+                    long_frame_max_ms: 120,
+                    long_frame_forced_layout_ms: 12,
+                    long_frame_extension_script_ms: 100,
+                    long_frame_app_script_ms: 15,
+                    long_frame_other_script_ms: 5,
+                    long_frame_top_extension_id: 'grammar',
+                })
+            )
+        })
+
+        it('classifies configured CDN scripts as app code and leaves unseen extension time unknown', () => {
+            Object.defineProperty(ResourceObserver, 'supportedEntryTypes', {
+                configurable: true,
+                value: ['resource', 'long-animation-frame'],
+            })
+            window.JS_URL = 'https://assets.example.com/static/'
+            try {
+                const recorder = new ApiRequestTimingRecorder({ now: () => now })
+                observer.deliver([
+                    frame(20, 120, [
+                        { sourceURL: 'https://assets.example.com/static/app.js', duration: 15 },
+                        { sourceURL: `${location.origin}.evil.example/script.js`, duration: 5 },
+                    ]),
+                ])
+                now = 320
+                const timing = recorder.finish()
+                expect(timing.long_frame_app_script_ms).toBe(15)
+                expect(timing.long_frame_other_script_ms).toBe(5)
+                expect(timing.long_frame_extension_script_ms).toBeUndefined()
+            } finally {
+                delete window.JS_URL
+            }
+        })
+
+        it('reports no long frame fields where the browser cannot observe them', () => {
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
+            now = 320
+            expect(recorder.finish()).not.toHaveProperty('long_frame_count')
         })
     })
 })

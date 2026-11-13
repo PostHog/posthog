@@ -20,8 +20,14 @@ const input = (overrides: Partial<ChecklistInput>): ChecklistInput => ({
     hasSelectedModel: true,
     hasAvailableModels: true,
     hasUnsetSampling: false,
+    codeError: null,
+    everyTestErrored: false,
+    wouldNotRun: null,
     ...overrides,
 })
+
+const hog = (source: string): EvaluationConfig =>
+    ({ ...judge(''), evaluation_type: 'hog', evaluation_config: { source } }) as unknown as EvaluationConfig
 
 const firstTodo = (overrides: Partial<ChecklistInput>): string | undefined =>
     creationChecklist(input(overrides)).find((item) => !item.done)?.todo
@@ -39,8 +45,45 @@ describe('creationChecklist', () => {
             'Add an API key for an AI provider, then pick a model',
         ],
         ['unset sampling', { hasUnsetSampling: true }, 'Set a sampling percentage between 0.1% and 100%'],
+        [
+            'Hog code that does not compile',
+            { evaluation: hog('return x +'), codeError: 'Compilation error on line 1: unexpected token' },
+            'Fix the code so it compiles',
+        ],
+        // The error belongs to Hog code that was tested earlier, before the method changed to a judge.
+        ['a judge with a code error left over', { codeError: 'Compilation error on line 1' }, undefined],
+        [
+            'a paused judge with no model to pick',
+            { modelSelectionRequired: false, hasSelectedModel: false, hasAvailableModels: false },
+            undefined,
+        ],
     ] as [string, Partial<ChecklistInput>, string | undefined][])('blocks create on %s', (_, overrides, expected) => {
         expect(firstTodo(overrides)).toBe(expected)
+    })
+
+    it.each([
+        ['the matching traffic can never run', { wouldNotRun: 'No matching generation has a session ID' }, 'sampling'],
+        ['every test run errored', { everyTestErrored: true }, 'criteria'],
+    ] as [string, Partial<ChecklistInput>, string][])('warns without blocking when %s', (_, overrides, key) => {
+        const item = creationChecklist(input(overrides)).find((candidate) => candidate.key === key)
+
+        expect(item?.done).toBe(true)
+        expect(item?.warning).toBeTruthy()
+    })
+
+    it('sums up each done item, with only the first line of a long prompt', () => {
+        const evaluation = {
+            ...judge('Is it helpful?\nAnswer true or false.'),
+            target: 'generation',
+            model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: 'key-1' },
+        } as EvaluationConfig
+        expect(creationChecklist(input({ evaluation })).map((item) => item.summary)).toEqual([
+            'Helpfulness',
+            'Pass or fail',
+            '100% of all generations',
+            'Is it helpful?',
+            'gpt-5-mini',
+        ])
     })
 
     it('asks for no prompt, result or model on a sentiment evaluation', () => {

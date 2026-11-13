@@ -19,9 +19,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.models import PropertyDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -279,6 +279,42 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 500)
         self.assertTrue(response.hasMore)
 
+    def test_samples_the_newest_100_events_of_the_event(self):
+        now = timezone.now()
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"outside_sample": "value"},
+            timestamp=now - timedelta(minutes=101),
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"oldest_in_sample": "value"},
+            timestamp=now - timedelta(minutes=100),
+            team=self.team,
+        )
+        for minutes_ago in range(1, 100):
+            _create_event(
+                event="event1",
+                distinct_id="person1",
+                properties={"in_sample": "value"},
+                timestamp=now - timedelta(minutes=minutes_ago),
+                team=self.team,
+            )
+        for _ in range(5):
+            _create_event(
+                event="event2",
+                distinct_id="person1",
+                properties={"other_event": "value"},
+                timestamp=now,
+                team=self.team,
+            )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual({item.property for item in response.results}, {"in_sample", "oldest_in_sample"})
+
     def test_property_taxonomy_returns_unique_values_for_specified_property(self):
         _create_person(
             distinct_ids=["person1"],
@@ -535,7 +571,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_retrieves_action_properties(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action1",
             steps_json=[{"event": "$pageview"}],

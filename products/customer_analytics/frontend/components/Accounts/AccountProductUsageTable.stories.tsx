@@ -1,0 +1,53 @@
+import type { Meta, StoryObj } from '@storybook/react'
+
+import { BOOK_ACTIVITY_MATRIX_MOCK } from '../../__mocks__/bookActivityMatrixMock'
+import { AccountProductUsageTable } from './AccountProductUsageTable'
+
+const meta: Meta<typeof AccountProductUsageTable> = {
+    title: 'Customer analytics/Account product usage',
+    component: AccountProductUsageTable,
+    parameters: {
+        layout: 'padded',
+        mockDate: '2026-11-03',
+        testOptions: { waitForSelector: '[data-attr="account-product-usage-table"]' },
+    },
+    args: {
+        instanceId: 'account-product-usage-story',
+        accountId: BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key,
+        result: {
+            ...BOOK_ACTIVITY_MATRIX_MOCK,
+            columns: BOOK_ACTIVITY_MATRIX_MOCK.columns.slice(-8),
+        },
+        renderTopUsers: () => <span className="text-xs text-secondary">Alex, Sam, Jo</span>,
+        firstUse: [
+            {
+                row: BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key,
+                series: 'pa',
+                date: BOOK_ACTIVITY_MATRIX_MOCK.columns.at(-1)!.key,
+            },
+        ],
+        includeFirstUse: true,
+        onIncludeFirstUseChange: () => {},
+    },
+}
+export default meta
+
+type Story = StoryObj<typeof AccountProductUsageTable>
+export const GroupedProducts: Story = {
+    decorators: [
+        (Story) => (
+            <div className="w-[1100px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
+export const Narrow: Story = {
+    decorators: [
+        (Story) => (
+            <div className="w-128">
+                <Story />
+            </div>
+        ),
+    ],
+}

@@ -22,6 +22,7 @@ import {
   buildPosthogProjectHeaderLines,
   buildPosthogPropertyHeaderLines,
 } from "@posthog/agent-contracts/posthog-property-headers";
+import { isGitlabRun } from "@posthog/git/gitlab";
 import { buildAppendedInstructions } from "@posthog/harness/extensions/agent-instructions";
 import {
   applyContextWikiEnv,
@@ -57,7 +58,12 @@ import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { createMemoryKillNoticeHook } from "./memory-kill-hook";
-import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
+import {
+  type ContextWindowChoice,
+  contextWindowEnv,
+  DEFAULT_MODEL,
+  resolveFallbackModel,
+} from "./models";
 import { isPinnedSettingsFile, pinnedSettingsDir } from "./pinned-settings";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
@@ -115,6 +121,7 @@ export interface BuildOptionsParams {
   onProcessExited?: (pid: number) => void;
   onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
+  contextWindow?: ContextWindowChoice;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
   /** Records PostHog product usage from MCP exec calls (deduped, session-wide). */
@@ -201,6 +208,7 @@ function buildEnvironment(
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
+  contextWindow?: ContextWindowChoice,
 ): Record<string, string> {
   // SDK 0.3.142 made MCP servers connect in the background by default. That
   // default is what we want: a slow or unreachable user MCP server (PostHog
@@ -221,6 +229,7 @@ function buildEnvironment(
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
     CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1",
+    ...(contextWindow && contextWindowEnv(contextWindow)),
     ...(mcpNonblocking !== undefined && {
       MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
     }),
@@ -405,7 +414,8 @@ function buildHooks(
     createPreToolUseHook(settingsManager, logger, posthogExecPermissionRegex),
     createSubagentRewriteHook(logger, getCurrentModelId),
   ];
-  if (cloudMode) {
+  // GitLab runs commit and push with plain git, so only GitHub runs need the guard.
+  if (cloudMode && !isGitlabRun()) {
     preToolUseHooks.push(
       createSignedCommitGuardHook(logger, onEnsureLocalToolsConnected),
     );
@@ -773,7 +783,6 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const options: Options = {
     ...params.userProvidedOptions,
-    betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
     settingSources: params.userProvidedOptions?.settingSources ?? [
       "user",
@@ -812,6 +821,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,
+      params.contextWindow,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,

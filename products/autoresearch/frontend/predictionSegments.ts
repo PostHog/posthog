@@ -1,10 +1,10 @@
 import { combineUrl } from 'kea-router'
 
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { BaseMathType, PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { CohortFiltersApi, PersonFilterApi } from 'products/cohorts/frontend/generated/api.schemas'
@@ -184,7 +184,17 @@ export function predictionSegmentPeopleUrl(
     property: string,
     thresholds: PredictionSegmentThresholds
 ): string {
-    const properties = segmentPropertyFilters(key, property, thresholds)
+    return scoredPeopleListUrl(property, segmentPropertyFilters(key, property, thresholds))
+}
+
+/** The persons list, filtered to everyone with a score on the output property. */
+export function predictionScoredPeopleUrl(property: string): string {
+    return scoredPeopleListUrl(property, [
+        { type: PropertyFilterType.Person, key: property, operator: PropertyOperator.IsSet },
+    ])
+}
+
+function scoredPeopleListUrl(property: string, properties: PersonPropertyFilter[]): string {
     const query: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {

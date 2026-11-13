@@ -1,6 +1,6 @@
 //! The v4 index rows. The recorder sends each row as one JSON message to the index topic, and the Parquet sink writes
 //! them to `rrweb-v4/index/`. The JSON keys are the Parquet column names in `replay-data.md`. Integer values fit the
-//! signed column types parquetjs writes, and an INT64 value stays in the range a JavaScript number holds exactly,
+//! signed column types the sink writes, and an INT64 value stays in the range a JavaScript number holds exactly,
 //! which the sink checks: a value past either range saturates.
 //!
 //! A flush can store its blocks and index rows and then fail before it commits its Kafka offsets. The next attempt
@@ -102,6 +102,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         written_jsonl_bytes,
         max_written_event_bytes,
         decode_failures,
+        unread_reason,
         moments_truncated,
         mouse_interactions,
         touch_moves,
@@ -164,6 +165,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         image_urls
     );
     map.serialize_entry("host", host)?;
+    map.serialize_entry("unread_reason", unread_reason)?;
     serialize_surfacing(&mut map, surfacing)?;
     map.end()
 }
@@ -419,12 +421,15 @@ impl IndexMessage {
 
 #[cfg(test)]
 mod tests {
+    use replay_core_v4::inspect::session::MAX_MOMENTS_PER_BLOCK;
+    use replay_core_v4::inspect::stats::MAX_WINDOW_IDS;
+    use replay_core_v4::scan::message::MAX_WINDOW_ID_BYTES;
     use serde_json::{json, Value};
 
     use super::*;
 
     /// The columns of the Parquet files the recorder wrote before the sink took them over, in file order, with their
-    /// parquetjs type and whether they are optional. The sink writes the same files, so a renamed field or a changed
+    /// Parquet type and whether they are optional. The sink writes the same files, so a renamed field or a changed
     /// type here breaks every reader.
     const BLOCK_COLUMNS: &[(&str, &str, bool)] = &[
         ("team_id", "INT64", false),
@@ -572,6 +577,7 @@ mod tests {
         ("surfacing_visited_url_fingerprints", "LIST<UTF8>", true),
         ("surfacing_click_target_ids", "LIST<INT64>", true),
         ("surfacing_form_field_ids", "LIST<INT64>", true),
+        ("unread_reason", "UTF8", true),
     ];
 
     const IMAGE_COLUMNS: &[(&str, &str, bool)] = &[
@@ -685,6 +691,29 @@ mod tests {
         };
         let message = IndexMessage::block(&block).unwrap();
         let value = assert_columns(&message.payload, BLOCK_COLUMNS);
+
+        // The longest window ID the reader accepts, in the characters JSON writes longest, keeps the row under the
+        // producer's default limit, so a rejected row cannot make its flush look incomplete.
+        let window = "\"".repeat(MAX_WINDOW_ID_BYTES);
+        let wide = BlockStats {
+            window_ids: vec![window.clone(); MAX_WINDOW_IDS],
+            ..BlockStats::default()
+        };
+        let crowded = vec![
+            Moment {
+                kind: "full_snapshot",
+                window_id: window.as_str().into(),
+                ts_ms: 0,
+                event_index: 0,
+            };
+            MAX_MOMENTS_PER_BLOCK
+        ];
+        let largest = BlockIndexRow {
+            stats: &wide,
+            moments: &crowded,
+            ..block
+        };
+        assert!(IndexMessage::block(&largest).unwrap().payload.len() < 1_000_000);
         assert_eq!(
             [
                 &value["first_ts_ms"],

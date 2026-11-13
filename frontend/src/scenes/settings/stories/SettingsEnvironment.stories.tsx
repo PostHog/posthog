@@ -135,6 +135,9 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
     args: { sectionId: 'environment-marketing-analytics' },
     parameters: {
         featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+        msw: {
+            mocks: { post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': { tables: {}, joins: [] } } },
+        },
     },
 }
 
@@ -188,7 +191,22 @@ export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environme
 
 export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'environment-feature-flags' } }
 
-export const SettingsEnvironmentErrorTracking: Story = { args: { sectionId: 'environment-error-tracking' } }
+export const SettingsEnvironmentErrorTracking: Story = {
+    args: { sectionId: 'environment-error-tracking' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/error_tracking/settings/retrieve_settings/': {
+                    project_rate_limit_value: null,
+                    project_rate_limit_bucket_size_minutes: null,
+                    per_issue_rate_limit_value: null,
+                    per_issue_rate_limit_bucket_size_minutes: null,
+                    ingestion_enabled: true,
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
     args: { sectionId: 'environment-error-tracking-configuration' },
@@ -288,6 +306,35 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
     ],
 }
 
+export const SettingsEnvironmentBusinessKnowledgeLearningFromPastTickets: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: true,
+                    learning_backfill: {
+                        status: 'running',
+                        started_at: '2023-05-24T22:00:00Z',
+                        finished_at: null,
+                        tickets_read: 42,
+                        tickets_in_progress: 3,
+                        knowledge_created: 7,
+                    },
+                },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
+            },
+        }),
+    ],
+}
+
 const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, Record<string, unknown>> => ({
     get: {
         '/api/users/@me/integrations/codex/': codex,
@@ -354,6 +401,34 @@ export const SettingsEnvironmentAgentInstructions: Story = {
                     resolved_ai_run_defaults: null,
                     agent_instructions: '',
                 },
+            },
+        }),
+    ],
+}
+
+export const SettingsMcpAnalyticsCustomHarnesses: Story = {
+    args: { sectionId: 'mcp-analytics' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/mcp_analytics/custom_harnesses/': [
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000001',
+                        name: 'Acme agent',
+                        match_pattern: 'acme-agent',
+                        icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApUlEQVR42tWX3Q2AMAiEW+IaOpDOqwPpIPXVmGJpQX54VXrcV6K5lIwrYw/mtRRJoevImTSAtHBrENAUr2mApnhNC6yXELTdvymwCZy7AAGuOGcIHzsggX6UQkwCmNsRCvEItFz2UohFgOquh0IcAr13S30/BoHRrxylzz8B7u+21e+bANc95Zzpq3HZlAhgoUEjH/jZAU0KTy2g5Lc/o5l5ODWvGwdJQtrvVp3WAAAAAElFTkSuQmCC',
+                        created_at: '2023-05-20T10:00:00Z',
+                        updated_at: '2023-05-20T10:00:00Z',
+                    },
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000002',
+                        name: 'Support bot',
+                        match_pattern: 'support-bot',
+                        icon: '',
+                        created_at: '2023-05-21T10:00:00Z',
+                        updated_at: '2023-05-21T10:00:00Z',
+                    },
+                ],
             },
         }),
     ],

@@ -186,7 +186,7 @@
     </style>
     <div class="certificate">
         <div class="actions-bar no-print">
-            <a href="{% url 'admin:posthog_team_delete_recordings' team.pk %}">&larr; Back to delete recordings</a>
+            <a href="{{ recording_deletions_url }}">&larr; Back to recording deletions</a>
             <button id="print-btn">Print / Save as PDF</button>
             <a href="{% url 'admin:posthog_team_download_deletion_certificate' team.pk certificate.workflow_id %}">Download JSON</a>
         </div>

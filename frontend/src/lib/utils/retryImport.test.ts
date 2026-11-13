@@ -1,5 +1,22 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+import { Component as ReactComponent, ReactNode, Suspense, createElement } from 'react'
+
 import { isChunkLoadError } from './isChunkLoadError'
-import { retryBootImport, retryImport } from './retryImport'
+import { lazyWithPreload, retryBootImport, retryImport } from './retryImport'
+
+class FailedBoundary extends ReactComponent<{ children: ReactNode }, { failed: boolean }> {
+    override state = { failed: false }
+
+    static getDerivedStateFromError(): { failed: boolean } {
+        return { failed: true }
+    }
+
+    override render(): ReactNode {
+        return this.state.failed ? createElement('span', null, 'failed') : this.props.children
+    }
+}
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -83,5 +100,80 @@ describe('retryImport', () => {
         await expect(promise).rejects.toBe(error)
         expect(factory).toHaveBeenCalledTimes(3)
         expect(isChunkLoadError(error)).toBe(true)
+    })
+
+    describe('lazyWithPreload', () => {
+        beforeEach(() => {
+            jest.useRealTimers()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        const Greeting = ({ name }: { name: string }): JSX.Element => createElement('span', null, `hello ${name}`)
+
+        const renderInSuspense = (Component: (props: { name: string }) => JSX.Element): void => {
+            render(
+                createElement(
+                    Suspense,
+                    { fallback: createElement('span', null, 'loading') },
+                    createElement(Component, { name: 'max' })
+                )
+            )
+        }
+
+        it.each([
+            { preloaded: true, firstPaint: 'hello max' },
+            { preloaded: false, firstPaint: 'loading' },
+        ])('preloaded=$preloaded shows "$firstPaint" on first paint', async ({ preloaded, firstPaint }) => {
+            const factory = jest.fn().mockResolvedValue({ default: Greeting })
+            const { Component, preload } = lazyWithPreload(factory)
+            if (preloaded) {
+                await preload()
+            }
+
+            renderInSuspense(Component)
+
+            expect(screen.getByText(firstPaint)).toBeInTheDocument()
+            expect(await screen.findByText('hello max')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(1)
+        })
+
+        it('loads again on render after a failed preload', async () => {
+            const factory = jest.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ default: Greeting })
+            const { Component, preload } = lazyWithPreload(factory)
+            await preload()
+
+            renderInSuspense(Component)
+
+            expect(await screen.findByText('hello max')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(2)
+        })
+
+        it('reports a render-time failure to the boundary, then loads again on a later remount', async () => {
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+            const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
+            const factory = jest.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ default: Greeting })
+            const { Component } = lazyWithPreload(factory)
+
+            render(
+                createElement(
+                    FailedBoundary,
+                    null,
+                    createElement(Suspense, { fallback: null }, createElement(Component, { name: 'max' }))
+                )
+            )
+            expect(await screen.findByText('failed')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(1)
+            cleanup()
+
+            now.mockReturnValue(1_002_000)
+            renderInSuspense(Component)
+
+            expect(await screen.findByText('hello max')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(2)
+            now.mockRestore()
+        })
     })
 })

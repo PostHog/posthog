@@ -1,9 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSchemaStatus, ExternalDataSchemaWithSource } from '~/types'
+
+import * as warehouseSourcesApi from 'products/warehouse_sources/frontend/generated/api'
 
 import { schemaSceneLogic } from './schemaSceneLogic'
 
@@ -36,6 +39,27 @@ describe('schemaSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['warehouse source with a CDC engine', 'warehouse', 'postgres', true],
+        ['direct query source', 'direct', 'postgres', false],
+        ['source type without CDC', 'warehouse', undefined, false],
+    ] as const)('sourceSupportsCdc for a %s', async (_, accessMethod, cdcEngine, expected) => {
+        jest.spyOn(api.externalDataSchemas, 'get').mockResolvedValue(
+            makeSchema({ source: { source_type: 'Postgres', access_method: accessMethod } as any })
+        )
+        const wizardSpy = jest
+            .spyOn(warehouseSourcesApi, 'externalDataSourcesWizardRetrieve')
+            .mockResolvedValue({ Postgres: { name: 'Postgres', cdcEngine } } as any)
+        logic.actions.loadSchema()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.loadSourceConfig()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(wizardSpy).toHaveBeenCalledWith(expect.any(String), { source_type: 'Postgres' })
+        expect(logic.values.sourceSupportsCdc).toBe(expected)
     })
 
     it('resyncSchema toggles the loading flag around the request and resyncs by id', async () => {
@@ -76,5 +100,28 @@ describe('schemaSceneLogic', () => {
         logic.actions.resyncSchema(makeSchema())
 
         expect(logic.values.schema?.status).toBe(ExternalDataSchemaStatus.Running)
+    })
+
+    it.each([true, false])('confirms a pending schema before enabling when pending is %s', async (pending) => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSchemaSuccess(makeSchema({ should_sync: false, pending_self_managed_table: pending }))
+
+        const updateSpy = jest.spyOn(api.externalDataSchemas, 'update').mockResolvedValue(makeSchema())
+        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation()
+        const schema = makeSchema({ should_sync: true, pending_self_managed_table: pending })
+
+        logic.actions.updateSchema(schema)
+
+        if (pending) {
+            expect(dialogSpy).toHaveBeenCalledTimes(1)
+            expect(updateSpy).not.toHaveBeenCalled()
+            const confirm = dialogSpy.mock.calls[0][0].primaryButton?.onClick as () => void
+            confirm()
+        } else {
+            expect(dialogSpy).not.toHaveBeenCalled()
+        }
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(updateSpy).toHaveBeenCalledWith('schema-1', expect.objectContaining({ should_sync: true }))
     })
 })

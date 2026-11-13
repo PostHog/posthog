@@ -22,7 +22,9 @@ import {
     aiObservabilityDatasetLogic,
 } from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import { datasetRetentionLogic } from './datasetRetentionLogic'
 import { datasetsApi } from './datasetsApi'
+import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import { EMPTY_JSON } from './utils'
 
 jest.mock('./datasetsApi', () => ({
@@ -30,9 +32,11 @@ jest.mock('./datasetsApi', () => ({
         createDataset: jest.fn(),
         updateDataset: jest.fn(),
         getDataset: jest.fn(),
+        getRetention: jest.fn(),
         getItem: jest.fn(),
         listDatasets: jest.fn(),
         listItems: jest.fn(),
+        createItem: jest.fn(),
         listItemVersions: jest.fn(),
         listRevisions: jest.fn(),
         archiveDataset: jest.fn(),
@@ -58,6 +62,8 @@ describe('aiObservabilityDatasetLogic', () => {
         updated_at: '2024-01-01T00:00:00Z',
         created_by: null,
         archived: false,
+        expires_at: null,
+        expiring_soon: false,
         current_revision: null,
         current_revision_id: null,
         user_access_level: 'editor',
@@ -133,6 +139,7 @@ describe('aiObservabilityDatasetLogic', () => {
         mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
         mockDatasetsApi.listDatasets.mockResolvedValue({ results: [], count: 0 })
         mockDatasetsApi.listItems.mockResolvedValue({ results: [], count: 0 })
+        mockDatasetsApi.createItem.mockResolvedValue(mockDatasetItem1)
         mockDatasetsApi.getItem.mockImplementation(async (itemId) => {
             const item = [mockDatasetItem1, mockDatasetItem2].find(({ id }) => id === itemId)
             if (!item) {
@@ -398,21 +405,33 @@ describe('aiObservabilityDatasetLogic', () => {
             datasetsLogic.mount()
             await expectLogic(datasetsLogic).toFinishAllListeners()
 
+            const noRetentionWarnings = { datasets_count: 0, revisions_count: 0, count: 0, results: [] }
+            mockDatasetsApi.getRetention.mockResolvedValue(noRetentionWarnings)
+            const retentionLogic = datasetRetentionLogic()
+            retentionLogic.mount()
+            await expectLogic(retentionLogic).toFinishAllListeners()
+            mockDatasetsApi.getRetention.mockResolvedValue({ ...noRetentionWarnings, datasets_count: 1, count: 1 })
+
             await expectLogic(logic, () => {
                 logic.actions.archiveDataset()
             }).toFinishAllListeners()
             await expectLogic(datasetsLogic).toFinishAllListeners()
+            await expectLogic(retentionLogic).toFinishAllListeners()
+            expect(retentionLogic.values.warning).toBe('1 dataset expiring within 7 days')
 
             const listCallCount = mockDatasetsApi.listDatasets.mock.calls.length
             const toastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
                 button: { action: () => Promise<void> }
             }
 
+            mockDatasetsApi.getRetention.mockResolvedValue(noRetentionWarnings)
             await toastOptions.button.action()
             await expectLogic(datasetsLogic).toFinishAllListeners()
+            await expectLogic(retentionLogic).toFinishAllListeners()
 
             expect(mockDatasetsApi.restoreDataset).toHaveBeenCalledWith(mockDataset.id)
             expect(mockDatasetsApi.listDatasets).toHaveBeenCalledTimes(listCallCount + 1)
+            expect(retentionLogic.values.warning).toBe('')
             expect(lemonToast.success).toHaveBeenCalledWith('Test Dataset has been restored.')
         })
 
@@ -705,6 +724,44 @@ describe('aiObservabilityDatasetLogic', () => {
         })
     })
 
+    describe('items added from the add to dataset button', () => {
+        it.each([
+            { via: 'pick', target: 'this', itemCreated: true, refreshes: true },
+            { via: 'pick', target: 'another', itemCreated: true, refreshes: false },
+            { via: 'modal', target: 'this', itemCreated: true, refreshes: true },
+            { via: 'modal', target: 'this', itemCreated: false, refreshes: false },
+        ])(
+            'an item saved by $via into $target dataset (created $itemCreated) refreshes the items: $refreshes',
+            async ({ via, target, itemCreated, refreshes }) => {
+                const targetDataset = target === 'this' ? mockDataset : { ...mockDataset, id: 'another-dataset-id' }
+                mockDatasetsApi.listDatasets.mockResolvedValue({ results: [targetDataset], count: 1 })
+                const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+                logic.mount()
+                const button = saveToDatasetButtonLogic({
+                    partialDatasetItem: { input: { message: 'hello' } },
+                    step: null,
+                })
+                button.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(button).toFinishAllListeners()
+                const listCallCount = mockDatasetsApi.listItems.mock.calls.length
+
+                await expectLogic(button, () => {
+                    if (via === 'pick') {
+                        button.actions.setSearchFormValues({ search: '', datasetId: targetDataset.id })
+                        button.actions.submitSearchForm()
+                    } else {
+                        button.actions.setSelectedDataset(targetDataset)
+                        button.actions.closeItemModal(itemCreated)
+                    }
+                }).toFinishAllListeners()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(listCallCount + (refreshes ? 1 : 0))
+            }
+        )
+    })
+
     describe('dataset loading and defaults', () => {
         let logic: ReturnType<typeof aiObservabilityDatasetLogic.build>
         const props: DatasetLogicProps = { datasetId: 'existing-dataset-id' }
@@ -720,6 +777,7 @@ describe('aiObservabilityDatasetLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockDatasetsApi.getDataset).toHaveBeenCalledWith('existing-dataset-id')
+            expect(saveToDatasetButtonLogic.isMounted()).toBe(false)
         })
 
         it('sets form defaults when dataset is loaded', async () => {
@@ -1182,6 +1240,19 @@ describe('aiObservabilityDatasetLogic', () => {
                 })
             })
 
+            it('keeps the dataset id in the URL when mounting on filters before the dataset loads', () => {
+                logic.unmount()
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+                router.actions.push(datasetUrl, { page: '2' })
+
+                logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+                logic.mount()
+
+                expect(logic.values.dataset).toBeNull()
+                expect(logic.values.filters.page).toBe(2)
+                expect(router.values.location.pathname).toContain(datasetUrl)
+            })
+
             it('loads an exact revision and archived items from URL state', async () => {
                 const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
@@ -1222,6 +1293,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(router.values.hashParams).toEqual({ section: 'items' })
                 expect(logic.values.activeTab).toBe('items')
 
+                router.actions.replace(datasetUrl, { search: 'quality', trace: 'a', ts: '2026', step: 'x' })
                 await expectLogic(logic, () => {
                     logic.actions.setActiveTab(DatasetTab.Metadata)
                 }).toFinishAllListeners()
@@ -1229,10 +1301,11 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(router.values.searchParams).toEqual({ search: 'quality', tab: 'metadata' })
 
                 await expectLogic(logic, () => {
-                    router.actions.push(datasetUrl, { search: 'quality' })
+                    router.actions.push(datasetUrl, { search: 'quality', trace: 'a' })
                 }).toFinishAllListeners()
 
                 expect(logic.values.activeTab).toBe('items')
+                expect(router.values.searchParams).toEqual({ search: 'quality', trace: 'a' })
                 expect(mockDatasetsApi.listItems).not.toHaveBeenCalled()
             })
 

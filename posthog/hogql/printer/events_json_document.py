@@ -3,7 +3,9 @@
 The cleaner splits event properties at insert: each `$feature/<key>` value goes into the typed `$feature_flags` map,
 `$active_feature_flags` is dropped, and the keys `is_temporary_event_property` names go into `temporary_properties`,
 which ClickHouse clears 60 days after insertion. A whole-document read puts those parts back so the document matches
-the legacy table while the parts exist. The HogQL printer and the batch export source share this builder so every
+the legacy table while the parts exist. The JSON type cannot store `null`, so the cleaner drops every null field and
+records its path in the column's null-key array. This builder does not read those arrays, so a field sent as `null`
+has no member in the rebuilt document. The HogQL printer and the batch export source share this builder so every
 whole-document reader returns the same document.
 """
 
@@ -17,6 +19,8 @@ from posthog.hogql.constants import (
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
+
+_FEATURE_FLAGS_KEY = "$feature_flags"
 
 
 def declared_array_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
@@ -49,7 +53,7 @@ def json_member_pairs_sql(
 
     The JSON type materializes a declared path on every row, as `[]` for an array and `''` for a string, so under
     those keys an empty value means the key was absent and the pair is left out. An empty array or string under any
-    other key was sent and stays; the cleaner already removed nulls at insert, so nothing else is filtered.
+    other key was sent and stays.
     """
     conditions = []
     array_paths = ", ".join(escape_clickhouse_string(path) for path in declared_array_paths)
@@ -71,7 +75,8 @@ def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
 
     A boolean flag is stored as 'true' or 'false' and comes back as a JSON boolean. A variant comes back as a JSON
     string, with the cleaner sentinels mapped to the variant names. `$active_feature_flags` lists the flags not
-    evaluated to off, in map order, and is present whenever the map has an entry.
+    evaluated to off, in map order, and is present whenever the map has an entry. A flag sent as `null` is not in the
+    map, so it has no pair.
     """
     variant_branches = ", ".join(
         f"value = {escape_clickhouse_string(sentinel)}, {escape_clickhouse_string(variant)}"
@@ -99,7 +104,9 @@ def json_document_sql(
 ) -> str:
     """A JSON column as document text, built from its member pairs so declared defaults can be left out."""
     pairs = json_member_pairs_sql(
-        document_sql, declared_array_paths=declared_array_paths, declared_string_paths=declared_string_paths
+        document_sql,
+        declared_array_paths=declared_array_paths,
+        declared_string_paths=declared_string_paths,
     )
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
@@ -109,7 +116,11 @@ def person_document_sql(person_properties_sql: str) -> str:
     return json_document_sql(person_properties_sql, declared_string_paths=PERSON_PROPERTIES_DECLARED_STRING_PATHS)
 
 
-def event_document_sql(properties_sql: str, temporary_properties_sql: str, feature_flags_sql: str | None) -> str:
+def event_document_sql(
+    properties_sql: str,
+    temporary_properties_sql: str,
+    feature_flags_sql: str | None,
+) -> str:
     """The rebuilt document as JSON text. The caller wraps it in any restricted-key masking.
 
     `feature_flags_sql` is the flags map to rebuild from, already filtered of restricted flags, or None when every
@@ -119,7 +130,7 @@ def event_document_sql(properties_sql: str, temporary_properties_sql: str, featu
     pairs = [
         json_member_pairs_sql(
             properties_sql,
-            exclude_key="$feature_flags",
+            exclude_key=_FEATURE_FLAGS_KEY,
             declared_array_paths=EVENTS_PROPERTIES_DECLARED_ARRAY_PATHS,
             declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
         )

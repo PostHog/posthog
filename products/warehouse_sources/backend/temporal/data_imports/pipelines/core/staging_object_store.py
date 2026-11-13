@@ -48,6 +48,15 @@ def is_object_store_configuration_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and any(needle in str(error) for needle in PERMANENT_OBJECT_STORE_ERRORS)
 
 
+def is_transient_staged_error(error: BaseException) -> bool:
+    """True when a staged-file operation failed on an object-store blip that a fresh attempt clears."""
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        is_transient_object_store_error,
+    )
+
+    return not is_object_store_configuration_error(error) and is_transient_object_store_error(error)
+
+
 async def _aretry_staged_operation(
     operation: Callable[[], Coroutine[Any, Any, T]], *, verb: str, path: str, logger: FilteringBoundLogger
 ) -> T:

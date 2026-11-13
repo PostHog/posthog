@@ -9,6 +9,20 @@ import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
 export const manifest: ProductManifest = {
     name: 'Data ops',
+    activityDescribers: {
+        [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () =>
+            import('scenes/data-warehouse/saved_queries/activityDescriptions').then(
+                (module) => module.dataWarehouseSavedQueryActivityDescriber
+            ),
+        [ActivityScope.EXTERNAL_DATA_SOURCE]: () =>
+            import('./frontend/shared/components/activityDescriptions').then(
+                (module) => module.externalDataSourceActivityDescriber
+            ),
+        [ActivityScope.EXTERNAL_DATA_SCHEMA]: () =>
+            import('./frontend/shared/components/activityDescriptions').then(
+                (module) => module.externalDataSourceActivityDescriber
+            ),
+    },
     scenes: {
         DataOps: {
             name: 'Data ops',
@@ -51,6 +65,11 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Connect data warehouse source',
         },
+        DataWarehouseMigrationConnect: {
+            import: () => import('./frontend/scenes/MigrationConnectScene/MigrationConnectScene'),
+            projectBased: true,
+            name: 'Import from Fivetran',
+        },
         DataWarehouseSourceSchema: {
             import: () => import('./frontend/scenes/SchemaScene/SchemaScene'),
             projectBased: true,
@@ -88,6 +107,7 @@ export const manifest: ProductManifest = {
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+        '/data-warehouse/migrate/connect': ['DataWarehouseMigrationConnect', 'dataWarehouseMigrationConnect'],
         '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     },
     redirects: {
@@ -161,6 +181,7 @@ export const manifest: ProductManifest = {
             `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+        dataWarehouseMigrationConnect: (): string => '/data-warehouse/migrate/connect',
         warehouseDestinationConnect: (kind?: string): string =>
             `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
@@ -171,9 +192,9 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.DATA,
             type: 'sql',
             iconType: 'sql_editor',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
             href: urls.sqlEditor(),
-            searchKeywords: ['hogql', 'hogsql', 'query editor'],
+            searchKeywords: ['sql', 'hogql', 'hogsql', 'query editor'],
             sceneKey: 'SQLEditor',
             sceneKeys: ['SQLEditor'],
         },
@@ -188,7 +209,7 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
             iconType: 'data_warehouse',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
             sceneKey: 'DataOps',
             // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
             // The generated list otherwise follows product membership and leaves them out.
@@ -201,6 +222,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSource',
                 'DataWarehouseSourceNew',
                 'DataWarehouseSourceConnect',
+                'DataWarehouseMigrationConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
                 'WarehouseDestinationConnect',
@@ -257,6 +279,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSource',
                 'DataWarehouseSourceNew',
                 'DataWarehouseSourceConnect',
+                'DataWarehouseMigrationConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
                 'WarehouseDestinationConnect',

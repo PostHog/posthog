@@ -55,7 +55,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
-from . import crawl, discover, file_parse, html_parse, llm_telemetry, url_fetch
+from . import billing, crawl, discover, file_parse, html_parse, llm_telemetry, url_fetch
 from .constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
@@ -98,7 +98,10 @@ from .constants import (
     TRIAL_QUIET_PERIOD,
 )
 from .libraries import file_new_learned_source
-from .llm_telemetry import RetrievalTrace
+from .llm_telemetry import (  # re-exported for other products
+    RetrievalTrace,
+    stable_trace_id as stable_trace_id,
+)
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     AddedBy,
@@ -231,6 +234,12 @@ SupersessionOutcome = Literal[
 
 
 @frozen
+class UrlSourceUpdate:
+    source: KnowledgeSource
+    is_refresh_claimed: bool
+
+
+@frozen
 class KnowledgeSourceSupersession:
     outcome: SupersessionOutcome
     previous_ticket_number: int | None = None
@@ -357,6 +366,14 @@ def _bulk_create_chunks(
         KnowledgeChunk.objects.filter(team_id=team_id, id__in=[c.id for c in created]).update(
             content_search_vector=SearchVector("content", config="english")
         )
+    # The one place chunks are written, so every ingest path is metered here.
+    billing.record_chunks_ingested(
+        team_id=team_id,
+        quantity=len(created),
+        surface="generated" if source.is_generated else source.source_type,
+        source_id=source.id,
+        document_id=document.id,
+    )
 
 
 # --- Quota enforcement -------------------------------------------------------
@@ -1155,13 +1172,13 @@ def update_url_source(
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
     always_include: bool | None = None,
-) -> KnowledgeSource | None:
+) -> UrlSourceUpdate | None:
     """
-    Update a URL source's metadata and optionally re-crawl.
+    Update a URL source's metadata and optionally claim a re-crawl.
 
     - name-only: single UPDATE, no network.
-    - url/crawl_mode/crawl_config change: update the fields, then trigger a
-      full refresh so the content matches the new config.
+    - url/crawl_mode/crawl_config change: update the fields, then claim a
+      refresh. The caller runs the claimed refresh, so the request never crawls.
     """
     try:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
@@ -1214,7 +1231,9 @@ def update_url_source(
 
     if needs_recrawl:
         try:
-            return refresh_source(source_id=source.id, team_id=team_id)
+            claimed_source = claim_refresh_source(source_id=source.id, team_id=team_id)
+        except KnowledgeSource.DoesNotExist:
+            return None
         except SourceBusyError:
             # Refresh never started — revert config so the source doesn't
             # end up with a new URL but old content and no error signal.
@@ -1222,8 +1241,9 @@ def update_url_source(
                 setattr(source, field, value)
             source.save(update_fields=[*list(old_values.keys()), "updated_at"])
             raise
+        return UrlSourceUpdate(source=claimed_source, is_refresh_claimed=True)
 
-    return get_for_team(source.id, team_id) or source
+    return UrlSourceUpdate(source=get_for_team(source.id, team_id) or source, is_refresh_claimed=False)
 
 
 @with_team_scope(canonical=True)
@@ -2718,8 +2738,44 @@ def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
     )
 
 
-@with_team_scope(canonical=True)
 def search_knowledge(
+    team_id: int,
+    query: str,
+    *,
+    limit: int = 10,
+    use_semantic: bool = False,
+    query_embedding: list[float] | None = None,
+    library_id: UUID | None = None,
+    trace: RetrievalTrace | None = None,
+    usage_team_id: int | None = None,
+) -> list[KnowledgeSearchResult]:
+    """
+    Run one knowledge search, metered as one query when ``trace`` is given.
+
+    Every product surface passes its ``RetrievalTrace``, so every retrieval is metered, whatever it
+    returns, except PostHog's internal docs-shadow comparison (see ``billing.UNMETERED_SURFACES``).
+    Only offline evals and tests search without a trace. A search that raises meters nothing.
+    The query is metered to ``usage_team_id`` (the canonical team) when given, else to ``team_id``.
+    """
+    results = _search_knowledge(
+        team_id,
+        query,
+        limit=limit,
+        use_semantic=use_semantic,
+        query_embedding=query_embedding,
+        library_id=library_id,
+    )
+    if trace is not None:
+        billing.record_query(
+            team_id=usage_team_id if usage_team_id is not None else team_id,
+            trace_id=trace.trace_id,
+            surface=trace.surface,
+        )
+    return results
+
+
+@with_team_scope(canonical=True)
+def _search_knowledge(
     team_id: int,
     query: str,
     *,
@@ -2884,6 +2940,7 @@ def search_knowledge_for_team(
     if library_id is not None:
         with team_scope(canonical_team_id, canonical=True):
             if not _library_has_sources(canonical_team_id, library_id):
+                billing.record_query(team_id=canonical_team_id, trace_id=trace.trace_id, surface=trace.surface)
                 return []
     embedding: list[float] | None = None
     try:
@@ -2899,6 +2956,7 @@ def search_knowledge_for_team(
         use_semantic=embedding is not None,
         query_embedding=embedding,
         library_id=library_id,
+        trace=trace,
     )
 
 
@@ -2910,6 +2968,8 @@ async def async_search_knowledge_for_team(
     limit: int = 10,
 ) -> list[KnowledgeSearchResult]:
     """Async hybrid search. Embedding failure or timeout falls back to full-text search."""
+    # The search stays on `team.id` because callers only authorize `team`; usage belongs to the parent.
+    usage_team_id = await database_sync_to_async(resolve_effective_team_id, thread_sensitive=False)(team.id)
     embedding: list[float] | None = None
     try:
         response = await asyncio.wait_for(
@@ -2926,6 +2986,8 @@ async def async_search_knowledge_for_team(
         limit=limit,
         use_semantic=embedding is not None,
         query_embedding=embedding,
+        trace=trace,
+        usage_team_id=usage_team_id,
     )
 
 

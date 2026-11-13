@@ -13,6 +13,9 @@ from django.db.models import QuerySet
 import posthoganalytics
 
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
@@ -53,8 +56,7 @@ def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | Non
     return contracts.ErrorTrackingIssueAssignee(id=assignee_id, type=assignee_type)
 
 
-def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReference:
-    integration = reference.integration
+def _to_external_reference(reference, integration: IntegrationRecord) -> contracts.ErrorTrackingExternalReference:
     return contracts.ErrorTrackingExternalReference(
         id=reference.id,
         integration=contracts.ErrorTrackingExternalReferenceIntegration(
@@ -62,10 +64,22 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             kind=integration.kind,
             display_name=integration.display_name,
         ),
-        external_url=external_references.build_external_issue_url(reference),
-        external_id=external_references.external_issue_id(reference),
+        external_url=external_references.build_external_issue_url(reference, integration),
+        external_id=external_references.external_issue_id(reference, integration),
         title=external_references.external_issue_title(reference),
     )
+
+
+def _to_external_references(team_id: int, references) -> list[contracts.ErrorTrackingExternalReference]:
+    references = list(references)
+    if not references:
+        return []
+    integrations = external_references.get_reference_integrations(team_id, references)
+    return [
+        _to_external_reference(reference, integrations[reference.integration_id])
+        for reference in references
+        if reference.integration_id in integrations
+    ]
 
 
 def _to_fingerprint(fingerprint) -> contracts.ErrorTrackingFingerprint:
@@ -97,7 +111,10 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     )
 
 
-def _to_issue(issue) -> contracts.ErrorTrackingIssue:
+def _to_issue(issue, integrations: dict[int, IntegrationRecord] | None = None) -> contracts.ErrorTrackingIssue:
+    references = list(issue.external_issues.all())
+    if integrations is None:
+        integrations = external_references.get_reference_integrations(issue.team_id, references) if references else {}
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
@@ -106,7 +123,11 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
         assignee=_to_issue_assignee(getattr(issue, "assignment", None)),
-        external_issues=[_to_external_reference(reference) for reference in issue.external_issues.all()],
+        external_issues=[
+            _to_external_reference(reference, integrations[reference.integration_id])
+            for reference in references
+            if reference.integration_id in integrations
+        ],
         cohort=_to_issue_cohort(issue),
     )
 
@@ -143,6 +164,18 @@ def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list
     return [_to_issue_preview(issue) for issue in issues]
 
 
+def list_active_issue_impact(team_id: int, days: int, limit: int) -> list[contracts.ErrorTrackingIssueImpact]:
+    """Active issues seen in the last `days` days with their user, session and daily occurrence counts.
+
+    Ordered by first seen, newest first. Runs one ClickHouse query.
+    """
+    from ..logic.issue_impact import (  # noqa: PLC0415 - keeps the HogQL query runners off the django.setup() path
+        list_active_issue_impact as _list_active_issue_impact,
+    )
+
+    return _list_active_issue_impact(team_id=team_id, days=days, limit=limit)
+
+
 def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
     # "New this week" = issue first created within the digest window. Only active issues
     # (not archived/resolved/suppressed) are worth surfacing as a new production error.
@@ -165,13 +198,11 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
     return _to_issue(issue)
 
 
-def list_issues_detailed(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    qs = logic.get_issue_detail_queryset(team_id).order_by("-id")
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_issue(issue) for issue in rows], total
+def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
+    issues_page = select_page(logic.get_issue_detail_queryset(team_id).order_by("-id"), page)
+    references = [reference for issue in issues_page.results for reference in issue.external_issues.all()]
+    integrations = external_references.get_reference_integrations(team_id, references) if references else {}
+    return issues_page.map(lambda issue: _to_issue(issue, integrations))
 
 
 def issue_exists(team_id: int) -> bool:
@@ -203,6 +234,7 @@ def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:
 
 def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSettings:
     return contracts.ErrorTrackingSettings(
+        adaptive_ingestion_enabled=settings.adaptive_ingestion_enabled,
         project_rate_limit_value=settings.project_rate_limit_value,
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
@@ -258,16 +290,20 @@ def list_spike_events(
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
-    limit: int | None = None,
-    offset: int = 0,
-    include_total_count: bool = True,
-) -> tuple[list[contracts.ErrorTrackingSpikeEvent], int]:
+    page: PageRequest,
+) -> Page[contracts.ErrorTrackingSpikeEvent]:
     qs = logic.list_spike_events(
         team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
     )
-    total = qs.count() if include_total_count else 0
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_spike_event(event) for event in rows], total
+    return select_page(qs, page).map(_to_spike_event)
+
+
+def list_latest_spike_events(
+    *, team_id: int, date_from: str, date_to: str, limit: int
+) -> list[contracts.ErrorTrackingSpikeEvent]:
+    """Return at most `limit` spike events of a time window, newest first, without a total count."""
+    qs = logic.list_spike_events(team_id=team_id, date_from=date_from, date_to=date_to)
+    return [_to_spike_event(event) for event in qs[:limit]]
 
 
 def _to_release(release) -> contracts.ErrorTrackingRelease:
@@ -297,13 +333,10 @@ def _to_stack_frame(frame) -> contracts.ErrorTrackingStackFrame:
     )
 
 
-def list_stack_frames(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingStackFrame], int]:
-    qs = logic.stack_frame_queryset(team_id)
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_stack_frame(frame) for frame in rows], total
+def list_stack_frames(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingStackFrame]:
+    # Order by created_at so et_frame_team_created_at_idx serves the page. No (team_id, id) index exists.
+    queryset = logic.stack_frame_queryset(team_id).order_by("created_at")
+    return select_page(queryset, page).map(_to_stack_frame)
 
 
 def get_stack_frame(team_id: int, frame_id: str) -> contracts.ErrorTrackingStackFrame | None:
@@ -317,13 +350,8 @@ def batch_get_stack_frames(
     return [_to_stack_frame(frame) for frame in logic.batch_get_stack_frames(team_id, raw_ids, symbol_set)]
 
 
-def list_releases(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingRelease], int]:
-    qs = logic.list_releases(team_id)
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_release(release) for release in rows], total
+def list_releases(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingRelease]:
+    return select_page(logic.list_releases(team_id), page).map(_to_release)
 
 
 def list_releases_created_between(
@@ -639,9 +667,10 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
 
-def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contracts.ErrorTrackingFingerprint]:
-    fingerprints = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
-    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+def list_fingerprints(
+    team_id: int, *, issue_id: UUID | None = None, page: PageRequest
+) -> Page[contracts.ErrorTrackingFingerprint]:
+    return select_page(logic.list_fingerprints(team_id=team_id, issue_id=issue_id), page).map(_to_fingerprint)
 
 
 def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:
@@ -670,15 +699,14 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
-    references = external_references.list_external_references(team_id=team_id)
-    return [_to_external_reference(reference) for reference in references]
+    return _to_external_references(team_id, external_references.list_external_references(team_id=team_id))
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:
     reference = external_references.get_external_reference(reference_id=reference_id, team_id=team_id)
     if reference is None:
         return None
-    return _to_external_reference(reference)
+    return next(iter(_to_external_references(team_id, [reference])), None)
 
 
 def create_external_reference(
@@ -699,6 +727,8 @@ def create_external_reference(
         external_context=external_context,
     )
 
+    integration = IntegrationManager.any.get(team_id, reference.integration_id)
+
     # Idempotent re-links return an existing reference; counting those would inflate the metric.
     if created:
         posthoganalytics.capture(
@@ -708,13 +738,13 @@ def create_external_reference(
             properties={
                 **(analytics_props or {}),
                 "issue_id": reference.issue_id,
-                "integration_kind": reference.integration.kind,
+                "integration_kind": integration.kind,
                 # Distinguish linking an existing issue from creating a brand-new one.
                 "linked_existing": external_context is not None,
             },
         )
 
-    return _to_external_reference(reference)
+    return _to_external_reference(reference, integration)
 
 
 def search_external_issues(

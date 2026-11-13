@@ -33,6 +33,8 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
+import { isEmptyObject } from 'lib/utils/guards'
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
@@ -44,6 +46,7 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     EventsNode,
@@ -53,7 +56,6 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -197,6 +199,27 @@ export function sanitizeInputs(
     })
 
     return sanitizedInputs
+}
+
+function withoutSecrets<T extends Pick<HogFunctionMappingType, 'inputs' | 'inputs_schema'>>(
+    config: T
+): { config: T; dropped: boolean } {
+    if (!config.inputs) {
+        return { config, dropped: false }
+    }
+    const secretKeys = new Set(config.inputs_schema?.filter((schema) => schema.secret).map((schema) => schema.key))
+    const inputs: Record<string, CyclotronJobInputType> = {}
+    let dropped = false
+    for (const [key, input] of Object.entries(config.inputs)) {
+        if (input?.secret || secretKeys.has(key)) {
+            const value = input?.value
+            dropped ||=
+                !!input?.secret || !(value === undefined || value === null || value === '' || isEmptyObject(value))
+        } else {
+            inputs[key] = input
+        }
+    }
+    return { config: { ...config, inputs }, dropped }
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -2108,15 +2131,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         duplicate: async () => {
             if (values.hogFunction) {
+                const copied = withoutSecrets(values.configuration)
+                const copiedMappings = values.configuration.mappings?.map(withoutSecrets)
+                const droppedSecrets = copied.dropped || !!copiedMappings?.some((mapping) => mapping.dropped)
                 const newConfig = {
-                    ...values.configuration,
+                    ...copied.config,
+                    mappings: copiedMappings?.map((mapping) => mapping.config) ?? copied.config.mappings,
                     name: `${values.configuration.name} (copy)`,
+                    enabled: droppedSecrets ? false : copied.config.enabled,
                 }
                 // TODO: What to do if no template?
                 const originalTemplate = values.hogFunction.template!
+                const { pathname } = router.values.location
                 router.actions.push(urls.hogFunctionNew(originalTemplate.id), undefined, {
                     configuration: newConfig,
                 })
+                const openedCopy = router.values.location.pathname !== pathname
+                if (openedCopy && droppedSecrets) {
+                    lemonToast.info(
+                        'Secret values are not copied, so the copy starts disabled. Enter them again, then enable it.'
+                    )
+                }
             }
         },
         duplicateFromTemplate: async () => {

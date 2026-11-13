@@ -1,4 +1,4 @@
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
 
 import type { SignalSourceProductApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
 
@@ -7,7 +7,7 @@ interface ExternalSignalSourceDefinition {
     label: string
     category: string
     watches: string
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: readonly string[]
     sourceType: SignalSourceConfigSourceTypeEnumApi
     // Creation-only cursors miss later edits, so these sources opt into full refresh.
@@ -167,6 +167,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Surface recurring check errors',
         dwSourceType: 'Checkly',
         requiredTables: ['error_groups'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'datadog',
+        label: 'Datadog',
+        category: 'Error tracking',
+        watches: 'Surface open error tracking issues and firing monitor alerts',
+        dwSourceType: 'Datadog',
+        requiredTables: ['error_tracking_issues', 'monitor_alerts'],
         sourceType: 'issue',
     },
     {
@@ -350,6 +359,24 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         sourceType: 'ticket',
     },
     {
+        source: 'intercom_tickets',
+        label: 'Intercom tickets',
+        category: 'Support',
+        watches: 'Monitor open support tickets',
+        dwSourceType: 'Intercom',
+        requiredTables: ['tickets'],
+        sourceType: 'ticket',
+    },
+    {
+        source: 'pylon',
+        label: 'Pylon',
+        category: 'Support',
+        watches: 'Monitor open support issues',
+        dwSourceType: 'Pylon',
+        requiredTables: ['issues'],
+        sourceType: 'ticket',
+    },
+    {
         source: 'vitally',
         label: 'Vitally',
         category: 'Support',
@@ -419,6 +446,33 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Surface new security and code-quality findings',
         dwSourceType: 'AwsSecurityHub',
         requiredTables: ['findings'],
+        sourceType: 'scanner_finding',
+    },
+    {
+        source: 'github_code_scanning',
+        label: 'GitHub code scanning',
+        category: 'Security',
+        watches: 'Surface new code scanning alerts',
+        dwSourceType: 'Github',
+        requiredTables: ['code_scanning_alerts'],
+        sourceType: 'scanner_finding',
+    },
+    {
+        source: 'github_dependabot',
+        label: 'GitHub Dependabot',
+        category: 'Security',
+        watches: 'Surface new alerts for vulnerable dependencies',
+        dwSourceType: 'Github',
+        requiredTables: ['dependabot_alerts'],
+        sourceType: 'scanner_finding',
+    },
+    {
+        source: 'github_secret_scanning',
+        label: 'GitHub secret scanning',
+        category: 'Security',
+        watches: 'Surface new alerts for exposed secrets',
+        dwSourceType: 'Github',
+        requiredTables: ['secret_scanning_alerts'],
         sourceType: 'scanner_finding',
     },
     {

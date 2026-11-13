@@ -9,6 +9,8 @@ A PostHog **workflow** is a directed graph: a list of **action nodes** (`actions
 
 The single biggest failure mode is **getting the graph JSON structurally wrong**. The backend stores `actions`/`config` as loose JSON, but the visual editor parses every node against a strict schema, so a malformed node saves but then **breaks the editor view** for the whole workflow. Before composing or editing any graph, read [references/graph-schema.md](references/graph-schema.md). It is the contract; do not improvise node shapes from these examples alone.
 
+A one-off email that the user's code sends to one person, such as a password reset, a sign-in code or a receipt, is a transactional email, not a workflow. Use the `sending-transactional-emails` skill for it.
+
 ## Before the first messaging workflow
 
 When the user asks to set up workflows or messaging, or asks for an email, SMS or push workflow in a project that may not send yet, call `workflows-setup-status` before composing anything. It says which setup steps are open and links each one in the app. Walk the user through the open steps, set the sending rules, then offer suggested workflows. Read [references/onboarding.md](references/onboarding.md) for the flow and the defaults to recommend.
@@ -46,7 +48,7 @@ Compose and edit email designs with the **`designing-email-templates`** skill.
 
 ## Changing a live workflow
 
-Editing an active workflow stages a **draft** instead of changing what's running: nothing reaches real people until you publish. Work the cycle:
+Editing an active workflow stages a **draft** instead of changing what's running: nothing reaches real people until you publish. Disabling an active workflow with `workflows-disable` stops new runs and returns it to `draft`; content edits after disabling also stage a draft. Work the cycle:
 
 1. **Edit.** `workflows-patch-graph` (or `workflows-update` for content fields) on the active workflow writes to its draft — the first edit copies the live graph into the draft, later edits compose onto it. `workflows-get` shows the staged draft in `draft`; the live config stays in `actions`/`edges`. Metadata (name, description) applies live immediately.
 2. **Test the draft.** `workflows-test-run` with `use_draft=true` executes the staged draft instead of the live config. Re-test every path you changed.

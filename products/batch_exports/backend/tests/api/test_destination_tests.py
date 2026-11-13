@@ -329,10 +329,6 @@ def bigquery_config() -> dict[str, str]:
     """Return a BigQuery configuration dictionary to use in tests."""
     return {
         "project_id": "project",
-        "private_key": "private_key",
-        "private_key_id": "private_key_id",
-        "token_uri": "token_uri",
-        "client_email": "client_email",
         "dataset_id": "dataset",
     }
 

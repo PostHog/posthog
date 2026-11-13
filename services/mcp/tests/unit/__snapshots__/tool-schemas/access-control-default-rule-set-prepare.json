@@ -22,6 +22,7 @@
             "description": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resource_access_levels` on access-control-defaults-get.",
             "enum": [
                 "account",
+                "account_note",
                 "action",
                 "activity_log",
                 "ai_observability_clusters",
@@ -46,6 +47,7 @@
                 "feature_flag",
                 "heatmap",
                 "hog_flow",
+                "inbox",
                 "insight",
                 "llm_analytics",
                 "llm_playground",
