@@ -47,8 +47,8 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.contacts import (
     CONTACT_COUNT_LABELS,
+    ContactCollector,
     ContactList,
-    contact_row,
     new_people_page,
     new_people_step,
     save_contact_lists,
@@ -115,6 +115,7 @@ _MAX_KEY_NAME_LENGTH = 150
 CATEGORY_KEY_MAX_LENGTH = 64
 _UNSAFE_IN_KEY = re.compile(r"[^A-Za-z0-9_-]+")
 _MAX_NOTED_ITEMS = 5
+MISSING_LIST_NOTE = "Mailgun couldn't find this list while reading it, so its cohort wasn't filled. Import again."
 _STEPS_NEEDING_SUPPRESSION_ROLE = {step: step for step in ("bounces", "complaints", "unsubscribes")}
 
 
@@ -704,23 +705,22 @@ def _fetch_mailing_lists(
 
 def _fetch_contacts(clients: Mapping[MailgunRegion, MailgunClient], context: ImportContext) -> Iterator[ImportPage]:
     # Every list's cohort fills in one go, so the step reads all members before it saves, and a retry reads them again.
-    everyone: dict[str, dict[str, str]] = {}
+    contacts = ContactCollector()
     lists: list[ContactList] = []
     for target in _list_targets(clients, {"limit": TEMPLATE_PAGE_SIZE}):
         client = clients[target.region]
         subscribed: list[dict[str, str]] = []
+        missing = False
         after: str | None = None
         while True:
             try:
                 page = client.page(target.path, dict(target.params), after, target.on_behalf_of)
             except MailgunNotFound:
+                missing = True
                 break
             for member in page.items:
-                row = contact_row(member.get("address"), _member_properties(member))
-                if row is None:
-                    continue
-                everyone.setdefault(row["email"].lower(), row)
-                if member.get("subscribed") is True:
+                row = contacts.add(member.get("address"), _member_properties(member))
+                if row is not None and member.get("subscribed") is True:
                     subscribed.append(row)
             if not page.next_after:
                 break
@@ -731,10 +731,12 @@ def _fetch_contacts(clients: Mapping[MailgunRegion, MailgunClient], context: Imp
                 cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Mailgun)",
                 cohort_description=f"Imported from Mailgun list {target.name} ({target.region.value}).",
                 source=f'the Mailgun list "{name}"',
-                rows=tuple(subscribed),
-                empty_note="No subscribed members.",
+                # A list deleted while it was read is left as it is, rather than filled with part of its members.
+                rows=() if missing else tuple(subscribed),
+                empty_note=MISSING_LIST_NOTE if missing else "No subscribed members.",
             )
         )
+    everyone = contacts.everyone
     yield ImportPage(
         processed=len(everyone),
         save=partial(
@@ -744,7 +746,7 @@ def _fetch_contacts(clients: Mapping[MailgunRegion, MailgunClient], context: Imp
                 cohort_name="Mailgun list members",
                 cohort_description="Imported from Mailgun list members.",
                 source="your Mailgun list members",
-                rows=tuple(everyone.values()),
+                rows=everyone,
             ),
             lists,
         ),
@@ -752,7 +754,6 @@ def _fetch_contacts(clients: Mapping[MailgunRegion, MailgunClient], context: Imp
 
 
 def _member_properties(member: Mapping[str, Any]) -> dict[str, Any]:
-    # A member's variables are the sender's own fields. Names that start with $ belong to PostHog, so they stay out.
     variables = member.get("vars")
     # Mailgun returns the variables as an object or as a JSON string, depending on how they were added.
     if isinstance(variables, str):
@@ -762,10 +763,7 @@ def _member_properties(member: Mapping[str, Any]) -> dict[str, Any]:
             variables = None
     if not isinstance(variables, dict):
         variables = {}
-    return {
-        **{str(key): value for key, value in variables.items() if not str(key).startswith("$")},
-        "name": member.get("name"),
-    }
+    return {**variables, "name": member.get("name")}
 
 
 def _list_targets(clients: Mapping[MailgunRegion, MailgunClient], member_params: Mapping[str, Any]) -> list[_Target]:
