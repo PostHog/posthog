@@ -56,6 +56,7 @@ from .team_caching import get_team_in_cache, set_team_in_cache
 if TYPE_CHECKING:
     from posthog.schema import PathCleaningFilter
 
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
@@ -855,7 +856,9 @@ class Team(UUIDTClassicModel):
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
-    def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
+    def count_persons_seen_so_far(
+        self, database: Optional["Database"] = None, settings: Optional["HogQLGlobalSettings"] = None
+    ) -> int:
         from posthog.schema import HogQLQueryModifiers
 
         from posthog.hogql.context import HogQLContext
@@ -875,6 +878,7 @@ class Team(UUIDTClassicModel):
                 # The v1 pin survives a shared database: the persons table reads the dedup mode from
                 # each query's modifiers at print time, not from the database.
                 context=HogQLContext(team_id=self.pk, database=database),
+                settings=settings,
             ).results[0][0]
 
     def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
