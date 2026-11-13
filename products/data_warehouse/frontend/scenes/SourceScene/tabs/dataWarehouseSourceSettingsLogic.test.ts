@@ -384,7 +384,25 @@ describe('sourceSettingsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         }
 
-        it('sends one request for a row toggled twice while it saves', async () => {
+        it('saves only the latest choice when a table leaves sync and is turned off before the save', async () => {
+            const schema = makeSchema({ should_sync: true, sync_type: 'full_refresh' })
+            const bulkUpdateSchemasSpy = jest
+                .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+                .mockImplementation(async (_id, updates) => updates.map((update) => ({ ...schema, ...update })))
+            await mountWith([schema])
+            jest.useFakeTimers()
+
+            logic.actions.updateSchema({ ...schema, should_sync: false, live_query_enabled: true })
+            logic.actions.setSchemaLiveQuery(logic.values.source!.schemas[0], false)
+            await jest.advanceTimersByTimeAsync(500)
+
+            expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
+            expect(bulkUpdateSchemasSpy).toHaveBeenCalledWith('source-1', [
+                expect.objectContaining({ id: 'schema-1', should_sync: false, live_query_enabled: false }),
+            ])
+        })
+
+        it('sends one request for a table bulk-enabled twice while it saves', async () => {
             const schema = makeSchema()
             let resolveSave: (schemas: ExternalDataSourceSchema[]) => void = () => {}
             const bulkUpdateSchemasSpy = jest
@@ -392,8 +410,8 @@ describe('sourceSettingsLogic', () => {
                 .mockReturnValue(new Promise((resolve) => (resolveSave = resolve)))
             await mountWith([schema])
 
-            logic.actions.setSchemaLiveQuery(schema, true)
-            logic.actions.setSchemaLiveQuery(schema, true)
+            logic.actions.bulkSetLiveQuery([schema], true)
+            logic.actions.bulkSetLiveQuery([schema], true)
             expect(logic.values.liveQuerySavingIds).toEqual({ 'schema-1': true })
 
             resolveSave([{ ...schema, live_query_enabled: true }])
@@ -417,7 +435,7 @@ describe('sourceSettingsLogic', () => {
             const getSpy = jest.spyOn(api.externalDataSources, 'get')
             getSpy.mockClear()
 
-            logic.actions.setSchemaLiveQuery(schema, true)
+            logic.actions.bulkSetLiveQuery([schema], true)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(errorToastSpy).toHaveBeenCalledWith('This table has no column information yet.')
@@ -437,7 +455,7 @@ describe('sourceSettingsLogic', () => {
             const successToastSpy = jest.spyOn(lemonToast, 'success')
             await mountWith([saving, off, synced, excluded])
 
-            logic.actions.setSchemaLiveQuery(saving, true)
+            logic.actions.bulkSetLiveQuery([saving], true)
             logic.actions.bulkSetLiveQuery([saving, off, synced, excluded], true)
             pendingSaves.forEach((resolve) => resolve([]))
             await expectLogic(logic).toFinishAllListeners()

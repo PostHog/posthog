@@ -51,7 +51,7 @@ export function SchemaAvailabilitySelect({
                 {
                     value: 'off',
                     label: 'Off',
-                    labelInMenu: <OptionLabel title="Off" description="Not synced or queryable" />,
+                    labelInMenu: <OptionLabel title="Off" description="Not synced or queried live" />,
                 },
             ]}
         />

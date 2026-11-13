@@ -1460,7 +1460,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         // Saved right away instead of through the debounced queue, so the API's reason for a
         // rejection reaches the user and each row can show that it is saving.
         // Returns how many rows were sent, or null when the request failed.
-        const saveLiveQuery = async (payloads: LiveQueryUpdate[], bulk: boolean): Promise<number | null> => {
+        const saveLiveQuery = async (payloads: LiveQueryUpdate[]): Promise<number | null> => {
             // Rows already saving are left out, so a double click sends one request.
             const toSave = payloads.filter((payload) => !values.liveQuerySavingIds[payload.id])
             if (toSave.length === 0) {
@@ -1478,7 +1478,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     sourceType: values.source?.source_type,
                     enabled: toSave[0].live_query_enabled,
                     count: toSave.length,
-                    bulk,
+                    bulk: true,
                 })
                 return toSave.length
             } catch (e: any) {
@@ -1492,8 +1492,15 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         }
 
         return {
-            setSchemaLiveQuery: async ({ schema, enabled }) => {
-                await saveLiveQuery([{ id: schema.id, live_query_enabled: enabled }], false)
+            // Same queue as every other row edit, so a later choice for the table replaces an earlier one still waiting to save.
+            setSchemaLiveQuery: ({ schema, enabled }) => {
+                actions.updateSchema({ ...schema, live_query_enabled: enabled })
+                posthog.capture('schema live query toggled', {
+                    sourceType: values.source?.source_type,
+                    enabled,
+                    count: 1,
+                    bulk: false,
+                })
             },
             bulkSetLiveQuery: async ({ schemas, enabled }) => {
                 const { payloads, skipped } = buildLiveQueryPayloads(schemas, enabled)
@@ -1513,7 +1520,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     )
                     return
                 }
-                const saved = await saveLiveQuery(payloads, true)
+                const saved = await saveLiveQuery(payloads)
                 if (saved) {
                     lemonToast.success(
                         `${enabled ? 'Enabled' : 'Disabled'} live queries for ${pluralize(saved, 'table', 'tables')}.${skipNote}`

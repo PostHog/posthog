@@ -859,7 +859,10 @@ function ManagedSchemaTable({
                                           <span>
                                               Live only: queried straight from your database. Nothing is copied.
                                           </span>
-                                          <span>Off: not available in PostHog.</span>
+                                          <span>
+                                              Off: not synced or queried live. Data synced before stays until you delete
+                                              it.
+                                          </span>
                                       </div>
                                   }
                               >
