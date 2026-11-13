@@ -419,6 +419,25 @@ class TestTransactionalEmail(APIBaseTest):
             expected_client
         ]
 
+    def test_a_categorized_code_send_records_its_client_and_queues_its_category(self, mock_post, _flag, capture):
+        pipeline, analytics = FakeCdpApi(), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url,
+            self._code_send(**MARKETING_SEND),
+            format="json",
+            headers={"X-PostHog-Integration": "django-anymail/13.1"},
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        newsletter = MessageCategory.objects.get(team=self.team, key="newsletter")
+        assert pipeline.categories() == [{"id": str(newsletter.id), "type": "marketing"}]
+        assert [
+            (event["client"], event["category_type"])
+            for event in analytics.properties_of("transactional email api send")
+        ] == [("django-anymail", "marketing")]
+
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
         client = APIClient()
