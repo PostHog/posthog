@@ -344,5 +344,5 @@ class TestClusteringWorkflowWiring:
 def test_compute_skips_deleted_team() -> None:
     result = _compute_sync(EvaluationClusteringComputeInputs(team_id=999_999_999, job_id="job-1", job_name="job"))
 
-    assert result.skip_reason == "team_not_found"
+    assert result.skip_reason == "team_not_eligible"
     assert result.eval_ids == []

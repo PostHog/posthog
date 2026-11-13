@@ -4,6 +4,8 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
+from products.ai_observability.backend.logic.clustering.constants import MIN_CLUSTERING_ITEMS
+
 # Stage A (sampler): window + offset + caps
 SAMPLER_WINDOW_MINUTES = 60
 SAMPLER_WINDOW_OFFSET_MINUTES = 30  # skew the window into the past so evals have time to land
@@ -84,4 +86,4 @@ EVENT_NAME_EVALUATION_CLUSTERS = "$ai_evaluation_clusters"
 # Minimum accumulated embeddings required before clustering will run for a job.
 # For a new eval job sampling up to 250/hour this is typically reached within an hour
 # of activity; until then the Stage B workflow reports "not enough embeddings yet".
-MIN_EMBEDDINGS_FOR_CLUSTERING = 100
+MIN_EMBEDDINGS_FOR_CLUSTERING = MIN_CLUSTERING_ITEMS

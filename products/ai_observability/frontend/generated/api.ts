@@ -30,8 +30,11 @@ import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
+    ClusteringConfigSetEnabledApi,
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
+    ClusteringJobProgressApi,
+    ClusteringRetryApi,
     ClusteringRunRequestApi,
     CompositeValidationApi,
     CompositeValidationResponseApi,
@@ -2166,6 +2169,63 @@ export const llmAnalyticsClusteringConfigList = async (
     return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsClusteringConfigProgressListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/clustering_config/progress/`
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const llmAnalyticsClusteringConfigProgressList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ClusteringJobProgressApi[]> => {
+    return apiMutator<ClusteringJobProgressApi[]>(getLlmAnalyticsClusteringConfigProgressListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsClusteringConfigRetryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/clustering_config/retry/`
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const llmAnalyticsClusteringConfigRetryCreate = async (
+    projectId: string,
+    clusteringRetryApi: ClusteringRetryApi,
+    options?: RequestInit
+): Promise<ClusteringJobProgressApi[]> => {
+    return apiMutator<ClusteringJobProgressApi[]>(getLlmAnalyticsClusteringConfigRetryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringRetryApi),
+    })
+}
+
+export const getLlmAnalyticsClusteringConfigSetEnabledCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/clustering_config/set_enabled/`
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const llmAnalyticsClusteringConfigSetEnabledCreate = async (
+    projectId: string,
+    clusteringConfigSetEnabledApi: ClusteringConfigSetEnabledApi,
+    options?: RequestInit
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigSetEnabledCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringConfigSetEnabledApi),
     })
 }
 

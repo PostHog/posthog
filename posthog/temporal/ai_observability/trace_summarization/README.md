@@ -141,6 +141,14 @@ See [AI data processing consent](#ai-data-processing-consent).
 
 The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
+### First run after enabling clustering
+
+Clustering is opt-in. Enabling it queues an `ai-observability-clustering-first-run` workflow for each enabled job, without waiting for a scheduled cycle. The workflow checks for at least 10 eligible items in the job's window: 7 days for traces and generations, or 3 days for evaluations. Generation sampling takes the last generation from each trace. Evaluation sampling excludes numeric and categorical results. Saved job filters apply to these checks.
+
+Jobs below the minimum wait and check again every 30 minutes, even when the page is closed. Jobs with enough data prepare up to 100 items through the existing summarization or evaluation sampling workflow, wait for embeddings, then start clustering. Ten items allow the algorithm to run; they do not guarantee groups. HDBSCAN can classify all items as outliers.
+
+`ClusteringRun` stores each first attempt and retry. The clustering config `progress` action reads these records; it does not query ClickHouse or start work. The `retry` action resumes a queued dispatch or creates a new attempt after a failure. Repeated enable requests reuse active attempts. Scheduled coordinators exclude jobs with active first runs and resume processing them once those runs finish. Turning clustering off preserves previous results and stops the first-run workflow at its next stage check.
+
 ### Team Discovery
 
 Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.

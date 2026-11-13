@@ -57,6 +57,25 @@ describe('ProductEmptyStateGate', () => {
 
     afterEach(() => cleanup())
 
+    it.each<ProductSetupStatus>(['needs-setup', 'waiting-for-data', 'has-data'])(
+        'uses a product waiting page only for waiting-for-data (%s)',
+        (status) => {
+            const setup = productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS })
+            setup.actions.setDetectedStatus('loading')
+            setup.actions.setDetectedStatus(status)
+            render(
+                <ProductEmptyStateGate
+                    emptyState={{ ...emptyState, WaitingState: () => <div>Waiting for results</div> }}
+                >
+                    <div>the real scene</div>
+                </ProductEmptyStateGate>
+            )
+            expect(!!screen.queryByText('Waiting for results')).toBe(status === 'waiting-for-data')
+            expect(!!screen.queryByText('Set up experiments')).toBe(status === 'needs-setup')
+            expect(!!screen.queryByText('the real scene')).toBe(status === 'has-data')
+        }
+    )
+
     it.each([
         ['metrics', 'on'],
         ['relationships', 'off'],

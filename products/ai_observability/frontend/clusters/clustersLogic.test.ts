@@ -1,11 +1,99 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { traceDrawerLogic } from '../redesign/trace/traceDrawerLogic'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
 import { EvaluationItemAttributes } from './traceSummaryLoader'
 import { Cluster, ClusterMetrics, ClusteringLevel, ClusteringRun } from './types'
+
+describe('cluster level navigation', () => {
+    it('closes the open trace when changing the clustering level', async () => {
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
+            [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: true,
+        })
+        router.actions.push(urls.aiObservabilityClusters(), { order: '-size' })
+        const query = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] })
+        const logic = clustersLogic()
+        const drawer = traceDrawerLogic({ listId: 'clusters' })
+        logic.mount()
+        drawer.mount()
+        try {
+            drawer.actions.openRow({ traceId: 'trace-1', timestamp: '2026-01-01', stepId: 'generation-1' })
+            expect(drawer.values.openRef?.traceId).toBe('trace-1')
+
+            logic.actions.setClusteringLevel('generation')
+
+            expect(drawer.values.openRef).toBeNull()
+            expect(router.values.searchParams).toEqual({ order: '-size' })
+            await expectLogic(logic).toFinishAllListeners()
+        } finally {
+            drawer.unmount()
+            logic.unmount()
+            query.mockRestore()
+        }
+    })
+
+    it.each(['list', 'run'])('ignores a late generation %s response after switching back to traces', async (stage) => {
+        initKeaTests()
+        let releaseGeneration: () => void = () => {}
+        const generationGate = new Promise<void>((resolve) => {
+            releaseGeneration = resolve
+        })
+        let startedGeneration: () => void = () => {}
+        const generationStarted = new Promise<void>((resolve) => {
+            startedGeneration = resolve
+        })
+        const query = jest.spyOn(api, 'queryHogQL').mockImplementation(async (sql) => {
+            const isRun = String(sql).includes('$ai_clusters')
+            const level = String(sql).includes('$ai_generation_clusters') ? 'generation' : 'trace'
+            if (level === 'generation' && isRun === (stage === 'run')) {
+                startedGeneration()
+                await generationGate
+            }
+            const runId = `1_${level}_20260107_120000`
+            return {
+                results: isRun
+                    ? [[runId, '2026-01-01', '2026-01-07', 0, '[]', '2026-01-07T12:00:00Z', null, level]]
+                    : [[runId, '2026-01-07', '2026-01-07T12:00:00Z']],
+            }
+        })
+        const logic = clustersLogic()
+        logic.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setSelectedRunId('1_trace_20260107_120000')
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setClusteringLevel('generation')
+            await generationStarted
+            await expectLogic(logic, () => logic.actions.setClusteringLevel('trace')).toDispatchActions([
+                'loadClusteringRunsSuccess',
+                'loadClusteringRunSuccess',
+            ])
+            releaseGeneration()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.clusteringLevel).toBe('trace')
+            expect(logic.values.currentRun?.runId).toBe('1_trace_20260107_120000')
+            expect(logic.values.clusteringRuns.map(({ runId }) => runId)).toEqual(['1_trace_20260107_120000'])
+            expect(router.values.location.pathname).toBe(`/project/997${urls.aiObservabilityClusters()}`)
+            expect(logic.values.selectedRunId).toBeNull()
+        } finally {
+            releaseGeneration()
+            logic.unmount()
+            query.mockRestore()
+        }
+    })
+})
 
 describe('clustersLogic', () => {
     let logic: ReturnType<typeof clustersLogic.build>
@@ -342,7 +430,7 @@ describe('clustersLogic', () => {
         })
 
         describe('scatterPlotSeries', () => {
-            it('creates item and centroid series for regular clusters', async () => {
+            it('creates only item series for regular clusters', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -356,8 +444,7 @@ describe('clustersLogic', () => {
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
                 const series = logic.values.scatterPlotSeries
-                // 2 item series + 2 centroid series
-                expect(series.length).toBe(4)
+                expect(series.length).toBe(2)
 
                 const itemSeries = series.filter((d) => !d.label.includes('(centroid)'))
                 expect(itemSeries.length).toBe(2)
@@ -383,7 +470,7 @@ describe('clustersLogic', () => {
                 expect(outlierSeries).toMatchObject({ shape: 'cross' })
             })
 
-            it('does not create centroid marker for outlier cluster', async () => {
+            it('does not add centroid markers alongside regular clusters or outliers', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -399,9 +486,7 @@ describe('clustersLogic', () => {
                 const series = logic.values.scatterPlotSeries
                 const centroidSeries = series.filter((d) => d.label.includes('(centroid)'))
 
-                // Only one centroid for regular cluster, none for outliers
-                expect(centroidSeries.length).toBe(1)
-                expect(centroidSeries[0].label).toBe('Cluster A (centroid)')
+                expect(centroidSeries).toEqual([])
             })
 
             it('carries trace metadata into item points', async () => {

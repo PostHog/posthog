@@ -79,7 +79,10 @@ async def fake_team_discovery(inputs: TeamDiscoveryInput | None = None) -> list[
 
 @activity.defn(name="fetch_all_clustering_jobs_activity")
 async def fake_fetch_jobs(inputs: FetchAllClusteringJobsInput) -> dict[int, list[JobConfig]]:
-    return {}
+    return {
+        team_id: [JobConfig(job_id=f"job-{team_id}", name="Traces", analysis_level="trace", event_filters=[])]
+        for team_id in inputs.team_ids
+    }
 
 
 @activity.defn(name="fetch_all_clustering_filters_activity")

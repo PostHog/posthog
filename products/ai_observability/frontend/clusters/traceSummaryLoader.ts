@@ -47,7 +47,7 @@ export async function loadTraceSummaries(
                 AND timestamp <= parseDateTimeBestEffort(${windowEnd})
                 AND ${hogql.raw(idExpression)} IN ${missingItemIds}
             GROUP BY item_id
-            LIMIT 10000
+            LIMIT ${missingItemIds.length}
         `,
         { productKey: 'llm_analytics', scene: 'AIObservabilityClusters' },
         // Window bounds are in UTC (from backend), so compare timestamps in UTC
@@ -109,7 +109,7 @@ async function loadEvaluationSummaries(
                 AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
                 AND timestamp <= parseDateTimeBestEffort(${windowEnd}) + INTERVAL 1 DAY
                 AND uuid IN ${evalIds}
-            LIMIT 10000
+            LIMIT ${evalIds.length}
         `,
         { productKey: 'llm_analytics', scene: 'AIObservabilityClusters' },
         { queryParams: { modifiers: { convertToProjectTimezone: false } } }
@@ -149,56 +149,6 @@ export type EvaluationVerdict = 'pass' | 'fail' | 'n/a' | 'unknown'
 export interface EvaluationItemAttributes {
     evaluatorName: string
     verdict: EvaluationVerdict
-}
-
-/**
- * Lightweight per-item lookup of (evaluator name, verdict) for every eval in a clustering run.
- * Used to power post-hoc client-side filtering of the scatter plot and cluster cards — we don't
- * want to refetch full summaries (which include long reasoning text) just to know which evaluator
- * a point belongs to.
- */
-export async function loadEvaluationItemAttributes(
-    evalIds: string[],
-    windowStart: string,
-    windowEnd: string,
-    detectorEvaluationIds: string[]
-): Promise<Record<string, EvaluationItemAttributes>> {
-    if (evalIds.length === 0) {
-        return {}
-    }
-    // Same rationale as loadEvaluationSummaries — widen by 7 days on the
-    // leading edge to cover Stage B's embedding lookback while keeping
-    // ClickHouse partition pruning intact.
-    const response = await api.queryHogQL(
-        hogql`
-            SELECT
-                toString(uuid) as eval_id,
-                properties.$ai_evaluation_name as name,
-                properties.$ai_evaluation_result as result,
-                properties.$ai_evaluation_applicable as applicable,
-                properties.$ai_evaluation_id as evaluation_id
-            FROM events
-            WHERE event = '$ai_evaluation'
-                AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
-                AND timestamp <= parseDateTimeBestEffort(${windowEnd}) + INTERVAL 1 DAY
-                AND uuid IN ${evalIds}
-        `,
-        { productKey: 'llm_analytics', scene: 'AIObservabilityClusters' },
-        { queryParams: { modifiers: { convertToProjectTimezone: false } } }
-    )
-    const out: Record<string, EvaluationItemAttributes> = {}
-    for (const row of response.results || []) {
-        const r = row as (string | null)[]
-        const evalId = r[0] as string
-        if (!evalId) {
-            continue
-        }
-        out[evalId] = {
-            evaluatorName: r[1] || 'Unknown',
-            verdict: deriveVerdict(r[2], r[3], detectorEvaluationIds.includes(r[4] || '')),
-        }
-    }
-    return out
 }
 
 /**

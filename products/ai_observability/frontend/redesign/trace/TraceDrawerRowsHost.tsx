@@ -20,7 +20,7 @@ export interface TraceDrawerRows {
 
 export function useTraceDrawerRows(listId: TraceDrawerListId, linkSelector: string): TraceDrawerRows {
     const logic = traceDrawerLogic({ listId })
-    const { isEnabled, openTraceId } = useValues(logic)
+    const { isEnabled, openTraceId, openRef } = useValues(logic)
     const { openRow } = useActions(logic)
     const { rowClick } = TRACE_DRAWER_LISTS[listId]
 
@@ -32,7 +32,9 @@ export function useTraceDrawerRows(listId: TraceDrawerListId, linkSelector: stri
             return {
                 className: clsx(
                     rowClick && 'cursor-pointer',
-                    row.traceId === openTraceId && TRACE_DRAWER_OPEN_ROW_CLASS
+                    row.traceId === openTraceId &&
+                        (row.stepId === null || row.stepId === openRef?.stepId) &&
+                        TRACE_DRAWER_OPEN_ROW_CLASS
                 ),
                 onClickCapture: (event) => {
                     if (opensTraceDrawer(event, linkSelector, rowClick)) {
@@ -45,7 +47,7 @@ export function useTraceDrawerRows(listId: TraceDrawerListId, linkSelector: stri
                 },
             }
         },
-        [isEnabled, linkSelector, openRow, openTraceId, rowClick]
+        [isEnabled, linkSelector, openRow, openTraceId, openRef?.stepId, rowClick]
     )
 
     return { isEnabled, openTraceId, rowProps }

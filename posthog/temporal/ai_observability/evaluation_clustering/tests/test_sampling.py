@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import pytest
 from unittest.mock import MagicMock, patch
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.hogql.placeholders import replace_placeholders
@@ -30,8 +31,11 @@ def mock_team(db):
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
-    organization = Organization.objects.create(name="Test Org Eval Sampler")
+    from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+
+    organization = Organization.objects.create(name="Test Org Eval Sampler", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=organization, name="Eval Sampler Team")
+    ClusteringConfig.objects.create(team=team, enabled=True)
     return team
 
 
@@ -95,6 +99,29 @@ class TestComposeEvaluationText:
     _noop_heartbeater,
 )
 class TestSampleAndEmbedForJobActivity:
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("enabled,consented", [(False, True), (True, False), (False, False)])
+    def test_does_not_sample_without_opt_in_and_consent(self, mock_team, enabled, consented):
+        from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+
+        ClusteringConfig.objects.filter(team=mock_team).update(enabled=enabled)
+        mock_team.organization.is_ai_data_processing_approved = consented
+        mock_team.organization.save(update_fields=["is_ai_data_processing_approved"])
+        inputs = SamplerActivityInputs(
+            team_id=mock_team.id,
+            job_id="job-abc",
+            job_name="Evaluation clustering",
+            window_start="2026-04-15T10:30:00Z",
+            window_end="2026-04-15T11:30:00Z",
+            max_samples=250,
+            event_filters=[],
+        )
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.sampling.execute_hogql_query") as query:
+            result = async_to_sync(sample_and_embed_for_job_activity)(inputs)
+        assert result.sampled == 0
+        assert result.embedded == 0
+        query.assert_not_called()
+
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_enqueues_one_embedding_per_row(self, mock_team):

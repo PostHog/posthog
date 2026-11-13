@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
 from typing import IO, Final
+from uuid import UUID
 
 from django.utils.timezone import now
 
@@ -112,6 +113,7 @@ from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
+from .clustering_contracts import ClusteringJobProgress, ClusteringRunContext, ClusteringRunRef, ClusteringRunUpdate
 
 
 class TraceNotFoundError(Exception):
@@ -918,3 +920,39 @@ def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
     """Saves a parser recipe for the team and returns its id. Raises `RecipeCompileError` when it does not compile."""
     validate_parser_recipe_source(source)
     return save_team_recipe(team.pk, user, name=name, source=source)
+
+
+def request_first_clustering_runs(team_id: int, retry_job_id: UUID | None = None) -> None:
+    from ..logic.clustering.runs import request_first_runs
+
+    request_first_runs(team_id, retry_job_id)
+
+
+def clustering_job_progress(team_id: int) -> list[ClusteringJobProgress]:
+    from ..logic.clustering.run_queries import load_job_progress
+
+    return load_job_progress(team_id)
+
+
+def clustering_run_context(ref: ClusteringRunRef) -> ClusteringRunContext | None:
+    from ..logic.clustering.runs import get_run_context
+
+    return get_run_context(ref)
+
+
+def update_clustering_run(update: ClusteringRunUpdate) -> None:
+    from ..logic.clustering.runs import update_run
+
+    update_run(update)
+
+
+def clustering_ready_items(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
+    from ..logic.clustering.run_queries import count_ready_items
+
+    return count_ready_items(team_id, context, start, end)
+
+
+def clustering_eligible_evaluations(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
+    from ..logic.clustering.run_queries import count_eligible_evaluations
+
+    return count_eligible_evaluations(team_id, context, start, end)

@@ -103,9 +103,13 @@ def _parse_iso(ts: str) -> datetime:
 
 def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResult:
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        team = Team.objects.get(
+            id=inputs.team_id, clustering_config__enabled=True, organization__is_ai_data_processing_approved=True
+        )
     except Team.DoesNotExist:
-        logger.info("Team not found, skipping eval sampler run", team_id=inputs.team_id, job_id=inputs.job_id)
+        logger.info(
+            "Team not eligible for clustering, skipping eval sampler", team_id=inputs.team_id, job_id=inputs.job_id
+        )
         return SamplerActivityResult(team_id=inputs.team_id, job_id=inputs.job_id, sampled=0, embedded=0)
 
     window_start = _parse_iso(inputs.window_start)

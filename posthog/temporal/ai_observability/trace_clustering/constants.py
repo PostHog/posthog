@@ -4,8 +4,10 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
+from products.ai_observability.backend.logic.clustering.constants import MIN_CLUSTERING_ITEMS, TRACE_LOOKBACK_DAYS
+
 # Clustering parameters
-DEFAULT_LOOKBACK_DAYS = 7
+DEFAULT_LOOKBACK_DAYS = TRACE_LOOKBACK_DAYS
 DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
@@ -14,7 +16,7 @@ DEFAULT_MAX_K = 10
 # lookback window (~1 week). A team qualifies for trace clustering with >= this
 # many traces, and independently for generation clustering with >= this many
 # generations.
-MIN_TRACES_FOR_CLUSTERING = 1000
+MIN_TRACES_FOR_CLUSTERING = MIN_CLUSTERING_ITEMS
 
 # Coordinator concurrency settings.
 # Each team's compute activity runs a heavy embedding scan against ClickHouse, so keep the

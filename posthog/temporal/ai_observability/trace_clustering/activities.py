@@ -22,7 +22,6 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.retries import is_last_attempt
-from posthog.temporal.ai_observability.team_discovery import get_min_traces_override
 from posthog.temporal.ai_observability.trace_clustering import constants
 from posthog.temporal.ai_observability.trace_clustering.clustering import (
     calculate_distances_to_cluster_means,
@@ -79,9 +78,11 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
 
     # The coordinator can run a team after it is deleted, so skip the run instead of failing it.
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        team = Team.objects.get(
+            id=inputs.team_id, clustering_config__enabled=True, organization__is_ai_data_processing_approved=True
+        )
     except Team.DoesNotExist:
-        logger.info("Team not found, skipping clustering run", team_id=inputs.team_id)
+        logger.info("Team not eligible for clustering, skipping run", team_id=inputs.team_id)
         return ClusteringComputeResult(
             clustering_run_id=clustering_run_id,
             items=[],
@@ -109,9 +110,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         analysis_level=inputs.analysis_level,
     )
 
-    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters.
-    # A per-team override lets low-volume teams opt below the global minimum.
-    min_traces = get_min_traces_override(inputs.team_id) or constants.MIN_TRACES_FOR_CLUSTERING
+    # UMAP and HDBSCAN still need a small number of samples to produce a usable projection.
+    min_traces = constants.MIN_TRACES_FOR_CLUSTERING
     if len(item_ids) < min_traces:
         logger.warning(
             "Not enough items for clustering",

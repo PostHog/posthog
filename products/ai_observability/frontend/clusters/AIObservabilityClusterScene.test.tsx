@@ -72,7 +72,7 @@ describe('AIObservabilityClusterScene', () => {
                 <AIObservabilityClusterScene />
             </BindLogic>
         )
-        await waitFor(() => expect(screen.getAllByText(/^View (trace|generation) →$/)).toHaveLength(2))
+        await waitFor(() => expect(screen.getAllByRole('link', { name: /^(Trace|Generation) key-/ })).toHaveLength(2))
     }
 
     afterEach(async () => {
@@ -85,11 +85,11 @@ describe('AIObservabilityClusterScene', () => {
     it('opens a trace-level member on its trace, and steps through the page rows', async () => {
         await mountScene('trace')
 
-        fireEvent.click(screen.getAllByText('View trace →')[0])
+        fireEvent.click(screen.getByRole('link', { name: 'Trace key-1' }))
 
         expect(router.values.searchParams).toEqual({ trace: 'key-1', ts: '2025-01-05T10:00:00.000Z' })
         const host = traceViewHostLogic({ hostId: traceDrawerLogic({ listId: 'cluster-traces' }).values.hostId })
-        expect(host.values.openingMode).toBe('summary')
+        expect(host.values.openingMode).toBe('thread')
         expect(traceDrawerLogic({ listId: 'cluster-traces' }).values.rows.map((row) => row.traceId)).toEqual([
             'key-1',
             'key-2',
@@ -99,7 +99,7 @@ describe('AIObservabilityClusterScene', () => {
     it('opens a generation-level member on its step', async () => {
         await mountScene('generation')
 
-        fireEvent.click(screen.getAllByText('View generation →')[1])
+        fireEvent.click(screen.getByRole('link', { name: 'Generation key-2' }))
 
         expect(router.values.searchParams).toEqual({ trace: 'trace-2', ts: '2025-01-05T11:00:00.000Z', step: 'gen-2' })
         const host = traceViewHostLogic({ hostId: traceDrawerLogic({ listId: 'cluster-traces' }).values.hostId })

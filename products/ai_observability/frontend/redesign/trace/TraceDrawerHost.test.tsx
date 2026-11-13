@@ -164,7 +164,7 @@ describe('TraceDrawerHost', () => {
             setUp(drawerUrl(ROW_A, urls.aiObservabilityCluster('run-1', 3)))
             const view = renderHost([ROW_A, ROW_B], 'cluster-traces')
             const host = traceViewHostLogic({ hostId: traceDrawerLogic({ listId: 'cluster-traces' }).values.hostId })
-            await waitFor(() => expect(host.values.mode).toBe('summary'))
+            await waitFor(() => expect(host.values.mode).toBe('thread'))
             act(() => host.actions.setMode(mode))
 
             fireEvent.click(attr(view.container, 'trace-drawer-next'))
@@ -211,6 +211,29 @@ describe('TraceDrawerHost', () => {
 
         expect(router.values.searchParams.trace).toBeUndefined()
         expect(aiObservabilityTracesNodesRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('closes on an outside click but keeps the drawer open for its content and dialogs', async () => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        await view.findAllByText('answer-a')
+
+        fireEvent.mouseUp(attr(view.container, 'trace-view-search-input'))
+        expect(router.values.searchParams.trace).toBe('a')
+
+        const modal = render(
+            <LemonModal isOpen onClose={() => {}} title="Edit dataset item">
+                <LemonButton>Save</LemonButton>
+            </LemonModal>
+        )
+        fireEvent.mouseUp(modal.getByText('Save'))
+        expect(router.values.searchParams.trace).toBe('a')
+        modal.unmount()
+
+        fireEvent.mouseUp(document.body)
+        expect(router.values.searchParams.trace).toBeUndefined()
+        expect(view.queryByRole('complementary', { name: 'Trace detail' })).toBeNull()
     })
 
     it('writes a clicked step to the list URL and stays on the list', async () => {

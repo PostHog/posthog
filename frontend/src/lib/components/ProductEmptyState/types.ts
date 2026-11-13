@@ -223,6 +223,8 @@ export interface SceneProductEmptyState {
      * sibling-tab nav here so those surfaces stay reachable before the product has data.
      */
     SceneNav?: ComponentType
+    /** Replaces the setup layout once configured but still waiting for the first results. */
+    WaitingState?: ComponentType
 }
 
 /**

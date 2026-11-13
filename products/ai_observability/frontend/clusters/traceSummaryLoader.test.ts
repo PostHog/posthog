@@ -1,4 +1,29 @@
-import { deriveVerdict } from './traceSummaryLoader'
+import api from 'lib/api'
+
+import { deriveVerdict, loadTraceSummaries } from './traceSummaryLoader'
+
+describe('loadTraceSummaries', () => {
+    it('loads verdicts for every evaluation beyond the default query page', async () => {
+        const ids = Array.from({ length: 360 }, (_, i) => `evaluation-${i}`)
+        const query = jest.spyOn(api, 'queryHogQL').mockImplementation(async (sql) => {
+            const limit = Number(String(sql).match(/LIMIT\s+(\d+)/i)?.[1] ?? 100)
+            return {
+                results: ids
+                    .slice(0, limit)
+                    .map((id, i) => [id, 'Helpfulness', i < 320, true, '', '', '', '', '', 'evaluator']),
+            }
+        })
+        try {
+            const summaries = await loadTraceSummaries(ids, {}, '2026-01-01', '2026-01-07', 'evaluation', [])
+            const verdicts = Object.values(summaries).map(({ evaluationVerdict }) => evaluationVerdict)
+            expect(verdicts).toHaveLength(360)
+            expect(verdicts.filter((verdict) => verdict === 'pass')).toHaveLength(320)
+            expect(verdicts.filter((verdict) => verdict === 'fail')).toHaveLength(40)
+        } finally {
+            query.mockRestore()
+        }
+    })
+})
 
 describe('deriveVerdict', () => {
     it.each([

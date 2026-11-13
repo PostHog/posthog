@@ -135,6 +135,8 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
     def perform_create(self, serializer):
+        from ..facade.api import request_first_clustering_runs
+
         instance = serializer.save(team_id=self.team_id)
 
         # Disable the migration-created default job for the same level.
@@ -149,6 +151,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .exclude(id=instance.id)
             .update(enabled=False)
         )
+        request_first_clustering_runs(self.team_id)
 
         report_user_action(
             self.request.user,
@@ -175,7 +178,10 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
     def perform_update(self, serializer):
+        from ..facade.api import request_first_clustering_runs
+
         instance = serializer.save()
+        request_first_clustering_runs(self.team_id)
         report_user_action(
             self.request.user,
             "llma clustering job updated",

@@ -363,23 +363,14 @@ class TestClusteringJobSerializerValidation(SimpleTestCase):
 
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
-    """Exercises the post_save signal in models/clustering_job.py that seeds the three
-    Default - <level> rows when a new Team is created."""
-
-    def test_creates_defaults_for_all_three_levels_on_team_create(self):
+    def test_does_not_enable_clustering_on_team_create(self):
         from posthog.models import Organization, Project, Team
 
         org = Organization.objects.create(name="signal-test")
         project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=org)
         team = Team.objects.create(id=project.id, project=project, organization=org)
 
-        jobs = ClusteringJob.objects.filter(team=team).order_by("analysis_level")
-        specs = {(j.name, j.analysis_level, j.enabled, tuple(j.event_filters)) for j in jobs}
-        assert specs == {
-            ("Default - evaluations", "evaluation", True, ()),
-            ("Default - generations", "generation", True, ()),
-            ("Default - traces", "trace", True, ()),
-        }
+        assert not ClusteringJob.objects.filter(team=team).exists()
 
     def test_no_extra_rows_on_team_update(self):
         from posthog.models import Organization, Project, Team

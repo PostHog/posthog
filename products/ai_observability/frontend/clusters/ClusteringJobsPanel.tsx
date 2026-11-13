@@ -19,6 +19,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { AccessControlLevel, AccessControlResourceType, type AnyPropertyFilter } from '~/types'
 
+import { clusteringConfigLogic } from './clusteringConfigLogic'
 import { clusteringJobsLogic } from './clusteringJobsLogic'
 import type { ClusteringJob, ClusteringLevel } from './types'
 
@@ -136,6 +137,9 @@ function JobEditor({
 }
 
 export function ClusteringJobsPanel(): JSX.Element {
+    const { config, configLoading, dataProcessingAccepted, dataProcessingApprovalDisabledReason } =
+        useValues(clusteringConfigLogic)
+    const { setEnabled } = useActions(clusteringConfigLogic)
     const { isJobsPanelOpen, jobs, jobsLoading, editingJob } = useValues(clusteringJobsLogic)
     const { closeJobsPanel, setEditingJob, createJob, updateJob, deleteJob } = useActions(clusteringJobsLogic)
 
@@ -146,9 +150,34 @@ export function ClusteringJobsPanel(): JSX.Element {
             isOpen={isJobsPanelOpen}
             onClose={closeJobsPanel}
             title="Clustering jobs"
-            description="Define independent clustering configurations for different subpopulations."
+            description="Choose which traces, generations, or evaluations each job groups."
             width={600}
         >
+            <div className="flex items-center justify-between gap-3 mb-4 border-b pb-4">
+                <div>
+                    <div className="font-semibold">Clustering for this project</div>
+                    <div className="text-muted text-xs">
+                        Turning this off stops future runs. Existing results stay available.
+                    </div>
+                </div>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.AiObservabilityClusters}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonSwitch
+                        checked={config.enabled}
+                        onChange={setEnabled}
+                        loading={configLoading}
+                        disabledReason={
+                            !config.enabled && !dataProcessingAccepted
+                                ? dataProcessingApprovalDisabledReason
+                                : undefined
+                        }
+                        label={config.enabled ? 'Enabled' : 'Disabled'}
+                        data-attr="clusters-enabled-switch"
+                    />
+                </AccessControlAction>
+            </div>
             {editingJob ? (
                 <JobEditor
                     job={editingJob}
