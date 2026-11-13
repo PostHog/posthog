@@ -35,8 +35,6 @@ def _collect(
 
 class TestNormalizeBillingRecord:
     def test_start_time_is_aliased_to_time(self) -> None:
-        # v2 names the bucket start `startTime`, but the schema declares `time` as the incremental
-        # field and the partition key, so without this alias `time` never lands in the yielded row.
         record = _normalize_billing_record({"startTime": "2025-08-01T00:00:00Z", "totalAmount": 1.5})
         assert record["time"] == "2025-08-01T00:00:00Z"
         assert "startTime" not in record
@@ -56,8 +54,7 @@ class TestNormalizeBillingRecord:
         ]
     )
     def test_v2_record_keeps_the_id_a_v1_sync_wrote(self, _name: str, resource: dict, v1_id: str) -> None:
-        # The ids are what v1 syncs wrote for the same bucket and resource. A changed id makes merge
-        # insert a second row for every bucket in the lookback window, which double-counts spend.
+        # A changed id makes merge insert a second row per bucket in the lookback, which double-counts spend.
         record = _normalize_billing_record({"startTime": "2026-11-01T00:00:00Z", **resource, "totalAmount": 1.0})
         assert record["id"] == v1_id
 
@@ -122,14 +119,12 @@ class TestBillingWindows:
         assert calls[0]["startTime"] == ["2022-05-15T00:00:00Z"]
 
     def test_endpoint_billing_reads_serverless_billing(self) -> None:
-        # In v2, `/billing/endpoints` is Public Endpoint billing. Reading it would fill the table
-        # with another product's spend and the sync would still succeed.
+        # In v2, `/billing/endpoints` is Public Endpoint billing, so a wrong path syncs the wrong spend silently.
         result, _ = _collect([{"records": []}], "billing_endpoints")
         assert set(result.paths) == {"/v2/billing/serverless"}
 
     def test_network_volume_billing_keeps_one_row_per_volume(self) -> None:
-        # v2 returns one record per volume per bucket. Without the volume in the id, merge keeps
-        # only one volume's charge for each day.
+        # Without the volume in the id, merge keeps only one volume's charge for each day.
         responses = [
             {
                 "records": [

@@ -141,9 +141,8 @@ def _row_id(*parts: Any) -> str:
 
 
 def _billing_row_id(record: dict[str, Any]) -> str:
-    # The parts and their order match the ids that v1 syncs wrote (time, podId, endpointId,
-    # gpuTypeId), so a bucket that v1 already wrote merges in place instead of being duplicated.
-    # v2 has no GPU type grouping, so that part is always None.
+    # Same parts and order as the v1 ids (time, podId, endpointId, gpuTypeId), so merge updates the
+    # buckets that v1 wrote instead of duplicating them. v2 has no GPU type grouping, so it is None.
     parts = [record.get("time"), record.get("podId"), record.get("serverlessId"), None]
     # v1 network volume billing was one account-wide record per bucket; v2 is one per volume.
     if (volume_id := record.get("networkVolumeId")) is not None:
@@ -154,8 +153,7 @@ def _billing_row_id(record: dict[str, Any]) -> str:
 def _normalize_billing_record(record: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(record)
     if "time" not in normalized and "startTime" in normalized:
-        # v2 gives the bucket start as `startTime`. Keep it under `time`, the column that v1 rows
-        # use and that the schema declares as the incremental field and the partition key.
+        # `time` is the v1 column name and the declared incremental field and partition key.
         normalized["time"] = normalized.pop("startTime")
     return {
         **normalized,

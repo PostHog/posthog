@@ -5,7 +5,6 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 
 RUNPOD_BASE_URL = "https://api.runpod.io/v2"
 
-# The largest page the v2 resource lists accept.
 INVENTORY_PAGE_SIZE = 1000
 
 # Billing history is aggregated into time buckets; a fixed size keeps the bucket `time` values (and
@@ -34,8 +33,7 @@ class RunPodEndpointConfig:
     path: str
     response_key: str
     primary_keys: list[str]
-    # Billing endpoints return time-bucketed usage records windowed by startTime/endTime, one record
-    # per resource per bucket; resource list endpoints return the account inventory in cursor pages.
+    # Billing endpoints return one record per resource per time bucket, windowed by startTime/endTime.
     is_billing: bool = False
     # Stable partition key — the bucket start never changes once emitted. Inventory tables are small
     # full-refresh snapshots, so they are not partitioned.
