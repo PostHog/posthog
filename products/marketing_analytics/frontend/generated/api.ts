@@ -30,6 +30,8 @@ import type {
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
     PatchedConversionGoalUpdateApi,
+    RecommendationResolutionApi,
+    RecommendationResolutionRequestApi,
     SetupPlanResponseApi,
     SourceValidationApi,
     UtmAuditResponseApi,
@@ -476,5 +478,45 @@ export const marketingAnalyticsUtmAuditRetrieve = async (
     return apiMutator<UtmAuditResponseApi>(getMarketingAnalyticsUtmAuditRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsRecommendationResolutionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/`
+}
+
+/**
+ * Dismisses a recommendation or marks it as applied. Resolving it again replaces the earlier resolution. Returns 400 when the identity's rule never produces that combination of ids, and 403 without access to every Google Ads and Search Console source of the project.
+ * @summary Resolve a recommendation
+ */
+export const marketingAnalyticsRecommendationResolutionsCreate = async (
+    projectId: string,
+    recommendationResolutionRequestApi: RecommendationResolutionRequestApi,
+    options?: RequestInit
+): Promise<RecommendationResolutionApi> => {
+    return apiMutator<RecommendationResolutionApi>(getMarketingAnalyticsRecommendationResolutionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recommendationResolutionRequestApi),
+    })
+}
+
+export const getMarketingAnalyticsRecommendationResolutionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/${id}/`
+}
+
+/**
+ * Deletes a resolution, so its recommendation shows again. Returns 403 without access to every Google Ads and Search Console source of the project.
+ * @summary Restore a recommendation
+ */
+export const marketingAnalyticsRecommendationResolutionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMarketingAnalyticsRecommendationResolutionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }

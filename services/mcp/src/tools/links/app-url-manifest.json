@@ -984,6 +984,16 @@
         "params": [],
         "scope": "project"
     },
+    "inboxActivate": {
+        "template": "/inbox/activate",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivateWithoutGithub": {
+        "template": "/inbox/activate/without-github",
+        "params": [],
+        "scope": "project"
+    },
     "inboxFindings": {
         "template": "/inbox/scouts/findings",
         "params": [],

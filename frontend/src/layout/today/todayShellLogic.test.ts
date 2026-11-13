@@ -36,6 +36,8 @@ describe('todayShellLogic', () => {
         ['/project/1/insights', 'analytics'],
         ['/project/1/feature-flags', 'products'],
         ['/project/1/data-management/destinations', 'products'],
+        ['/project/1/data-warehouse/new-source', 'products'],
+        ['/project/1/data-warehouse/connect-destination', 'products'],
         ['/project/1/web', 'analytics'],
         ['/project/1/marketing', 'analytics'],
         ['/project/1/mcp-analytics', 'analytics'],
@@ -267,6 +269,7 @@ describe('todayShellLogic', () => {
         ['/project/1/heatmaps', 'analytics'],
         ['/project/1/sql', 'analytics'],
         ['/project/1/feature-flags', 'products'],
+        ['/project/1/data-warehouse/new-source', 'products'],
     ])('%s opened while the Analytics pane is open shows the %s pane', (pathname, pane) => {
         const logic = todayShellLogic()
         logic.mount()

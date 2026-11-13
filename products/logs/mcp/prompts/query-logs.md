@@ -125,6 +125,10 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 Set `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
 
+## query.customColumns
+
+Expressions to evaluate per row, for example `attributes.team_id` or `body.user.id`. Each row carries the values under hashed keys such as `col_6c24016445c8`. The response `columns` list gives those keys in the same order as `customColumns`, so the first key in `columns` holds the first expression's value. Combine with `excludeAttributes: true` to read a few attributes without the full maps.
+
 # Examples
 
 ## List recent error logs
