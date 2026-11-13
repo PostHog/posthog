@@ -342,7 +342,7 @@ describe('seriesBreakdownLogic', () => {
         })
     })
 
-    it('applies a custom color to one breakdown value', () => {
+    it('applies a custom color and label without changing breakdown identity or other series', () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
         const node = dataNodeLogic({ key: testUniqueKey, query: globalQuery.source })
@@ -364,11 +364,34 @@ describe('seriesBreakdownLogic', () => {
         builtDataVizLogic.actions.addYSeries('total_count')
         logic.actions.addSeriesBreakdown('browser')
         builtDataVizLogic.actions.updateChartSettings({
-            resultCustomizations: { Safari: { assignmentBy: ResultCustomizationBy.Value, customColor: '#123456' } },
+            resultCustomizations: {
+                Safari: { assignmentBy: ResultCustomizationBy.Value, customColor: '#123456', label: 'Web browser' },
+            },
         })
         const series = logic.values.seriesBreakdownData.seriesData
         expect(series.find((entry) => entry.breakdownValue === 'Safari')?.settings?.display?.color).toBe('#123456')
         expect(series.find((entry) => entry.breakdownValue === 'Chrome')?.settings?.display?.color).toBeUndefined()
+        expect(series.find((entry) => entry.breakdownValue === 'Safari')).toMatchObject({
+            name: 'Safari',
+            breakdownValue: 'Safari',
+            data: [11],
+            settings: { display: { label: 'Web browser' } },
+        })
+        expect(series.find((entry) => entry.breakdownValue === 'Chrome')?.settings?.display?.label).toBeUndefined()
+
+        builtDataVizLogic.actions.updateChartSettings({
+            resultCustomizations: {
+                Safari: { assignmentBy: ResultCustomizationBy.Value, label: undefined, customColor: '#123456' },
+            },
+        })
+        expect(
+            logic.values.seriesBreakdownData.seriesData.find((entry) => entry.breakdownValue === 'Safari')?.settings
+                ?.display
+        ).toMatchObject({ color: '#123456' })
+        expect(
+            logic.values.seriesBreakdownData.seriesData.find((entry) => entry.breakdownValue === 'Safari')?.settings
+                ?.display?.label
+        ).toBeUndefined()
     })
 
     it.each([
