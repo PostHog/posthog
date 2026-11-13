@@ -3697,6 +3697,12 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
             "rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`."
         )
     )
+    filters_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the counts leave out the calls that the project's filter for internal and test users excludes, "
+            "because the experiment applies that filter."
+        )
+    )
 
 
 class ExperimentHealthInputsExposureEventsSerializer(serializers.Serializer):
