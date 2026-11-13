@@ -420,9 +420,6 @@ class TestExternalSurveys(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("us_app_host", "us.posthog.com", True, "?q0=5", 302, "https://posthogsurveys.com/{id}?q0=5"),
-            ("eu_app_host", "eu.posthog.com", True, "", 302, "https://eu.posthogsurveys.com/{id}"),
-            ("us_app_host_missing_survey", "us.posthog.com", False, "", 302, "https://posthogsurveys.com/{id}"),
             ("survey_domain", "posthogsurveys.com", True, "?q0=5", 200, None),
             (
                 "survey_domain_missing_survey",
@@ -436,7 +433,7 @@ class TestExternalSurveys(APIBaseTest):
             ("us_survey_domain_missing_survey", "us.posthogsurveys.com", False, "", 404, None),
         ]
     )
-    def test_cloud_survey_links_live_on_posthogsurveys_domain(
+    def test_survey_domain_sends_surveys_it_does_not_have_to_eu(
         self,
         _name: str,
         host: str,

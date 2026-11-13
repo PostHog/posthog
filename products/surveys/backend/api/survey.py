@@ -4136,8 +4136,6 @@ def _survey_not_available_response(request: HttpRequest) -> HttpResponse:
     )
 
 
-# Firefox's tracking protection blocks posthog.com on the sandboxed survey page, so cloud links live on a domain it doesn't list.
-_SURVEY_DOMAIN_FOR_APP_HOST = {"us.posthog.com": "posthogsurveys.com", "eu.posthog.com": "eu.posthogsurveys.com"}
 # US serves the bare domain, so a survey US doesn't have can only be in EU.
 _SURVEY_DOMAIN_FOR_MISSING_SURVEY = {"posthogsurveys.com": "eu.posthogsurveys.com"}
 
@@ -4181,17 +4179,13 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
             status=400,
         )
 
-    domain = _request_domain(request)
-    if survey_domain := _SURVEY_DOMAIN_FOR_APP_HOST.get(domain):
-        return _redirect_to_survey_domain(request, survey_domain, survey_id)
-
     # Database query with minimal fields and timeout protection
     try:
         # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
         is_another_organizations_proxy_domain = _is_another_organizations_proxy_domain(request, survey)
     except Survey.DoesNotExist:
-        if survey_domain := _SURVEY_DOMAIN_FOR_MISSING_SURVEY.get(domain):
+        if survey_domain := _SURVEY_DOMAIN_FOR_MISSING_SURVEY.get(_request_domain(request)):
             return _redirect_to_survey_domain(request, survey_domain, survey_id)
         logger.info("survey_page_not_found", survey_id=survey_id)
         return _survey_not_available_response(request)
