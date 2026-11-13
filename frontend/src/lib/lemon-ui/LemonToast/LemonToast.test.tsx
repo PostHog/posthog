@@ -116,4 +116,19 @@ describe('LemonToast', () => {
 
         expect(mockPosthog.capture.mock.calls.map(([name]) => name)).toEqual(event ? [event] : [])
     })
+
+    it.each([
+        { name: 'reports the shown message by default', options: {}, captured: 'Step "Send": bad {secret}' },
+        {
+            name: 'reports capturedMessage in place of the shown message',
+            options: { capturedMessage: 'Publishing failed' },
+            captured: 'Publishing failed',
+        },
+    ])('$name', ({ options, captured }) => {
+        mockPosthog.__loaded = true
+
+        lemonToast.error('Step "Send": bad {secret}', options)
+
+        expect(mockPosthog.capture.mock.calls.map(([, properties]) => properties.message)).toEqual([captured])
+    })
 })

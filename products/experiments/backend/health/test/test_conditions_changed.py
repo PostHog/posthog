@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
@@ -453,6 +454,9 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         self.assertEqual(finding.reason, expected_reason)
         if expected_detail is not None:
             self.assertEqual(finding.detail, expected_detail)
+        names_start_date = "start date to" in finding.detail
+        self.assertEqual(ExperimentHealthFindingActionKind.MOVE_START_DATE in finding.actions, names_start_date)
+        self.assertEqual("suggested_start_date" in finding.evidence, names_start_date)
 
     @parameterized.expand(
         [

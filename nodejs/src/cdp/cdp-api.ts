@@ -32,6 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
@@ -83,9 +84,13 @@ import {
     transactionalPushFingerprint,
     transactionalPushRequestsTotal,
 } from './services/hogflows/transactional-push'
-import { ScheduledTransactionalSends, TransactionalSends } from './services/hogflows/transactional-sends'
+import {
+    ScheduledTransactionalSends,
+    TransactionalSendResult,
+    TransactionalSends,
+} from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { JobQueue } from './services/job-queue/job-queue.interface'
+import { IdempotentJobQueue, JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService, GroupsMap } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
@@ -327,7 +332,7 @@ export class CdpApi {
     private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private hogQueue: JobQueue
-    private hogflowQueue: JobQueue
+    private hogflowQueue: IdempotentJobQueue
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
     private emailTrackingCodeSigner: EmailTrackingCodeSigner
@@ -358,7 +363,7 @@ export class CdpApi {
     constructor(
         private config: PluginsServerConfig,
         private deps: CdpApiDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue },
         batchResolverProducer: CyclotronV2JobProducer | null = null
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
@@ -490,6 +495,7 @@ export class CdpApi {
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
                 runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
+                backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
             })
             await this.rerunJobManager.connect()
         }
@@ -1484,6 +1490,41 @@ export class CdpApi {
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
                 const { send } = parsed.data
+                const senderLookup = send?.from
+                    ? this.deps.integrationManager.getCheckingPrimaryOnMiss(send.from.integrationId)
+                    : Promise.resolve(null)
+                // Several answers return before the sender lookup is awaited, so its failure must not go unhandled.
+                senderLookup.catch(() => undefined)
+                const answer = (result: TransactionalSendResult) => {
+                    if ('invocationId' in result) {
+                        return reply(result.outcome, 202, {
+                            status: result.scheduledAt ? 'scheduled' : 'queued',
+                            invocation_id: result.invocationId,
+                            scheduled_at: result.scheduledAt,
+                            replayed: result.outcome === 'replayed',
+                            ...result.replyFields,
+                            ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
+                        })
+                    }
+                    if ('refused' in result) {
+                        return reply(result.refused.body.error, result.refused.status, result.refused.body)
+                    }
+                    return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
+                        error: result.outcome,
+                        ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
+                    })
+                }
+                const sends = this.transactionalSendsForRequest()
+                const recalled = await sends.recall(
+                    parseInt(req.params.team_id),
+                    req.params.id,
+                    parsed.data,
+                    stages,
+                    senderLookup
+                )
+                if (recalled) {
+                    return answer(recalled)
+                }
                 const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
@@ -1492,12 +1533,8 @@ export class CdpApi {
                 stages.start('load')
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
                 const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
-                const senderLookup = send?.from
-                    ? this.deps.integrationManager.getCheckingPrimaryOnMiss(send.from.integrationId)
-                    : Promise.resolve(null)
-                // A missing team returns before the other lookups are awaited, so their failures must not go unhandled.
+                // A missing team returns before the workflow lookup is awaited, so its failure must not go unhandled.
                 hogFlowLookup.catch(() => undefined)
-                senderLookup.catch(() => undefined)
                 const team = await teamLookup
                 if (!team) {
                     return reply('not_found', 404, { error: 'Team not found' })
@@ -1512,36 +1549,21 @@ export class CdpApi {
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
                 const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
 
-                const result = await this.transactionalSendsForRequest().accept(
-                    team,
-                    hogFlow,
-                    parsed.data,
-                    stages,
-                    {
-                        shape: filesShape,
-                        sizeMessageBodies: (invocation, emailStep, deadline) =>
-                            this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
-                        deadline: verificationDeadline,
-                    },
-                    sender
+                return answer(
+                    await sends.accept(
+                        team,
+                        hogFlow,
+                        parsed.data,
+                        stages,
+                        {
+                            shape: filesShape,
+                            sizeMessageBodies: (invocation, emailStep, deadline) =>
+                                this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
+                            deadline: verificationDeadline,
+                        },
+                        sender
+                    )
                 )
-                if ('invocationId' in result) {
-                    return reply(result.outcome, 202, {
-                        status: result.scheduledAt ? 'scheduled' : 'queued',
-                        invocation_id: result.invocationId,
-                        scheduled_at: result.scheduledAt,
-                        replayed: result.outcome === 'replayed',
-                        ...result.replyFields,
-                        ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
-                    })
-                }
-                if ('refused' in result) {
-                    return reply(result.refused.body.error, result.refused.status, result.refused.body)
-                }
-                return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
-                    error: result.outcome,
-                    ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
-                })
             } catch (e) {
                 logger.error('Error queueing transactional email', {
                     error: e instanceof Error ? e.message : String(e),
@@ -1789,7 +1811,7 @@ export class CdpApi {
                 throw error
             }
             if (idempotencyKey) {
-                await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
+                await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id, invocation.id)
             }
             // Best-effort rows, so the 202 waits for the hand-off to Kafka but not the acks.
             const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
@@ -1811,7 +1833,10 @@ export class CdpApi {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
             idempotencyKeys: this.transactionalEmailIdempotencyKeys,
-            queue: this.hogflowQueue,
+            runIntake: new RunIntake({
+                hogflowQueue: this.hogflowQueue,
+                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+            }),
             invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
