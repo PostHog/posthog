@@ -1,3 +1,4 @@
+import { NoteMentionText } from './NoteMentionText'
 import { ScoutNoteAudience } from './ScoutNoteAudience'
 
 /**
@@ -22,7 +23,7 @@ export function ActivityNoteQuote({
                 </span>
             )}
             <blockquote className="m-0 whitespace-pre-wrap border-l-2 border-primary pl-2 text-xs italic text-secondary">
-                {text}
+                <NoteMentionText text={text} />
             </blockquote>
         </div>
     )
