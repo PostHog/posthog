@@ -15,10 +15,10 @@ export interface QuillRowSelectionProps {
 export const QUILL_SAVING_COLUMNS_CLASS =
     '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_11rem] @min-[36rem]/suggestions:gap-x-3'
 
-export const QUILL_ASSIGNEE_COLUMNS_CLASS = '@min-[48rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_10rem_11rem]'
+export const QUILL_ASSIGNEE_COLUMNS_CLASS = '@min-[48rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_9rem_10rem]'
 
 export const QUILL_ASSIGNEE_CELL_CLASS =
-    'hidden min-w-0 @min-[48rem]/suggestions:col-start-3 @min-[48rem]/suggestions:flex'
+    'hidden min-w-0 @min-[48rem]/suggestions:col-start-3 @min-[48rem]/suggestions:flex @min-[48rem]/suggestions:justify-end'
 
 const INLINE_ASSIGNEE_HIDDEN_CLASS = '@min-[48rem]/suggestions:hidden'
 
@@ -156,7 +156,8 @@ export function QuillSuggestionRow({
                         data-suggestion-actions
                         className={cn(
                             'flex flex-wrap items-center gap-1 @min-[36rem]/suggestions:justify-end @min-[36rem]/suggestions:pl-0',
-                            selection ? 'pl-12' : 'pl-6'
+                            selection ? 'pl-12' : 'pl-6',
+                            assigneeColumn && '@min-[48rem]/suggestions:justify-start'
                         )}
                     >
                         {actions}

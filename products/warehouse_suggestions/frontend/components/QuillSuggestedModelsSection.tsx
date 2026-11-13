@@ -46,7 +46,7 @@ export function QuillSuggestedModelsSection({
                     </Text>
                 )}
                 {assigneeColumn && showsAssigneeLabel && (
-                    <Text size="xs" variant="muted" render={<span />} className={cn(QUILL_ASSIGNEE_CELL_CLASS, 'pl-2')}>
+                    <Text size="xs" variant="muted" render={<span />} className={cn(QUILL_ASSIGNEE_CELL_CLASS, 'pr-2')}>
                         Assignee
                     </Text>
                 )}
