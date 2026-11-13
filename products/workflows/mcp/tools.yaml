@@ -631,7 +631,6 @@ tools:
             The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap,
             email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.
         ui_app: workflow-sending-rules
-        feature_flag: workflows-mcp-onboarding
     workflows-sending-rules-update:
         operation: workflow_sending_rules_partial_update
         enabled: true
@@ -646,7 +645,6 @@ tools:
             events; leave tracking consent as it is unless the user asks. Confirm the values with the user before
             calling. Needs a project admin. Set both cap fields together, or both to null to turn the cap off.
         ui_app: workflow-sending-rules
-        feature_flag: workflows-mcp-onboarding
     workflows-setup-status:
         operation: workflow_setup_status
         enabled: true
@@ -662,7 +660,6 @@ tools:
             only post to Slack or call webhooks need none of these steps. Offer workflows-data-suggestions-list once
             setup is done.
         ui_app: workflow-setup-status
-        feature_flag: workflows-mcp-onboarding
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true
