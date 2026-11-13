@@ -100,3 +100,22 @@ export function reportSurveyCreated(
 ): void {
     posthog.capture('survey created', getSurveyCreatedProperties(survey, isDuplicate, creationSource, createdFrom))
 }
+
+export type SiteThemeCardState = 'available' | 'not_on_site' | 'replay_off'
+export type SiteThemeOutcome = 'suggested' | 'no_recording' | 'unreadable' | 'gave_up'
+
+export function reportSurveyThemeSelected(surveyId: string, themeId: string): void {
+    posthog.capture('survey theme selected', { survey_id: surveyId, theme_id: themeId })
+}
+
+export function reportSiteThemeCardViewed(surveyId: string, state: SiteThemeCardState): void {
+    posthog.capture('survey site theme card viewed', { survey_id: surveyId, state })
+}
+
+export function reportSiteThemeRequested(surveyId: string): void {
+    posthog.capture('survey site theme requested', { survey_id: surveyId })
+}
+
+export function reportSiteThemeLoaded(surveyId: string, outcome: SiteThemeOutcome): void {
+    posthog.capture('survey site theme loaded', { survey_id: surveyId, outcome })
+}

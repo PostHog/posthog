@@ -18,10 +18,23 @@ import {
     siteSnapshotUrlCondition,
     surveySiteSnapshotLogic,
 } from 'products/surveys/frontend/draftReview/surveySiteSnapshotLogic'
+import {
+    SiteThemeCardState,
+    SiteThemeOutcome,
+    reportSiteThemeCardViewed,
+    reportSiteThemeLoaded,
+    reportSiteThemeRequested,
+} from 'products/surveys/frontend/surveyUsage'
 
 import { siteTheme } from './siteTheme'
 
 const SURVEY_TYPES_ON_SITE = [SurveyType.Popover, SurveyType.Widget]
+
+const UNSUGGESTED_COPY: Record<Exclude<SiteThemeOutcome, 'suggested'>, string> = {
+    no_recording: 'Needs a recent recording of this page',
+    unreadable: "Couldn't read your site's colors. Try a preset.",
+    gave_up: "Couldn't read your site's colors. Try a preset.",
+}
 
 function isSaved(survey: Survey | NewSurvey): survey is Survey {
     return survey.id !== 'new'
@@ -94,12 +107,25 @@ function LoadedSiteThemeCard({ survey, appearance, onSelectTheme, disabled }: Si
         })
     )
 
-    if (siteSnapshot?.status === 'unavailable') {
-        return <SiteCard description="Needs a recent recording of this page" focusOnMount />
-    }
+    const outcome: SiteThemeOutcome | null =
+        siteSnapshot?.status === 'unavailable'
+            ? 'no_recording'
+            : siteSnapshot?.site_style
+              ? 'suggested'
+              : gaveUp
+                ? 'gave_up'
+                : siteSnapshot?.status === 'ready'
+                  ? 'unreadable'
+                  : null
+    useEffect(() => {
+        if (outcome) {
+            reportSiteThemeLoaded(survey.id, outcome)
+        }
+    }, [survey.id, outcome])
+
     if (!siteSnapshot?.site_style) {
-        return gaveUp || siteSnapshot?.status === 'ready' ? (
-            <SiteCard description="Couldn't read your site's colors. Try a preset." focusOnMount />
+        return outcome && outcome !== 'suggested' ? (
+            <SiteCard description={UNSUGGESTED_COPY[outcome]} focusOnMount />
         ) : (
             <SiteCard description="Reading your site. This can take a minute." loading focusOnMount />
         )
@@ -122,11 +148,19 @@ function LoadedSiteThemeCard({ survey, appearance, onSelectTheme, disabled }: Si
 function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
     const [requested, setRequested] = useState(false)
     const { currentTeam } = useValues(teamLogic)
+    const state: SiteThemeCardState = !SURVEY_TYPES_ON_SITE.includes(props.survey.type)
+        ? 'not_on_site'
+        : currentTeam?.session_recording_opt_in
+          ? 'available'
+          : 'replay_off'
+    useEffect(() => {
+        reportSiteThemeCardViewed(props.survey.id, state)
+    }, [props.survey.id, state])
 
-    if (!SURVEY_TYPES_ON_SITE.includes(props.survey.type)) {
+    if (state === 'not_on_site') {
         return <SiteCard description="Only for surveys shown on your website" />
     }
-    if (!currentTeam?.session_recording_opt_in) {
+    if (state === 'replay_off') {
         return (
             <SiteCard description="Uses session replay to read your site.">
                 <Link to={urls.settings('environment-replay', 'replay')} target="_blank" className="text-xs">
@@ -138,7 +172,14 @@ function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
     return requested ? (
         <LoadedSiteThemeCard {...props} />
     ) : (
-        <SiteCard description="Use your site's colors" onClick={() => setRequested(true)} disabled={props.disabled} />
+        <SiteCard
+            description="Use your site's colors"
+            onClick={() => {
+                reportSiteThemeRequested(props.survey.id)
+                setRequested(true)
+            }}
+            disabled={props.disabled}
+        />
     )
 }
 

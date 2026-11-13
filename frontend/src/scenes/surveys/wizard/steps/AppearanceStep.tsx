@@ -14,6 +14,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AvailableFeature, SurveyAppearance, SurveyPosition, SurveyQuestionType } from '~/types'
 
+import { reportSurveyThemeSelected } from 'products/surveys/frontend/surveyUsage'
+
 import {
     INTRO_SCREEN_PAGE_INDEX,
     NewSurvey,
@@ -60,6 +62,7 @@ export function AppearanceStep(): JSX.Element {
     }
 
     const handleThemeSelect = (theme: SurveyTheme): void => {
+        reportSurveyThemeSelected(survey.id, theme.id)
         setSelectedThemeId(theme.id)
         onAppearanceChange(theme.appearance)
     }
