@@ -26,6 +26,19 @@ export class PostgresIntegrationSource implements IntegrationSource {
     public async load(
         references: IntegrationReference[]
     ): Promise<Record<IntegrationReference, IntegrationSourceRecord>> {
+        return await this.loadFrom(PostgresUse.COMMON_READ, references)
+    }
+
+    public async loadFromPrimary(
+        references: IntegrationReference[]
+    ): Promise<Record<IntegrationReference, IntegrationSourceRecord>> {
+        return await this.loadFrom(PostgresUse.COMMON_WRITE, references)
+    }
+
+    private async loadFrom(
+        use: PostgresUse,
+        references: IntegrationReference[]
+    ): Promise<Record<IntegrationReference, IntegrationSourceRecord>> {
         // A UUID reference has no row in this table, so it is not found.
         const legacyIds = references.map(legacyIdOfReference).filter((id): id is number => id !== null)
         if (legacyIds.length === 0) {
@@ -34,7 +47,7 @@ export class PostgresIntegrationSource implements IntegrationSource {
 
         // The cast keeps an id past the int4 range from failing the whole batch.
         const response = await this.postgres.query<IntegrationType>(
-            PostgresUse.COMMON_READ,
+            use,
             `SELECT id, team_id, kind, config, sensitive_config FROM posthog_integration WHERE id = ANY($1::bigint[])`,
             [legacyIds],
             'fetchIntegrations'

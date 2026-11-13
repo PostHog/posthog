@@ -148,6 +148,11 @@ class TestPullRequestReconciliation(TestCase):
             self.assertEqual(self.task_run.output["pr_merged"], state == "merged")
         pr = SignalReportPullRequest.objects.for_team(self.team.id).get(number=17)
         self.assertEqual(pr.state, state)
+        self.task.refresh_from_db()
+        self.assertEqual(
+            (self.task.merged_pr_urls, self.task.closed_pr_urls),
+            ([self.url] if state == "merged" else [], [self.url] if state == "closed" else []),
+        )
 
     @parameterized.expand(
         [

@@ -44,6 +44,9 @@ if TYPE_CHECKING:
     from types_boto3_sesv2.client import SESV2Client
     from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
+from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
+
 logger = logging.getLogger(__name__)
 
 AWS_ACCOUNT_ID_CACHE_KEY = "workflows:ses:aws_account_id"
@@ -727,9 +730,12 @@ class SESProvider:
                 raise
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
-        if keep_existing_mail_from and (ses_mail_from_subdomain := self.get_mail_from_subdomain(domain)) is not None:
+        mail_from = self._read_mail_from_attributes(domain, self.ses_client) if keep_existing_mail_from else None
+        ses_mail_from_subdomain = self._mail_from_subdomain_in(mail_from, domain)
+        setup_expired = mail_from is not None and mail_from.get("MailFromDomainStatus") == "Failed"
+        if ses_mail_from_subdomain is not None:
             mail_from_subdomain = ses_mail_from_subdomain
-        else:
+        if ses_mail_from_subdomain is None or setup_expired:
             try:
                 self.ses_client.set_identity_mail_from_domain(
                     Identity=domain,
@@ -758,23 +764,34 @@ class SESProvider:
         dkim_status = identity.dkim_status
         mail_from_status = identity.mail_from_status
 
+        # One flag for both lookups below, so the DMARC and DKIM statuses stay pending together.
+        refuses_lookups = is_cloud() and matched_oob_domain(domain) is not None
+        if refuses_lookups:
+            logger.info("security.oob_domain_seen guard=ses_domain_status")
+
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
         dmarc_status = "Pending"
         dmarc_record_value: str | None = None
-        try:
-            resolver = dns.resolver.Resolver()
-            resolver.lifetime = 5  # seconds — keep the request path responsive
-            answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
-            for rdata in answers:
-                txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
-                if txt_value.strip().lower().startswith("v=dmarc1"):
-                    dmarc_status = "Success"
-                    dmarc_record_value = txt_value.strip()
-                    break
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
-            pass  # No DMARC record found — fall back to "Pending" status
-        except Exception:
-            logger.exception("Unexpected error during DMARC lookup for %s", domain)
+        if not refuses_lookups:
+            try:
+                resolver = dns.resolver.Resolver()
+                resolver.lifetime = 5  # seconds — keep the request path responsive
+                answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
+                for rdata in answers:
+                    txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
+                    if txt_value.strip().lower().startswith("v=dmarc1"):
+                        dmarc_status = "Success"
+                        dmarc_record_value = txt_value.strip()
+                        break
+            except (
+                dns.resolver.NXDOMAIN,
+                dns.resolver.NoAnswer,
+                dns.resolver.NoNameservers,
+                dns.resolver.Timeout,
+            ):
+                pass  # No DMARC record found — fall back to "Pending" status
+            except Exception:
+                logger.exception("Unexpected error during DMARC lookup for %s", domain)
 
         # Normalize overall status
         overall: EmailDomainVerificationStatus
@@ -799,7 +816,7 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
-        else:
+        elif not refuses_lookups:
             # SES reports aggregate DKIM status, but individual CNAMEs may already
             # be present.  Do per-record DNS lookups so the UI can show which
             # specific records are still missing.
@@ -900,7 +917,9 @@ class SESProvider:
             verification_token=id_for_domain.get("VerificationToken") if id_for_domain else None,
             dkim_status=dkim_for_domain["DkimVerificationStatus"] if dkim_for_domain else _UNKNOWN,
             dkim_tokens=tuple(dkim_for_domain.get("DkimTokens", [])) if dkim_for_domain else (),
-            mail_from_status=mail_from_for_domain["MailFromDomainStatus"] if mail_from_for_domain else _UNKNOWN,
+            mail_from_status=mail_from_for_domain.get("MailFromDomainStatus", _UNKNOWN)
+            if mail_from_for_domain
+            else _UNKNOWN,
             mail_from_domain=mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None,
         )
 
@@ -909,7 +928,12 @@ class SESProvider:
         return ses.get_identity_mail_from_domain_attributes(Identities=[domain])["MailFromDomainAttributes"].get(domain)
 
     def get_mail_from_subdomain(self, domain: str) -> str | None:
-        mail_from_for_domain = self._read_mail_from_attributes(domain, self.ses_client)
+        return self._mail_from_subdomain_in(self._read_mail_from_attributes(domain, self.ses_client), domain)
+
+    @staticmethod
+    def _mail_from_subdomain_in(
+        mail_from_for_domain: "IdentityMailFromDomainAttributesTypeDef | None", domain: str
+    ) -> str | None:
         mail_from_domain = mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None
         suffix = f".{domain}"
         if mail_from_domain and mail_from_domain.endswith(suffix):

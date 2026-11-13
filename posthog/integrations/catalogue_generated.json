@@ -1,0 +1,251 @@
+{
+    "notice": "Generated from services/credentials-service/src/providers. Do not edit. Run `hogli build:projections --only credentials-catalogue`.",
+    "kinds": {
+        "github": {
+            "label": "GitHub",
+            "auth_types": {
+                "default": "oauth",
+                "others": ["token"]
+            },
+            "authorize": {
+                "url": "https://github.com/apps/{app_slug}/installations/new",
+                "params": [["state", "{state}"]],
+                "scope": "",
+                "pkce": false,
+                "opaque_state": false,
+                "client_id_key": null,
+                "url_values": {
+                    "app_slug": "GITHUB_APP_SLUG"
+                }
+            },
+            "authorize_by_environment": {},
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": ["account.name"],
+                "when_missing": null
+            }
+        },
+        "google-ads": {
+            "label": "Google Ads",
+            "auth_types": {
+                "default": "oauth",
+                "others": []
+            },
+            "authorize": {
+                "url": "https://accounts.google.com/o/oauth2/v2/auth",
+                "params": [
+                    ["client_id", "{client_id}"],
+                    ["scope", "https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email"],
+                    ["redirect_uri", "{redirect_uri}"],
+                    ["response_type", "code"],
+                    ["state", "{state}"],
+                    ["access_type", "offline"],
+                    ["prompt", "consent"]
+                ],
+                "scope": "https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                "pkce": false,
+                "opaque_state": false,
+                "client_id_key": "GOOGLE_ADS_APP_CLIENT_ID",
+                "url_values": {}
+            },
+            "authorize_by_environment": {},
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": ["email"],
+                "when_missing": null
+            }
+        },
+        "google-cloud-storage": {
+            "label": "Google Cloud Storage",
+            "auth_types": {
+                "default": "credentials",
+                "others": []
+            },
+            "authorize": null,
+            "authorize_by_environment": {},
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": [],
+                "when_missing": "unknown ID"
+            }
+        },
+        "google-sheets": {
+            "label": "Google Sheets",
+            "auth_types": {
+                "default": "oauth",
+                "others": ["credentials"]
+            },
+            "authorize": {
+                "url": "https://accounts.google.com/o/oauth2/v2/auth",
+                "params": [
+                    ["client_id", "{client_id}"],
+                    [
+                        "scope",
+                        "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email"
+                    ],
+                    ["redirect_uri", "{redirect_uri}"],
+                    ["response_type", "code"],
+                    ["state", "{state}"],
+                    ["access_type", "offline"],
+                    ["prompt", "consent"]
+                ],
+                "scope": "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                "pkce": false,
+                "opaque_state": false,
+                "client_id_key": "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY",
+                "url_values": {}
+            },
+            "authorize_by_environment": {},
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": ["email"],
+                "when_missing": null
+            }
+        },
+        "hubspot": {
+            "label": "HubSpot",
+            "auth_types": {
+                "default": "oauth",
+                "others": []
+            },
+            "authorize": {
+                "url": "https://app.hubspot.com/oauth/authorize",
+                "params": [
+                    ["client_id", "{client_id}"],
+                    [
+                        "scope",
+                        "tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write"
+                    ],
+                    ["redirect_uri", "{redirect_uri}"],
+                    ["response_type", "code"],
+                    ["state", "{state}"],
+                    [
+                        "optional_scope",
+                        "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read crm.objects.subscriptions.read crm.objects.commercepayments.read crm.objects.forecasts.read conversations.read"
+                    ]
+                ],
+                "scope": "tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
+                "pkce": false,
+                "opaque_state": false,
+                "client_id_key": "HUBSPOT_APP_CLIENT_ID",
+                "url_values": {}
+            },
+            "authorize_by_environment": {},
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": ["hub_domain"],
+                "when_missing": null
+            }
+        },
+        "linear": {
+            "label": "Linear",
+            "auth_types": {
+                "default": "oauth",
+                "others": []
+            },
+            "authorize": {
+                "url": "https://linear.app/oauth/authorize",
+                "params": [
+                    ["client_id", "{client_id}"],
+                    ["scope", "read issues:create"],
+                    ["redirect_uri", "{redirect_uri}"],
+                    ["response_type", "code"],
+                    ["state", "{state}"],
+                    ["actor", "application"],
+                    ["prompt", "consent"]
+                ],
+                "scope": "read issues:create",
+                "pkce": false,
+                "opaque_state": false,
+                "client_id_key": "LINEAR_APP_CLIENT_ID",
+                "url_values": {}
+            },
+            "authorize_by_environment": {},
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": ["data.viewer.organization.name"],
+                "when_missing": null
+            }
+        },
+        "salesforce": {
+            "label": "Salesforce",
+            "auth_types": {
+                "default": "oauth",
+                "others": []
+            },
+            "authorize": {
+                "url": "https://login.salesforce.com/services/oauth2/authorize",
+                "params": [
+                    ["client_id", "{client_id}"],
+                    ["scope", "full refresh_token"],
+                    ["redirect_uri", "{redirect_uri}"],
+                    ["response_type", "code"],
+                    ["state", "{state}"],
+                    ["code_challenge", "{code_challenge}"],
+                    ["code_challenge_method", "S256"]
+                ],
+                "scope": "full refresh_token",
+                "pkce": true,
+                "opaque_state": false,
+                "client_id_key": "SALESFORCE_CONSUMER_KEY",
+                "url_values": {}
+            },
+            "authorize_by_environment": {},
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": ["instance_url"],
+                "when_missing": null
+            }
+        },
+        "slack": {
+            "label": "Slack",
+            "auth_types": {
+                "default": "oauth",
+                "others": ["token"]
+            },
+            "authorize": {
+                "url": "https://slack.com/oauth/v2/authorize",
+                "params": [
+                    ["client_id", "{client_id}"],
+                    [
+                        "scope",
+                        "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email"
+                    ],
+                    ["redirect_uri", "{redirect_uri}"],
+                    ["response_type", "code"],
+                    ["state", "{state}"]
+                ],
+                "scope": "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email",
+                "pkce": false,
+                "opaque_state": false,
+                "client_id_key": "SLACK_APP_CLIENT_ID",
+                "url_values": {}
+            },
+            "authorize_by_environment": {
+                "dev": {
+                    "url": "https://slack.com/oauth/v2/authorize",
+                    "params": [
+                        ["client_id", "{client_id}"],
+                        [
+                            "scope",
+                            "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email,canvases:read,channels:join"
+                        ],
+                        ["redirect_uri", "{redirect_uri}"],
+                        ["response_type", "code"],
+                        ["state", "{state}"]
+                    ],
+                    "scope": "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email,canvases:read,channels:join",
+                    "pkce": false,
+                    "opaque_state": false,
+                    "client_id_key": "SLACK_APP_CLIENT_ID",
+                    "url_values": {}
+                }
+            },
+            "authorize_by_region": {},
+            "display_name": {
+                "config_paths": ["team.name"],
+                "when_missing": null
+            }
+        }
+    }
+}

@@ -27,7 +27,7 @@
 # ---------------------------------------------------------
 #
 # Digest-pinned because the runtime stage copies its `node` binary out of this stage.
-FROM node:26.13.0-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS node-base
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -44,7 +44,7 @@ ENV COREPACK_ENABLE_NETWORK=0
 # ---------------------------------------------------------
 #
 # Only the package.json files, so a product source change does not rerun the frontend pnpm install.
-FROM node:26.13.0-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS product-manifests
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS product-manifests
 COPY products/ /tmp/products/
 RUN cd /tmp/products && for manifest in */package.json; do install -D -m 644 "$manifest" "/manifests/products/$manifest"; done
 
@@ -87,7 +87,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:26.13.0-bookworm-slim AS sourcemap-upload
+FROM node:26.13.1-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 

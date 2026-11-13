@@ -8,7 +8,7 @@ from typing import Any
 from unittest.mock import patch
 
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import jwt
 import requests
@@ -30,6 +30,7 @@ from posthog.integrations.contracts import (
     UnsupportedAuthType,
 )
 from posthog.integrations.test.credentials_service_stub import CredentialsServiceStub, response, write_signing_key
+from posthog.models import Organization, Project, Team
 from posthog.models.integration import UndecryptedIntegrationSecretError
 
 URL = "http://credentials-service.test"
@@ -65,7 +66,18 @@ class _DropFirstAnswer:
         return answer
 
 
-class TestServiceBackend(SimpleTestCase):
+class TestServiceBackend(TestCase):
+    # Not a SimpleTestCase: an SDK delete runs the delete hooks of the products in a transaction of the
+    # Django database, because the rows that refer to an integration stay there. See `lifecycle.py`.
+    # The hooks read team-scoped models, so the teams the rows belong to must exist.
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        organization = Organization.objects.create(name="Integrations")
+        for team_id in (TEAM, OTHER_TEAM):
+            project = Project.objects.create(id=team_id, organization=organization)
+            Team.objects.create(id=team_id, project=project, organization=organization)
+
     def setUp(self) -> None:
         super().setUp()
         self.fake = FakeBackend()
@@ -139,6 +151,8 @@ class TestServiceBackend(SimpleTestCase):
                 "delete_reads_then_deletes_one_ref",
                 lambda ids: IntegrationManager.github.oauth.delete(TEAM, ids["a"], ignore_usages=True),
                 [
+                    # The accessor reads the row first, to hand it to the delete hooks.
+                    ("POST", "/resolve", {"owner": TEAM, "ops": ["resolve", "read"], "refs": ["{ref}"]}),
                     (
                         "GET",
                         "/{ref}",

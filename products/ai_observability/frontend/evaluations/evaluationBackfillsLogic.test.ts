@@ -82,6 +82,7 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
         window_end: '2024-01-02T00:00:00Z',
         conditions: [{ properties: [], rollout_percentage: 100 }],
         rerun_existing: false,
+        max_units: null,
         total_count: 10,
         dispatched_count: 8,
         completed_count: null,

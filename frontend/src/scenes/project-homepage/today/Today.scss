@@ -372,9 +372,21 @@ html[data-today-transition]::view-transition-new(root) {
 }
 
 .TodayWatchedNote__icons {
-    --icon-stack-size: 16px;
+    --icon-stack-size: 18px;
+    --icon-stack-step: 12px;
+    --icon-stack-spread: 13px;
 
     flex-shrink: 0;
+
+    .quill-icon-stack__item {
+        border-width: 2px;
+        border-radius: 5px;
+    }
+
+    .quill-icon-stack__item svg {
+        width: 10px;
+        height: 10px;
+    }
 }
 
 .TodayStarterSuggestions {

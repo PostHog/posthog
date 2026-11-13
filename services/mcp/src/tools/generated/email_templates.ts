@@ -16,7 +16,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateEmailTemplateSchema = () => {
     const MessagingTemplatesCreateBody = orvalSchemas.MessagingTemplatesCreateBody()
-    return MessagingTemplatesCreateBody
+    return MessagingTemplatesCreateBody.omit({ _create_in_folder: true })
 }
 
 const workflowsCreateEmailTemplate = (): ToolBase<
@@ -90,7 +90,9 @@ const workflowsGetEmailTemplate = (): ToolBase<
 
 const WorkflowsListEmailTemplatesSchema = () => {
     const MessagingTemplatesListQueryParams = orvalSchemas.MessagingTemplatesListQueryParams()
-    return MessagingTemplatesListQueryParams
+    return MessagingTemplatesListQueryParams.extend({
+        basic: MessagingTemplatesListQueryParams.shape['basic'].default(true).optional(),
+    })
 }
 
 const workflowsListEmailTemplates = (): ToolBase<
@@ -105,8 +107,10 @@ const workflowsListEmailTemplates = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             query: {
+                basic: params.basic,
                 limit: params.limit,
                 offset: params.offset,
+                transactional: params.transactional,
             },
         })
         const filtered = {
@@ -325,6 +329,12 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
         }
+        if (params.tracking !== undefined) {
+            body['tracking'] = params.tracking
+        }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         if (params.from !== undefined) {
             body['from'] = params.from
         }
@@ -368,7 +378,7 @@ const WorkflowsUpdateEmailTemplateSchema = () => {
     const MessagingTemplatesPartialUpdateBody = orvalSchemas.MessagingTemplatesPartialUpdateBody()
     const MessagingTemplatesPartialUpdateParams = orvalSchemas.MessagingTemplatesPartialUpdateParams()
     return MessagingTemplatesPartialUpdateParams.omit({ project_id: true })
-        .extend(MessagingTemplatesPartialUpdateBody.shape)
+        .extend(MessagingTemplatesPartialUpdateBody.omit({ _create_in_folder: true }).shape)
         .strict()
 }
 

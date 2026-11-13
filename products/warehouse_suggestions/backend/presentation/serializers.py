@@ -370,14 +370,16 @@ class WarehouseSuggestionStatusQuerySerializer(serializers.Serializer):
     surface = serializers.ChoiceField(
         choices=WarehouseSuggestionSurface.choices,
         required=False,
-        help_text="Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.",
+        help_text="Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.",
     )
 
 
 class SurfaceMoreWarehouseSuggestionsSerializer(serializers.Serializer):
     surface = serializers.ChoiceField(
         choices=WarehouseSuggestionSurface.choices,
-        help_text="Page to show more suggestions on. Only the kinds that page shows are picked.",
+        required=False,
+        help_text="Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind "
+        "can be picked.",
     )
 
 

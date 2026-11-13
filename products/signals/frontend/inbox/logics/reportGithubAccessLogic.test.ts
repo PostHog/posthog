@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -11,6 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { makeReport } from '../__mocks__/inboxMocks'
+import { inboxSetupLogic } from './inboxSetupLogic'
 import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 
 describe('reportGithubAccessLogic', () => {
@@ -113,6 +116,12 @@ describe('reportGithubAccessLogic', () => {
             const pending = new Promise<void>((resolve) => (finish = resolve))
             useMocks({
                 get: {
+                    '/api/projects/:project/signals/trial/': {
+                        enabled: true,
+                        eligible: true,
+                        grant_status: 'not_claimed',
+                        scout_limit: 3,
+                    },
                     '/api/projects/:project/signals/onboarding/': async () => {
                         await pending
                         return { draft: null, completed_at: null, github_optional_available: false }
@@ -122,6 +131,7 @@ describe('reportGithubAccessLogic', () => {
             if (!teamLoaded) {
                 teamLogic.actions.loadCurrentTeamSuccess(null)
             }
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: true })
             logic = reportGithubAccessLogic({ report: makeReport() })
             logic.mount()
             try {
@@ -130,6 +140,10 @@ describe('reportGithubAccessLogic', () => {
                 expect(logic.values.failed).toBe(false)
                 expect(logic.values.repairNeeded).toBe(false)
                 expect(logic.values.disabledReason).toBeNull()
+                if (!teamLoaded) {
+                    teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+                }
+                await waitFor(() => expect(inboxSetupLogic.values.scoutLimit.limit).toBe(3))
             } finally {
                 finish()
                 await expectLogic(logic).toFinishAllListeners()

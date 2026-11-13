@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
 import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock, IconPerson } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconPerson } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -14,7 +14,6 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canMonitorReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
@@ -43,7 +42,7 @@ export interface ReportDetailAction {
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
     const { changeReportState, setReportClaimed } = useActions(detailLogic)
-    const { reportStateSaving, reportChecks, teammateClaimHolder, claimSaving } = useValues(detailLogic)
+    const { reportStateSaving, teammateClaimHolder, claimSaving } = useValues(detailLogic)
     const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -203,21 +202,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                   },
               ]
             : []),
-        ...(canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
-            ? [
-                  {
-                      key: 'monitor',
-                      label: 'Start monitoring',
-                      icon: <IconClock />,
-                      loading: reportStateSaving,
-                      tooltip: 'PostHog watches to make sure the fix works',
-                      onClick: () => {
-                          captureInboxReportAction({ report, actionType: 'monitor', surface: 'detail_pane' })
-                          changeReportState('monitoring')
-                      },
-                  },
-              ]
-            : []),
         ...([SignalReportStatus.MONITORING, SignalReportStatus.CLOSED].includes(report.status)
             ? [
                   {
@@ -225,9 +209,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       label: 'Reopen',
                       icon: <IconUndo />,
                       loading: reportStateSaving,
+                      tooltip: 'Move this report back to ready',
                       onClick: () => {
                           captureInboxReportAction({ report, actionType: 'reopen', surface: 'detail_pane' })
-                          changeReportState('potential')
+                          changeReportState('ready')
                       },
                   },
               ]

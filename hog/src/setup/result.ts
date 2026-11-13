@@ -1,3 +1,4 @@
+import type { McpAgent } from '@/commands/mcp/clients'
 import type { RegionId } from '@/posthog/host'
 import type { ProjectToken } from '@/posthog/tokens'
 
@@ -42,6 +43,15 @@ export interface SkillInfo {
     description: string
 }
 
+// Whether the agent running setup has PostHog's MCP server. `agent` is null when no agent hog can add
+// the server to is running it, and `command` then leaves the agent for the person to name.
+export interface McpContext {
+    agent: McpAgent | null
+    configured: boolean
+    command: string
+    foreign: { path: string } | null
+}
+
 export interface SetupContext {
     folder: string
     configPath: string | null
@@ -53,8 +63,9 @@ export interface SetupContext {
     agentsMd?: WrittenFile[]
     events?: EventsContext
     products?: (Product & { chosen: boolean })[]
-    // PostHog skills that could help in later sessions, at the products step.
+    // PostHog skills that could help in later sessions, at the products step. Agents get the names only.
     skills?: SkillInfo[]
+    mcp?: McpContext
     warnings: string[]
 }
 

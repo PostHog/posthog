@@ -4,15 +4,14 @@ import React, { Suspense, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useInView } from 'react-intersection-observer'
 
+import { Skeleton } from '@posthog/quill'
+
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
-import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
-import {
-    DashboardWidgetPlacementMenus,
-    type DashboardWidgetPlacementMenusProps,
-} from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { type DashboardWidgetPlacementMenusProps } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRefreshButton'
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -42,9 +41,14 @@ import {
     type DashboardWidgetComponentProps,
     type DashboardWidgetDefinition,
 } from '../../widgets/registry'
+import { QuillWidgetCardHeader } from '../WidgetCard/QuillWidgetCardHeader'
+import { QuillWidgetCardMenuItems } from '../WidgetCard/QuillWidgetCardMenuItems'
 import { WidgetCard } from '../WidgetCard/WidgetCard'
 import { WidgetCardBody, WidgetCardSharedPlaceholderBody, WidgetLoadingState } from '../WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/WidgetCardHeader'
+import { buildWidgetCardMenu } from '../WidgetCard/widgetCardMenu'
+import { WidgetCardMenuItems } from '../WidgetCard/WidgetCardMenuItems'
+import { WidgetCardTopHeading } from '../WidgetCard/WidgetCardTopHeading'
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
 type DashboardWidgetItemProps = {
@@ -210,112 +214,116 @@ function DashboardWidgetItemContent({
     const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
     const EditModal = definition?.EditModal
     const MenuItems = definition?.MenuItems
-
-    const hasDashboardSectionActions =
-        !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
-        (showEditingControls && toggleShowDescription && !!description) ||
-        (showEditingControls && onUpdateWidgetTile && !showDescription && !description)
+    const QuillMenuItems = definition?.QuillMenuItems
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showQuillHeader = todayRailNav && headerLayout === 'dashboard_tile'
 
     const refreshDisabledReason = loading ? 'Refreshing...' : undefined
+    const showWidgetMenuItems = !showSharedPlaceholder && hasProductAccess
+    const WidgetMenuItems = showQuillHeader ? QuillMenuItems : MenuItems
+    const widgetItems =
+        showWidgetMenuItems && WidgetMenuItems ? (
+            <Suspense fallback={null}>
+                <WidgetMenuItems {...componentProps} />
+            </Suspense>
+        ) : null
+
+    const menu = buildWidgetCardMenu({
+        viewUrl: titleHref,
+        onEdit: showEditingControls && EditModal ? () => setEditOpen(true) : undefined,
+        onDuplicate,
+        description:
+            showEditingControls && onUpdateWidgetTile && !showDescription && !description
+                ? {
+                      label: 'Add description',
+                      onClick: () => {
+                          toggleShowDescription?.()
+                          setEditOpen(true)
+                      },
+                  }
+                : showEditingControls && toggleShowDescription && !!description
+                  ? {
+                        label: tile.show_description === false ? 'Show description' : 'Hide description',
+                        onClick: toggleShowDescription,
+                    }
+                  : undefined,
+        placement:
+            onMoveToDashboard || onCopyToDashboard
+                ? {
+                      destinations: copyToDestinations ?? [],
+                      onMoveToDashboard,
+                      onCopyToDashboard,
+                      tileGroupMoveOptions,
+                      onMoveToTileGroup,
+                  }
+                : undefined,
+        onRemove,
+        refresh:
+            headerLayout === 'dashboard_tile' && !isUnknownWidgetType
+                ? { onRefresh, disabledReason: refreshDisabledReason, lastRefresh: lastFetchedAt }
+                : undefined,
+    })
+    const shouldHideMoreButton = widgetCardShouldHideMoreButton(placement, showEditingControls)
 
     // Refresh icon revealed on tile hover, mirroring insight tiles. Gated on editing controls so it
     // stays off public/export dashboards, and hidden while the tile is loading (refresh stays reachable
     // via the always-present "⋯" menu for touch/keyboard). CardMeta's CSS handles the hover reveal.
     const showHoverRefresh =
         !!showEditingControls && !isUnknownWidgetType && headerLayout === 'dashboard_tile' && !loading
-    const refreshControl = showHoverRefresh ? (
+    const refreshControl = !showHoverRefresh ? null : showQuillHeader ? (
+        <QuillCardMetaRefreshButton
+            onRefresh={onRefresh}
+            lastRefresh={lastFetchedAt}
+            dataAttr="dashboard-widget-refresh"
+        />
+    ) : (
         <CardMetaRefreshButton onRefresh={onRefresh} lastRefresh={lastFetchedAt} dataAttr="dashboard-widget-refresh" />
-    ) : null
+    )
 
     return (
         <>
-            <WidgetCardHeader
-                layout={headerLayout}
-                title={title}
-                defaultTitle={defaultTitle}
-                titleHref={titleHref}
-                widgetTypeLabel={widgetTypeLabel}
-                config={widget.config}
-                headerMeta={headerCatalogEntry.headerMeta}
-                TopHeading={definition?.TopHeading}
-                description={description}
-                showDescription={showDescription}
-                loading={loading}
-                isLive={headerCatalogEntry.live}
-                showEditingControls={showEditingControls}
-                shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
-                refreshControl={refreshControl}
-                moreButtonOverlay={
-                    <>
-                        {!showSharedPlaceholder && hasProductAccess && MenuItems && (
-                            <Suspense fallback={null}>
-                                <MenuItems {...componentProps} />
-                            </Suspense>
-                        )}
-                        {titleHref && (
-                            <LemonButton to={titleHref} fullWidth>
-                                View
-                            </LemonButton>
-                        )}
-                        {showEditingControls && EditModal && (
-                            <LemonButton fullWidth data-attr="dashboard-widget-edit" onClick={() => setEditOpen(true)}>
-                                Edit
-                            </LemonButton>
-                        )}
-                        {onDuplicate && (
-                            <LemonButton fullWidth onClick={onDuplicate}>
-                                Duplicate
-                            </LemonButton>
-                        )}
-                        {hasDashboardSectionActions && (
-                            <>
-                                <LemonDivider />
-                                <h5 className="mx-2 my-1">Dashboard</h5>
-                                {showEditingControls && onUpdateWidgetTile && !showDescription && !description && (
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => {
-                                            toggleShowDescription?.()
-                                            setEditOpen(true)
-                                        }}
-                                    >
-                                        Add description
-                                    </LemonButton>
-                                )}
-                                {showEditingControls && toggleShowDescription && !!description && (
-                                    <LemonButton fullWidth onClick={toggleShowDescription}>
-                                        {tile.show_description === false ? 'Show description' : 'Hide description'}
-                                    </LemonButton>
-                                )}
-                                {(onMoveToDashboard || onCopyToDashboard) && (
-                                    <DashboardWidgetPlacementMenus
-                                        placementDestinations={copyToDestinations ?? []}
-                                        onMoveToDashboard={onMoveToDashboard}
-                                        onCopyToDashboard={onCopyToDashboard}
-                                        tileGroupMoveOptions={tileGroupMoveOptions}
-                                        onMoveToTileGroup={onMoveToTileGroup}
-                                    />
-                                )}
-                                {onRemove && (
-                                    <LemonButton status="danger" fullWidth onClick={onRemove}>
-                                        Remove from dashboard
-                                    </LemonButton>
-                                )}
-                            </>
-                        )}
-                        {onRefresh && headerLayout === 'dashboard_tile' && !isUnknownWidgetType && (
-                            <>
-                                <LemonDivider />
-                                <DashboardTileRefreshDataButton
-                                    onRefresh={onRefresh}
-                                    disabledReason={refreshDisabledReason}
-                                    lastRefresh={lastFetchedAt}
-                                />
-                            </>
-                        )}
-                    </>
-                }
-            />
+            {showQuillHeader ? (
+                <QuillWidgetCardHeader
+                    title={title}
+                    defaultTitle={defaultTitle}
+                    titleHref={titleHref}
+                    topHeading={
+                        <WidgetCardTopHeading
+                            widgetTypeLabel={widgetTypeLabel}
+                            config={widget.config}
+                            headerMeta={headerCatalogEntry.headerMeta}
+                            TopHeading={definition?.TopHeading}
+                            isLive={headerCatalogEntry.live}
+                        />
+                    }
+                    description={description}
+                    showDescription={showDescription}
+                    loading={loading}
+                    refreshControl={refreshControl}
+                    menuItems={
+                        shouldHideMoreButton ? null : <QuillWidgetCardMenuItems menu={menu} widgetItems={widgetItems} />
+                    }
+                />
+            ) : (
+                <WidgetCardHeader
+                    layout={headerLayout}
+                    title={title}
+                    defaultTitle={defaultTitle}
+                    titleHref={titleHref}
+                    widgetTypeLabel={widgetTypeLabel}
+                    config={widget.config}
+                    headerMeta={headerCatalogEntry.headerMeta}
+                    TopHeading={definition?.TopHeading}
+                    description={description}
+                    showDescription={showDescription}
+                    loading={loading}
+                    isLive={headerCatalogEntry.live}
+                    showEditingControls={showEditingControls}
+                    shouldHideMoreButton={shouldHideMoreButton}
+                    refreshControl={refreshControl}
+                    moreButtonOverlay={<WidgetCardMenuItems menu={menu} widgetItems={widgetItems} />}
+                />
+            )}
             {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
                 <Suspense fallback={null}>
                     <TileFilters
@@ -329,39 +337,43 @@ function DashboardWidgetItemContent({
                     />
                 </Suspense>
             ) : null}
-            {showSharedPlaceholder ? (
-                <WidgetCardSharedPlaceholderBody
-                    copy={headerCatalogEntry.sharedPlaceholder ?? DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER}
-                />
-            ) : (
-                <WidgetCardBody
-                    padding={definition?.bodyPadding}
-                    locked={!hasProductAccess}
-                    error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
-                    onRefresh={isUnknownWidgetType ? undefined : onRefresh}
-                    refreshing={isUnknownWidgetType ? false : loading}
-                >
-                    {showBody ? (
-                        <ErrorBoundary
-                            className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
-                            exceptionProps={{
-                                feature: 'dashboard_widget',
-                                widget_type: widget.widget_type,
-                                tile_id: tile.id,
-                            }}
-                        >
-                            <DashboardWidgetItemBody
-                                widget={widget}
-                                definition={definition}
-                                componentProps={componentProps}
-                                dashboardId={dashboardId}
-                            />
-                        </ErrorBoundary>
-                    ) : (
-                        <LemonSkeleton className="min-h-0 w-full flex-1" active={false} />
-                    )}
-                </WidgetCardBody>
-            )}
+            <QuillSurfaceContext.Provider value={todayRailNav}>
+                {showSharedPlaceholder ? (
+                    <WidgetCardSharedPlaceholderBody
+                        copy={headerCatalogEntry.sharedPlaceholder ?? DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER}
+                    />
+                ) : (
+                    <WidgetCardBody
+                        padding={definition?.bodyPadding}
+                        locked={!hasProductAccess}
+                        error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
+                        onRefresh={isUnknownWidgetType ? undefined : onRefresh}
+                        refreshing={isUnknownWidgetType ? false : loading}
+                    >
+                        {showBody ? (
+                            <ErrorBoundary
+                                className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
+                                exceptionProps={{
+                                    feature: 'dashboard_widget',
+                                    widget_type: widget.widget_type,
+                                    tile_id: tile.id,
+                                }}
+                            >
+                                <DashboardWidgetItemBody
+                                    widget={widget}
+                                    definition={definition}
+                                    componentProps={componentProps}
+                                    dashboardId={dashboardId}
+                                />
+                            </ErrorBoundary>
+                        ) : todayRailNav ? (
+                            <Skeleton className="min-h-0 w-full flex-1 animate-none" />
+                        ) : (
+                            <LemonSkeleton className="min-h-0 w-full flex-1" active={false} />
+                        )}
+                    </WidgetCardBody>
+                )}
+            </QuillSurfaceContext.Provider>
             {EditModal &&
                 editOpen &&
                 createPortal(
