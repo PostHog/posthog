@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import EmailIntegration, Integration
-from posthog.models.integration.email import lock_sender_domain
+from posthog.models.integration.email import lock_organization_sender_domains, lock_sender_domain
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -113,6 +113,44 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 mock_create_email_domain.assert_not_called()
             else:
                 assert create().integration_id == email
+        finally:
+            other.rollback()
+            other.close()
+
+    @parameterized.expand(
+        [("new_domain", "first@fresh.example.com"), ("domain_already_added", "second@held.example.com")]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_sender_creation_waits_for_another_in_the_same_organization(
+        self, _name, email, mock_create_email_domain, _mock_get_mail_from
+    ):
+        create = lambda address: EmailIntegration.create_native_integration(
+            {"email": address, "name": "Sender", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="first@held.example.com",
+            config={
+                "email": "first@held.example.com",
+                "domain": "held.example.com",
+                "provider": "ses",
+                "verified": False,
+            },
+        )
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_organization_sender_domains(cursor, str(self.organization.id))
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                create(email)
+            mock_create_email_domain.assert_not_called()
         finally:
             other.rollback()
             other.close()
@@ -250,6 +288,48 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 created_by=self.user,
             )
         assert "not supported" in str(exc.value)
+
+    @parameterized.expand(
+        [
+            ("no_domain_verified", None, False),
+            ("one_domain_verified", "every_sender", True),
+            ("one_domain_verified_in_one_project", "first_project", True),
+        ]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_organization_holds_at_most_three_unverified_domains(
+        self, _name, verified_on, fourth_domain_allowed, _mock_create_email_domain, _mock_get_mail_from
+    ):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+
+        def add_sender(team: Team, email: str) -> None:
+            EmailIntegration.create_native_integration(
+                {"email": email, "name": "Sender"},
+                team_id=team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+
+        for team, email in [(self.team, "a@one.com"), (other_team, "b@two.com"), (self.team, "c@three.com")]:
+            add_sender(team, email)
+        if verified_on:
+            Integration.objects.filter(kind="email", config__domain="one.com").update(
+                config={"email": "a@one.com", "domain": "one.com", "provider": "ses", "verified": True}
+            )
+        if verified_on == "first_project":
+            # A sender added in a second project starts unverified even though the first project verified the domain.
+            add_sender(other_team, "z@one.com")
+
+        add_sender(self.team, "second@two.com")
+        if fourth_domain_allowed:
+            add_sender(self.team, "d@four.com")
+        else:
+            with pytest.raises(ValidationError) as exc:
+                add_sender(self.team, "d@four.com")
+            assert "3 email domains waiting for verification" in str(exc.value)
+        assert Integration.objects.filter(kind="email", config__domain="two.com").count() == 2
+        assert Integration.objects.filter(kind="email", config__domain="four.com").exists() == fourth_domain_allowed
 
 
 class TestEmailIntegrationSESCleanupOnDelete(BaseTest):

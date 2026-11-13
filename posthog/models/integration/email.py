@@ -34,6 +34,10 @@ logger = structlog.get_logger(__name__)
 
 EMAIL_DOMAIN_STATUS_CACHE_SECONDS = 10
 
+# Each domain still waiting for verification holds an identity at the email provider, and the provider
+# caps identities per region for all customers together.
+MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION = 3
+
 
 def _duplicate_sender_error(email_address: str) -> ValidationError:
     return ValidationError(f"A sender for {email_address} already exists. Edit that sender instead of adding it again.")
@@ -41,6 +45,26 @@ def _duplicate_sender_error(email_address: str) -> ValidationError:
 
 def lock_sender_domain(cursor: Any, domain: str) -> None:
     cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
+
+
+def lock_organization_sender_domains(cursor: Any, organization_id: str) -> None:
+    cursor.execute(
+        "SELECT pg_advisory_xact_lock(hashtext('email_organization_domains'), hashtext(%s))", [organization_id]
+    )
+
+
+def _refuse_another_unverified_domain(organization_id: str) -> None:
+    senders = model.Integration.objects.filter(kind="email", team__organization_id=organization_id).values_list(
+        "config__domain", "config__verified"
+    )
+    # A sender added in a second project starts unverified, even when the first project verified its domain.
+    verified_domains = {domain for domain, verified in senders if verified is True}
+    unverified_domains = {domain for domain, verified in senders if verified is not True} - verified_domains
+    if len(unverified_domains) >= MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION:
+        raise ValidationError(
+            f"Your organization has {len(unverified_domains)} email domains waiting for verification. "
+            "Verify or remove one of them before you add another domain."
+        )
 
 
 @frozen
@@ -76,6 +100,8 @@ class EmailIntegration:
 
         with connection.cursor() as cursor:
             lock_sender_domain(cursor, domain)
+            # Every create takes it, so a sender deleted meanwhile cannot let a new domain past the cap.
+            lock_organization_sender_domains(cursor, str(organization_id))
 
         if row_writes.creator_accessor("email").exists(team_id, external_id=email_address):
             raise _duplicate_sender_error(email_address)
@@ -88,6 +114,9 @@ class EmailIntegration:
                 raise ValidationError(
                     f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
                 )
+
+        if not same_domain_integrations.exists():
+            _refuse_another_unverified_domain(str(organization_id))
 
         # Create domain in the appropriate provider
         if provider == "ses":
