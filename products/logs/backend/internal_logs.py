@@ -22,6 +22,7 @@ INTERNAL_SOURCE_SERVICE_NAMES: dict[str, str] = {
     "batch_exports": "posthog-internal-batch-exports",
     "batch_exports_backfill": "posthog-internal-batch-exports",
     "dwh_cdp_producer_job": "posthog-internal-warehouse-cdp",
+    "temporal_workflow": "posthog-internal-temporal",
     "endpoints": "posthog-internal-endpoints",
     "alert_destination": "posthog-internal-alerts",
 }
