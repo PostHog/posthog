@@ -42786,10 +42786,10 @@ export namespace Schemas {
      * * `correlation` - correlation
      * * `diagnostics` - diagnostics
      */
-    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
+    export type ErrorTrackingIssueEventsQueryRequestIncludeEnum = typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum];
 
 
-    export const IncludeEnum = {
+    export const ErrorTrackingIssueEventsQueryRequestIncludeEnum = {
       Exception: 'exception',
       Stacktrace: 'stacktrace',
       CodeVariables: 'code_variables',
@@ -42831,7 +42831,7 @@ export namespace Schemas {
          */
       offset?: number;
       /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-      include?: IncludeEnum[];
+      include?: ErrorTrackingIssueEventsQueryRequestIncludeEnum[];
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }
@@ -67952,6 +67952,211 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute
+     */
+    export type LogsContextAnchorTypeEnum = typeof LogsContextAnchorTypeEnum[keyof typeof LogsContextAnchorTypeEnum];
+
+
+    export const LogsContextAnchorTypeEnum = {
+      Trace: 'trace',
+      Log: 'log',
+      Attribute: 'attribute',
+    } as const;
+
+    /**
+     * * `spans` - Spans
+     */
+    export type LogsContextIncludeEnum = typeof LogsContextIncludeEnum[keyof typeof LogsContextIncludeEnum];
+
+
+    export const LogsContextIncludeEnum = {
+      Spans: 'spans',
+    } as const;
+
+    export interface _LogsContextAttributeAnchor {
+      /** Log attribute key, e.g. "workflow_run_id". */
+      key: string;
+      /** Exact attribute value to follow. */
+      value: string;
+    }
+
+    export interface _LogsContextAnchor {
+      /** uuid of one log line. Needs `timestamp`. */
+      logUuid?: string;
+      /** ISO 8601 timestamp of the `logUuid` log line. */
+      timestamp?: string;
+      /** Trace id, 32 hex characters or base64. */
+      traceId?: string;
+      /** Follow every log with this attribute value. */
+      attribute?: _LogsContextAttributeAnchor;
+      /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+      around?: string;
+    }
+
+    /**
+     * * `trace` - trace
+     * * `debug` - debug
+     * * `info` - info
+     * * `warn` - warn
+     * * `error` - error
+     * * `fatal` - fatal
+     */
+    export type LogsSeverityLevelEnum = typeof LogsSeverityLevelEnum[keyof typeof LogsSeverityLevelEnum];
+
+
+    export const LogsSeverityLevelEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    export interface _LogsContextBody {
+      /** Exactly one anchor: a log line, a trace, or an attribute value. */
+      anchor: _LogsContextAnchor;
+      /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+      padding?: string;
+      /** Keep only these severities in the timeline. */
+      severityLevels?: LogsSeverityLevelEnum[];
+      /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+      serviceNames?: string[];
+      /** "spans" adds spans_summary for a trace anchor. */
+      include?: LogsContextIncludeEnum[];
+      /**
+         * Maximum timeline rows.
+         * @minimum 1
+         * @maximum 500
+         */
+      limit?: number;
+      /** `next_cursor` of a previous call with the same anchor. */
+      after?: string;
+    }
+
+    export interface LogsContextRequest {
+      /** The context query. */
+      query: _LogsContextBody;
+    }
+
+    export interface _LogsContextAnchorSummary {
+      /** The anchor kind.
+       *
+       * * `trace` - Trace
+       * * `log` - Log
+       * * `attribute` - Attribute */
+      type: LogsContextAnchorTypeEnum;
+      /**
+         * Trace id (hex) of the anchor, when there is one.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Reference time (UTC) that `t_offset_ms` counts from. */
+      timestamp: string;
+      /**
+         * Trace start or first matching log (UTC).
+         * @nullable
+         */
+      start: string | null;
+      /**
+         * Trace end or last matching log (UTC).
+         * @nullable
+         */
+      end: string | null;
+      /**
+         * end - start in milliseconds.
+         * @nullable
+         */
+      duration_ms: number | null;
+      /** Services of the anchor. */
+      services: string[];
+    }
+
+    export interface _LogsContextCorrelationKey {
+      /** Id-like attribute of the anchor log. */
+      key: string;
+      /** Its value on the anchor log. */
+      value: string;
+      /** Logs in the window, any service, with this value. */
+      log_count: number;
+    }
+
+    export interface _LogsContextTimelineRow {
+      /** Milliseconds from the anchor reference time. */
+      t_offset_ms: number;
+      /** Log timestamp (UTC). */
+      timestamp: string;
+      /** Service that emitted the line. */
+      service: string;
+      /** Severity of the line. */
+      severity: string;
+      /** Log body, cut to 300 characters. */
+      body: string;
+      /** k=v attributes that differ from the anchor log, without noise keys. */
+      attrs: string;
+      /** Log uuid, usable with `timestamp` as a log anchor. */
+      uuid: string;
+    }
+
+    export interface _LogsContextSpan {
+      /** Span id (hex). */
+      span_id: string;
+      /** Span name. */
+      name: string;
+      /** Service of the span. */
+      service: string;
+      /** Milliseconds from the trace start. */
+      start_offset_ms: number;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans. */
+      self_time_ms: number;
+      /** "error" or "ok". */
+      status: string;
+    }
+
+    export interface _LogsContextSpansSummary {
+      /** Spans read. */
+      span_count: number;
+      /** True when the trace has more spans than were read. */
+      truncated: boolean;
+      /** Services with spans in the trace. */
+      services: string[];
+      /** The root span, null when it never arrived. */
+      root: _LogsContextSpan | null;
+      /** Up to 10 spans with an error status. */
+      error_spans: _LogsContextSpan[];
+      /** The 5 longest spans. */
+      slowest: _LogsContextSpan[];
+    }
+
+    export interface LogsContextResponse {
+      /** Absolute UTC bounds the logs were read from. */
+      window: LogsAgentWindow;
+      /** The resolved anchor. */
+      anchor: _LogsContextAnchorSummary;
+      /** Id-like attributes of the anchor log, with counts. */
+      correlation_keys: _LogsContextCorrelationKey[];
+      /** Log lines, earliest first. */
+      timeline: _LogsContextTimelineRow[];
+      /** Set for a trace anchor with include ["spans"]. */
+      spans_summary: _LogsContextSpansSummary | null;
+      /** True when more rows exist past `limit`. */
+      truncated: boolean;
+      /**
+         * Pass as `after` for the next page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Prefilled follow-up calls. */
+      next: LogsAgentNextCall[];
+      /** Caveats about the window. */
+      notes: string[];
+    }
+
+    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -68213,26 +68418,6 @@ export namespace Schemas {
       dateRange?: _LogsNaturalLanguageDateRange;
     }
 
-    /**
-     * * `trace` - trace
-     * * `debug` - debug
-     * * `info` - info
-     * * `warn` - warn
-     * * `error` - error
-     * * `fatal` - fatal
-     */
-    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
-
-
-    export const SeverityLevelsEnum = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
     export interface _LogsNaturalLanguageCandidateFilter {
       /** Attribute key, or "message" for the log body text. */
       key: string;
@@ -68252,7 +68437,7 @@ export namespace Schemas {
       /** Date range of this reading. */
       dateRange: _LogsNaturalLanguageDateRange;
       /** Severity levels to keep. Empty means all levels. */
-      severityLevels: SeverityLevelsEnum[];
+      severityLevels: LogsSeverityLevelEnum[];
       /** Services to keep. Empty means all services. */
       serviceNames: string[];
       /** Attribute and message filters, combined with AND. */
@@ -71501,6 +71686,18 @@ export namespace Schemas {
       Hour6: 'hour_6',
       Day: 'day',
       Week: 'week',
+    } as const;
+
+    /**
+     * * `points` - points
+     * * `summary` - summary
+     */
+    export type MetricQueryOutputEnum = typeof MetricQueryOutputEnum[keyof typeof MetricQueryOutputEnum];
+
+
+    export const MetricQueryOutputEnum = {
+      Points: 'points',
+      Summary: 'summary',
     } as const;
 
     /**
@@ -126289,7 +126486,7 @@ export namespace Schemas {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126317,7 +126514,7 @@ export namespace Schemas {
          */
       targetBuckets?: number;
       /** Filter by log severity levels. Applied before bucketing. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. Applied before bucketing. */
       serviceNames?: string[];
       /** Full-text search across log bodies. Applied before bucketing. */
@@ -126367,7 +126564,7 @@ export namespace Schemas {
       /** Date range. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels (ignored when faceting on severity_text). */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names (ignored when faceting on service_name). */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126408,7 +126605,7 @@ export namespace Schemas {
       /** Date range to aggregate over. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before grouping. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict grouping to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before grouping. */
@@ -126554,7 +126751,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -126571,7 +126768,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -126737,7 +126934,7 @@ export namespace Schemas {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Order results by timestamp.
@@ -126865,7 +127062,7 @@ export namespace Schemas {
       /** Date range for the services aggregation. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict the aggregation to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126965,7 +127162,7 @@ export namespace Schemas {
       /** Date range for the sparkline. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -127112,8 +127309,38 @@ export namespace Schemas {
     export interface _MetricSeries {
       /** Label values identifying this series. Empty for an ungrouped query. */
       labels: _MetricSeriesLabels;
-      /** Time-bucketed points, ordered by time ascending. */
-      points: _MetricQueryPoint[];
+      /** Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output. */
+      points?: _MetricQueryPoint[];
+      /**
+         * Instant queries only: the series' value at 'time'.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.
+         * @nullable
+         */
+      time?: string | null;
+      /**
+         * Summary output only: the last non-null value.
+         * @nullable
+         */
+      last?: number | null;
+      /**
+         * Summary output only: the smallest non-null value.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Summary output only: the largest non-null value.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Summary output only: the mean of the non-null values.
+         * @nullable
+         */
+      avg?: number | null;
       /**
          * Metric the series was computed from. Null for formula results.
          * @nullable
@@ -127504,6 +127731,15 @@ export namespace Schemas {
          * @nullable
          */
       limit?: number | null;
+      /** Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'. */
+      instant?: boolean;
+      /** Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant. */
+      time?: string;
+      /** 'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.
+       *
+       * * `points` - points
+       * * `summary` - summary */
+      output?: MetricQueryOutputEnum;
     }
 
     export interface _MetricQueryCount {
@@ -127534,6 +127770,8 @@ export namespace Schemas {
       omitted_empty_series?: number;
       /** Number of series left out by 'limit'. Set only when it left some out. */
       omitted_by_limit?: number;
+      /** Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it. */
+      url_params?: string;
     }
 
     export interface _MetricSamplesBody {
@@ -128040,6 +128278,111 @@ export namespace Schemas {
       events?: _SpanEvent[];
     }
 
+    /**
+     * Span count per service, largest first (top 10).
+     */
+    export type _TraceSummaryServices = {[key: string]: number};
+
+    export interface _TraceSummarySpan {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+    }
+
+    export interface _TraceSummaryPathEntry {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /** Nesting depth below the root, which is 0. */
+      depth: number;
+      /** Present when consecutive same-named siblings were collapsed into this entry; durations are summed. */
+      count?: number;
+    }
+
+    export interface _TraceSummaryRepeated {
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the spans. Omitted when it is the root span's service. */
+      service?: string;
+      /** How many spans in the trace have this service and name. */
+      count: number;
+      /** Summed duration of those spans, in milliseconds. */
+      total_ms: number;
+      /** Longest of those spans, in milliseconds. */
+      max_ms: number;
+    }
+
+    export interface _TraceSummaryError {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /**
+         * The exception message, or the error attribute the span carries. Null when the span records none.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface _TraceSummary {
+      /** The trace ID. */
+      trace_id?: string;
+      /** When the earliest span started (ISO 8601). */
+      start?: string;
+      /** First span start to last span end, in milliseconds. */
+      duration_ms?: number;
+      /** Spans summarized. */
+      span_count: number;
+      /** Distinct services in the trace. */
+      service_count?: number;
+      /** Spans with error status. */
+      error_count?: number;
+      /** True when the trace has more spans than were summarized, so counts are lower bounds. */
+      truncated: boolean;
+      /** The trace's root span. */
+      root?: _TraceSummarySpan;
+      /** Span count per service, largest first (top 10). */
+      services?: _TraceSummaryServices;
+      /** Spans with the most self time, largest first. Self time on a parent is uninstrumented work. */
+      top_self_time?: _TraceSummarySpan[];
+      /** The spans the trace's end time waits on, in start order, walking back from the root's end. Spans that ran in parallel and finished earlier are left out. */
+      critical_path?: _TraceSummaryPathEntry[];
+      /** Spans on the critical path left out because each took under 1% of the root's duration. */
+      critical_path_omitted?: number;
+      /** True when the critical path was cut at summaryLimit entries (at most 20). */
+      critical_path_truncated?: boolean;
+      /** Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern. */
+      repeated_spans?: _TraceSummaryRepeated[];
+      /** Error spans, earliest first. */
+      errors?: _TraceSummaryError[];
+    }
+
     export interface _TracingAggregationQueryBody {
       /** Date range for the primary window. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -128540,11 +128883,21 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span/service/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`. */
+      summary?: boolean;
+      /**
+         * With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.
+         * @minimum 1
+         * @maximum 50
+         */
+      summaryLimit?: number;
     }
 
     export interface _TracingTraceResponse {
-      /** Spans in the trace, earliest first. */
+      /** Spans in the trace, earliest first. Empty when `summary` is requested. */
       results: _TraceSpan[];
+      /** The trace digest, present when `summary` is true. */
+      summary?: _TraceSummary;
       /** Whether a further page of spans exists. */
       hasMore: boolean;
       /**
