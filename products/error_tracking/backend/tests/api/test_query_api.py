@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.constants import AvailableFeature
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -38,6 +39,7 @@ from products.error_tracking.backend.facade.query_utils import (
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -859,6 +861,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("context_query", "EventsQueryRunner", "top_in_app_frame"),
             ("summary_read", "summaries_facade.read_issue_summary", "summary"),
+            ("external_issues", "facade_api.list_issue_external_references", "external_issues"),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
@@ -881,6 +884,45 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json()["id"] == self.issue_id
         assert missing_key not in response.json()
+
+    @parameterized.expand([("with_events", True), ("without_events", False)])
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_returns_only_this_issues_linked_work(self, _name: str, has_events: bool) -> None:
+        issue = self.create_issue()
+        other_issue = self.create_issue(issue_id="01936e80-7e11-7fd1-b0d1-f6f90c9b42bb", fingerprint="other")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.JIRA.value,
+            integration_id="cloud-id",
+            config={"site_url": "https://example.atlassian.net"},
+            sensitive_config={"access_token": "access-token"},
+        )
+        reference = ErrorTrackingExternalReference.objects.create(
+            issue=issue, integration=integration, external_context={"key": "ENG-1", "title": "Checkout TypeError"}
+        )
+        ErrorTrackingExternalReference.objects.create(
+            issue=other_issue, integration=integration, external_context={"key": "ENG-2", "title": "Other"}
+        )
+        if has_events:
+            self.create_exception_event()
+            flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["external_issues"] == [
+            {
+                "id": str(reference.id),
+                "integration": {"id": integration.id, "kind": "jira", "display_name": integration.display_name},
+                "external_url": "https://example.atlassian.net/browse/ENG-1",
+                "external_id": "ENG-1",
+                "title": "Checkout TypeError",
+            }
+        ]
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:

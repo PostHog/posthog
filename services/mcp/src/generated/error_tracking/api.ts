@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4904,6 +4904,31 @@ export const ErrorTrackingExternalReferencesCreateBody = () => zod
         issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
     })
     .describe('Payload for creating a new provider issue and linking it to an error tracking issue.')
+
+/**
+ * Link an error to an issue that already exists in the connected provider.
+ */
+export const ErrorTrackingExternalReferencesLinkIssueCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ErrorTrackingExternalReferencesLinkIssueCreateBody = () => zod.object({
+    integration_id: zod
+        .number()
+        .describe(
+            "ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira')."
+        ),
+    issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
+    external_context: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue."
+        ),
+})
 
 export const ErrorTrackingGroupingRulesListParams = () => zod.object({
     project_id: zod

@@ -179,6 +179,42 @@ const errorTrackingExternalReferencesCreate = (): ToolBase<
     },
 })
 
+const ErrorTrackingExternalReferencesLinkSchema = () => {
+    const ErrorTrackingExternalReferencesLinkIssueCreateBody =
+        orvalSchemas.ErrorTrackingExternalReferencesLinkIssueCreateBody()
+    return ErrorTrackingExternalReferencesLinkIssueCreateBody
+}
+
+const errorTrackingExternalReferencesLink = (): ToolBase<
+    ReturnType<typeof ErrorTrackingExternalReferencesLinkSchema>,
+    Schemas.ErrorTrackingExternalReferenceResult
+> => ({
+    name: 'error-tracking-external-references-link',
+    schema: ErrorTrackingExternalReferencesLinkSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ErrorTrackingExternalReferencesLinkSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.issue !== undefined) {
+            body['issue'] = params.issue
+        }
+        if (params.external_context !== undefined) {
+            body['external_context'] = params.external_context
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingExternalReferenceResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/external_references/link_issue/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ErrorTrackingGroupingRulesCreateSchema = () => {
     const ErrorTrackingGroupingRulesCreateBody = orvalSchemas.ErrorTrackingGroupingRulesCreateBody()
     return ErrorTrackingGroupingRulesCreateBody
@@ -974,6 +1010,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-bypass-rules-list': errorTrackingBypassRulesList,
     'error-tracking-bypass-rules-update': errorTrackingBypassRulesUpdate,
     'error-tracking-external-references-create': errorTrackingExternalReferencesCreate,
+    'error-tracking-external-references-link': errorTrackingExternalReferencesLink,
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
     'error-tracking-grouping-rules-update': errorTrackingGroupingRulesUpdate,
