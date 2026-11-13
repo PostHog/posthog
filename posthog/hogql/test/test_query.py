@@ -1721,14 +1721,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "array_obj_array_obj",
                 ]:
                     self.assertIn(f"events.properties.{property_key}", clickhouse)
-                # An index reads the JSON text of the value, so a row holding a non-array there reads NULL.
                 self.assertIn(
-                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['array_str'], as_json=True)}, ",
-                    clickhouse,
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['array_str'])}, ", clickhouse
                 )
                 self.assertIn(
-                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['obj_array', 'id'], as_json=True)}, ",
-                    clickhouse,
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['obj_array'])}, ", clickhouse
                 )
             else:
                 self.assertEqual(expected_legacy_clickhouse, clickhouse)

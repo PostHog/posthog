@@ -1,7 +1,7 @@
 import re
 import json
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from posthog.test.base import clean_varying_query_parts
@@ -167,64 +167,50 @@ def pretty_dataclasses(obj, seen=None, indent=0):
         return str(obj)
 
 
-def _json_text_sql(field: str, *, declared: bool) -> str:
-    # A declared array column holds [] for a missing key, so its empty containers read as NULL.
-    if declared:
-        return f"nullIf(nullIf(toJSONString({field}), '[]'), '{{}}')"
-    return f"toJSONString({field})"
+def native_stored_document(document: str) -> str:
+    """A properties document as the native cleaner stores it, for fixtures that cast text into the JSON column.
 
-
-def json_dynamic_read_sql_from_parts(
-    field: Callable[[], str],
-    sub_object: Callable[[], str],
-    *,
-    as_json: bool = False,
-    with_sub_object: bool = True,
-    declared: bool = False,
-) -> str:
-    """The ClickHouse SQL the resolver prints for a property read on the native-JSON events table.
-
-    `field` and `sub_object` are called once per occurrence of the read. The shape mirrors
-    `_json_subcolumn_value_expr`: a non-empty sub-object wins, a missing key reads as NULL, containers render as
-    JSON. A declared path cannot hold NULL, so its '' and [] defaults read as NULL as well.
+    Every top-level object and array becomes a string of the JSON text that was sent. Every other value keeps its
+    text, so a number token such as `2.0` or `1e21` reaches ClickHouse as it was written.
     """
-    sub_object_read = f"toJSONString({sub_object()})" if with_sub_object else ""
-    sub_object_again = f"toJSONString({sub_object()})" if with_sub_object else ""
-    if declared:
-        empty_check = f"isNull(nullIf(toString({field()}), ''))"
-    else:
-        empty_check = f"isNull({field()})"
-    if as_json:
-        typed = _json_text_sql(field(), declared=declared)
-    else:
-        is_container = (
-            f"and(in(ascii(toString({field()})), tuple(91, 123)), in(ascii(toJSONString({field()})), tuple(91, 123)))"
-        )
-        typed = f"if({is_container}, {_json_text_sql(field(), declared=declared)}, toString({field()}))"
-    scalar_or_null = f"if({empty_check}, NULL, {typed})"
-    if not with_sub_object:
-        return scalar_or_null
-    return f"if(notEquals({sub_object_read}, '{{}}'), {sub_object_again}, {scalar_or_null})"
+    decoder = json.JSONDecoder()
+    members = []
+    index = document.index("{") + 1
+    while True:
+        index = len(document) - len(document[index:].lstrip())
+        if document[index] == "}":
+            return "{" + ",".join(members) + "}"
+        key, index = decoder.raw_decode(document, index)
+        start = len(document) - len(document[document.index(":", index) + 1 :].lstrip())
+        _, index = decoder.raw_decode(document, start)
+        value = document[start:index]
+        members.append(f"{json.dumps(key)}:{json.dumps(value) if value[0] in '[{' else value}")
+        index = len(document) - len(document[index:].lstrip())
+        if document[index] == ",":
+            index += 1
 
 
-def json_dynamic_read_sql(root: str, path: Sequence[str | int], *, as_json: bool = False) -> str:
-    """`json_dynamic_read_sql_from_parts` for a literal key path under `root` (e.g. `events.properties`).
+def json_dynamic_read_sql(root: str, path: Sequence[str], *, as_json: bool = False) -> str:
+    """The ClickHouse SQL the resolver prints for the read of one property on the native-JSON events table.
 
-    An integer key is an array index; the read then has no sub-object branch, because a sub-object only exists
-    for a plain key path, and it scrubs like a declared path, because only a declared array is indexed in place.
+    `path` holds the property's key. The read is the text of its path, with the '' that a declared string path stores
+    for a missing key read as NULL. `as_json` gives the JSON text of the value instead, where a string that is a
+    valid JSON object or array prints unquoted.
     """
-    field = root
-    for key in path:
-        field += f"[{key}]" if isinstance(key, int) else f".{escape_clickhouse_json_path(key)}"
-    if any(isinstance(key, int) for key in path):
-        return json_dynamic_read_sql_from_parts(
-            lambda: field, lambda: field, as_json=as_json, with_sub_object=False, declared=True
-        )
+    [key] = path
+    field = f"{root}.{escape_clickhouse_json_path(key)}"
     declared_types = (
         PERSON_PROPERTIES_JSON_SUBCOLUMNS if root.endswith(".person_properties") else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
     )
-    declared = ".".join(str(key) for key in path) in declared_types
-    escaped = ".".join(escape_clickhouse_json_path(key) for key in path if isinstance(key, str))
-    return json_dynamic_read_sql_from_parts(
-        lambda: field, lambda: f"{root}.^{escaped}", as_json=as_json, declared=declared
-    )
+    declared_type = declared_types.get(key, "")
+    is_declared_string = declared_type in ("String", "LowCardinality(String)")
+    if as_json:
+        text = f"toString({field})" if is_declared_string else f"CAST({field}, 'Nullable(String)')"
+        missing = f"empty({text})" if is_declared_string else f"isNull({field})"
+        scalar_json = f"toJSONString({text})" if is_declared_string else f"toJSONString({field})"
+        is_container = f"and(in(ascii({text}), tuple(91, 123)), isValidJSON({text}))"
+        return f"if({missing}, NULL, if({is_container}, {text}, {scalar_json}))"
+    if not is_declared_string:
+        return f"CAST({field}, 'Nullable(String)')"
+    text = f"nullIf(toString({field}), '')"
+    return text if declared_type == "String" else f"CAST({text}, 'Nullable(String)')"

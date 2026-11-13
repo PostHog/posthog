@@ -11,8 +11,9 @@ from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 
 # The event properties and person properties an SDK sent, then the rebuilt documents where they differ from what was
-# sent. A sent empty value under a dynamic key stays; the declared paths read '' or [] whether sent empty or absent,
-# so the document leaves those out. A field sent as null is left out, and so is an object that held only nulls.
+# sent. A sent empty value under a dynamic key stays; a declared string path reads '' whether sent empty or absent,
+# so the document leaves it out. A property sent as null is left out. A null inside an object stays, because the
+# cleaner stores the object as the text that was sent.
 SENT_DOCUMENTS: list[tuple[dict, dict, dict | None, dict | None]] = [
     (
         {"$browser": "Chrome", "pathname": "/docs", "empty": "", "list": [], "nested": {"child": ""}},
@@ -23,7 +24,7 @@ SENT_DOCUMENTS: list[tuple[dict, dict, dict | None, dict | None]] = [
     (
         {"$browser": "", "$exception_types": [], "custom_list": [], "note": ""},
         {"$initial_browser": "", "$browser": "", "list": [], "note": ""},
-        {"custom_list": [], "note": ""},
+        {"$exception_types": [], "custom_list": [], "note": ""},
         {"list": [], "note": ""},
     ),
     ({}, {}, None, None),
@@ -39,8 +40,20 @@ SENT_DOCUMENTS: list[tuple[dict, dict, dict | None, dict | None]] = [
             "$set_once": {"first": None},
         },
         {"team": None, "profile": {"org": {"size": None, "seats": 5}}, "geo": {"city.name": None}},
-        {"billing": {"seats": 3}, "$set": {"name": "n"}},
-        {"profile": {"org": {"seats": 5}}},
+        {
+            "billing": {"coupon": None, "seats": 3, "card": {"brand": None}},
+            "trial": {"ends": None},
+            "$set": {"email": None, "name": "n"},
+            "$set_once": {"first": None},
+        },
+        {"profile": {"org": {"size": None, "seats": 5}}, "geo": {"city.name": None}},
+    ),
+    (
+        {"path": ["app/models/user.py"], "text": "[not json", "quoted": '{"a":1}'},
+        {"tags": [{"name": "a/b"}]},
+        # A string that holds a JSON object reads as that object: nothing records which strings the cleaner wrote.
+        {"path": ["app/models/user.py"], "text": "[not json", "quoted": {"a": 1}},
+        None,
     ),
 ]
 
