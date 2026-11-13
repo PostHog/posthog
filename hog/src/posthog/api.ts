@@ -81,7 +81,6 @@ function transportReason(error: unknown): string {
 }
 
 export interface ApiErrorOptions {
-    // The DRF error type, such as `validation_error`.
     type?: string
     hint?: string
     details?: Readonly<Record<string, unknown>>
@@ -89,7 +88,6 @@ export interface ApiErrorOptions {
     exitCode?: number
 }
 
-// A non-2xx answer from PostHog.
 export class ApiError extends HogError {
     readonly type: string | undefined
 

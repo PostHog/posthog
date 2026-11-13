@@ -386,8 +386,6 @@ interface ResolvedRoute {
     node: Command | Group | Legacy | undefined
 }
 
-// Follows the positional tokens down the command tree, group aliases included, and stops at the
-// first token that isn't a name there or at the first node that isn't a group.
 function resolveRoute(tokens: Token[]): ResolvedRoute {
     let tree: CommandTree = COMMANDS
     const route: ResolvedRoute = { names: [], indices: [], node: undefined }
