@@ -12,13 +12,13 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EVENTS_NAMES,
     EventsScan,
     ScanVisitor,
     filter_conjuncts,
+    names_flag_called,
     select_aliases,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr

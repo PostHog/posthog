@@ -789,7 +789,7 @@ def filter_conjuncts(node: ast.SelectQuery) -> list[ast.Expr]:
 
 def names_flag_called_event(node: ast.AST) -> bool:
     """Whether `$feature_flag_called` appears as a constant anywhere in `node`."""
-    return _has_constant(node, names_flag_called)
+    return _has_constant(node, _names_flag_called_to_swap)
 
 
 def boolean_operands(expr: ast.Expr, operator: type[ast.And] | type[ast.Or]) -> list[ast.Expr] | None:
@@ -1029,8 +1029,18 @@ def names_flag_called(value: object) -> bool:
     return value == FLAG_CALLED_EVENT
 
 
+class EventsOnlyNames(list[str]):
+    """Event names that a query reads from `events` on every mode. A scan that matches `event` against these names
+    keeps reading `events`, so the flag-call swap and the flag-call union skip it. On mode 2, `events` holds the
+    `$experiment_exposure` copies of flag calls, and a scan of these names reads only those copies."""
+
+
+def _names_flag_called_to_swap(value: object) -> bool:
+    return not isinstance(value, EventsOnlyNames) and names_flag_called(value)
+
+
 def _is_flag_called_list(value: object) -> bool:
-    return isinstance(value, (list, tuple)) and names_flag_called(value)
+    return isinstance(value, (list, tuple)) and _names_flag_called_to_swap(value)
 
 
 def _flag_called_lists_as_arrays(node: _T_AST) -> _T_AST:

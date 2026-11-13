@@ -43,7 +43,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.test_prompt_jev import gateway_response
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swaps_flag_calls
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsOnlyNames, swaps_flag_calls
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -1087,6 +1087,36 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(_scan_of_events_in(events), mode=ONLY, union=union)
 
         assert expected in sql
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_mode_2_reads_events_only_names_without_the_union_or_the_swap(self, _name: str, native: bool):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        plain = self._sql(_scan_of_events_in(names), mode=ONLY, new_events_schema=native)
+        events_only = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=ONLY, new_events_schema=native)
+
+        assert "UNION ALL" in plain
+        assert "UNION ALL" not in events_only
+        assert "flag_evaluations" not in events_only
+
+    @parameterized.expand(
+        [
+            ("mode_0", EVENTS, False),
+            ("mode_0_native", EVENTS, True),
+            ("mode_1", READ, False),
+            ("mode_1_native", READ, True),
+        ]
+    )
+    def test_events_only_names_print_what_a_query_without_the_swap_prints_on_modes_0_and_1(
+        self, _name: str, mode: FlagEvaluationsMode, native: bool
+    ):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        sql = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=mode, new_events_schema=native)
+
+        assert sql == self._sql(
+            _scan_of_events_in(names), mode=mode, new_events_schema=native, rewrite_flag_calls=False
+        )
 
     def test_swaps_flag_calls_when_a_list_constant_names_them(self):
         _set_mode(self.organization, ONLY)

@@ -145,7 +145,9 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     )
     # Before EXPERIMENT_EXPOSURE_EVENT_CUTOFF, so the default exposure reads $feature_flag_called.
     @time_machine.travel("2026-08-20T12:00:00Z", tick=False)
-    def test_counts_flag_call_exposures_that_only_flag_evaluations_holds(self, _name, use_precomputation):
+    def test_counts_only_the_exposure_copies_when_flag_calls_are_only_in_flag_evaluations(
+        self, _name, use_precomputation
+    ):
         self._setup_precomputation_test(use_precomputation)
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
@@ -159,6 +161,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         called_at = timezone.now() - timedelta(days=1)
+        exposure_copies = 8
         for variant, purchasers in [("control", 6), ("test", 8)]:
             for i in range(10):
                 distinct_id = f"user_{variant}_{i}"
@@ -171,6 +174,14 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                     person_id=person.uuid,
                     response=variant,
                 )
+                if i < exposure_copies:
+                    _create_event(
+                        team=self.team,
+                        event="$experiment_exposure",
+                        distinct_id=distinct_id,
+                        timestamp=called_at,
+                        properties={"$feature_flag": feature_flag.key, "$feature_flag_response": variant},
+                    )
                 if i < purchasers:
                     _create_event(
                         team=self.team,
@@ -195,8 +206,8 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         assert result.is_precomputed == use_precomputation
         assert result.baseline is not None
         assert result.variant_results is not None
-        assert (result.baseline.number_of_samples, result.baseline.sum) == (10, 6)
-        assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (10, 8)
+        assert (result.baseline.number_of_samples, result.baseline.sum) == (exposure_copies, 6)
+        assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (exposure_copies, 8)
 
     @parameterized.expand(
         [
