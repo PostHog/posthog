@@ -1,79 +1,21 @@
-from typing import IO, Any, cast
+from typing import Any
 
-from django import forms
 from django.contrib import admin
 from django.contrib.admin import ActionLocation
-from django.core.exceptions import ValidationError
-from django.core.files.uploadedfile import UploadedFile
-from django.core.validators import FileExtensionValidator
-from django.db import IntegrityError, transaction
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-import structlog
-
 from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
-from posthog.storage import object_storage
 
 from .models import LegalDocument
-from .storage import signed_pdf_storage_key
-
-logger = structlog.get_logger(__name__)
-
-# 25 MiB. PandaDoc-signed PDFs are ~100 KiB; counter-signed scans uploaded by sales
-# can be larger but rarely come close to this. Anything bigger is almost certainly
-# the wrong file.
-_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-
-
-class LegalDocumentAdminForm(forms.ModelForm):
-    """
-    Admin upload form for documents signed outside the PandaDoc flow (sales /
-    legal-ops dropping a counter-signed PDF). The PDF lives in object storage
-    under the same key the public download endpoint already serves from, so the
-    customer can download it via /api/.../legal_documents/{id}/download just
-    like a PandaDoc-originated row.
-    """
-
-    signed_pdf = forms.FileField(
-        required=True,
-        validators=[FileExtensionValidator(allowed_extensions=["pdf"])],
-        help_text="Counter-signed PDF (max 25 MiB). The row will be created with status='signed'.",
-    )
-
-    class Meta:
-        model = LegalDocument
-        fields = (
-            "organization",
-            "document_type",
-            "company_name",
-            "company_address",
-            "representative_email",
-        )
-
-    def clean_signed_pdf(self) -> UploadedFile:
-        pdf: UploadedFile = self.cleaned_data["signed_pdf"]
-        if pdf.size and pdf.size > _MAX_UPLOAD_BYTES:
-            raise ValidationError(f"PDF is too large ({pdf.size} bytes). Limit is {_MAX_UPLOAD_BYTES} bytes.")
-
-        # Browsers populate content_type from the multipart upload; we only reject
-        # obvious mismatches. The .pdf extension validator above is the primary check.
-        if pdf.content_type and pdf.content_type != "application/pdf":
-            raise ValidationError(f"File must be a PDF (got content-type {pdf.content_type!r}).")
-
-        return pdf
 
 
 @admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
-    # FK to posthog.Organization — without this the add view renders a <select>
-    # of every org on Cloud, which times out. Autocomplete searches lazily via
-    # OrganizationAdmin.search_fields.
-    autocomplete_fields = ("organization",)
     list_display = (
         "id",
         "document_type",
@@ -95,8 +37,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
     show_full_result_count = False
     list_select_related = ("organization", "created_by")
 
-    # Change view stays read-only — customer-submitted content can't be quietly
-    # rewritten. The add view uses LegalDocumentAdminForm fields directly.
+    # Customer-submitted content stays read-only, so it can't be quietly rewritten.
     readonly_fields = (
         "id",
         "organization",
@@ -111,28 +52,6 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         "created_by",
         "created_at",
         "updated_at",
-    )
-
-    add_fieldsets = (
-        (
-            "Upload signed document",
-            {
-                "description": (
-                    "Use this form when a document was signed outside the PandaDoc flow "
-                    "(e.g., counter-signed offline, DocuSign, or an MSA negotiated by sales). "
-                    "The row is saved as 'signed' and the PDF goes to object storage at the "
-                    "same key the customer-facing download endpoint reads from."
-                ),
-                "fields": (
-                    "organization",
-                    "document_type",
-                    "company_name",
-                    "company_address",
-                    "representative_email",
-                    "signed_pdf",
-                ),
-            },
-        ),
     )
 
     fieldsets = (
@@ -166,36 +85,10 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         ),
     )
 
-    def get_fieldsets(self, request: HttpRequest, obj: LegalDocument | None = None) -> Any:
-        if obj is None:
-            return self.add_fieldsets
-        return self.fieldsets
-
-    def get_form(
-        self, request: HttpRequest, obj: LegalDocument | None = None, change: bool = False, **kwargs: Any
-    ) -> Any:
-        # Add view uses LegalDocumentAdminForm (with the required signed_pdf
-        # FileField). The change view falls back to Django's default ModelForm
-        # for the model — `signed_pdf` is a non-model class attribute, so it
-        # would otherwise be inherited by modelform_factory's subclass and
-        # block "Save" with a "This field is required" error even though the
-        # change view renders no upload widget.
-        if obj is None:
-            kwargs["form"] = LegalDocumentAdminForm
-        return super().get_form(request, obj, change, **kwargs)
-
-    def get_readonly_fields(
-        self, request: HttpRequest, obj: LegalDocument | None = None
-    ) -> tuple[str, ...] | list[str]:
-        # On the change view every customer-submitted field is read-only so it
-        # can't be quietly rewritten. On the add view (obj is None) the upload
-        # form needs the fields to be editable so return an empty tuple.
-        if obj is None:
-            return ()
-        return self.readonly_fields
-
     def has_add_permission(self, request: HttpRequest) -> bool:
-        return bool(request.user and request.user.is_staff)
+        # Staff upload a document signed outside PandaDoc with the Upload signed document operation in
+        # PostHog Admin, which stores the PDF with the row. The old add URL redirects there.
+        return False
 
     def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
         # A delete must also remove PandaDoc's copy of a signed document and the AI opt-outs of a BAA, which the
@@ -211,45 +104,13 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         actions.pop("delete_selected", None)
         return actions
 
-    def save_model(self, request: HttpRequest, obj: LegalDocument, form: Any, change: bool) -> None:
-        if change:
-            super().save_model(request, obj, form, change)
-            return
-
-        # Add path: row + S3 upload happen together so we never leave a row
-        # pointing at a missing PDF (and never leave a PDF without a row). The
-        # PDF is written synchronously below, so it's archived from the start.
-        obj.status = LegalDocument.Status.SIGNED
-        obj.signed_pdf_stored = True
-        obj.created_by = request.user if request.user.is_authenticated else None
-        try:
-            with transaction.atomic():
-                obj.save()
-                pdf: UploadedFile = form.cleaned_data["signed_pdf"]
-                try:
-                    object_storage.write_stream(
-                        signed_pdf_storage_key(obj),
-                        cast(IO[bytes], pdf),
-                        extras={"ContentType": "application/pdf"},
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "legal_document_admin_upload_failed",
-                        document_id=str(obj.id),
-                        error=str(exc),
-                    )
-                    raise ValidationError(f"Failed to upload PDF to object storage: {exc}") from exc
-        except IntegrityError as exc:
-            # Surface the unique-per-org-per-type constraint as a form error
-            # instead of a 500.
-            raise ValidationError(
-                f"This organization already has a {obj.document_type}. Delete the existing one in PostHog Admin first."
-            ) from exc
-
     @admin.display(description="Staff operations")
     def staff_operations(self, document: LegalDocument) -> SafeString:
         return MovedToConsole.action(
-            "organization", document.organization, "legal-documents", "Refetch PDF, re-send signing email, delete"
+            "organization",
+            document.organization,
+            "legal-documents",
+            "Upload, refetch PDF, re-send signing email, delete",
         )
 
     @admin.display(description="Organization", ordering="organization__name")
@@ -283,7 +144,6 @@ class LegalDocumentInline(admin.TabularInline):
     model = LegalDocument
     extra = 0
     show_change_link = True
-    template = "admin/legal_documents/edit_inline/tabular.html"
 
     fields = (
         "document_type",
@@ -295,6 +155,9 @@ class LegalDocumentInline(admin.TabularInline):
     )
     readonly_fields = fields
     can_delete = False
+
+    def has_add_permission(self, request: HttpRequest, obj: Organization | None = None) -> bool:
+        return False
 
     @admin.display(description="PandaDoc")
     def pandadoc_link(self, document: LegalDocument) -> str | SafeString:

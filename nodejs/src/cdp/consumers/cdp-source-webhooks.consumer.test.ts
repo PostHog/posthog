@@ -1,9 +1,11 @@
-import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { createHash } from 'crypto'
 import { Server } from 'http'
 import { DateTime, Settings } from 'luxon'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -19,15 +21,23 @@ import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import * as posthogUtils from '~/common/utils/posthog'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
-import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
+import {
+    SourceWebhookError,
+    getCustomHttpResponse,
+    isUnexpectedWebhookError,
+} from '../consumers/cdp-source-webhooks.consumer'
 import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
@@ -93,6 +103,19 @@ describe('getCustomHttpResponse', () => {
     })
 })
 
+describe('isUnexpectedWebhookError', () => {
+    it.each([
+        ['a 400 rejection', new SourceWebhookError(400, 'Bad request'), false],
+        ['a 404 rejection', new SourceWebhookError(404, 'Not found'), false],
+        ['a 429 rejection', new SourceWebhookError(429, 'Disabled'), false],
+        ['a 499 rejection', new SourceWebhookError(499, 'Client closed'), false],
+        ['a 500 webhook error', new SourceWebhookError(500, 'Delayed processing not supported'), true],
+        ['any other error', new Error('connection refused'), true],
+    ])('classifies %s', (_name, error, expected) => {
+        expect(isUnexpectedWebhookError(error)).toBe(expected)
+    })
+})
+
 describe('SourceWebhooksConsumer', () => {
     // One pool for the file, because a pool for each test leaves open connections behind.
     const idempotencyValkey = createIdempotencyValkeyPool(defaultConfig)
@@ -122,15 +145,17 @@ describe('SourceWebhooksConsumer', () => {
         let mockExecuteSpy: jest.SpyInstance
         let mockQueueInvocationsSpy: jest.SpyInstance
         let mockQueueHogflowInvocationsSpy: jest.SpyInstance
+        let hogflowQueue: ReturnType<typeof createInMemoryJobQueue>
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
+            hogflowQueue = createInMemoryJobQueue()
             api = new CdpApi(
                 hub,
                 { ...createCdpConsumerDeps(hub), idempotencyValkey },
                 {
                     hogQueue: createMockJobQueue(),
-                    hogflowQueue: createMockJobQueue(),
+                    hogflowQueue,
                 }
             )
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutorAsync'], 'execute')
@@ -205,9 +230,12 @@ describe('SourceWebhooksConsumer', () => {
             const res = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
             return res.map((x) => x.value) as any[]
         }
+        const getQueuedHogFlowIds = (): string[] => hogflowQueue.queued.map((invocation) => invocation.functionId)
 
         describe('hog function processing', () => {
-            it('should 404 if the hog function does not exist', async () => {
+            it('should 404 without reporting an exception if the hog function does not exist', async () => {
+                const capture = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
+
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-function-id',
                 })
@@ -215,6 +243,22 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     error: 'Not found',
                 })
+                expect(capture).not.toHaveBeenCalled()
+            })
+
+            it('should 500 and report the exception once when the lookup fails unexpectedly', async () => {
+                const capture = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
+                const failure = new Error('connection refused')
+                jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['hogFunctionManager'],
+                    'getHogFunction'
+                ).mockRejectedValueOnce(failure)
+
+                const res = await doPostRequest({})
+
+                expect(res.status).toEqual(500)
+                expect(capture).toHaveBeenCalledTimes(1)
+                expect(capture).toHaveBeenCalledWith(failure)
             })
 
             it('should 404 if the hog function is deleted', async () => {
@@ -604,6 +648,68 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
             })
 
+            it('refuses to start a run when the team is over its workflow quota', async () => {
+                const billableHogFlow = await insertHogFlow(hub.postgres, {
+                    ...hogFlow,
+                    id: new UUIDT().toString(),
+                    billable_action_types: ['function'],
+                })
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+
+                const res = await doPostRequest({
+                    webhookId: billableHogFlow.id,
+                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
+                })
+
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                expect(getQueuedHogFlowIds()).toEqual([])
+                await waitForBackgroundTasks()
+                expect(getLogs()).toContain('[Action:trigger] Started no run: The project is over its workflow quota')
+                expect(getMetrics()).toContainEqual(
+                    expect.objectContaining({
+                        app_source_id: billableHogFlow.id,
+                        metric_kind: 'failure',
+                        metric_name: 'quota_limited',
+                        count: 1,
+                    })
+                )
+            })
+
+            it.each([
+                ['queues a run under the workflow quota', false, 1],
+                ['queues no run over the workflow quota', true, 0],
+            ])('tracking pixel workflow serves its image and %s', async (_name, overQuota, queuedRuns) => {
+                const template = await insertHogFunctionTemplate(hub.postgres, {
+                    ...pixelTemplate,
+                    id: `${pixelTemplate.id}-${team.id}`,
+                })
+                const pixelHogFlow = new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'tracking_pixel',
+                            template_id: template.template_id,
+                            inputs: {
+                                event: { value: 'my-event', bytecode: await compileHog(`return f'my-event'`) },
+                                distinct_id: {
+                                    value: '{request.query.ph_distinct_id}',
+                                    bytecode: await compileHog(`return f'{request.query.ph_distinct_id}'`),
+                                },
+                            },
+                        },
+                    })
+                    .build()
+                await insertHogFlow(hub.postgres, { ...pixelHogFlow, billable_action_types: ['function'] })
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', overQuota)
+
+                const res = await doGetRequest({ webhookId: `${pixelHogFlow.id}.gif?ph_distinct_id=test-distinct-id` })
+
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toEqual('image/gif')
+                expect(getQueuedHogFlowIds()).toEqual(Array(queuedRuns).fill(pixelHogFlow.id))
+            })
+
             describe('idempotency key', () => {
                 const postWithKey = (webhookId: string, idempotencyKey: string) =>
                     doPostRequest({
@@ -641,6 +747,39 @@ describe('SourceWebhooksConsumer', () => {
                     )
                 })
 
+                it('answers duplicate for a repeated key after the team goes over its workflow quota', async () => {
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...hogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    const first = await postWithKey(billableHogFlow.id, 'escalation-quota')
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                    const second = await postWithKey(billableHogFlow.id, 'escalation-quota')
+
+                    expect(first.status).toEqual(201)
+                    expect(second.status).toEqual(200)
+                    expect(second.body.status).toEqual('duplicate')
+                    expect(getQueuedHogFlowIds()).toEqual([billableHogFlow.id])
+                })
+
+                it('releases a key refused over quota so a retry queues the run once under quota', async () => {
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...hogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+
+                    const refused = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+                    const retried = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
+
+                    expect(refused.status).toEqual(429)
+                    expect(retried.status).toEqual(201)
+                    expect(getQueuedHogFlowIds()).toEqual([billableHogFlow.id])
+                })
+
                 it('queues a run on each workflow that receives the same key', async () => {
                     const otherHogFlow = await insertSecondHogFlow()
 
@@ -652,16 +791,33 @@ describe('SourceWebhooksConsumer', () => {
                     expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
                 })
 
-                it('releases the key when queueing fails so a retry queues the run', async () => {
-                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+                it.each([
+                    [
+                        'queueing fails',
+                        () => mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable')),
+                    ],
+                    [
+                        'the quota lookup fails',
+                        () =>
+                            jest
+                                .spyOn(hub.quotaLimiting, 'isTeamQuotaLimited')
+                                .mockRejectedValueOnce(new Error('team cache unavailable')),
+                    ],
+                ])('releases the key when %s so a retry queues the run', async (_name, failOnce) => {
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...hogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    failOnce()
 
-                    const failed = await postWithKey(hogFlow.id, 'escalation-3')
-                    const retried = await postWithKey(hogFlow.id, 'escalation-3')
+                    const failed = await postWithKey(billableHogFlow.id, 'escalation-3')
+                    const retried = await postWithKey(billableHogFlow.id, 'escalation-3')
 
                     expect(failed.status).toEqual(500)
                     expect(retried.status).toEqual(201)
                     expect(retried.body.status).toEqual('queued')
-                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                    expect(getQueuedHogFlowIds()).toEqual([billableHogFlow.id])
                 })
 
                 it('tells a retry to wait while the first request is still queueing', async () => {
@@ -709,6 +865,112 @@ describe('SourceWebhooksConsumer', () => {
                     expect(res.status).toEqual(400)
                     expect(res.body.error).toEqual('Idempotency-Key must be 255 characters or fewer')
                     expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+
+                describe('claimed in the cyclotron database', () => {
+                    let queue: CyclotronJobQueuePostgresV2
+                    let cyclotron: Pool
+                    let claimingApi: CdpApi
+                    let claimingServer: Server
+
+                    const jobsOfFlow = async (): Promise<string[]> =>
+                        (
+                            await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                        ).rows.map((row) => row.id)
+                    const valkeyKey = (key: string) =>
+                        `@posthog/idempotency/workflow-webhook/${team.id}/${createHash('sha256')
+                            .update(`${hogFlow.id}/${key}`)
+                            .digest('hex')}`
+
+                    beforeEach(async () => {
+                        queue = new CyclotronJobQueuePostgresV2(1, hub)
+                        await queue.startAsProducer()
+                        cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                        claimingApi = new CdpApi(
+                            hub,
+                            { ...createCdpConsumerDeps(hub), idempotencyValkey },
+                            { hogQueue: createMockJobQueue(), hogflowQueue: queue }
+                        )
+                        await claimingApi.start()
+                        app = setupExpressApp()
+                        app.use('/', claimingApi.router())
+                        claimingServer = app.listen(0, () => {})
+                    })
+
+                    afterEach(async () => {
+                        await cyclotron.query('DELETE FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                        claimingServer.close()
+                        await claimingApi.stop()
+                        await queue.stopProducer()
+                        await cyclotron.end()
+                    })
+
+                    it('answers duplicate from the cyclotron database once Valkey has lost the run', async () => {
+                        const first = await postWithKey(hogFlow.id, 'escalation-6')
+                        await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
+                            client.del(valkeyKey('escalation-6'))
+                        )
+
+                        const second = await postWithKey(hogFlow.id, 'escalation-6')
+
+                        expect(first.status).toEqual(201)
+                        expect(second.status).toEqual(200)
+                        expect(second.body.status).toEqual('duplicate')
+                        const jobs = await jobsOfFlow()
+                        expect(jobs).toHaveLength(1)
+                        const restored = await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
+                            client.get(valkeyKey('escalation-6'))
+                        )
+                        expect(parseJSON(restored!)).toMatchObject({ queued: true, invocationId: jobs[0] })
+                    })
+
+                    it('queues the run when the claim lookup fails, and the claim still dedupes its retry', async () => {
+                        jest.spyOn(queue, 'findIdempotencyKey').mockRejectedValueOnce(
+                            new Error('canceling statement due to statement timeout')
+                        )
+
+                        const first = await postWithKey(hogFlow.id, 'escalation-7')
+                        await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
+                            client.del(valkeyKey('escalation-7'))
+                        )
+                        const second = await postWithKey(hogFlow.id, 'escalation-7')
+
+                        expect(first.status).toEqual(201)
+                        expect(second.body.status).toEqual('duplicate')
+                        expect(await jobsOfFlow()).toHaveLength(1)
+                    })
+
+                    it('starts one run for two requests with the same key while the idempotency store never answers', async () => {
+                        hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                        const valkey = claimingApi['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!
+                        const useClient = valkey.useClient
+                        jest.spyOn(valkey, 'useClient').mockImplementation((options, callback) =>
+                            options.name === 'idempotency-reserve'
+                                ? new Promise(() => {})
+                                : useClient(options, callback)
+                        )
+
+                        const responses = await Promise.all([
+                            postWithKey(hogFlow.id, 'escalation-7'),
+                            postWithKey(hogFlow.id, 'escalation-7'),
+                        ])
+
+                        expect(responses.map((res) => res.status).sort()).toEqual([200, 201])
+                        const jobs = await jobsOfFlow()
+                        expect(jobs).toHaveLength(1)
+                        await claimingApi['cdpSourceWebhooksConsumer']['promiseScheduler'].waitForAllSettled()
+                        await claimingApi['cdpSourceWebhooksConsumer']['hogFunctionMonitoringService'].flush()
+                        expect(
+                            getMetrics()
+                                .filter((metric) => metric.metric_name === 'triggered')
+                                .map((m) => m.count)
+                        ).toEqual([1])
+                        expect(
+                            mockProducerObserver
+                                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                                .map((row) => [row.value.invocation_id, row.value.status])
+                        ).toEqual([[jobs[0], 'running']])
+                    })
                 })
             })
 
@@ -927,6 +1189,27 @@ describe('SourceWebhooksConsumer', () => {
                         distinct_id: 'user@example.com',
                     })
                     expect(invocation.state.variables).toEqual({ greeting: 'Hello' })
+                })
+
+                it('refuses a run over the workflow quota with the quota reason', async () => {
+                    const manualHogFlow = await buildManualHogFlow()
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...manualHogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+
+                    const res = await doManualRequest(team.id, billableHogFlow.id, {
+                        user_id: 'user@example.com',
+                        variables: {},
+                    })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body.error).toEqual(
+                        'The trigger refused the run (429): The project is over its workflow quota'
+                    )
+                    expect(getQueuedHogFlowIds()).toEqual([])
                 })
 
                 type RefusalCase = {

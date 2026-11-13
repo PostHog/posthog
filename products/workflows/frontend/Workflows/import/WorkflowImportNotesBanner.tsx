@@ -3,8 +3,6 @@ import { useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { WorkflowImportNoteApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { workflowImportNotesLogic } from './workflowImportNotesLogic'
@@ -19,11 +17,9 @@ const LEVEL_ORDER: WorkflowImportNoteApi['level'][] = ['needs_input', 'approxima
 export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element | null {
     const { importRecord, loadFailed } = useValues(workflowImportNotesLogic({ id }))
     const { loadImportRecord } = useActions(workflowImportNotesLogic({ id }))
-    const importEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
     const [expanded, setExpanded] = useState(false)
 
-    // Most workflows were never imported, so a failed lookup only warns people who can import.
-    if (loadFailed && importEnabled) {
+    if (loadFailed) {
         return (
             <div className="shrink-0" data-attr="workflow-import-notes-banner">
                 <LemonBanner

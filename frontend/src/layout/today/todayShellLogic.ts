@@ -136,9 +136,11 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'
     }
+    // Source and destination setup pages live under /data-warehouse, apart from the Sources and Destinations they belong to.
     if (
         isUnderPath(path, urls.library()) ||
         isUnderPath(path, urls.tools()) ||
+        isUnderPath(path, '/data-warehouse') ||
         libraryTypeForPath(path) ||
         productsPaneListsPath(path)
     ) {
@@ -231,9 +233,11 @@ export interface todayShellLogicValues {
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
+    onHomePage: boolean
     paneHasSidebar: boolean
     peoplePaneLinksTabs: boolean
     phoneCanGoBack: boolean
+    phoneHeaderHasProjectMenu: boolean
     phoneHeaderHidden: boolean
     phoneHeaderShown: boolean
     phoneLayout: boolean
@@ -353,6 +357,8 @@ export interface todayShellLogicMeta {
         railPanes: (featureFlags: FeatureFlagsSet) => TodayRailPane[]
         peoplePaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
         onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
+        onHomePage: (location: { hash: string; pathname: string; search: string }) => boolean
+        phoneHeaderHasProjectMenu: (onHomePage: boolean, sidebarVisible: boolean) => boolean
         phoneHeaderHidden: (
             onAiPage: boolean,
             searchParams: Record<string, any>,
@@ -542,6 +548,17 @@ export const todayShellLogic = kea<todayShellLogicType>([
         onAiPage: [
             () => [router.selectors.location],
             (location: { pathname: string }): boolean => isAiPath(location.pathname),
+        ],
+        onHomePage: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): boolean => {
+                const path = removeProjectIdIfPresent(location.pathname)
+                return path === '/' || path === urls.projectHomepage()
+            },
+        ],
+        phoneHeaderHasProjectMenu: [
+            (s) => [s.onHomePage, s.sidebarVisible],
+            (onHomePage: boolean, sidebarVisible: boolean): boolean => onHomePage && !sidebarVisible,
         ],
         phoneHeaderHidden: [
             (s) => [s.onAiPage, router.selectors.searchParams, s.todayRailEnabled, s.phoneLayout],

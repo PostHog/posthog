@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
@@ -37,11 +38,9 @@ const SESSION_DURATION_DESCRIPTION = 'Average duration of sessions with a page o
 interface HomeTabStatTileProps {
     stat: HomeTabStatQuery
     compare: boolean
-    selected: boolean
-    onSelect: () => void
 }
 
-export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabStatTileProps): JSX.Element {
+export function HomeTabStatTile({ stat, compare }: HomeTabStatTileProps): JSX.Element {
     const { currentTeamId, currentTeam } = useValues(teamLogic)
     const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
@@ -147,6 +146,10 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
         />
     )
 
+    // The sparkline takes the change pill's color, so a falling metric reads as red at a glance.
+    const sparklineColor =
+        compare && changeFromPreviousPct ? getColorVar(changeFromPreviousPct > 0 ? 'success' : 'danger') : undefined
+
     const subtitle = !compare
         ? 'For selected period'
         : previousValue == null
@@ -166,19 +169,18 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             }
             title={null}
             ariaLabel={stat.title}
-            onClick={onSelect}
-            selected={selected}
             loading={loading}
             error={responseError ? 'Could not load' : undefined}
             dataAttr={`home-tab-metric-${stat.key}`}
             value={value ?? undefined}
             showChange={compare}
+            changeBesideValue
             change={changeFromPreviousPct != null ? { value: changeFromPreviousPct } : null}
-            changeBesideSubtitle
             hoverChangeFromPreviousPoint
             data={trend?.data}
             labels={trend?.days}
             theme={theme}
+            color={sparklineColor}
             sparklineHeight={50}
             sparklineDashedFromIndex={incompleteTail ? (trend?.data.length ?? 0) - 1 : undefined}
             formatLabel={(bucket) => formatBucketLabel(bucket, interval)}

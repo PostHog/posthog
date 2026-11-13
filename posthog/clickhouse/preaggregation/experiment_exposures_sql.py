@@ -54,7 +54,16 @@ CREATE TABLE IF NOT EXISTS {table_name}
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
 
     -- TTL: rows are automatically deleted after expires_at
-    expires_at Date DEFAULT today() + INTERVAL 7 DAY
+    expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+
+    -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+    -- existing column, so the table can be a deletion target without storing anything twice.
+    -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+    -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+    -- between the deletion request and the sweep would otherwise keep the row.
+    timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+    uuid UUID ALIAS exposure_event_uuid,
+    inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = {engine}
 """
 
