@@ -314,18 +314,33 @@ class TestWorkflowViewAPI(APIBaseTest):
                 response = getattr(self.client, method)(path, data, format="json")
                 self.assertEqual(response.status_code, 403, response.content)
 
-    def test_a_child_environment_hides_the_parent_projects_views_from_a_member_denied_the_parent(self) -> None:
+    @parameterized.expand([("member_denied_the_parent", False), ("api_key_scoped_to_the_child", True)])
+    def test_a_child_environment_hides_the_parent_projects_views_from_a_caller_without_the_parent(
+        self, _case: str, use_child_scoped_key: bool
+    ) -> None:
         view = self._create_view()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")
-        member = User.objects.create_and_join(self.organization, "child-only@example.com", None)
-        AccessControl.objects.create(
-            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
-        )
-        self.client.force_login(member)
+        self.client.logout()
+        if use_child_scoped_key:
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Child environment only",
+                secure_value=hash_key_value(key),
+                scopes=["hog_flow:read", "hog_flow:write"],
+                scoped_teams=[child.pk],
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+        else:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            member = User.objects.create_and_join(self.organization, "child-only@example.com", None)
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+            self.client.force_login(member)
         child_url = f"/api/environments/{child.pk}/workflow_views/"
         child_detail_url = f"{child_url}{view['id']}/"
 
