@@ -35,6 +35,7 @@ from posthog.sync import database_sync_to_async
 from products.engineering_analytics.backend.facade.api import list_recently_merged_pull_requests
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.facade.contracts import FindingReactionSentiment
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewUserSettings
 from products.review_hog.backend.reviewer.artefact_content import (
     FindingOutcomeArtefact,
@@ -58,7 +59,13 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
+from products.review_hog.backend.reviewer.outcomes.comment_signal import (
+    comment_outdated,
+    engagement_method,
+    find_finding_comment,
+    first_reply_excerpt,
+    reaction_sentiment,
+)
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
 from products.review_hog.backend.reviewer.outcomes.github_fetch import (
     fetch_comment_reactions,
@@ -107,6 +114,16 @@ class _ClassifiedOutcome:
     reviewed_head: str
     final_head: str
     judge_reasoning: str | None = None
+    signals: "_CommentSignals | None" = None
+
+
+@dataclass(frozen=True)
+class _CommentSignals:
+    """What GitHub shows on the finding's comment at merge, recorded next to the outcome whichever signal decided it."""
+
+    reaction_sentiment: FindingReactionSentiment | None
+    reply_excerpt: str | None
+    outdated: bool
 
 
 @dataclass(frozen=True)
@@ -315,6 +332,9 @@ def _persist_outcomes(*, team_id: int, report_id: str, outcomes: list[_Classifie
                     reviewed_head=oc.reviewed_head,
                     final_head=oc.final_head,
                     judge_reasoning=oc.judge_reasoning,
+                    reaction_sentiment=oc.signals.reaction_sentiment if oc.signals else None,
+                    reply_excerpt=oc.signals.reply_excerpt if oc.signals else None,
+                    comment_outdated=oc.signals.outdated if oc.signals else None,
                     judge_model=OUTCOME_JUDGE_MODEL if oc.method in ("judge_confirmed", "judge_rejected") else None,
                 ),
                 attribution=ArtefactAttribution.system(),
@@ -366,6 +386,13 @@ def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[lis
                 reviewed_head=ruling.reviewed_head,
                 final_head=ruling.final_head,
                 judge_reasoning=ruling.judge_reasoning,
+                signals=_CommentSignals(
+                    reaction_sentiment=ruling.reaction_sentiment,
+                    reply_excerpt=ruling.reply_excerpt,
+                    outdated=ruling.comment_outdated,
+                )
+                if ruling.comment_outdated is not None
+                else None,
             )
         )
     return outcomes, _finding_distinct_id(report, report.repository)
@@ -413,6 +440,8 @@ async def _emit_and_mark(
                 "finding_budget_arm": budget_arm(repository, report.pr_number),
                 "reviewed_head": oc.reviewed_head,
                 "final_head": oc.final_head,
+                "comment_reaction_sentiment": oc.signals.reaction_sentiment if oc.signals else None,
+                "comment_outdated": oc.signals.outdated if oc.signals else None,
                 **finding_routing_properties(report, oc.finding),
             },
         )
@@ -439,6 +468,19 @@ async def classify_report(
     compared_by_head = {head: parse_compare_files(files) for head, files in inputs.compares.items()}
     outcomes: list[_ClassifiedOutcome] = []
 
+    def _signals(pf: _PublishedFinding) -> _CommentSignals | None:
+        if pf.comment is None:
+            return None
+        return _CommentSignals(
+            reaction_sentiment=reaction_sentiment(
+                reactions=inputs.reactions_by_comment.get(pf.comment["id"], []), app_login=app_login
+            ),
+            reply_excerpt=first_reply_excerpt(
+                comment=pf.comment, review_comments=inputs.review_comments, app_login=app_login
+            ),
+            outdated=comment_outdated(pf.comment),
+        )
+
     def _decided(
         pf: _PublishedFinding, outcome: str, method: str, judge_reasoning: str | None = None
     ) -> _ClassifiedOutcome:
@@ -452,6 +494,7 @@ async def classify_report(
             # The judge is free text, so cap what goes into the durable record; the ruling is meant
             # to be a sentence or two and only a malfunctioning one would need trimming.
             judge_reasoning=judge_reasoning[:OUTCOME_JUDGE_REASONING_MAX_CHARS] if judge_reasoning else None,
+            signals=_signals(pf),
         )
 
     # Settle everything the cheap signals answer first, so only the findings that genuinely need the

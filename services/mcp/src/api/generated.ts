@@ -109171,6 +109171,20 @@ export namespace Schemas {
       JudgeFailed: 'judge_failed',
     } as const;
 
+    /**
+     * * `positive` - Positive
+     * * `negative` - Negative
+     * * `mixed` - Mixed
+     */
+    export type ReviewFindingReactionSentimentEnum = typeof ReviewFindingReactionSentimentEnum[keyof typeof ReviewFindingReactionSentimentEnum];
+
+
+    export const ReviewFindingReactionSentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+      Mixed: 'mixed',
+    } as const;
+
     export interface ReviewFindingOutcome {
       /** What happened to the published finding by the time its pull request merged. `reacted`: a person or another agent replied to or reacted on its comment. `addressed`: a later commit changed the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.
        *
@@ -109193,6 +109207,22 @@ export namespace Schemas {
       reviewed_head: string;
       /** The pull request's head commit when it merged. */
       final_head: string;
+      /** The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: 👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.
+       *
+       * * `positive` - Positive
+       * * `negative` - Negative
+       * * `mixed` - Mixed */
+      reaction_sentiment: ReviewFindingReactionSentimentEnum | null;
+      /**
+         * The start of the first reply to the finding's comment that PostHog Review did not write, such as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.
+         * @nullable
+         */
+      reply_excerpt: string | null;
+      /**
+         * Whether GitHub showed the finding's comment as outdated at merge, because a push changed the code under it. Null when the comment was not found on the pull request.
+         * @nullable
+         */
+      comment_outdated: boolean | null;
     }
 
     export interface ReviewFinding {

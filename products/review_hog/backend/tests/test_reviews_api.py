@@ -15,12 +15,13 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
-from products.review_hog.backend.facade.contracts import FindingOutcome, FindingOutcomeMethod
+from products.review_hog.backend.facade.contracts import FindingOutcome, FindingOutcomeMethod, FindingReactionSentiment
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.presentation.views.reviews import (
     ReviewDropDisposition,
     ReviewFindingOutcomeKind,
     ReviewFindingOutcomeMethod,
+    ReviewFindingReactionSentiment,
 )
 from products.review_hog.backend.reviewer.artefact_content import (
     DroppedFindingArtefact,
@@ -108,6 +109,7 @@ def _issues_review(count: int) -> IssuesReview:
         (ReviewDropDisposition, DropDisposition),
         (ReviewFindingOutcomeKind, FindingOutcome),
         (ReviewFindingOutcomeMethod, FindingOutcomeMethod),
+        (ReviewFindingReactionSentiment, FindingReactionSentiment),
     ]
 )
 def test_api_choices_cover_every_stored_value(choices: type[models.TextChoices], stored: Any) -> None:
@@ -599,6 +601,9 @@ class TestRecentReviewsAPI(APIBaseTest):
                 method="judge_confirmed",
                 reviewed_head="base_sha",
                 final_head="merge_sha",
+                reaction_sentiment="positive",
+                reply_excerpt="Fixed in abc123",
+                comment_outdated=True,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -620,6 +625,9 @@ class TestRecentReviewsAPI(APIBaseTest):
             "method": "judge_confirmed",
             "reviewed_head": "base_sha",
             "final_head": "merge_sha",
+            "reaction_sentiment": "positive",
+            "reply_excerpt": "Fixed in abc123",
+            "comment_outdated": True,
         }
         assert detail["findings"][1]["outcome"] is None
         assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]

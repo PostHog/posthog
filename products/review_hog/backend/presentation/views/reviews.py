@@ -597,6 +597,13 @@ class ReviewFindingOutcomeKind(models.TextChoices):
     IGNORED = "ignored", "Ignored"
 
 
+# Mirrors `FindingReactionSentiment`.
+class ReviewFindingReactionSentiment(models.TextChoices):
+    POSITIVE = "positive", "Positive"
+    NEGATIVE = "negative", "Negative"
+    MIXED = "mixed", "Mixed"
+
+
 # Mirrors `FindingOutcomeMethod`.
 class ReviewFindingOutcomeMethod(models.TextChoices):
     JUDGE_CONFIRMED = "judge_confirmed", "A judge confirmed the fix"
@@ -627,6 +634,22 @@ class ReviewFindingOutcomeSerializer(serializers.Serializer):
         help_text="The commit the finding was published at, the base of the diff the outcome was judged on."
     )
     final_head = serializers.CharField(help_text="The pull request's head commit when it merged.")
+    reaction_sentiment = serializers.ChoiceField(
+        choices=ReviewFindingReactionSentiment.choices,
+        allow_null=True,
+        help_text="The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: "
+        "👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.",
+    )
+    reply_excerpt = serializers.CharField(
+        allow_null=True,
+        help_text="The start of the first reply to the finding's comment that PostHog Review did not write, such "
+        "as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.",
+    )
+    comment_outdated = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether GitHub showed the finding's comment as outdated at merge, because a push changed the "
+        "code under it. Null when the comment was not found on the pull request.",
+    )
 
 
 class ReviewFindingSerializer(serializers.Serializer):

@@ -95,6 +95,7 @@ DropDisposition = Literal[
 ]
 
 FindingOutcome = Literal["addressed", "reacted", "ignored"]
+FindingReactionSentiment = Literal["positive", "negative", "mixed"]
 FindingOutcomeMethod = Literal[
     "judge_confirmed",
     "judge_rejected",
@@ -541,6 +542,9 @@ class ReviewFindingOutcome:
     method: FindingOutcomeMethod
     reviewed_head: str
     final_head: str
+    reaction_sentiment: FindingReactionSentiment | None = None
+    reply_excerpt: str | None = None
+    comment_outdated: bool | None = None
 
 
 @frozen

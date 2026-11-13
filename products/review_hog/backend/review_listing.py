@@ -168,6 +168,9 @@ def _finding(
             method=outcome.method,
             reviewed_head=outcome.reviewed_head,
             final_head=outcome.final_head,
+            reaction_sentiment=outcome.reaction_sentiment,
+            reply_excerpt=outcome.reply_excerpt,
+            comment_outdated=outcome.comment_outdated,
         )
         if outcome is not None
         else None,

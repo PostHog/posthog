@@ -5,7 +5,12 @@ from parameterized import parameterized
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
-from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
+from products.review_hog.backend.reviewer.outcomes.comment_signal import (
+    engagement_method,
+    find_finding_comment,
+    first_reply_excerpt,
+    reaction_sentiment,
+)
 
 
 def _finding(title: str = "Off-by-one", file: str = "f.py") -> ReviewIssueFinding:
@@ -137,3 +142,37 @@ class TestEngagementMethod:
     def test_no_reaction_no_reply_is_none(self):
         comment: dict[str, Any] = {"id": 1}
         assert engagement_method(comment=comment, review_comments=[comment], reactions=[], app_login=None) is None
+
+
+_OURS = {"login": "reviewhog[bot]", "type": "Bot"}
+_ALICE = {"login": "alice", "type": "User"}
+
+
+class TestResponseSignals:
+    @parameterized.expand(
+        [
+            ("thumbs_up", [("+1", _ALICE)], "positive"),
+            ("thumbs_down", [("-1", _ALICE)], "negative"),
+            ("both", [("rocket", _ALICE), ("confused", _ALICE)], "mixed"),
+            ("no_tone", [("eyes", _ALICE), ("laugh", _ALICE)], None),
+            ("only_ours", [("+1", _OURS)], None),
+        ]
+    )
+    def test_reaction_sentiment_reads_the_tone_without_our_own(
+        self, _name: str, reactions: list[tuple[str, dict[str, Any]]], expected: str | None
+    ):
+        # The tone separates a fixed finding from a rejected one, which `reacted` alone cannot.
+        listed = [{"content": content, "user": user} for content, user in reactions]
+        assert reaction_sentiment(reactions=listed, app_login="reviewhog[bot]") == expected
+
+    def test_reply_excerpt_is_the_earliest_reply_we_did_not_write(self):
+        comments: list[dict[str, Any]] = [
+            {"id": 1, "body": "**P1 · Off-by-one**"},
+            {"id": 4, "in_reply_to_id": 1, "user": _ALICE, "body": "Leaving this as is"},
+            {"id": 3, "in_reply_to_id": 1, "user": _OURS, "body": "Queued for a fix"},
+            {"id": 2, "in_reply_to_id": 9, "user": _ALICE, "body": "Another thread"},
+            {"id": 5, "in_reply_to_id": 1, "user": _ALICE, "body": "Fixed in abc123"},
+        ]
+        assert first_reply_excerpt(comment=comments[0], review_comments=comments, app_login="reviewhog[bot]") == (
+            "Leaving this as is"
+        )

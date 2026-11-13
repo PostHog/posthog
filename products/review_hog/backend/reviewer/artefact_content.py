@@ -17,7 +17,12 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from products.review_hog.backend.facade.contracts import FindingOutcome, FindingOutcomeMethod, ReviewIssueCategory
+from products.review_hog.backend.facade.contracts import (
+    FindingOutcome,
+    FindingOutcomeMethod,
+    FindingReactionSentiment,
+    ReviewIssueCategory,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -144,6 +149,17 @@ class FindingOutcomeArtefact(BaseModel):
     run_index: int = Field(description="The review turn whose published head was compared against the merge.")
     outcome: FindingOutcome = Field(description="The finding's classified fate.")
     method: FindingOutcomeMethod = Field(description="Which signal decided the outcome.")
+    reaction_sentiment: FindingReactionSentiment | None = Field(
+        default=None,
+        description="The tone of the reactions people and other agents left on the finding's comment, or None without one.",
+    )
+    reply_excerpt: str | None = Field(
+        default=None, description="The start of the first reply to the finding's comment that ReviewHog did not write."
+    )
+    comment_outdated: bool | None = Field(
+        default=None,
+        description="Whether GitHub marked the finding's comment outdated at merge, or None when no comment matched.",
+    )
     reviewed_head: str = Field(description="The head the finding was published at (the compare base).")
     final_head: str = Field(description="The PR branch tip at merge (the compare head).")
     judge_reasoning: str | None = Field(
