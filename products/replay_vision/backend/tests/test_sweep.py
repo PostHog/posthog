@@ -57,10 +57,7 @@ from products.replay_vision.backend.temporal.activities.check_scanner_budget imp
     check_scanner_budget,
     check_scanner_budget_activity,
 )
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
-    count_in_flight_applies,
-    count_in_flight_by_team_activity,
-)
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.sweep_scanner_tick import sweep_scanner_tick_activity
 from products.replay_vision.backend.temporal.constants import (
@@ -75,6 +72,7 @@ from products.replay_vision.backend.temporal.constants import (
     PRIMING_LOOKBACK,
     PRIMING_SCAN_SESSIONS,
     SWEEP_READ_BUDGET_BYTES_24H,
+    in_flight_headroom,
 )
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_cadence import (
@@ -85,7 +83,6 @@ from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
     CheckScannerBudgetInputs,
-    CheckScannerBudgetOutput,
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
     InFlightApplyCounts,
@@ -1718,12 +1715,6 @@ class _SweepMocks:
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
         self.activity_calls.append((activity_fn, activity_input))
-        # Default to 0 in-flight (full headroom) unless a test overrides it.
-        if activity_fn is count_in_flight_by_team_activity and activity_fn not in self.activity_results:
-            return InFlightApplyCounts(scanner=0, team=0)
-        # Default to not-capped so the budget gate leaves every other sweep test unaffected.
-        if activity_fn is check_scanner_budget_activity and activity_fn not in self.activity_results:
-            return CheckScannerBudgetOutput(capped=False)
         result = self.activity_results.get(activity_fn)
         if isinstance(result, Exception):
             raise result
@@ -1741,11 +1732,15 @@ def _build_payload(session_id: str, ts: dt.datetime) -> CandidateSessionPayload:
     return CandidateSessionPayload(session_id=session_id, session_end=ts)
 
 
+def _tick(**dispatch: Any) -> SweepScannerTickOutput:
+    return SweepScannerTickOutput(dispatch=FindScannerCandidatesOutput(**dispatch))
+
+
 def _sweep_inputs() -> SweepScannerInputs:
     return SweepScannerInputs(scanner_id=uuid.uuid4(), team_id=42)
 
 
-async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None, *, patched: bool = False) -> None:
+async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None) -> None:
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -1761,46 +1756,9 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.logger", fake_logger),
         patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
-        patch("temporalio.workflow.patched", return_value=patched),
+        patch("temporalio.workflow.deprecate_patch"),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
-
-
-@pytest.mark.asyncio
-async def test_empty_batch_skips_dispatch_and_advance() -> None:
-    mocks = _SweepMocks(
-        activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
-        }
-    )
-
-    await _run_sweep(mocks)
-
-    assert [fn for fn, _ in mocks.activity_calls] == [
-        check_scanner_budget_activity,
-        count_in_flight_by_team_activity,
-        find_scanner_candidates_activity,
-    ]
-    assert mocks.child_calls == []
-
-
-@pytest.mark.asyncio
-async def test_empty_batch_with_horizon_advances_watermark_without_dispatch() -> None:
-    horizon = dt.datetime(2026, 8, 4, 12, 0, 0, tzinfo=dt.UTC)
-    mocks = _SweepMocks(
-        activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(
-                candidates=[], saturated=False, swept_through=horizon
-            ),
-        }
-    )
-
-    await _run_sweep(mocks)
-
-    assert mocks.child_calls == []
-    advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
-    assert advance_call.new_last_swept_at == horizon
-    assert advance_call.new_last_seen_session_id == ""
 
 
 @pytest.mark.asyncio
@@ -1813,7 +1771,7 @@ async def test_batch_dispatches_and_advances_to_the_keyset_end() -> None:
     keyset_end = dt.datetime(2026, 5, 1, 10, 9, 0, tzinfo=dt.UTC)
     mocks = _SweepMocks(
         activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+            sweep_scanner_tick_activity: _tick(
                 candidates=candidates, saturated=False, keyset_end=keyset_end, keyset_session_id="sess-c"
             ),
         }
@@ -1839,7 +1797,7 @@ async def test_deep_candidates_dispatch_alongside_fast_and_forward_deep_watermar
     deep = [_build_payload("deep-a", dt.datetime(2026, 5, 1, 4, 0, 0, tzinfo=dt.UTC))]
     mocks = _SweepMocks(
         activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+            sweep_scanner_tick_activity: _tick(
                 candidates=fast,
                 saturated=False,
                 keyset_end=fast[-1].session_end,
@@ -1871,7 +1829,7 @@ async def test_deep_candidates_dispatch_even_when_fast_batch_is_empty() -> None:
     deep = [_build_payload("deep-a", dt.datetime(2026, 5, 1, 4, 0, 0, tzinfo=dt.UTC))]
     mocks = _SweepMocks(
         activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+            sweep_scanner_tick_activity: _tick(
                 candidates=[],
                 saturated=False,
                 swept_through=horizon,
@@ -1900,7 +1858,7 @@ async def test_already_started_child_is_silently_skipped() -> None:
     already_started_id = f"replay-vision-apply-scanner-{inputs.scanner_id}-sess-a"
     mocks = _SweepMocks(
         activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+            sweep_scanner_tick_activity: _tick(
                 candidates=candidates,
                 saturated=False,
                 keyset_end=candidates[-1].session_end,
@@ -1925,7 +1883,7 @@ async def test_child_start_failure_propagates_and_skips_advance() -> None:
     failed_id = f"replay-vision-apply-scanner-{inputs.scanner_id}-sess-a"
     mocks = _SweepMocks(
         activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=candidates, saturated=False),
+            sweep_scanner_tick_activity: _tick(candidates=candidates, saturated=False),
         },
         child_errors_for_ids={failed_id: RuntimeError("temporal outage")},
     )
@@ -1971,63 +1929,14 @@ async def test_child_start_failure_propagates_and_skips_advance() -> None:
         ),
     ],
 )
-@pytest.mark.asyncio
-async def test_inflight_cap_gates_the_sweep(
+def test_in_flight_headroom_gates_the_sweep(
     in_flight: InFlightApplyCounts, expected_candidate_limit: int | None
 ) -> None:
-    mocks = _SweepMocks(
-        activity_results={
-            count_in_flight_by_team_activity: in_flight,
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
-        },
-    )
-
-    await _run_sweep(mocks)
-
-    find_calls = [inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity]
+    headroom = in_flight_headroom(in_flight.scanner, in_flight.team)
     if expected_candidate_limit is None:
-        # Throttled: no find, no apply dispatch.
-        assert [fn for fn, _ in mocks.activity_calls] == [
-            check_scanner_budget_activity,
-            count_in_flight_by_team_activity,
-        ]
-        assert mocks.child_calls == []
+        assert headroom <= 0
     else:
-        assert find_calls[0].candidate_limit == expected_candidate_limit
-
-
-@pytest.mark.asyncio
-async def test_capped_scanner_skips_the_sweep_entirely() -> None:
-    mocks = _SweepMocks(
-        activity_results={
-            check_scanner_budget_activity: CheckScannerBudgetOutput(capped=True),
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
-        },
-    )
-
-    await _run_sweep(mocks)
-
-    called = [fn for fn, _ in mocks.activity_calls]
-    assert find_scanner_candidates_activity not in called
-    assert count_in_flight_by_team_activity not in called
-    assert mocks.child_calls == []
-
-
-@pytest.mark.asyncio
-async def test_budget_check_failure_does_not_fail_the_sweep() -> None:
-    # A rolling deploy can land the activity on a worker without it registered; the gate fails
-    # open rather than erroring the whole sweep.
-    mocks = _SweepMocks(
-        activity_results={
-            check_scanner_budget_activity: RuntimeError("activity type not registered"),
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
-        },
-    )
-
-    await _run_sweep(mocks)
-
-    called = [fn for fn, _ in mocks.activity_calls]
-    assert find_scanner_candidates_activity in called
+        assert headroom == expected_candidate_limit
 
 
 @pytest.mark.parametrize("found", [False, True])
@@ -2044,7 +1953,7 @@ async def test_single_activity_tick_dispatches_only_what_the_activity_hands_back
         activity_results={sweep_scanner_tick_activity: SweepScannerTickOutput(dispatch=dispatch if found else None)}
     )
 
-    await _run_sweep(mocks, patched=True)
+    await _run_sweep(mocks)
 
     called = [fn for fn, _ in mocks.activity_calls]
     if found:
