@@ -1259,6 +1259,7 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
+            "static_cohort_people",
             *self.get_system_table_names(),
         ]
 

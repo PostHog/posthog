@@ -145,6 +145,19 @@ def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
 class TestBuildDatabaseRootNode(TestCase):
     # The static catalog build touches no database, so these run on a plain TestCase (no Postgres).
 
+    @parameterized.expand([("with_fields", True), ("without_fields", False)])
+    def test_static_cohort_membership_is_discoverable(self, _name: str, include_fields: bool):
+        database = Database()
+        schema = database.serialize(HogQLContext(team_id=1, database=database), include_fields=include_fields)
+
+        cohort_table = schema["static_cohort_people"]
+        assert cohort_table.name == "static_cohort_people"
+        assert cohort_table.description
+        if include_fields:
+            assert {"cohort_id", "person_id", "person"}.issubset(cohort_table.fields)
+        else:
+            assert cohort_table.fields == {}
+
     @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
     def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):
         cached = build_database_root_node(include_posthog_tables=include_posthog_tables)

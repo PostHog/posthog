@@ -56,6 +56,11 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## Static cohort membership in SQL
+
+The SQL editor schema browser lists `static_cohort_people`, which contains membership of static cohorts.
+Use `cohort_id` to filter a cohort and `person_id` to join its members to `persons.id`.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.

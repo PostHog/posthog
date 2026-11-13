@@ -2247,6 +2247,58 @@
           "row_count": null,
           "type": "posthog"
       },
+      "static_cohort_people": {
+          "certification": null,
+          "description": "Membership of static cohorts \u2014 fixed lists of people (e.g. CSV-imported) that are not recalculated. One row per person per cohort. Dynamic (calculated) cohorts live in `cohort_people`.",
+          "fields": {
+              "person_id": {
+                  "chain": null,
+                  "description": "Person who is a member of the cohort; join to `persons.id`.",
+                  "fields": null,
+                  "hogql_value": "person_id",
+                  "id": null,
+                  "name": "person_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "cohort_id": {
+                  "chain": null,
+                  "description": "Identifier of the static cohort this person belongs to.",
+                  "fields": null,
+                  "hogql_value": "cohort_id",
+                  "id": null,
+                  "name": "cohort_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "person": {
+                  "chain": null,
+                  "description": null,
+                  "fields": [
+                      "id",
+                      "created_at",
+                      "team_id",
+                      "properties",
+                      "is_identified",
+                      "last_seen_at",
+                      "pdi",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "person",
+                  "id": "person",
+                  "name": "person",
+                  "schema_valid": true,
+                  "table": "persons",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "static_cohort_people",
+          "name": "static_cohort_people",
+          "row_count": null,
+          "type": "posthog"
+      },
       "query_log": {
           "certification": null,
           "description": "Archived ClickHouse query log for analyzing query performance and cost. One row per executed query, with friendly column aliases over the raw log; impersonated requests are excluded.",
@@ -19054,6 +19106,58 @@
           },
           "id": "logs",
           "name": "logs",
+          "row_count": null,
+          "type": "posthog"
+      },
+      "static_cohort_people": {
+          "certification": null,
+          "description": "Membership of static cohorts \u2014 fixed lists of people (e.g. CSV-imported) that are not recalculated. One row per person per cohort. Dynamic (calculated) cohorts live in `cohort_people`.",
+          "fields": {
+              "person_id": {
+                  "chain": null,
+                  "description": "Person who is a member of the cohort; join to `persons.id`.",
+                  "fields": null,
+                  "hogql_value": "person_id",
+                  "id": null,
+                  "name": "person_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "cohort_id": {
+                  "chain": null,
+                  "description": "Identifier of the static cohort this person belongs to.",
+                  "fields": null,
+                  "hogql_value": "cohort_id",
+                  "id": null,
+                  "name": "cohort_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "person": {
+                  "chain": null,
+                  "description": null,
+                  "fields": [
+                      "id",
+                      "created_at",
+                      "team_id",
+                      "properties",
+                      "is_identified",
+                      "last_seen_at",
+                      "pdi",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "person",
+                  "id": "person",
+                  "name": "person",
+                  "schema_valid": true,
+                  "table": "persons",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "static_cohort_people",
+          "name": "static_cohort_people",
           "row_count": null,
           "type": "posthog"
       },
