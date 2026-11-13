@@ -29,7 +29,7 @@ products/mobile/
     (stack)/replay/index.tsx -> src/features/replay/ReplayListScreen chrome="stack" (pushed from the Views Browse row)
     replay/[sessionId].tsx -> src/features/replay/SessionScreen (`/replay/<id>?t=<seconds>&source=<entry>`)
     views/web-analytics/  -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="stack", and its full list
-    views/live.tsx        -> src/features/live/LiveScreen chrome="stack" (Browse row, Live chip, deep link)
+    views/live.tsx        -> src/features/live/LiveScreen chrome="stack" (Live chip, deep link)
     views/live-countries.tsx -> src/features/live/LiveCountriesScreen (Visitors by country, from Live's map card)
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
                           no params starts a new chat, `taskId` and `runId` open one, `reportId` attaches a report)

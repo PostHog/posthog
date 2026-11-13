@@ -8,6 +8,7 @@ export const CdpRole = z.enum([
     'cdp-cyclotron-worker-email',
     'cdp-api',
     'cdp-cyclotron-v2-janitor',
+    'cdp-ses-webhooks',
 ])
 
 export const Named = z.object({ name: z.string(), params: z.record(z.string(), z.unknown()).default({}) }).strict()
@@ -16,7 +17,7 @@ export type Named = z.infer<typeof Named>
 export const RunningOnQueue = z
     .object({
         name: z.literal('running_on_queue', { error: 'running_on_queue is the only predicate' }),
-        params: z.object({ queue: z.string(), atLeast: z.number().int().min(1) }).strict(),
+        params: z.object({ queue: z.enum(['hogflow', 'email']), atLeast: z.number().int().min(1) }).strict(),
     })
     .strict()
 

@@ -143,7 +143,7 @@ export default defineCommand({
 
     human({ result, out }) {
         if (result.status === 'pending') {
-            printPending(out, result, 'login')
+            printPending(out, result, 'login', { signUp: true })
             return
         }
 

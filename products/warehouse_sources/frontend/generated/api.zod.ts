@@ -180,6 +180,12 @@ export const externalDataSchemasUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -315,6 +321,12 @@ export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -663,6 +675,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
             zod.object({
                 id: zod.uuid().describe('Schema identifier to update.'),
                 should_sync: zod.boolean().optional().describe('Whether the schema should be queryable\/synced.'),
+                live_query_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns.'
+                    ),
                 sync_type: zod
                     .union([
                         zod
@@ -1268,7 +1286,7 @@ export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesI
 
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax = 16
 
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 128
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 8
 
 export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
     tables: zod
@@ -1344,7 +1362,9 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
             })
         )
         .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)
-        .describe('Tables from database_schema to get a recommended incremental field for.'),
+        .describe(
+            'Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.'
+        ),
 })
 
 /**

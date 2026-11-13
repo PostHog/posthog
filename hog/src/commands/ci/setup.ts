@@ -348,7 +348,7 @@ export default defineCommand({
             return
         }
         if (result.status === 'pending') {
-            printPending(out, result, 'policy request', ['', ...snippetNotes(out, result)])
+            printPending(out, result, 'policy request', { after: ['', ...snippetNotes(out, result)] })
             return
         }
         out.report({
