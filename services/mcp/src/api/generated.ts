@@ -14238,6 +14238,14 @@ export namespace Schemas {
       InProgress: 'in_progress',
     } as const;
 
+    export interface AirbrakeIssueSignalExtra {
+      project_id: string | null;
+      environment: string | null;
+      notice_total_count: string | null;
+      created_at: string | null;
+      last_notice_at: string | null;
+    }
+
     export interface InsightsThresholdBounds {
       /** Alert fires when the value drops below this number. */
       lower?: number | null;
@@ -15390,6 +15398,14 @@ export namespace Schemas {
       failed_delivery_channels: FailedDeliveryChannelsEnum[];
     }
 
+    export interface AmazonCloudwatchIncidentSignalExtra {
+      alarm_name: string | null;
+      alarm_kind: string | null;
+      transitions: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
+    }
+
     /**
      * * `trace` - trace
      * * `generation` - generation
@@ -16500,6 +16516,14 @@ export namespace Schemas {
       snapshots: ApproveSnapshotInput[];
     }
 
+    export type AppsignalIssueSignalExtraKind = typeof AppsignalIssueSignalExtraKind[keyof typeof AppsignalIssueSignalExtraKind] | null;
+
+
+    export const AppsignalIssueSignalExtraKind = {
+      PerformanceIncident: 'performance_incident',
+      AnomalyIncident: 'anomaly_incident',
+    } as const;
+
     export interface AppsignalIssueSignalExtra {
       state: string | null;
       severity: string | null;
@@ -16507,6 +16531,10 @@ export namespace Schemas {
       occurrence_count: string | null;
       created_at: string | null;
       last_occurred_at: string | null;
+      kind?: AppsignalIssueSignalExtraKind;
+      mean_duration_ms?: string | null;
+      alert_state?: string | null;
+      metric_name?: string | null;
     }
 
     export interface ArchiveExperiment {
@@ -59517,6 +59545,22 @@ export namespace Schemas {
       SearchTerm: 'search_term',
     } as const;
 
+    export type MarketingAnalyticsRecommendationResolutionState = typeof MarketingAnalyticsRecommendationResolutionState[keyof typeof MarketingAnalyticsRecommendationResolutionState];
+
+
+    export const MarketingAnalyticsRecommendationResolutionState = {
+      Dismissed: 'dismissed',
+      Applied: 'applied',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationResolution {
+      /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+      id: string;
+      resolution: MarketingAnalyticsRecommendationResolutionState;
+      /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+      resolved_at: string;
+    }
+
     export interface MarketingAnalyticsRecommendationStep {
       /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
       copyValue?: string | null;
@@ -59543,6 +59587,8 @@ export namespace Schemas {
       key: string;
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
+      /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+      resolution?: MarketingAnalyticsRecommendationResolution | null;
       rule: MarketingAnalyticsRecommendationRule;
       /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
       steps?: MarketingAnalyticsRecommendationStep[] | null;
@@ -59618,6 +59664,8 @@ export namespace Schemas {
       /** Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only. */
       conversionActions?: string[] | null;
       dateRange?: DateRange | null;
+      /** Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`. */
+      includeResolved?: boolean | null;
       kind?: 'MarketingAnalyticsRecommendationsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -63032,6 +63080,10 @@ export namespace Schemas {
      * * `vitally_nps` - Vitally NPS
      * * `woocommerce` - WooCommerce
      * * `yotpo` - Yotpo
+     * * `airbrake` - Airbrake
+     * * `amazon_cloudwatch` - Amazon CloudWatch
+     * * `logicmonitor` - LogicMonitor
+     * * `mux` - Mux
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -63167,6 +63219,10 @@ export namespace Schemas {
       VitallyNps: 'vitally_nps',
       Woocommerce: 'woocommerce',
       Yotpo: 'yotpo',
+      Airbrake: 'airbrake',
+      AmazonCloudwatch: 'amazon_cloudwatch',
+      Logicmonitor: 'logicmonitor',
+      Mux: 'mux',
     } as const;
 
     /**
@@ -63351,7 +63407,11 @@ export namespace Schemas {
        * * `uservoice_nps` - UserVoice NPS
        * * `vitally_nps` - Vitally NPS
        * * `woocommerce` - WooCommerce
-       * * `yotpo` - Yotpo */
+       * * `yotpo` - Yotpo
+       * * `airbrake` - Airbrake
+       * * `amazon_cloudwatch` - Amazon CloudWatch
+       * * `logicmonitor` - LogicMonitor
+       * * `mux` - Mux */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -67396,6 +67456,16 @@ export namespace Schemas {
          * @maxLength 255
          */
       project_name: string;
+    }
+
+    export interface LogicmonitorIncidentSignalExtra {
+      severity: string | null;
+      acked: string | null;
+      monitor_object_name: string | null;
+      datasource: string | null;
+      instance_name: string | null;
+      data_point_name: string | null;
+      start_epoch: string | null;
     }
 
     /**
@@ -73304,6 +73374,14 @@ export namespace Schemas {
       tile: MoveTileTile;
     }
 
+    export interface MuxIssueSignalExtra {
+      error_id: string | null;
+      error_code: string | null;
+      view_count: string | null;
+      view_share: string | null;
+      last_seen_at: string | null;
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -73373,6 +73451,28 @@ export namespace Schemas {
        * * `auto` - Domain Connect
        * * `manual` - Manual DNS records */
       setup_method?: EmailDomainSetupMethodEnum;
+    }
+
+    export type NewrelicIssueSignalExtraKindEnum = typeof NewrelicIssueSignalExtraKindEnum[keyof typeof NewrelicIssueSignalExtraKindEnum];
+
+
+    export const NewrelicIssueSignalExtraKindEnum = {
+      AlertIssue: 'alert_issue',
+      JavascriptError: 'javascript_error',
+      TransactionError: 'transaction_error',
+    } as const;
+
+    export interface NewrelicIssueSignalExtra {
+      kind: NewrelicIssueSignalExtraKindEnum;
+      issue_id?: string | null;
+      priority?: string | null;
+      activated_at?: string | null;
+      app_name?: string | null;
+      error_class?: string | null;
+      sample_transaction?: string | null;
+      occurrences?: string | null;
+      first_seen?: string | null;
+      last_seen?: string | null;
     }
 
     export interface NoMatchMetadata {
@@ -107386,6 +107486,10 @@ export namespace Schemas {
      * * `vitally_nps` - vitally_nps
      * * `woocommerce` - woocommerce
      * * `yotpo` - yotpo
+     * * `airbrake` - airbrake
+     * * `amazon_cloudwatch` - amazon_cloudwatch
+     * * `logicmonitor` - logicmonitor
+     * * `mux` - mux
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -107521,6 +107625,10 @@ export namespace Schemas {
       VitallyNps: 'vitally_nps',
       Woocommerce: 'woocommerce',
       Yotpo: 'yotpo',
+      Airbrake: 'airbrake',
+      AmazonCloudwatch: 'amazon_cloudwatch',
+      Logicmonitor: 'logicmonitor',
+      Mux: 'mux',
     } as const;
 
     /**
@@ -107885,7 +107993,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -108032,7 +108140,11 @@ export namespace Schemas {
        * * `uservoice_nps` - uservoice_nps
        * * `vitally_nps` - vitally_nps
        * * `woocommerce` - woocommerce
-       * * `yotpo` - yotpo */
+       * * `yotpo` - yotpo
+       * * `airbrake` - airbrake
+       * * `amazon_cloudwatch` - amazon_cloudwatch
+       * * `logicmonitor` - logicmonitor
+       * * `mux` - mux */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
