@@ -493,12 +493,9 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                 name="rl_inline_created_idx",
                 condition=models.Q(origin=ScannerOrigin.INLINE),
             ),
-            # Serves "which scanners watch experiment N" for the experiment page and the launch receiver.
-            models.Index(
-                KeyTransform("experiment_id", "scope"),
-                name="rl_scope_experiment_idx",
-                condition=models.Q(scope__kind="experiment"),
-            ),
+            # Serves "which scanners watch experiment N" for the experiment page and the launch receiver. Not
+            # partial: callers filter on the id alone, and a kind condition would stop the planner using it.
+            models.Index(KeyTransform("experiment_id", "scope"), name="rl_scope_experiment_idx"),
         ]
 
     _VERSION_TRACKED_FIELDS = (
@@ -506,13 +503,14 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "scanner_config",
         "query",
         "experiment_targeting",
+        "scope",
         "sampling_rate",
         "provider",
         "model",
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "sampling_rate"})
+    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "scope", "sampling_rate"})
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
