@@ -615,14 +615,26 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return NamingConvention.normalize_identifier(self.name)
 
     @property
+    def storage_name(self) -> str:
+        """The last segment of this model's storage path.
+
+        A materialized model keeps the segment its backing table was first written under, so that a
+        rename does not point the next run at an empty location and rebuild the table.
+        """
+        table = self.table if self.table_id is not None else None
+        if table is not None and not table.deleted and self.folder_path in table.url_pattern:
+            return table.url_pattern.rstrip("/").rsplit("/", 1)[-1]
+        return self.normalized_name
+
+    @property
     def url_pattern(self):
         if settings.USE_LOCAL_SETUP:
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.storage_name}"
 
-        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.storage_name}"
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
@@ -697,7 +709,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 @database_sync_to_async
 def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
     return (
-        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        DataWarehouseSavedQuery.objects.select_related("team", "table")
         .exclude(deleted=True)
         .get(id=saved_query_id, team_id=team_id)
     )

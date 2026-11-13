@@ -3968,6 +3968,8 @@ export interface ExperimentHealthInputsConditionSetTrafficApi {
     remotely_evaluated_calls: number
     /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
     people_assigned_outside: number
+    /** Whether the counts leave out the calls that the project's filter for internal and test users excludes, because the experiment applies that filter. */
+    filters_test_accounts: boolean
 }
 
 export interface ExperimentHealthInputsReaderAccessApi {
