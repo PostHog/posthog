@@ -38,6 +38,8 @@ STABLE_CHUNKS_FALLBACK_COUNTER = Counter(
     labelnames=["authenticated", "reason", "bot"],
 )
 _STABLE_CHUNK_SPECIFIER = re.compile(r"@c/[A-Za-z0-9]+")
+# The bot patterns can backtrack, so the match must not run on an unbounded header.
+_BOT_MATCH_MAX_USER_AGENT_LENGTH = 1024
 
 
 @frozen
@@ -129,7 +131,7 @@ def _bot_user_agent() -> re.Pattern[str]:
 
 
 def _is_bot(request: HttpRequest) -> bool:
-    user_agent = request.headers.get("user-agent", "")
+    user_agent = request.headers.get("user-agent", "")[:_BOT_MATCH_MAX_USER_AGENT_LENGTH]
     return not user_agent or _bot_user_agent().search(user_agent) is not None
 
 
