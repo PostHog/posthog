@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.presentation.serializers import (
+from products.experiments.backend.presentation.serializers.recalculation import (
     ExperimentMetricsRecalculationJobSerializer,
     ExperimentMetricsRecalculationLatestSerializer,
     ExperimentMetricsRecalculationRunSerializer,

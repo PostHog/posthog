@@ -33,8 +33,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.presentation import serializers as experiment_serializers
-from products.experiments.backend.presentation.serializers import RunningTimeBaselineStatsSerializer
+from products.experiments.backend.presentation.serializers import setup_context as experiment_serializers
+from products.experiments.backend.presentation.serializers.running_time import RunningTimeBaselineStatsSerializer
 from products.experiments.backend.running_time_calculator import BaselineStats, calculate_baseline_value
 from products.experiments.backend.setup_context import (
     SDK_PROFILE_MAX_LIBS,

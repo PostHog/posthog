@@ -4,7 +4,9 @@ from posthog.test.base import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.presentation.serializers import ExperimentSessionBucketRequestSerializer
+from products.experiments.backend.presentation.serializers.session_replay import (
+    ExperimentSessionBucketRequestSerializer,
+)
 
 
 class TestExperimentSessionBucketRequestValidation(SimpleTestCase):
