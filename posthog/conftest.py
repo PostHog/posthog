@@ -13,6 +13,7 @@ from urllib.parse import quote_plus
 import pytest
 from posthog.test.base import PostHogTestCase, _selective_flush, run_clickhouse_statement_in_parallel
 
+import requests
 from _pytest.junitxml import ET, bin_xml_escape, mangle_test_address
 
 if TYPE_CHECKING:
@@ -40,9 +41,29 @@ from posthog.test import flush_lock_guard
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="package")
-def clickhouse_database() -> None:
-    # SQL-only tests need a database without the Postgres setup tied to django_db_setup.
+# Host names that reach the ClickHouse container of the local dev stack. The dev setup maps
+# `clickhouse` to loopback in /etc/hosts.
+LOCAL_CLICKHOUSE_HOSTS = frozenset({"clickhouse", "localhost", "127.0.0.1", "::1"})
+
+
+def _start_local_clickhouse() -> bool:
+    """Start the stopped ClickHouse container of the local dev stack.
+
+    `hogli watch` stops an unused ClickHouse, so a local test run starts it again on demand. The same
+    call arms the watcher, which stops ClickHouse again once nothing uses it.
+    """
+    if is_ci() or settings.CLICKHOUSE_HOST not in LOCAL_CLICKHOUSE_HOSTS:
+        return False
+    try:
+        result = subprocess.run(
+            [sys.executable, "-P", "-m", "hogli", "watch", "--ensure", "clickhouse"], timeout=300, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _create_sql_only_clickhouse_database() -> None:
     Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
@@ -52,6 +73,17 @@ def clickhouse_database() -> None:
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         trust_env=False,
     ).create_database()
+
+
+@pytest.fixture(scope="package")
+def clickhouse_database() -> None:
+    # SQL-only tests need a database without the Postgres setup tied to django_db_setup.
+    try:
+        _create_sql_only_clickhouse_database()
+    except requests.ConnectionError:
+        if not _start_local_clickhouse():
+            raise
+        _create_sql_only_clickhouse_database()
 
 
 def create_clickhouse_tables():
@@ -232,28 +264,6 @@ def _create_clickhouse_database(keepdb: bool) -> None:
         if not keepdb:
             client.execute(f"DROP DATABASE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`")
         client.execute(f"CREATE DATABASE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`")
-
-
-# Host names that reach the ClickHouse container of the local dev stack. The dev setup maps
-# `clickhouse` to loopback in /etc/hosts.
-LOCAL_CLICKHOUSE_HOSTS = frozenset({"clickhouse", "localhost", "127.0.0.1", "::1"})
-
-
-def _start_local_clickhouse() -> bool:
-    """Start the stopped ClickHouse container of the local dev stack.
-
-    `hogli watch` stops an unused ClickHouse, so a local test run starts it again on demand. The same
-    call arms the watcher, which stops ClickHouse again once nothing uses it.
-    """
-    if is_ci() or settings.CLICKHOUSE_HOST not in LOCAL_CLICKHOUSE_HOSTS:
-        return False
-    try:
-        result = subprocess.run(
-            [sys.executable, "-P", "-m", "hogli", "watch", "--ensure", "clickhouse"], timeout=300, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
 
 
 def _create_test_clickhouse_database(keepdb: bool) -> None:

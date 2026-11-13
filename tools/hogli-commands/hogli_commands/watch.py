@@ -45,6 +45,14 @@ def _run(cmd: Sequence[str], timeout: float) -> subprocess.CompletedProcess[str]
         return None
 
 
+def docker_is_local() -> bool:
+    """True when the docker CLI talks to a daemon on this machine, so localhost is its ClickHouse."""
+    result = _run(["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"], timeout=10)
+    if result is None or result.returncode != 0:
+        return False
+    return result.stdout.strip().startswith(("unix://", "npipe://"))
+
+
 def watch_enabled() -> bool:
     return os.environ.get("POSTHOG_WATCH", "1") != "0" and not os.environ.get("CI")
 
@@ -266,21 +274,33 @@ def run_watcher() -> None:
     cleanup = WorktreeCleanup()
     clickhouse = ComposeService("clickhouse")
     idle_minutes = clickhouse_idle_minutes()
+    if not docker_is_local():
+        # The usage check reads localhost, so it cannot judge a container on a remote daemon.
+        _log("docker points at a remote daemon, so the ClickHouse idle stop is off")
+        idle_minutes = 0
     idle_stop = ClickHouseIdleStop(idle_minutes, now=time.monotonic())
     _log(f"watcher started (pid {os.getpid()}, ClickHouse idle stop after {idle_minutes} min)")
     try:
         while True:
             if cleanup.is_due():
                 cleanup.run()
-            if idle_minutes == 0 or not clickhouse.is_running():
+            if idle_minutes == 0:
                 _log("nothing left to watch, exiting")
                 return
+            if not clickhouse.is_running():
+                # `hogli start` arms the watcher before its compose step starts ClickHouse.
+                if not _stack_running():
+                    _log("nothing left to watch, exiting")
+                    return
+                time.sleep(TICK_SECONDS)
+                continue
             usage = read_clickhouse_usage()
             if usage is not None and idle_stop.observe(usage, now=time.monotonic()):
                 _log(f"ClickHouse unused for {idle_minutes} min, stopping it")
-                clickhouse.stop()
-                _log("nothing left to watch, exiting")
-                return
+                if clickhouse.stop():
+                    _log("nothing left to watch, exiting")
+                    return
+                _log("docker stop failed, trying again on the next tick")
             time.sleep(TICK_SECONDS)
     finally:
         lock.truncate(0)
@@ -289,6 +309,9 @@ def run_watcher() -> None:
 
 def ensure_clickhouse() -> bool:
     """Start the local ClickHouse if it is stopped, wait until it answers, and arm the watcher."""
+    if not docker_is_local():
+        click.echo("docker points at a remote daemon, so the local ClickHouse cannot start on demand.", err=True)
+        return False
     services = [ComposeService(name) for name in CLICKHOUSE_SERVICES]
     if not services[-1].exists():
         click.echo("No local ClickHouse container exists. Run `hogli start` once to create the dev stack.", err=True)
