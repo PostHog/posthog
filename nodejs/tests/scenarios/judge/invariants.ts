@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'util'
 import { z } from 'zod'
 
 import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
@@ -142,11 +143,20 @@ export const residentBacklogIntact: InvariantDefinition = {
                 unitIds: [],
             }
         }
-        if (resident.seeded.profile !== resident.profile) {
+        const { name, backlog } = resident.profile
+        if (resident.seeded.profile !== name) {
             return {
                 passed: false,
                 observed: 0,
-                violation: `the resident backlog was seeded for profile ${resident.seeded.profile}; run seed-backlog with profile ${resident.profile} first`,
+                violation: `the resident backlog was seeded for profile ${resident.seeded.profile}; run seed-backlog with profile ${name} first`,
+                unitIds: [],
+            }
+        }
+        if (!isDeepStrictEqual(resident.seeded.backlog, backlog)) {
+            return {
+                passed: false,
+                observed: 0,
+                violation: `the resident backlog was seeded from another backlog than profile ${name} holds; run seed-backlog with it again`,
                 unitIds: [],
             }
         }

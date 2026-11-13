@@ -52,7 +52,7 @@ import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
 import { seedBacklog } from '../backlog/backlog'
-import { CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
+import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
@@ -663,7 +663,8 @@ describe('runner through seed, drive and judge', () => {
             replicas = {},
             parks = 0,
             invariants = SMOKE.card.invariants,
-        }: { replicas?: Profile['replicas']; parks?: number; invariants?: Named[] } = {}
+            backlog,
+        }: { replicas?: Profile['replicas']; parks?: number; invariants?: Named[]; backlog?: Backlog } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
@@ -683,6 +684,7 @@ describe('runner through seed, drive and judge', () => {
                 name: SMOKE.profile.name,
                 traffic: { [traffic]: { ratePerSecond: 2, parks } },
                 replicas,
+                ...(backlog ? { backlog } : {}),
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -974,19 +976,15 @@ describe('runner through seed, drive and judge', () => {
     ])(
         'resident_backlog_intact %s',
         async (_story, delivering, seededFor, loseOne, status, expected) => {
-            const seeded = await seedBacklog(
-                seededFor,
-                {
-                    teams: 2,
-                    jobs: { hogflow: 4 },
-                    stateBytes: { p50: 100, p90: 200, p99: 300 },
-                    compressibility: 0.5,
-                    parkFor: '10080m',
-                    tolerance: 0,
-                },
-                cyclotronUrl,
-                defaultStateDir(env)
-            )
+            const backlog: Backlog = {
+                teams: 2,
+                jobs: { hogflow: 4 },
+                stateBytes: { p50: 100, p90: 200, p99: 300 },
+                compressibility: 0.5,
+                parkFor: '10080m',
+                tolerance: 0,
+            }
+            const seeded = await seedBacklog(seededFor, backlog, cyclotronUrl, defaultStateDir(env))
             expect(seeded.manifest).toBeDefined()
             if (loseOne) {
                 await withPostgres(
@@ -1000,7 +998,10 @@ describe('runner through seed, drive and judge', () => {
             }
 
             const result = await createRunner(environmentOf(delivering), env).run(
-                shortSmoke([], 'event_email', { invariants: [{ name: 'resident_backlog_intact', params: {} }] }),
+                shortSmoke([], 'event_email', {
+                    invariants: [{ name: 'resident_backlog_intact', params: {} }],
+                    backlog,
+                }),
                 NEVER_ABORTED
             )
             results.push(result)

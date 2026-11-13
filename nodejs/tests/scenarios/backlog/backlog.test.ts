@@ -97,7 +97,7 @@ describe('seed-backlog', () => {
         })
     })
 
-    it('writes a manifest of the profile and the rows per team and status, with the table, index and TOAST bytes', async () => {
+    it('writes a manifest of the profile, its backlog and the rows per team and status, with the table, index and TOAST bytes', async () => {
         expect(await seed()).toBe(EXIT_CODE.passed)
 
         const counted = await query<{ teamId: number; status: string; rows: number }>(
@@ -106,10 +106,11 @@ describe('seed-backlog', () => {
         )
         const manifest = parseJSON(readFileSync(manifestPath(), 'utf8')) as {
             profile: string
+            backlog: unknown
             rows: unknown[]
             bytes: Record<string, number>
         }
-        expect(manifest.profile).toBe('resident')
+        expect(manifest).toMatchObject({ profile: 'resident', backlog: BACKLOG })
         expect(manifest.rows).toEqual(counted)
         expect(manifest.bytes).toEqual({
             table: expect.any(Number),
