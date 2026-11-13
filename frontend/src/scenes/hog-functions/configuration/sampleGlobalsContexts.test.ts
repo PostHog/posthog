@@ -25,14 +25,12 @@ const QUERY_FAILED: MockResponse = [500, { detail: 'boom' }]
 
 const exampleGlobals = { event: { properties: {} } } as unknown as CyclotronJobInvocationGlobals
 
-// The fingerprints API only offers the old fingerprint, so a sample that names the recent one came
-// from the recently active issues query.
 function useErrorTrackingApiMocks({
     recentIssues,
-    exceptionFor,
+    exceptionByFingerprint,
 }: {
     recentIssues: MockResponse
-    exceptionFor: Record<string, MockResponse>
+    exceptionByFingerprint: Record<string, MockResponse>
 }): void {
     useMocks({
         get: {
@@ -61,9 +59,8 @@ function useErrorTrackingApiMocks({
                 if (body.query.tags?.name === 'hog_function_error_tracking_sample_issues') {
                     return recentIssues
                 }
-                // Answers only for a known fingerprint, so a lookup that loses its fingerprint filter gets nothing
-                const fingerprint = Object.keys(exceptionFor).find((key) => query.includes(key))
-                return fingerprint ? exceptionFor[fingerprint] : [200, { results: [] }]
+                const fingerprint = Object.keys(exceptionByFingerprint).find((key) => query.includes(key))
+                return fingerprint ? exceptionByFingerprint[fingerprint] : [200, { results: [] }]
             },
         },
     })
@@ -81,7 +78,7 @@ describe('SAMPLE_GLOBALS_CONTEXTS error-tracking', () => {
     it.each([
         [
             'a recently active issue with its latest exception properties, issue fields winning on a collision',
-            { recentIssues: FOUND_RECENT_ISSUE, exceptionFor: { [RECENT_FINGERPRINT]: FOUND_EXCEPTION } },
+            { recentIssues: FOUND_RECENT_ISSUE, exceptionByFingerprint: { [RECENT_FINGERPRINT]: FOUND_EXCEPTION } },
             RECENT_ISSUE_ID,
             {
                 ...EXCEPTION_PROPERTIES,
@@ -91,13 +88,13 @@ describe('SAMPLE_GLOBALS_CONTEXTS error-tracking', () => {
         ],
         [
             'a fingerprint record when the recently active issues query fails',
-            { recentIssues: QUERY_FAILED, exceptionFor: { [OLD_FINGERPRINT]: FOUND_EXCEPTION } },
+            { recentIssues: QUERY_FAILED, exceptionByFingerprint: { [OLD_FINGERPRINT]: FOUND_EXCEPTION } },
             OLD_ISSUE_ID,
             { ...EXCEPTION_PROPERTIES, ...issueFields(OLD_FINGERPRINT), exception_timestamp: EXCEPTION_TIMESTAMP },
         ],
         [
             'issue fields only when the exception lookup fails',
-            { recentIssues: FOUND_RECENT_ISSUE, exceptionFor: { [RECENT_FINGERPRINT]: QUERY_FAILED } },
+            { recentIssues: FOUND_RECENT_ISSUE, exceptionByFingerprint: { [RECENT_FINGERPRINT]: QUERY_FAILED } },
             RECENT_ISSUE_ID,
             issueFields(RECENT_FINGERPRINT),
         ],

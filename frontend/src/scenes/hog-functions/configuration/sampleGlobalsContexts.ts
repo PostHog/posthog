@@ -37,9 +37,7 @@ function sampleHealthCheckKind(filters?: CyclotronJobFiltersType | null): string
 
 type SampleCandidate = { issueId: string; fingerprint: string }
 
-// The fingerprints API lists the oldest fingerprints first, and an old fingerprint rarely has a
-// recent exception to take properties from. So the sample starts from recently active issues.
-// An empty list sends the caller to the fingerprints API instead.
+// The fingerprints API lists the oldest fingerprints first, and those rarely have a recent exception.
 async function loadRecentlyActiveIssues(): Promise<SampleCandidate[]> {
     try {
         const response = await api.queryHogQL<[string, string][]>(
@@ -56,9 +54,7 @@ async function loadRecentlyActiveIssues(): Promise<SampleCandidate[]> {
     }
 }
 
-// Live delivery sends the fingerprint and the properties of the same exception event, so the lookup
-// filters on the fingerprint. The sample still works without exception properties, so a failed or
-// empty lookup returns null instead of failing the whole test run.
+// Filters on fingerprint, not issue id: live delivery sends the properties of the exception with this fingerprint.
 async function loadLatestExceptionEvent(
     fingerprint: string
 ): Promise<{ properties: Record<string, any>; timestamp: string } | null> {
@@ -90,8 +86,7 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
         const projectId = String(ApiConfig.getCurrentProjectId())
         let candidates = await loadRecentlyActiveIssues()
         if (!candidates.length) {
-            // The issues list API doesn't expose fingerprints, so start from a fingerprint
-            // record (which alert templates rely on) and resolve its issue.
+            // The issues list API doesn't expose fingerprints, so start from fingerprint records.
             const response = await errorTrackingFingerprintsList(projectId, { limit: 20 })
             candidates = response.results.map((record) => ({
                 issueId: record.issue_id,
@@ -127,9 +122,7 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
                 ...exampleGlobals.event,
                 // Real issue lifecycle events use the issue id as the distinct_id
                 distinct_id: issue.id,
-                // Live delivery spreads the exception event's properties under the issue fields
-                // (see nodejs/src/cdp/utils.ts), so alert filters can match exception properties.
-                // The same order here makes the test panel match what live delivery filters on.
+                // Same order as live delivery in nodejs/src/cdp/utils.ts, so issue fields win.
                 properties: { ...exceptionEvent?.properties, ...properties },
             },
         }
