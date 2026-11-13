@@ -277,12 +277,16 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: SourceKind, search: str | None = None
+    *, team_id: int, source_kind: SourceKind, search: str | None = None, copies_of: Collection[UUID] = ()
 ) -> tuple[NativeConfigurationMatch, ...]:
     """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
-    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
-    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
-    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+    them on beside its own rows. With `copies_of`, also the copies of those source rows whoever owns
+    them, so a source lists an alert the platform owns from its copy's settings. With `search`, only
+    the ones whose name matches it, exact and similar alike: the source keeps only the exact tier when
+    any row of either kind is exact."""
+    return platform_reads.native_configuration_matches(
+        team_id=team_id, source_kind=source_kind.value, search=search, copies_of=copies_of
+    )
 
 
 def enabled_native_configurations(

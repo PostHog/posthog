@@ -1,6 +1,6 @@
 import json
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
@@ -9,7 +9,7 @@ from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import models, transaction
-from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery, Value
+from django.db.models import Manager, OuterRef, Prefetch, Q, QuerySet, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
 
@@ -143,6 +143,7 @@ from products.alerts.backend.facade.platform import (
     moved_alert_fired_checks,
     moved_alert_settings,
     moved_alert_statuses,
+    moved_insight_alert_ids,
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
@@ -1054,6 +1055,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if target_insight:
             target_insight.refresh_from_db()
             _reject_deleted_insight(target_insight)
+        if instance.platform_owned:
+            self._start_from_copy(instance)
         # Recheck the combined configuration after concurrent updates have finished.
         self.instance = instance
         validated_data = self.validate(validated_data)
@@ -1172,6 +1175,29 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
+
+    def _start_from_copy(self, alert: AlertConfiguration) -> None:
+        """Puts a moved alert's settings from its copy on its locked row, so an edit compares against
+        what the API shows and the save writes them to the row with the edit. The threshold is saved
+        here, because the alert's save does not save it."""
+        settings = moved_alert_settings(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id)
+        if settings is None:
+            return
+        for field, value in settings.fields.items():
+            setattr(alert, field, value)
+        alert.schedule_start_time = settings.schedule_start_time
+        if settings.threshold is None:
+            alert.threshold = None
+        elif alert.threshold is None:
+            alert.threshold = Threshold.objects.create(
+                team_id=alert.team_id,
+                insight_id=alert.insight_id,
+                configuration=settings.threshold,
+                created_by=self.context["request"].user,
+            )
+        elif alert.threshold.configuration != settings.threshold:
+            alert.threshold.configuration = settings.threshold
+            alert.threshold.save(update_fields=["configuration"])
 
     def _update_native(self, instance: AlertConfiguration, validated_data: dict) -> AlertConfiguration:
         """`update` for an alert with no insight row. It runs the same checks, then writes the edit to
@@ -1867,6 +1893,10 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
             alert.last_checked_at = moved_status.last_check.checked_at
             # Annotated from the alert's own checks, which stop once the shadow ends.
             alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
+        elif moved_status.history_unavailable:
+            # The row's own last check predates the move, as retrieve's checks would.
+            alert.last_checked_at = None
+            alert.last_value = None  # type: ignore[attr-defined]
 
 
 class AlertCheckHistoryUnavailable(APIException):
@@ -1987,6 +2017,32 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         super().check_throttles(request)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        # Gate on viewer access to the linked insight. Alert read/write access does not imply access
+        # to the insight's results (carried in AlertCheck.triggered_metadata / calculated_value), and
+        # "alert" isn't an access-control resource — so without this an alert leaks a restricted
+        # insight's data via check history, or via a PATCH that omits `insight` (skipping the
+        # create-time check). Filtering here covers list, retrieve, update, delete, and the embedded
+        # checks, since get_object() resolves detail routes from this queryset.
+        queryset = queryset.filter(insight_id__in=self._viewable_insights().values("id"))
+
+        # Read-side twin of the write-side metrics scope gate: a programmatic token without the
+        # metrics data scope must not read metric alert results (last_value, check history, breach
+        # labels) that a session user scheduled. Filtering here covers list, retrieve, update,
+        # delete, and the embedded checks, since get_object() resolves from this queryset.
+        # filter-then-exclude-by-id rather than exclude(Q) — NOT over a JSON path is three-valued,
+        # so a plain exclude also drops rows whose query lacks the key entirely.
+        if _token_lacks_metrics_scope(self.request):
+            queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
+
+        latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
+        return queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(self._filtered_rows(super().filter_queryset(queryset)))
+
+    def _filtered_rows(self, queryset: QuerySet) -> QuerySet:
+        """The rows that pass the list's filters on their own values. An alert the platform owns
+        passes on its copy's values instead, which `list` reads apart from these."""
         filters = self.request.query_params
         list_filters = AlertListFiltersSerializer(data=filters)
         list_filters.is_valid(raise_exception=True)
@@ -2024,31 +2080,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
                 )
             queryset = self._apply_search(queryset, search)
-
-        # Gate on viewer access to the linked insight. Alert read/write access does not imply access
-        # to the insight's results (carried in AlertCheck.triggered_metadata / calculated_value), and
-        # "alert" isn't an access-control resource — so without this an alert leaks a restricted
-        # insight's data via check history, or via a PATCH that omits `insight` (skipping the
-        # create-time check). Filtering here covers list, retrieve, update, delete, and the embedded
-        # checks, since get_object() resolves detail routes from this queryset.
-        queryset = queryset.filter(insight_id__in=self._viewable_insights().values("id"))
-
-        # Read-side twin of the write-side metrics scope gate: a programmatic token without the
-        # metrics data scope must not read metric alert results (last_value, check history, breach
-        # labels) that a session user scheduled. Filtering here covers list, retrieve, update,
-        # delete, and the embedded checks, since get_object() resolves from this queryset.
-        # filter-then-exclude-by-id rather than exclude(Q) — NOT over a JSON path is three-valued,
-        # so a plain exclude also drops rows whose query lacks the key entirely.
-        if _token_lacks_metrics_scope(self.request):
-            queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
-
-        latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
-        queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
-
         return queryset
-
-    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
-        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     @staticmethod
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
@@ -2199,10 +2231,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return None
         return alert
 
-    def _native_matches(self, *, search: str | None) -> list[NativeConfigurationMatch]:
-        """The insight alerts with no insight row that pass the list's filters and read gates, as
-        `safely_get_queryset` applies them to rows."""
-        matches = native_insight_alert_matches(self.team_id, search=search)
+    def _platform_matches(self, *, search: str | None, moved: Collection[uuid.UUID]) -> list[NativeConfigurationMatch]:
+        """The insight alerts with no insight row, and the copies of the `moved` alerts, that pass the
+        list's filters and read gates on the platform's values, as `safely_get_queryset` and
+        `_filtered_rows` apply them to rows."""
+        matches = native_insight_alert_matches(self.team_id, search=search, copies_of=moved)
         if not matches:
             return []
         filters = self.request.query_params
@@ -2260,8 +2293,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         # An alert with no insight row has no row in the queryset, so the two are merged and paged
-        # here, on the sort keys alone, and only the page's alerts are loaded.
-        rows = super().filter_queryset(self.get_queryset())
+        # here, on the sort keys alone, and only the page's alerts are loaded. An alert the platform
+        # owns is filtered and sorted on its copy, because its row's settings stop at the move.
+        moved = moved_insight_alert_ids(self.team_id)
+        gated = self.get_queryset()
+        rows = self._filtered_rows(super().filter_queryset(gated)).exclude(id__in=list(moved))
         searched = "_is_exact" in rows.query.annotations
         keys = [
             _ListKey(rank=score, created_at=created_at, id=alert_id, is_exact=bool(is_exact), native=False)
@@ -2274,11 +2310,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             _ListKey(
                 rank=match.search_score or 0.0,
                 created_at=match.created_at,
-                id=match.id,
+                id=match.public_id,
                 is_exact=bool(match.is_exact),
-                native=True,
+                native=match.legacy_configuration_id is None,
             )
-            for match in self._native_matches(search=request.query_params.get("search") if searched else None)
+            for match in self._platform_matches(
+                search=request.query_params.get("search") if searched else None, moved=moved
+            )
         ]
         if searched and any(key.is_exact for key in keys):
             # "Exact matches only, unless there are none", decided over both kinds together.
@@ -2288,16 +2326,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         page = self.paginate_queryset(keys)
         listed = keys if page is None else page
         loaded: dict[uuid.UUID, AlertConfiguration] = {
-            alert.id: alert for alert in rows.filter(id__in=[key.id for key in listed if not key.native])
+            alert.id: alert for alert in gated.filter(id__in=[key.id for key in listed if not key.native])
         }
         native = AlertConfiguration.from_platform_views(
             native_insight_alert_views(self.team_id, [key.id for key in listed if key.native]), team_id=self.team_id
         )
+        loaded.update(native)
         if searched:
             for key in listed:
-                if key.native and key.id in native:
-                    native[key.id]._is_exact = int(key.is_exact)  # type: ignore[attr-defined]
-        loaded.update(native)
+                if key.id in loaded:
+                    loaded[key.id]._is_exact = int(key.is_exact)  # type: ignore[attr-defined]
         # An alert deleted since its key was read drops out of the page rather than failing it.
         alerts = [loaded[key.id] for key in listed if key.id in loaded]
         _show_platform_status(alerts, now=timezone.now())
@@ -2751,8 +2789,18 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data)
 
 
+class _ShownAlertsSerializer(serializers.ListSerializer):
+    """A threshold's alerts, each the platform owns shown as the alert API shows it."""
+
+    def to_representation(self, data: Any) -> list[Any]:
+        alerts = list(data.all() if isinstance(data, Manager) else data)
+        _show_platform_status(alerts, now=timezone.now())
+        _show_platform_subscribers(alerts)
+        return super().to_representation(alerts)
+
+
 class ThresholdWithAlertSerializer(ThresholdSerializer):
-    alerts = AlertSerializer(many=True, read_only=True, source="alertconfiguration_set")
+    alerts = _ShownAlertsSerializer(child=AlertSerializer(), read_only=True, source="alertconfiguration_set")
 
     class Meta(ThresholdSerializer.Meta):
         fields = [*ThresholdSerializer.Meta.fields, "alerts"]

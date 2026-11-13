@@ -200,6 +200,9 @@ class MovedAlertStatus:
     runtime: MovedAlertRuntime | None
     # None when the alert has no recent check, or the platform's history could not be read.
     last_check: MovedAlertLastCheck | None
+    # The platform's history could not be read, so the alert's last check is unknown. Its row's last
+    # check predates the move and is not shown in its place.
+    history_unavailable: bool = False
 
 
 @frozen

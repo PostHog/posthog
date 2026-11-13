@@ -564,24 +564,71 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert (row["config"], row["skip_weekend"]) == (row_config, True)
 
-    @parameterized.expand([("asked_for_checks", "?checks_limit=5", True), ("plain_read", "", False)])
+    @parameterized.expand([("search",), ("created_by",), ("has_detector",)])
+    def test_the_list_filters_a_moved_alert_on_its_copys_values(self, filter_name: str) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        with team_scope(self.team.id):
+            platform_testing.set_created_by(self.copy_id, self.user.id)
+        # Writes that bypass the API leave the row apart from the copy.
+        AlertConfiguration.objects.filter(id=self.alert.id).update(
+            name="Quarterly revenue drop", created_by=other, detector_config={"type": "zscore"}
+        )
+        matching, missing = {
+            "search": ({"search": self.alert.name}, {"search": "Quarterly revenue drop"}),
+            "created_by": ({"created_by": str(self.user.uuid)}, {"created_by": str(other.uuid)}),
+            "has_detector": ({"has_detector": "false"}, {"has_detector": "true"}),
+        }[filter_name]
+
+        def listed(params: dict[str, str]) -> list[str]:
+            response = self.client.get(f"{self.url}/", params)
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            return [alert["id"] for alert in response.json()["results"]]
+
+        assert (listed(matching), listed(missing)) == ([str(self.alert.id)], [])
+
+    def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(self) -> None:
+        AlertConfiguration.objects.filter(id=self.alert.id).update(name="Drifted")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/{self.alert.threshold_id}/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [alert["name"] for alert in response.json()["alerts"]] == [self.alert.name]
+
+    @parameterized.expand(
+        [
+            ("asked_for_checks", "?checks_limit=5", True),
+            ("plain_read", "", False),
+            ("list", None, False),
+        ]
+    )
     def test_a_platform_history_failure_never_shows_the_alerts_stale_checks(
-        self, _name: str, query: str, refused: bool
+        self, _name: str, query: str | None, refused: bool
     ) -> None:
         self._record(30, "firing", value=150.0)
 
-        with patch(
-            "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
-            side_effect=RuntimeError("ClickHouse is down"),
+        with (
+            patch(
+                "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
+            patch(
+                "products.alerts.backend.platform_alert_reads.last_check_by_public_id",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
         ):
-            response = self.client.get(f"{self.url}/{self.alert.id}/{query}")
+            response = self.client.get(f"{self.url}/" if query is None else f"{self.url}/{self.alert.id}/{query}")
 
         if refused:
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
             assert response.json()["code"] == "alert_check_history_unavailable"
-        else:
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert (response.json()["checks"], response.json()["checks_total"]) == ([], 0)
+            return
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()["results"][0] if query is None else response.json()
+        assert (body["last_checked_at"], body["last_value"]) == (None, None)
+        if query is not None:
+            assert (body["checks"], body["checks_total"]) == ([], 0)
 
 
 class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
@@ -679,6 +726,29 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         cleared = self.client.patch(f"{self.url}/{self.alert.id}/", {"subscribed_users": []}, format="json")
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert copied(self.alert.id) == {}
+
+    def test_an_insight_edit_starts_from_the_copy_after_the_row_drifts(self) -> None:
+        copy = self._copy()
+        # Writes that bypass the API leave the row apart from the copy.
+        AlertConfiguration.objects.filter(id=self.alert.id).update(skip_weekend=not copy.source_config["skip_weekend"])
+        Threshold.objects.filter(alertconfiguration__id=self.alert.id).update(
+            configuration={"type": "absolute", "bounds": {"upper": 999.0}}
+        )
+
+        edit = self.client.patch(f"{self.url}/{self.alert.id}/", {"name": "Renamed"}, format="json")
+
+        assert edit.status_code == status.HTTP_200_OK, edit.json()
+        edited = self._copy()
+        assert (edited.name, edited.source_config["skip_weekend"], edited.source_config["condition"]["threshold"]) == (
+            "Renamed",
+            copy.source_config["skip_weekend"],
+            copy.source_config["condition"]["threshold"],
+        )
+        row = AlertConfiguration.objects.select_related("threshold").get(id=self.alert.id)
+        assert (row.skip_weekend, row.threshold.configuration if row.threshold else None) == (
+            copy.source_config["skip_weekend"],
+            copy.source_config["condition"]["threshold"],
+        )
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
         stored_config = self._copy().source_config

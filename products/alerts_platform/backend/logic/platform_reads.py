@@ -236,21 +236,26 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: str, search: str | None = None
+    *, team_id: int, source_kind: str, search: str | None = None, copies_of: Collection[UUID] = ()
 ) -> tuple[NativeConfigurationMatch, ...]:
-    """Every configuration of a kind with no source row, or with `search` only the ones whose name
-    matches it, both tiers included. A source decides the tiers across its own rows and these."""
-    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind=source_kind, legacy_configuration_id__isnull=True
-    )
+    """Every configuration of a kind with no source row, and the copies of the source rows in
+    `copies_of` whoever owns them, or with `search` only the ones whose name matches it, both tiers
+    included. A source decides the tiers across its own rows and these."""
+    wanted = Q(legacy_configuration_id__isnull=True)
+    if copies_of:
+        wanted |= Q(legacy_configuration_id__in=list(copies_of))
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(wanted, source_kind=source_kind)
+    columns = ("id", "created_at", "created_by_id", "source_config", "legacy_configuration_id")
     if not search:
         return tuple(
             NativeConfigurationMatch(
-                id=row_id, created_at=created_at, created_by_id=created_by_id, source_config=source_config
+                id=row_id,
+                created_at=created_at,
+                created_by_id=created_by_id,
+                source_config=source_config,
+                legacy_configuration_id=legacy_id,
             )
-            for row_id, created_at, created_by_id, source_config in rows.values_list(
-                "id", "created_at", "created_by_id", "source_config"
-            )
+            for row_id, created_at, created_by_id, source_config, legacy_id in rows.values_list(*columns)
         )
     searched = apply_trigram_search(rows, search, span_prefix="platform_alert.search", fields=(NAME_FIELD,))
     return tuple(
@@ -259,11 +264,12 @@ def native_configuration_matches(
             created_at=created_at,
             created_by_id=created_by_id,
             source_config=source_config,
+            legacy_configuration_id=legacy_id,
             is_exact=bool(is_exact),
             search_score=score,
         )
-        for row_id, created_at, created_by_id, source_config, is_exact, score in searched.values_list(
-            "id", "created_at", "created_by_id", "source_config", "_is_exact", "_search_score"
+        for row_id, created_at, created_by_id, source_config, legacy_id, is_exact, score in searched.values_list(
+            *columns, "_is_exact", "_search_score"
         )
     )
 

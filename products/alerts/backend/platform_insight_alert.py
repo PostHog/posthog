@@ -171,9 +171,14 @@ def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
     delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
 
 
-def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
-    """Every insight alert with no insight row, or with `search` the ones whose name matches it."""
-    return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
+def native_insight_alert_matches(
+    team_id: int, *, search: str | None, copies_of: Collection[UUID] = ()
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every insight alert with no insight row, and the copies of the alerts in `copies_of`, or with
+    `search` the ones whose name matches it."""
+    return native_configuration_matches(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, search=search, copies_of=copies_of
+    )
 
 
 def moved_insight_alert_ids(team_id: int) -> frozenset[UUID]:
