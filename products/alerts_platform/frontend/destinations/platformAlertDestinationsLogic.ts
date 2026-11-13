@@ -214,7 +214,6 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
         setSelectedSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setSavingDestinations: (saving: boolean) => ({ saving }),
         setDestinationErrors: (errors: string[]) => ({ errors }),
-        // After a destination was added or removed, for a page that shows more of the alert than its destinations.
         destinationsChanged: true,
     }),
 
