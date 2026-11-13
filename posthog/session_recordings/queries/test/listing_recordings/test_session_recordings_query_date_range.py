@@ -17,6 +17,7 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
 
@@ -93,8 +94,26 @@ class TestReplaySessionsTableVersion(APIBaseTest):
             ("team_pins_v2", {"date_from": "-7d"}, "US", "v2", None, {}, None),
             ("request_pins_v2", {"date_from": "-7d"}, "US", None, SessionTableVersion.V2, {}, SessionTableVersion.V2),
             (
-                "pinned_session_ids_skip_the_date_window",
-                {"date_from": "-7d", "session_ids": ["old-session"]},
+                "pinned_recent_session_ids",
+                {"date_from": "-60d", "session_ids": [str(uuid7("2026-11-10"))]},
+                "US",
+                None,
+                None,
+                {"bypass_date_window_for_session_ids": True},
+                SessionTableVersion.V3,
+            ),
+            (
+                "pinned_session_id_before_the_coverage_start",
+                {"date_from": "-7d", "session_ids": [str(uuid7("2026-11-10")), str(uuid7("2026-09-01"))]},
+                "US",
+                None,
+                None,
+                {"bypass_date_window_for_session_ids": True},
+                None,
+            ),
+            (
+                "pinned_session_id_without_a_timestamp",
+                {"date_from": "-7d", "session_ids": ["custom-session-id"]},
                 "US",
                 None,
                 None,

@@ -39,6 +39,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
+from posthog.session_recordings.queries.session_replay_events import uuidv7_session_lower_bound
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import (
@@ -287,18 +288,29 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if requested is not None and requested.sessionTableVersion not in (None, SessionTableVersion.AUTO):
             return requested
         stored = self._team.modifiers.get("sessionTableVersion") if isinstance(self._team.modifiers, dict) else None
-        if stored not in (None, SessionTableVersion.AUTO.value):
-            return requested
-        # Pinned session ids skip the date window, so they can reach sessions from before the v3 coverage.
-        if self._bypass_date_window() or self._references_sessions_v2_only_field():
+        if stored not in (None, SessionTableVersion.AUTO.value) or self._references_sessions_v2_only_field():
             return requested
         coverage_start = _sessions_v3_coverage_start()
-        date_from = self.query_date_range.date_from()
-        if coverage_start is None or date_from is None:
+        if coverage_start is None:
             return requested
-        if date_from < max(coverage_start, datetime.now(UTC) - REPLAY_SESSIONS_V3_MAX_RANGE):
-            return requested
+        earliest = max(coverage_start, datetime.now(UTC) - REPLAY_SESSIONS_V3_MAX_RANGE)
+        if self._bypass_date_window():
+            # Pinned session ids skip the date window, so their own start times decide.
+            if not self._pinned_sessions_start_after(earliest):
+                return requested
+        else:
+            date_from = self.query_date_range.date_from()
+            if date_from is None or date_from < earliest:
+                return requested
         return (requested or HogQLQueryModifiers()).model_copy(update={"sessionTableVersion": SessionTableVersion.V3})
+
+    def _pinned_sessions_start_after(self, earliest: datetime) -> bool:
+        # A UUIDv7 session id embeds its start time. An id without a usable one may be older, so it keeps v2.
+        for session_id in self._query.session_ids or []:
+            start = uuidv7_session_lower_bound(str(session_id))
+            if start is None or start < earliest:
+                return False
+        return True
 
     def _references_sessions_v2_only_field(self) -> bool:
         # A filter on a field that only the v2 sessions table has would fail to resolve on v3. Matching the name
