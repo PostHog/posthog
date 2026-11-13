@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import { useState } from 'react'
 import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -29,6 +30,7 @@ export function ContextDisplay({
     additionalProperties,
     propertyNameFilter = '',
 }: ContextDisplayProps): JSX.Element {
+    const [posthogPropertiesExpanded, setPosthogPropertiesExpanded] = useState(false)
     const { addPropertyFilter } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
     const onFilterValue = (key: string, value: string | number | boolean): void => {
         addPropertyFilter(key, value)
@@ -72,6 +74,15 @@ export function ContextDisplay({
                                 id: 'posthog-exception-properties',
                                 title: 'PostHog properties',
                                 entries: filterEntriesByPropertyName(posthogEntries, normalizedPropertyNameFilter),
+                                // Web SDK events carry well over a hundred of these keys, so the section stays folded
+                                // until someone opens it or searches for a property name.
+                                collapse: normalizedPropertyNameFilter
+                                    ? undefined
+                                    : {
+                                          collapsed: !posthogPropertiesExpanded,
+                                          onToggle: () => setPosthogPropertiesExpanded(!posthogPropertiesExpanded),
+                                          dataAttr: 'exception-properties-posthog-section-toggle',
+                                      },
                             },
                         ]}
                         emptyMessage={normalizedPropertyNameFilter ? 'No matching properties' : 'No properties'}
