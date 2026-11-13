@@ -104,6 +104,13 @@ class TestHasDistinctIdHashingTransformation(BaseTest):
                 False,
             ),
             (
+                "pii_hashing_block_commented_statement",
+                PII_HASHING,
+                {"hashDistinctId": True},
+                {"hog": f"/*\n{TEMPLATE_SOURCE[PII_HASHING]}\n*/\nreturn event"},
+                False,
+            ),
+            (
                 "hash_properties_customized_source",
                 HASH_PROPERTIES,
                 {"privateFields": "distinct_id,email"},
