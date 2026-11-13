@@ -724,6 +724,13 @@ def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExtern
     return _to_external_references(team_id, external_references.list_external_references(team_id=team_id))
 
 
+def list_issue_external_references(team_id: int, issue_id: UUID) -> list[contracts.ErrorTrackingExternalReference]:
+    return _to_external_references(
+        team_id,
+        external_references.list_external_references(team_id=team_id).filter(issue_id=issue_id).order_by("created_at"),
+    )
+
+
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:
     reference = external_references.get_external_reference(reference_id=reference_id, team_id=team_id)
     if reference is None:

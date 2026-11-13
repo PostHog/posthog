@@ -90,6 +90,25 @@ tools:
             also clears any auto-disable state so the rule is re-enabled. Broadening filters exempts more exception
             events from rate limiting, which can increase ingested (and billed) volume during error spikes — keep them
             scoped to the specific errors that must never be dropped.
+    error-tracking-external-issues-search:
+        operation: error_tracking_external_references_search_issues_retrieve
+        enabled: true
+        scopes:
+            - error_tracking:read
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search external issues to link
+        description: >
+            Search a connected GitHub, GitLab, Linear, or Jira integration for existing issues that you can link to a
+            PostHog error tracking issue. Provide `integration_id` and optional `search` text that matches issue titles
+            or identifiers. Leave `search` blank to get recent issues. GitHub also requires `repository`, the bare
+            repository name without the owner, and returns issues only, not pull requests. Each result has an
+            `external_context` object. Send it unchanged to error-tracking-external-references-link. Use
+            integrations-list first to find the `integration_id` and kind, and integrations-github-repos-retrieve to
+            find GitHub repository names.
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
         enabled: true
@@ -102,7 +121,8 @@ tools:
         title: Create error tracking external reference
         description: >
             Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking
-            issue as an external reference. This tool does not link an existing external issue by URL or key. Provide
+            issue as an external reference. To link an issue or pull request that already exists, use
+            error-tracking-external-references-link instead. Provide
             the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object
             with provider-specific fields. Examples: Jira config {"project_key":"ENG","title":"Checkout
             TypeError","description":"Stack trace and reproduction details"}; Linear config
@@ -115,6 +135,30 @@ tools:
             integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
             integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific
             IDs.
+    error-tracking-external-references-link:
+        operation: error_tracking_external_references_link_issue_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Link existing external issue or pull request
+        description: >
+            Link an existing GitHub issue or pull request, GitLab issue, Linear issue, or Jira issue to a PostHog error
+            tracking issue as an external reference. This tool does not create a provider issue. To create one, use
+            error-tracking-external-references-create. Provide the error tracking issue id as `issue`, the connected
+            integration as `integration_id`, and an `external_context` object that identifies the existing item.
+            Required `external_context` keys by integration kind: github -> {repository, number}; gitlab ->
+            {issue_id}; linear -> {id}, the issue key such as ENG-123; jira -> {key}. For GitHub, `repository` is the
+            bare repository name without the owner. To link a GitHub pull request, add "resource_type":"pull_request",
+            for example {"repository":"posthog","number":123,"resource_type":"pull_request"}. Every kind also accepts
+            an optional `title` to show for the link. To find an issue, call error-tracking-external-issues-search and
+            send the `external_context` of the result unchanged. Call query-error-tracking-issue first and read
+            `external_issues` to see the work that is already linked. Linking the same item again returns the existing
+            link. A link cannot be removed after you create it, so confirm the item with the user when it is not
+            clear. For Linear, linking also attaches a link to the PostHog issue to the Linear issue.
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
         enabled: true

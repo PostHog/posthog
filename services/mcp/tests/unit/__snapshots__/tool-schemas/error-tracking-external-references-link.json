@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "external_context": {
+            "additionalProperties": {},
+            "description": "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "integration_id": {
+            "description": "ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira').",
+            "type": "number"
+        },
+        "issue": {
+            "description": "ID of the error tracking issue to link the reference to.",
+            "type": "string"
+        }
+    },
+    "required": ["integration_id", "issue", "external_context"],
+    "type": "object"
+}
