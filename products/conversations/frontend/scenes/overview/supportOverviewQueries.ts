@@ -2,21 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import {
-    DataVisualizationNode,
-    DateRange,
-    InsightVizNode,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    HogQLMathType,
-    HogQLPropertyFilter,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { ChartAxis, DataVisualizationNode, DateRange, NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import type { TicketSlaState, TicketStatus } from '../../types'
 
@@ -74,122 +61,119 @@ export function ticketListUrl(key: SupportOverviewNumberKey): string {
 // Each chart joins through it, so a viewer only counts the tickets they can read.
 const READABLE_TICKETS_HOGQL = 'properties.ticket_id IN (SELECT toString(id) FROM system.support_tickets)'
 
-const READABLE_TICKETS_FILTER: HogQLPropertyFilter = { type: PropertyFilterType.HogQL, key: READABLE_TICKETS_HOGQL }
-
-function trendsViz(source: TrendsQuery): InsightVizNode {
-    return { kind: NodeKind.InsightVizNode, source }
-}
-
-export function ticketsCreatedQuery(dateRange: DateRange): InsightVizNode {
-    return trendsViz({
-        kind: NodeKind.TrendsQuery,
-        dateRange,
-        interval: 'day',
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: '$conversation_ticket_created',
-                custom_name: 'Tickets created',
-                math: BaseMathType.TotalCount,
-                properties: [READABLE_TICKETS_FILTER],
-            },
-        ],
-        breakdownFilter: { breakdown: 'channel_source', breakdown_type: 'event' },
-        trendsFilter: { display: ChartDisplayType.ActionsBar, showLegend: true },
-    })
-}
-
-export function ticketsResolvedQuery(dateRange: DateRange): InsightVizNode {
-    return trendsViz({
-        kind: NodeKind.TrendsQuery,
-        dateRange,
-        interval: 'day',
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: '$conversation_ticket_status_changed',
-                custom_name: 'Tickets resolved',
-                math: BaseMathType.TotalCount,
-                properties: [
-                    {
-                        type: PropertyFilterType.Event,
-                        key: 'new_status',
-                        operator: PropertyOperator.Exact,
-                        value: 'resolved',
-                    },
-                    READABLE_TICKETS_FILTER,
-                ],
-            },
-        ],
-        trendsFilter: { display: ChartDisplayType.ActionsBar },
-    })
-}
-
-export function slaAttainmentQuery(dateRange: DateRange): InsightVizNode {
-    return trendsViz({
-        kind: NodeKind.TrendsQuery,
-        dateRange,
-        interval: 'day',
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: '$conversation_message_sent',
-                custom_name: 'Replies within SLA',
-                math: HogQLMathType.HogQL,
-                properties: [READABLE_TICKETS_FILTER],
-                // Replies on tickets without an SLA stay out of both sides of the ratio.
-                math_hogql:
-                    'round(100 * countIf(properties.sla_active = true AND properties.sla_breached = false) / nullIf(countIf(properties.sla_active = true), 0), 1)',
-            },
-        ],
-        trendsFilter: { display: ChartDisplayType.ActionsLineGraph, aggregationAxisPostfix: '%' },
-    })
-}
-
 // HogQL returns 100 rows by default, which cuts the latest days from a longer range.
-const FIRST_RESPONSE_MAX_DAYS = 3660
+const MAX_CHART_DAYS = 3660
 
-export function firstResponseTimeQuery(dateRange: DateRange): DataVisualizationNode {
+// Every chart is a HogQLQuery on purpose. The query cache partitions a HogQLQuery by the viewer's ticket access
+// when it reads system.support_tickets. It does not do that for a TrendsQuery with the same filter, so a
+// restricted viewer could get an unrestricted viewer's cached result.
+function dailyChart(
+    query: string,
+    dateRange: DateRange,
+    display: ChartDisplayType,
+    yAxis: ChartAxis
+): DataVisualizationNode {
     return {
         kind: NodeKind.DataVisualizationNode,
-        source: {
-            kind: NodeKind.HogQLQuery,
-            // The range bounds the ticket creation time only. A reply sent after the range end still counts,
-            // so slow first responses stay in the median.
-            query: `
-                SELECT
-                    toStartOfDay(created_at) AS day,
-                    round(median(dateDiff('second', created_at, first_reply_at)) / 3600, 2) AS median_hours
-                FROM (
-                    SELECT
-                        properties.ticket_id AS ticket_id,
-                        minIf(timestamp, event = '$conversation_ticket_created') AS created_at,
-                        minIf(timestamp, event = '$conversation_message_sent') AS first_reply_at
-                    FROM events
-                    WHERE event IN ('$conversation_ticket_created', '$conversation_message_sent')
-                        AND timestamp >= {filters.dateRange.from}
-                        AND properties.ticket_id IN (
-                            SELECT properties.ticket_id
-                            FROM events
-                            WHERE event = '$conversation_ticket_created'
-                                AND {filters}
-                                AND ${READABLE_TICKETS_HOGQL}
-                        )
-                    GROUP BY ticket_id
-                    HAVING countIf(event = '$conversation_ticket_created') > 0
-                        AND countIf(event = '$conversation_message_sent') > 0
-                        AND first_reply_at >= created_at
-                )
-                GROUP BY day
-                ORDER BY day
-                LIMIT ${FIRST_RESPONSE_MAX_DAYS}
-            `,
-            filters: { dateRange },
-        },
-        display: ChartDisplayType.ActionsLineGraph,
-        chartSettings: {
-            xAxis: { column: 'day' },
-            yAxis: [{ column: 'median_hours', settings: { formatting: { suffix: ' h' } } }],
-        },
+        source: { kind: NodeKind.HogQLQuery, query, filters: { dateRange } },
+        display,
+        chartSettings: { xAxis: { column: 'day' }, yAxis: [yAxis] },
     }
+}
+
+export function ticketsCreatedQuery(dateRange: DateRange): DataVisualizationNode {
+    return dailyChart(
+        `
+            SELECT toStartOfDay(timestamp) AS day, count() AS tickets_created
+            FROM events
+            WHERE event = '$conversation_ticket_created'
+                AND {filters}
+                AND ${READABLE_TICKETS_HOGQL}
+            GROUP BY day
+            ORDER BY day
+            LIMIT ${MAX_CHART_DAYS}
+        `,
+        dateRange,
+        ChartDisplayType.ActionsBar,
+        { column: 'tickets_created' }
+    )
+}
+
+export function ticketsResolvedQuery(dateRange: DateRange): DataVisualizationNode {
+    return dailyChart(
+        `
+            SELECT toStartOfDay(timestamp) AS day, count() AS tickets_resolved
+            FROM events
+            WHERE event = '$conversation_ticket_status_changed'
+                AND properties.new_status = 'resolved'
+                AND {filters}
+                AND ${READABLE_TICKETS_HOGQL}
+            GROUP BY day
+            ORDER BY day
+            LIMIT ${MAX_CHART_DAYS}
+        `,
+        dateRange,
+        ChartDisplayType.ActionsBar,
+        { column: 'tickets_resolved' }
+    )
+}
+
+export function slaAttainmentQuery(dateRange: DateRange): DataVisualizationNode {
+    // Replies on tickets without an SLA stay out of both sides of the ratio.
+    return dailyChart(
+        `
+            SELECT
+                toStartOfDay(timestamp) AS day,
+                round(100 * countIf(properties.sla_breached = false) / count(), 1) AS replies_within_sla
+            FROM events
+            WHERE event = '$conversation_message_sent'
+                AND properties.sla_active = true
+                AND {filters}
+                AND ${READABLE_TICKETS_HOGQL}
+            GROUP BY day
+            ORDER BY day
+            LIMIT ${MAX_CHART_DAYS}
+        `,
+        dateRange,
+        ChartDisplayType.ActionsLineGraph,
+        { column: 'replies_within_sla', settings: { formatting: { suffix: '%' } } }
+    )
+}
+
+export function firstResponseTimeQuery(dateRange: DateRange): DataVisualizationNode {
+    // The range bounds the ticket creation time only. A reply sent after the range end still counts,
+    // so slow first responses stay in the median.
+    return dailyChart(
+        `
+            SELECT
+                toStartOfDay(created_at) AS day,
+                round(median(dateDiff('second', created_at, first_reply_at)) / 3600, 2) AS median_hours
+            FROM (
+                SELECT
+                    properties.ticket_id AS ticket_id,
+                    minIf(timestamp, event = '$conversation_ticket_created') AS created_at,
+                    minIf(timestamp, event = '$conversation_message_sent') AS first_reply_at
+                FROM events
+                WHERE event IN ('$conversation_ticket_created', '$conversation_message_sent')
+                    AND timestamp >= {filters.dateRange.from}
+                    AND properties.ticket_id IN (
+                        SELECT properties.ticket_id
+                        FROM events
+                        WHERE event = '$conversation_ticket_created'
+                            AND {filters}
+                            AND ${READABLE_TICKETS_HOGQL}
+                    )
+                GROUP BY ticket_id
+                HAVING countIf(event = '$conversation_ticket_created') > 0
+                    AND countIf(event = '$conversation_message_sent') > 0
+                    AND first_reply_at >= created_at
+            )
+            GROUP BY day
+            ORDER BY day
+            LIMIT ${MAX_CHART_DAYS}
+        `,
+        dateRange,
+        ChartDisplayType.ActionsLineGraph,
+        { column: 'median_hours', settings: { formatting: { suffix: ' h' } } }
+    )
 }

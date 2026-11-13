@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { Query } from '~/queries/Query/Query'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import { supportOverviewSceneLogic } from '../../scenes/overview/supportOverviewSceneLogic'
 
@@ -11,7 +11,7 @@ interface Chart {
     key: string
     title: string
     description: string
-    query: InsightVizNode | DataVisualizationNode
+    query: DataVisualizationNode
 }
 
 export function SupportOverviewCharts(): JSX.Element {
@@ -23,7 +23,7 @@ export function SupportOverviewCharts(): JSX.Element {
         {
             key: 'tickets-created',
             title: 'Tickets created',
-            description: 'New tickets per day, by channel.',
+            description: 'New tickets per day.',
             query: ticketsCreatedQuery,
         },
         {
@@ -63,16 +63,7 @@ export function SupportOverviewCharts(): JSX.Element {
                         <h3 className="mb-1">{chart.title}</h3>
                         <p className="mb-3 text-sm text-secondary">{chart.description}</p>
                         <div className="min-w-0">
-                            <Query
-                                query={chart.query}
-                                readOnly
-                                context={{
-                                    insightProps: {
-                                        dashboardItemId: `new-support-overview-${chart.key}`,
-                                        dataNodeCollectionId: 'support-overview',
-                                    },
-                                }}
-                            />
+                            <Query query={chart.query} uniqueKey={`support-overview-${chart.key}`} readOnly />
                         </div>
                     </div>
                 ))}
