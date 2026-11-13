@@ -5,6 +5,7 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
+import { RunIntake } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
@@ -12,7 +13,6 @@ import { createCanceledInvocationResult } from '../../utils/invocation-utils'
 import type { CyclotronV2JobProducer } from '../cyclotron-v2'
 import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import type { InvocationResultsService } from '../invocation-results.service'
-import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
@@ -108,7 +108,7 @@ const recipientOf = (job: CyclotronJobInvocation): string | undefined => {
 export type TransactionalSendsDeps = {
     siteUrl: string
     idempotencyKeys: IdempotencyKeys
-    queue: Pick<JobQueue, 'queueInvocations'>
+    runIntake: RunIntake
     invocationResultsRows: HogInvocationResultsService
     emailStatus: EmailStatusService
     teamWorkflowsConfig: TeamWorkflowsConfigService
@@ -248,13 +248,7 @@ export class TransactionalSends {
                     ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
                 }
             }
-            this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
-            try {
-                await this.deps.queue.queueInvocations([invocation])
-            } catch (error) {
-                this.deps.invocationResultsRows.dropQueuedRowsFor([invocation.id])
-                throw error
-            }
+            await this.deps.runIntake.launch([{ invocation }], { wait: 'committed' })
             cdpEmailQueuedTotal.labels(PRIORITY_CLASS).inc()
         } catch (error) {
             await releaseKey()
