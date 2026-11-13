@@ -206,8 +206,18 @@ jobs:
                       exit 1
                   fi
 
+                  # The check runs as the last release shipped it. A change to it since then is in the
+                  # range it checks, so it can't clear its own author.
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  if ! gh api -H "Accept: application/vnd.github.raw" \
+                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"; then
+                      echo "::error::$last_tag has no hog/release/check-approvers.sh to run"
+                      exit 1
+                  fi
+                  chmod +x "$checker"
+
                   mapfile -t approver_list <<<"$approvers"
-                  if ! hog/release/check-approvers.sh "$base" HEAD "${approver_list[@]}"; then
+                  if ! "$checker" "$base" HEAD "${approver_list[@]}"; then
                       echo "::error::Re-run the failed jobs and have someone else approve."
                       exit 1
                   fi
@@ -570,7 +580,6 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       hog/package.json
-                      hog/release/check-approvers.sh
                   sparse-checkout-cone-mode: false
 
             - name: Identify release commit
@@ -721,8 +730,15 @@ jobs:
                       exit 1
                   fi
 
+                  # The check runs as it was at the approved commit, so a change to it that merged
+                  # while the release pull request waited can't clear its own author.
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  gh api -H "Accept: application/vnd.github.raw" \
+                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$APPROVED_COMMIT" >"$checker"
+                  chmod +x "$checker"
+
                   mapfile -t approver_list <<<"$approvers"
-                  if ! hog/release/check-approvers.sh "$APPROVED_COMMIT" "$RELEASE_COMMIT^1" "${approver_list[@]}"; then
+                  if ! "$checker" "$APPROVED_COMMIT" "$RELEASE_COMMIT^1" "${approver_list[@]}"; then
                       echo "::error::The release can't publish. Revert the release pull request, which restores its changesets and starts a new release for someone else to approve."
                       exit 1
                   fi
