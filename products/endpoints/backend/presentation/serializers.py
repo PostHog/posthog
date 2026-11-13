@@ -157,6 +157,14 @@ class EndpointResponseSerializer(serializers.Serializer):
             "which can differ from the standard freshness choices. Other endpoints use the cache duration."
         ),
     )
+    plan_refresh_floor_seconds = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The fastest data freshness, in seconds, the organization's plan allows for a materialized "
+            "endpoint. A faster value can't be saved while the endpoint is materialized. Null when the "
+            "plan sets no minimum."
+        ),
+    )
     endpoint_path = serializers.CharField(
         help_text="Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run).",
     )

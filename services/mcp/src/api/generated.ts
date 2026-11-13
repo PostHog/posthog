@@ -40220,6 +40220,11 @@ export namespace Schemas {
       is_active: boolean;
       /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
+      /**
+         * The fastest data freshness, in seconds, the organization's plan allows for a materialized endpoint. A faster value can't be saved while the endpoint is materialized. Null when the plan sets no minimum.
+         * @nullable
+         */
+      plan_refresh_floor_seconds: number | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -40355,6 +40360,11 @@ export namespace Schemas {
       is_active: boolean;
       /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
+      /**
+         * The fastest data freshness, in seconds, the organization's plan allows for a materialized endpoint. A faster value can't be saved while the endpoint is materialized. Null when the plan sets no minimum.
+         * @nullable
+         */
+      plan_refresh_floor_seconds: number | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
