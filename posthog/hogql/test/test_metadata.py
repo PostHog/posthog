@@ -40,6 +40,7 @@ from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
 from posthog.models import Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS
 
@@ -584,6 +585,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 _move_notices("https://example.com/announcement"),
                 "https://example.com/announcement",
                 mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                union_enabled=True,
                 expected_union_notices=1,
                 union_notice=FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
             ),
@@ -760,6 +762,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "posthog.hogql.database.database.feature_enabled_or_false",
                 side_effect=lambda key, *args, **kwargs: union_enabled and key == "hogql-flag-calls-union",
             ),
+            # Mode 2 reads the union without the flag, so a case with the union off also turns on the kill switch.
+            override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", not union_enabled),
         ):
             metadata = self._select(query)
 
