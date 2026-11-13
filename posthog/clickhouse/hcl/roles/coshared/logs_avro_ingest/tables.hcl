@@ -147,6 +147,9 @@ database "posthog" {
     column "internal_source" {
       type = "LowCardinality(String)"
     }
+    column "signature_status" {
+      type = "LowCardinality(String)"
+    }
   }
 
   table "writable_logs34" {
@@ -260,6 +263,10 @@ database "posthog" {
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "signature_status" {
       type    = "LowCardinality(String)"
       default = "''"
     }

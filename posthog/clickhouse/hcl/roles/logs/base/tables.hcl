@@ -641,6 +641,10 @@ database "posthog" {
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "signature_status" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -1090,6 +1094,10 @@ database "posthog" {
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "signature_status" {
       type    = "LowCardinality(String)"
       default = "''"
     }

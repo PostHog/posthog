@@ -103,6 +103,7 @@ CREATE TABLE posthog.logs34 (
   pattern String,
   pattern_version UInt8,
   internal_source LowCardinality(String) DEFAULT '',
+  signature_status LowCardinality(String) DEFAULT '',
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -172,7 +173,8 @@ CREATE TABLE posthog.logs_distributed (
   _record_count UInt64,
   pattern String,
   pattern_version UInt8,
-  internal_source LowCardinality(String) DEFAULT ''
+  internal_source LowCardinality(String) DEFAULT '',
+  signature_status LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('logs', 'posthog', 'logs34');
 CREATE TABLE posthog.logs_kafka_metrics (
   _partition UInt32,

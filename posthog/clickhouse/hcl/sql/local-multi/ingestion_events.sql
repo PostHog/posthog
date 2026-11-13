@@ -268,7 +268,8 @@ CREATE TABLE posthog.writable_logs34 (
   _record_count UInt64,
   pattern String,
   pattern_version UInt8,
-  internal_source LowCardinality(String) DEFAULT ''
+  internal_source LowCardinality(String) DEFAULT '',
+  signature_status LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('logs', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE TABLE posthog.writable_person_group_membership (
   team_id Int64,
@@ -338,7 +339,7 @@ FROM
 SETTINGS
   input_format_try_infer_dates = 0,
   input_format_try_infer_datetimes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8, internal_source LowCardinality(String)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8, internal_source LowCardinality(String), signature_status LowCardinality(String)) AS SELECT
   uuid,
   trace_id,
   span_id,
@@ -370,7 +371,8 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source,
+  _headers.value[indexOf(_headers.name, 'signature-status')] AS signature_status
 FROM posthog.kafka_logs_avro;
 CREATE MATERIALIZED VIEW posthog.person_group_membership_mv TO posthog.writable_person_group_membership (team_id Int64, group_type_index UInt8, group_key String, distinct_id String, first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')) AS SELECT
   team_id,
