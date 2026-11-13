@@ -59627,6 +59627,8 @@ export namespace Schemas {
       nullMode?: MetricsNullMode | null;
       /** How scalar panels and legend calcs collapse a series to one number. */
       reduce?: MetricsReducer | null;
+      /** `stat` display only: whether a graph of the series shows under the value. */
+      statSparkline?: boolean | null;
       /** `stat` display only: which summary the headline value shows. */
       statSummary?: MetricsStatSummary | null;
       /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
