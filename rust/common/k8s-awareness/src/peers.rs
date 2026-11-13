@@ -30,6 +30,14 @@ pub struct PeerSet {
     /// This pod's position in `peers`. `None` until this pod is itself a ready
     /// endpoint (e.g. during startup, or while failing readiness probes).
     pub self_index: Option<usize>,
+    /// Where this pod sorts among the ready peers, counting itself while it is not ready.
+    pub position: Option<PeerPosition>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeerPosition {
+    pub index: usize,
+    pub count: usize,
 }
 
 impl PeerSet {
@@ -65,8 +73,22 @@ impl PeerTracker {
     pub fn set_peers(&self, addrs: &HashSet<IpAddr>) {
         let mut peers: Vec<IpAddr> = addrs.iter().copied().collect();
         peers.sort_unstable();
-        let self_index = peers.iter().position(|ip| *ip == self.self_ip);
-        *self.current.write().unwrap() = Arc::new(PeerSet { peers, self_index });
+        let found = peers.binary_search(&self.self_ip);
+        let position = match found {
+            Ok(index) => PeerPosition {
+                index,
+                count: peers.len(),
+            },
+            Err(index) => PeerPosition {
+                index,
+                count: peers.len() + 1,
+            },
+        };
+        *self.current.write().unwrap() = Arc::new(PeerSet {
+            peers,
+            self_index: found.ok(),
+            position: Some(position),
+        });
     }
 
     /// Watch `service_name`'s EndpointSlices in `namespace` and keep this
@@ -166,6 +188,23 @@ mod tests {
             ip("10.0.0.5"),
         ]));
         assert_eq!(tracker.snapshot().self_index, Some(1));
+    }
+
+    #[test]
+    fn test_position_counts_self_before_self_is_ready() {
+        let tracker = PeerTracker::new(ip("10.0.0.5"));
+        assert_eq!(tracker.snapshot().position, None);
+
+        tracker.set_peers(&HashSet::from([ip("10.0.0.1"), ip("10.0.0.9")]));
+        let before_ready = tracker.snapshot().position;
+        assert_eq!(before_ready, Some(PeerPosition { index: 1, count: 3 }));
+
+        tracker.set_peers(&HashSet::from([
+            ip("10.0.0.1"),
+            ip("10.0.0.9"),
+            ip("10.0.0.5"),
+        ]));
+        assert_eq!(tracker.snapshot().position, before_ready);
     }
 
     #[tokio::test]

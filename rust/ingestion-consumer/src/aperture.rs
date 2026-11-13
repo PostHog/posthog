@@ -29,6 +29,9 @@
 //! less than half of the arc's weight, the consumer takes its arc of a ring of
 //! the routable workers instead, so that a large failure spreads over the
 //! whole routable pool and does not fall on the few workers left in a slice.
+//!
+//! A consumer that is not a ready peer takes the arc of the place it has when ready, so its
+//! arc overlaps its neighbors' arcs until they list it.
 
 use std::collections::HashSet;
 use std::iter;
