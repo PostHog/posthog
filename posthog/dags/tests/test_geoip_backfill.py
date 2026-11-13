@@ -498,7 +498,14 @@ def test_staging_leaves_out_and_reports_the_teams_it_cannot_repair(
             reviewed,
         )
     }
-    seed(cluster, now, list(events.values()))
+    unreadable = SeededEvent(
+        label="left-out-unreadable",
+        team_id=geoip_teams.with_geoip,
+        properties={"$ip": PUBLIC_IP, "title": "caf\ud83d"},
+        written_minutes_ago=30,
+        person_properties={},
+    )
+    seed(cluster, now, [*events.values(), unreadable])
     cluster.any_host_by_role(
         Query(
             f"INSERT INTO {DMAT_SLOT_ASSIGNMENTS_TABLE_NAME} (team_id, column_index, property_name) VALUES",
@@ -531,3 +538,4 @@ def test_staging_leaves_out_and_reports_the_teams_it_cannot_repair(
     assert metadata["no_geoip_events"] == 1
     assert metadata["anonymize_ips_teams"] == 1
     assert metadata["anonymize_ips_events"] == 1
+    assert metadata["unreadable_properties_events"] == 1

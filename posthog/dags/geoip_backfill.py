@@ -77,6 +77,13 @@ _WRITTEN_WITHOUT_GEOIP_FILTER = """
     AND NOT JSONHas(properties, '$set', '$geoip_country_code')
 """
 _AFFECTED_EVENT_FILTER = _WRITTEN_WITHOUT_GEOIP_FILTER + "    AND JSONExtractString(properties, '$ip') != ''\n"
+# ClickHouse cannot parse these properties, for example a lone surrogate escape, so the JSON functions in
+# the filters above read nothing and the job never finds such an event.
+_UNREADABLE_PROPERTIES_FILTER = """
+    timestamp >= %(event_time_floor)s AND timestamp < %(event_time_ceiling)s
+    AND _timestamp >= %(written_from)s AND _timestamp < %(written_until)s
+    AND NOT isValidJSON(properties)
+"""
 
 _TEAM_FILTER = " AND team_id IN %(team_ids)s"
 
@@ -499,6 +506,9 @@ def find_affected_teams(
       dmat values
     - a team with `anonymize_ips`, because ingestion deletes `$ip` after the transformations, so
       nothing is left to look up
+
+    It also counts the events in the windows whose properties ClickHouse cannot parse, which no filter
+    can match.
     """
     query_tags = dagster_tags(context)
     counts = _count_per_team(cluster, plan, query_tags, _AFFECTED_EVENT_FILTER, plan.config.team_ids)
@@ -519,6 +529,7 @@ def find_affected_teams(
     anonymized_counts = (
         _count_per_team(cluster, plan, query_tags, _WRITTEN_WITHOUT_GEOIP_FILTER, anonymized) if anonymized else {}
     )
+    unreadable = _count_per_team(cluster, plan, query_tags, _UNREADABLE_PROPERTIES_FILTER, plan.config.team_ids)
 
     def events(team_ids: Collection[int], source: Mapping[int, int] = counts) -> int:
         return sum(source.get(team_id, 0) for team_id in team_ids)
@@ -531,6 +542,10 @@ def find_affected_teams(
         ),
         "anonymize_ips_teams": dagster.MetadataValue.int(len(anonymized_counts)),
         "anonymize_ips_events": dagster.MetadataValue.int(sum(anonymized_counts.values())),
+        "unreadable_properties_events": dagster.MetadataValue.int(sum(unreadable.values())),
+        "unreadable_properties_per_team": dagster.MetadataValue.json(
+            {str(team_id): n for team_id, n in unreadable.most_common(100)}
+        ),
     }
     context.log.info(f"{len(repair)} team(s) with {events(repair)} event(s) to repair.")
     for exclusion in Exclusion:
@@ -544,6 +559,7 @@ def find_affected_teams(
         f"Left out {len(anonymized_counts)} team(s) with anonymize_ips and "
         f"{sum(anonymized_counts.values())} event(s) without GeoIP."
     )
+    context.log.info(f"Left out {sum(unreadable.values())} event(s) whose properties ClickHouse cannot parse.")
     context.add_output_metadata(metadata)
     return AffectedTeams(
         teams=tuple(RepairTeam(team_id=team_id, version=version) for team_id, version in sorted(repair.items()))
