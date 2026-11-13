@@ -130,6 +130,7 @@ export interface traceDrawerLogicValues {
     hostId: string
     nextTrace: TraceListRow | null
     openIndex: number
+    openLabel: string | null
     openRef: TraceListRow | null
     openTraceId: string | null
     position: TraceDrawerPosition | null
@@ -186,6 +187,7 @@ export interface traceDrawerLogicMeta {
         openTraceId: (openRef: TraceListRow | null) => string | null
         traces: (rows: TraceListRow[]) => TraceListRow[]
         openIndex: (traces: TraceListRow[], openTraceId: string | null) => number
+        openLabel: (traces: TraceListRow[], openIndex: number) => string | null
         position: (traces: TraceListRow[], openIndex: number) => TraceDrawerPosition | null
         previousTrace: (traces: TraceListRow[], openIndex: number) => TraceListRow | null
         nextTrace: (traces: TraceListRow[], openIndex: number) => TraceListRow | null
@@ -256,6 +258,10 @@ export const traceDrawerLogic = kea<traceDrawerLogicType>([
             (s) => [s.traces, s.openTraceId],
             (traces: TraceListRow[], openTraceId: string | null): number =>
                 traces.findIndex(({ traceId }) => traceId === openTraceId),
+        ],
+        openLabel: [
+            (s) => [s.traces, s.openIndex],
+            (traces: TraceListRow[], openIndex: number): string | null => traces[openIndex]?.label ?? null,
         ],
         position: [
             (s) => [s.traces, s.openIndex],

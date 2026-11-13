@@ -770,7 +770,8 @@ export class EmailTrackingService {
                             parsedTeamId,
                             emailAddresses,
                             diagnostic,
-                            bounceTimestamp
+                            bounceTimestamp,
+                            { eventId: envelope.MessageId }
                         )
                     }
                 }

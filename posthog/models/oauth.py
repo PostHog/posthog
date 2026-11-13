@@ -167,6 +167,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         ),
     )
 
+    # Set only by PostHog staff in the admin, like `supports_step_up`. An admin who grants the
+    # scope makes PostHog trust this client's issuer to sign in members of their organization.
+    can_manage_ema_issuer: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "True if this client may request ema_issuer:manage, which registers its ID-JAG issuer as trusted "
+            "for an organization. Only grant this to clients PostHog has agreed enterprise-managed auth with. "
+            "Removing it also makes PostHog reject assertions from every issuer this client registered."
+        ),
+    )
+
     auth_brand: models.CharField = models.CharField(
         max_length=32,
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],

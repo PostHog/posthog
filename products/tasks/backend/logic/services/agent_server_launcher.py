@@ -59,6 +59,7 @@ from products.tasks.backend.logic.services.sandbox import (
     build_health_check_command,
     build_subscription_flags,
     health_check_timeout_seconds,
+    sandbox_repo_path,
     wait_for_health_check,
 )
 from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError, raise_startup_failure
@@ -749,8 +750,7 @@ class AgentServerLaunchMixin(SandboxBase):
 
         repo_path: str | None = None
         if repository:
-            org, repo = repository.lower().split("/")
-            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            repo_path = sandbox_repo_path(repository)
 
         if not preflight.launch_prepared:
             self._prepare_agent_server_launch(allowed_domains)

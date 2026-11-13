@@ -448,8 +448,8 @@ jobs:
             # The deploy hook in the charts repository copies every file with overwrite before the pods
             # roll, which corrects both. That hook must stay until every published name comes from its
             # final bytes and the publish checks each skipped object against the local file.
-            # The build marker is written last: a pod-start gate reads it as proof that every file above
-            # is in the bucket.
+            # The build marker is written last, so that a reader can take it as proof that every file
+            # above is in the bucket. No deploy step reads it, so the pods do not wait for it.
             #
             # Each environment publishes only once its role variable is set, so the publish rolls out one
             # bucket at a time and a missing variable skips the bucket instead of blocking every deploy.

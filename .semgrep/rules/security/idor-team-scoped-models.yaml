@@ -126,8 +126,10 @@ rules:
                               |ClusteringJob
                               |Cohort
                               |CohortBackfillChunk
+                              |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
@@ -324,6 +326,7 @@ rules:
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
                               |MCPCustomHarness
@@ -517,6 +520,7 @@ rules:
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |IntercomImportJob
+                              |PylonImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -670,8 +674,10 @@ rules:
                         |ClusteringJob
                         |Cohort
                         |CohortBackfillChunk
+                        |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
@@ -859,6 +865,7 @@ rules:
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
@@ -1049,6 +1056,7 @@ rules:
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |IntercomImportJob
+                        |PylonImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
