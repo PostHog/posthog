@@ -1657,6 +1657,8 @@ export interface ChartSettings {
     showValuesOnSeries?: boolean
     valueLabelPosition?: 'end' | 'center'
     valueLabelBackground?: boolean
+    valueLabelColor?: string
+    valueLabelBackgroundColor?: string
     valueLabelFontSize?: number
     valueLabelRotation?: number
     barGap?: number

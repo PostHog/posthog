@@ -42,6 +42,10 @@ The default `position="end"` preserves labels at bar ends.
 Use `background={false}` for unboxed text, `fontSize` (8–32 pixels, default 12), and `rotation` (−90° to 90°, default 0).
 Collision detection accounts for the rotated text bounds; centered text uses the bar color to choose readable contrast.
 These options also work in `config.valueLabels` on time-series charts.
+
+Set `color` to override the automatic text color and `backgroundColor` to override the series-colored badge.
+Without a text override, contrast follows the visible badge color.
+`background: false` hides the badge and ignores its color while retaining an explicit text color.
 `series.visibility.valueLabel: false` skips a series.
 On the time-series charts, prefer `config.valueLabels` so the chart sizes its margins for the labels.
 

@@ -20733,6 +20733,12 @@
                 "valueLabelBackground": {
                     "type": "boolean"
                 },
+                "valueLabelBackgroundColor": {
+                    "type": "string"
+                },
+                "valueLabelColor": {
+                    "type": "string"
+                },
                 "valueLabelFontSize": {
                     "type": "number"
                 },
