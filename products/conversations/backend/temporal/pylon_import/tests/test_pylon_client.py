@@ -1,5 +1,4 @@
-from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import pytest
@@ -7,16 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.security.url_validation import UNRESOLVED_HOST_REASON
-
 from products.conversations.backend.temporal.pylon_import.client import (
-    MAX_ATTACHMENT_DNS_RETRIES,
-    MAX_ATTACHMENT_RATE_LIMIT_RETRIES,
     MAX_MESSAGE_PAGES,
     MAX_RATE_LIMIT_RETRIES,
-    PylonAttachmentDownloadError,
-    PylonAttachmentTooLargeError,
     PylonCredentials,
     PylonImportClient,
     PylonIncompleteIssueError,
@@ -25,6 +17,7 @@ from products.conversations.backend.temporal.pylon_import.client import (
     is_retryable_error,
     resolve_pylon_credentials,
 )
+from products.conversations.backend.temporal.ticket_import.attachment_download import AttachmentDownloadError
 
 M = "products.conversations.backend.temporal.pylon_import.client"
 FAKE_TOKEN = "pylon_api_fake-token-for-tests"
@@ -197,116 +190,6 @@ class TestPylonImportClient:
         session.request.assert_not_called()
 
 
-class TestPylonAttachmentDownload:
-    @contextmanager
-    def _pinned(self, responses: Sequence[_FakeResponse | Exception]) -> Iterator[MagicMock]:
-        session = MagicMock()
-        session.get.side_effect = responses
-        self.session = session
-
-        @contextmanager
-        def fake_pinned_session(url: str) -> Iterator[MagicMock]:
-            yield session
-
-        with patch(f"{M}.pinned_session", side_effect=fake_pinned_session) as pinned:
-            yield pinned
-
-    def test_follows_redirect_without_sending_the_token(self) -> None:
-        client, _ = _client()
-        responses = [
-            _FakeResponse(status_code=302, headers={"Location": "https://cdn.example.com/signed/file.png"}),
-            _FakeResponse(chunks=[b"abc", b"def"], headers={"Content-Type": "image/png; charset=binary"}),
-        ]
-        with self._pinned(responses) as pinned:
-            attachment = client.download_attachment("https://files.example.com/f/1", max_bytes=100)
-
-        assert (attachment.content, attachment.content_type) == (b"abcdef", "image/png")
-        assert [c.args[0] for c in pinned.call_args_list] == [
-            "https://files.example.com/f/1",
-            "https://cdn.example.com/signed/file.png",
-        ]
-        for call in self.session.get.call_args_list:
-            assert "headers" not in call.kwargs
-            assert call.kwargs["allow_redirects"] is False
-
-    def test_rejects_non_https_url(self) -> None:
-        client, _ = _client()
-        with self._pinned([]) as pinned, pytest.raises(ValueError):
-            client.download_attachment("http://files.example.com/file", max_bytes=100)
-        pinned.assert_not_called()
-
-    @pytest.mark.parametrize("status_code,retryable", [(403, False), (404, False), (429, True), (503, True)])
-    def test_http_error_keeps_the_signed_url_out_of_the_message(self, status_code: int, retryable: bool) -> None:
-        client, _ = _client()
-        signed = "https://files.example.com/f?signature=secret-sig"
-        responses = [_FakeResponse(status_code=status_code)] * (MAX_ATTACHMENT_RATE_LIMIT_RETRIES + 1)
-        with self._pinned(responses), patch(f"{M}.time.sleep"):
-            with pytest.raises(PylonAttachmentDownloadError) as caught:
-                client.download_attachment(signed, max_bytes=100)
-
-        assert "secret-sig" not in str(caught.value)
-        assert caught.value.__cause__ is None and caught.value.__context__ is None
-        assert is_retryable_error(caught.value) is retryable
-
-    def test_rate_limited_download_waits_for_retry_after_then_succeeds(self) -> None:
-        client, _ = _client()
-        responses = [_FakeResponse(status_code=429, headers={"Retry-After": "2"}), _FakeResponse(chunks=[b"abc"])]
-        with self._pinned(responses), patch(f"{M}.time.sleep") as sleep:
-            attachment = client.download_attachment("https://files.example.com/file", max_bytes=100)
-
-        assert attachment.content == b"abc"
-        assert [c.args[0] for c in sleep.call_args_list] == [2]
-
-    @pytest.mark.parametrize(
-        "failures,expected_attempts,downloaded",
-        [
-            pytest.param([UNRESOLVED_HOST_REASON], 2, True, id="dns_recovers"),
-            pytest.param(
-                [UNRESOLVED_HOST_REASON] * 5, MAX_ATTACHMENT_DNS_RETRIES + 1, False, id="host_stays_unresolved"
-            ),
-            pytest.param(["Disallowed target IP: 10.0.0.1"], 1, False, id="blocked_address_is_not_retried"),
-        ],
-    )
-    def test_unresolved_host_is_retried_before_the_file_is_given_up(
-        self, failures: list[str], expected_attempts: int, downloaded: bool
-    ) -> None:
-        client, _ = _client()
-        session = MagicMock()
-        session.get.return_value = _FakeResponse(chunks=[b"abc"])
-
-        @contextmanager
-        def resolved(url: str) -> Iterator[MagicMock]:
-            yield session
-
-        outcomes = [SSRFBlockedError(reason) for reason in failures] + [resolved("https://files.example.com/file")]
-        with patch(f"{M}.pinned_session", side_effect=outcomes) as pinned, patch(f"{M}.time.sleep"):
-            if downloaded:
-                assert client.download_attachment("https://files.example.com/file", max_bytes=100).content == b"abc"
-            else:
-                with pytest.raises(SSRFBlockedError) as caught:
-                    client.download_attachment("https://files.example.com/file", max_bytes=100)
-                assert not is_retryable_error(caught.value)
-
-        assert pinned.call_count == expected_attempts
-
-    def test_transport_error_is_retryable_without_the_signed_url(self) -> None:
-        client, _ = _client()
-        signed = "https://files.example.com/f?signature=secret-sig"
-        with self._pinned([requests.ConnectionError(f"Max retries exceeded with url: {signed}")]):
-            with pytest.raises(PylonAttachmentDownloadError) as caught:
-                client.download_attachment(signed, max_bytes=100)
-
-        assert "secret-sig" not in str(caught.value)
-        assert caught.value.__suppress_context__
-        assert is_retryable_error(caught.value)
-
-    def test_aborts_once_streamed_bytes_exceed_cap(self) -> None:
-        client, _ = _client()
-        with self._pinned([_FakeResponse(chunks=[b"x" * 60, b"x" * 60])]):
-            with pytest.raises(PylonAttachmentTooLargeError):
-                client.download_attachment("https://files.example.com/file", max_bytes=100)
-
-
 class TestResolvePylonCredentials:
     def _resolve(self, token: str, responses: Sequence[_FakeResponse | Exception]) -> tuple[Any, list[str]]:
         session = MagicMock()
@@ -360,6 +243,8 @@ def _http_error(status_code: int) -> requests.HTTPError:
         pytest.param(requests.ConnectionError(), True, id="connection"),
         pytest.param(requests.exceptions.ChunkedEncodingError(), True, id="body_interrupted"),
         pytest.param(_http_error(503), True, id="server_error"),
+        pytest.param(AttachmentDownloadError(429), True, id="attachment_rate_limit"),
+        pytest.param(AttachmentDownloadError(404), False, id="attachment_deleted"),
         pytest.param(_http_error(404), False, id="not_found"),
         pytest.param(_http_error(401), False, id="revoked_token"),
         pytest.param(ValueError("bad id"), False, id="bad_data"),

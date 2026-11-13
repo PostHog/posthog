@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from django.conf import settings
 
-from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
 
@@ -17,48 +13,19 @@ from products.conversations.backend.temporal.pylon_import.workflows import (
     PylonImportCoordinatorInput,
     PylonImportCoordinatorWorkflow,
 )
+from products.conversations.backend.temporal.ticket_import.workflow_state import workflow_exists, workflow_is_running
 
 
 def coordinator_workflow_id(*, team_id: int, job_id: str) -> str:
     return f"{WORKFLOW_ID_PREFIX}-{team_id}-{job_id}"
 
 
-_WorkflowState = Literal["running", "closed", "missing", "unknown"]
-
-
-async def _workflow_state(*, team_id: int, job_id: str) -> _WorkflowState:
-    # A namespace that does not resolve answers NOT_FOUND for every workflow, so only a not-found
-    # that names no namespace proves the workflow is missing.
-    try:
-        client = await async_connect()
-        description = await client.get_workflow_handle(
-            coordinator_workflow_id(team_id=team_id, job_id=job_id)
-        ).describe()
-    except RPCError as error:
-        if error.status == RPCStatusCode.NOT_FOUND and "namespace" not in error.message.lower():
-            return "missing"
-        return "unknown"
-    except Exception:
-        return "unknown"
-    return "running" if description.status == WorkflowExecutionStatus.RUNNING else "closed"
-
-
 async def pylon_import_workflow_exists(*, team_id: int, job_id: str) -> bool:
-    """Whether Temporal has a workflow for this job, reading anything but a clean not-found as yes.
-
-    Releasing a live job lets a second import start against it, which is worse than leaving a dead
-    job blocked a while longer.
-    """
-    return await _workflow_state(team_id=team_id, job_id=job_id) != "missing"
+    return await workflow_exists(coordinator_workflow_id(team_id=team_id, job_id=job_id))
 
 
 async def pylon_import_workflow_is_running(*, team_id: int, job_id: str) -> bool:
-    """Whether the job's workflow is still executing, reading an unclear answer as yes.
-
-    Only a workflow that Temporal reports as closed or missing counts as stopped, for the same
-    reason as above.
-    """
-    return await _workflow_state(team_id=team_id, job_id=job_id) in ("running", "unknown")
+    return await workflow_is_running(coordinator_workflow_id(team_id=team_id, job_id=job_id))
 
 
 async def start_pylon_import_workflow(

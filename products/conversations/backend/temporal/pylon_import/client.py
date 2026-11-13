@@ -7,17 +7,19 @@ import time
 import random
 from dataclasses import field
 from typing import Any
-from urllib.parse import urljoin, urlsplit
 
 import requests
 import structlog
 from requests import Response
 
 from posthog.dataclasses import frozen
-from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
-from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
 from products.conversations.backend.temporal.pylon_import.constants import MAX_CONCURRENT_BATCH_WORKFLOWS
+from products.conversations.backend.temporal.ticket_import.attachment_download import (
+    AttachmentDownloadError,
+    DownloadedAttachment,
+    download_attachment,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
 logger = structlog.get_logger(__name__)
@@ -51,45 +53,12 @@ MAX_PACE_SLEEP_SECONDS = 5.0
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
-ATTACHMENT_CHUNK_BYTES = 64 * 1024
-MAX_ATTACHMENT_REDIRECTS = 3
-MAX_ATTACHMENT_RATE_LIMIT_RETRIES = 3
-MAX_ATTACHMENT_DNS_RETRIES = 2
-ATTACHMENT_DNS_RETRY_SLEEP_SECONDS = 2
-
 
 class PylonRateLimitError(Exception):
     """Raised when Pylon keeps rate-limiting beyond the in-thread retry budget.
 
     Retryable by default, so Temporal's RetryPolicy reschedules the activity.
     """
-
-
-class PylonAttachmentTooLargeError(Exception):
-    """Raised when an attachment exceeds the caller's byte cap, so the caller can skip it."""
-
-    def __init__(self, message: str, *, bytes_read: int = 0) -> None:
-        super().__init__(message)
-        self.bytes_read = bytes_read
-
-
-class PylonAttachmentDownloadError(Exception):
-    """An attachment download failure whose message leaves out the signed URL.
-
-    Attachment links carry their own access signature, so a requests exception message (which
-    embeds the URL) must not reach logs or Temporal failure history.
-    """
-
-    def __init__(self, status_code: int | None, *, retry_after: int | None = None) -> None:
-        self.status_code = status_code
-        self.retry_after = retry_after
-        super().__init__(f"Pylon attachment download failed (status={status_code})")
-
-    @property
-    def retryable(self) -> bool:
-        # A transport error has no status. A rate limit or a server error can pass. A deleted
-        # link (any other 4xx) won't recover on retry.
-        return self.status_code is None or self.status_code == 429 or self.status_code >= 500
 
 
 class PylonNotFoundError(Exception):
@@ -106,7 +75,7 @@ class PylonIncompleteIssueError(Exception):
 
 def is_retryable_error(exc: BaseException) -> bool:
     """True for failures a later attempt can fix: rate limits, timeouts, connection errors, 5xx."""
-    if isinstance(exc, PylonAttachmentDownloadError):
+    if isinstance(exc, AttachmentDownloadError):
         return exc.retryable
     # ChunkedEncodingError and ContentDecodingError are a connection dropping mid-body; they
     # subclass RequestException, not ConnectionError.
@@ -128,12 +97,6 @@ def is_retryable_error(exc: BaseException) -> bool:
 class PylonCredentials:
     region: str
     api_token: str = field(repr=False)
-
-
-@frozen
-class PylonAttachment:
-    content: bytes
-    content_type: str
 
 
 def api_host_for_region(region: str) -> str:
@@ -290,81 +253,9 @@ class PylonImportClient:
             }
         return self._status_categories
 
-    def download_attachment(self, url: str, *, max_bytes: int) -> PylonAttachment:
-        """Download a message file with a byte cap.
-
-        Pylon file URLs are signed links that need no Authorization header, so none is sent: the
-        workspace token must never leave the API host. Each hop (including redirects) goes
-        through pinned_session, which rejects private and internal addresses (SSRF).
-
-        A rate-limited download waits in-thread a few times. Skipping the file instead would
-        lose it for good, because a later import skips the issue as already imported.
-        """
-        attempt = 0
-        dns_attempt = 0
-        while True:
-            try:
-                return self._download_attachment(url, max_bytes=max_bytes)
-            except requests.RequestException:
-                raise PylonAttachmentDownloadError(None) from None
-            except SSRFBlockedError as error:
-                # pinned_session reports a DNS timeout and a host that does not exist the same
-                # way. A timeout passes within seconds, so wait for it here. A host that stays
-                # unresolved is treated as gone and its file is skipped, because retrying the
-                # batch for it would fail the whole import over one dead link.
-                if str(error) != UNRESOLVED_HOST_REASON or dns_attempt >= MAX_ATTACHMENT_DNS_RETRIES:
-                    raise
-                time.sleep(ATTACHMENT_DNS_RETRY_SLEEP_SECONDS)
-                dns_attempt += 1
-            except PylonAttachmentDownloadError as error:
-                wait = DEFAULT_RATE_LIMIT_SLEEP_SECONDS if error.retry_after is None else max(1, error.retry_after)
-                if (
-                    error.status_code != 429
-                    or attempt >= MAX_ATTACHMENT_RATE_LIMIT_RETRIES
-                    or wait > MAX_RATE_LIMIT_SLEEP_SECONDS
-                ):
-                    raise
-                time.sleep(wait)
-                attempt += 1
-
-    def _download_attachment(self, url: str, *, max_bytes: int) -> PylonAttachment:
-        current = url
-        for _ in range(MAX_ATTACHMENT_REDIRECTS + 1):
-            if urlsplit(current).scheme.lower() != "https":
-                raise ValueError("Refusing to fetch a non-https attachment URL")
-            with pinned_session(current) as session:
-                with session.get(current, timeout=120, stream=True, allow_redirects=False) as response:
-                    if response.is_redirect:
-                        location = response.headers.get("Location")
-                        if not location:
-                            raise ValueError("Attachment redirect without a Location header")
-                        current = urljoin(current, location)
-                        continue
-                    if response.status_code >= 400:
-                        raise PylonAttachmentDownloadError(
-                            response.status_code, retry_after=_header_int(response, "Retry-After")
-                        )
-                    declared = response.headers.get("Content-Length")
-                    if declared is not None:
-                        try:
-                            if int(declared) > max_bytes:
-                                raise PylonAttachmentTooLargeError(
-                                    f"Attachment exceeds {max_bytes} bytes (Content-Length={declared})"
-                                )
-                        except ValueError:
-                            pass
-                    buffer = bytearray()
-                    for chunk in response.iter_content(chunk_size=ATTACHMENT_CHUNK_BYTES):
-                        if not chunk:
-                            continue
-                        buffer.extend(chunk)
-                        if len(buffer) > max_bytes:
-                            raise PylonAttachmentTooLargeError(
-                                f"Attachment exceeds {max_bytes} bytes while streaming", bytes_read=len(buffer)
-                            )
-                    content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-                    return PylonAttachment(content=bytes(buffer), content_type=content_type)
-        raise ValueError("Too many attachment redirects")
+    def download_attachment(self, url: str, *, max_bytes: int) -> DownloadedAttachment:
+        """Download a message file. Pylon file URLs are signed links, so the token is not sent."""
+        return download_attachment(url, max_bytes=max_bytes)
 
 
 def _candidate_regions(api_token: str) -> list[str]:

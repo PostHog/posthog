@@ -280,10 +280,6 @@ class PylonImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except Exception:
             logger.exception("pylon_import_workflow_start_failed", job_id=str(job.id), team_id=team_id)
-            # The start call can fail after Temporal accepted the workflow, for example when the
-            # response times out. Releasing the reservation then lets a second import run beside
-            # the first, so keep it unless Temporal confirms that no workflow exists. A job kept
-            # for a workflow that never started is released by _release_orphaned_reservations.
             if asyncio.run(pylon_import_workflow_exists(team_id=team_id, job_id=str(job.id))):
                 return Response(
                     {"detail": WORKFLOW_START_UNCONFIRMED_MESSAGE}, status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR

@@ -42,7 +42,6 @@ with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.services.email_links import recover_links_from_html
     from products.conversations.backend.services.html_text import html_to_text
     from products.conversations.backend.temporal.pylon_import.client import (
-        PylonAttachmentTooLargeError,
         PylonCredentials,
         PylonImportClient,
         PylonNotFoundError,
@@ -54,6 +53,7 @@ with workflow.unsafe.imports_passed_through():
         map_pylon_priority,
         map_pylon_state,
     )
+    from products.conversations.backend.temporal.ticket_import.attachment_download import AttachmentTooLargeError
     from products.conversations.backend.temporal.ticket_import.persistence import (
         BuiltTicket,
         persist_ticket_batch,
@@ -286,7 +286,7 @@ def _process_attachments(
             continue
         try:
             attachment = client.download_attachment(url, max_bytes=max_bytes)
-        except PylonAttachmentTooLargeError as exc:
+        except AttachmentTooLargeError as exc:
             # The bytes streamed before the cap tripped still count, or repeated oversized files
             # without an honest Content-Length would bypass the issue budget.
             budget.remaining -= exc.bytes_read

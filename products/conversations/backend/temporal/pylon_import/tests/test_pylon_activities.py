@@ -32,11 +32,10 @@ from products.conversations.backend.temporal.pylon_import.activities import (
     _import_issue_batch_sync,
     _update_job_progress_sync,
 )
-from products.conversations.backend.temporal.pylon_import.client import (
-    PylonAttachment,
-    PylonAttachmentTooLargeError,
-    PylonNotFoundError,
-    PylonRateLimitError,
+from products.conversations.backend.temporal.pylon_import.client import PylonNotFoundError, PylonRateLimitError
+from products.conversations.backend.temporal.ticket_import.attachment_download import (
+    AttachmentTooLargeError,
+    DownloadedAttachment,
 )
 
 M = "products.conversations.backend.temporal.pylon_import.activities"
@@ -125,7 +124,7 @@ class TestPylonImportBatchActivity(BaseTest):
 
         client.fetch_contact.side_effect = fetch_contact
         client.issue_status_categories.return_value = {"escalated": "on_hold"}
-        client.download_attachment.return_value = PylonAttachment(content=b"filebytes", content_type="")
+        client.download_attachment.return_value = DownloadedAttachment(content=b"filebytes", content_type="")
         return client
 
     def _run_batch(
@@ -399,7 +398,7 @@ class TestPylonImportBatchActivity(BaseTest):
     def test_oversized_streamed_downloads_count_against_the_issue_budget(self) -> None:
         issue, messages = self._attachment_issue("i-721", files=3)
         client = self._client([issue], {"i-721": messages})
-        client.download_attachment.side_effect = PylonAttachmentTooLargeError("too big", bytes_read=150)
+        client.download_attachment.side_effect = AttachmentTooLargeError("too big", bytes_read=150)
 
         with (
             patch(f"{M}.MAX_ATTACHMENT_BYTES_PER_ISSUE", 200),
