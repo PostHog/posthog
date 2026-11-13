@@ -1645,6 +1645,28 @@ def test_lowers_limit_by_to_row_number_wrapper() -> None:
     assert "LIMIT 2 BY" not in sql
 
 
+@pytest.mark.parametrize("query", ["SELECT account_id FROM latest", "SELECT * FROM latest"])
+def test_lowers_limit_by_inside_a_saved_view(query: str) -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="latest",
+            table=SavedQuery(
+                id="latest",
+                name="latest",
+                query="SELECT user_id AS account_id FROM users ORDER BY created_at DESC LIMIT 1 BY user_id",
+                fields={"account_id": StringDatabaseField(name="account_id")},
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert 'WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 1)' in sql
+    assert sql.startswith('SELECT "latest"."account_id" FROM (SELECT "__hogql_trino_source_0"."account_id" FROM')
+
+
 def test_lowers_qualify_alias_to_outer_filter() -> None:
     context = _context_with_trino_table()
 

@@ -290,6 +290,7 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         outer_limit_with_ties = node.limit_with_ties
         outer_limit_percent = node.limit_percent
         limit_by = node.limit_by
+        view_name = node.view_name
         node.ctes = None
         node.order_by = None
         node.limit = None
@@ -297,6 +298,9 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         node.limit_by = None
         node.limit_with_ties = False
         node.limit_percent = False
+        # The wrapper now stands for the view. A wrapped query that kept the name would bind its own columns,
+        # including the helper columns, against the view's saved columns on the next resolution.
+        node.view_name = None
 
         return ast.SelectQuery(
             type=node.type,
@@ -309,7 +313,7 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
             limit_by=ast.LimitByExpr(n=limit_by.n, exprs=partition_by, offset_value=limit_by.offset_value),
             limit_with_ties=outer_limit_with_ties,
             limit_percent=outer_limit_percent,
-            view_name=node.view_name,
+            view_name=view_name,
         )
 
     def _wrap(self, node: ast.SelectQuery, predicate: ast.Expr, helper_name: str | None = None) -> ast.SelectQuery:
@@ -334,12 +338,14 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         outer_limit_with_ties = node.limit_with_ties
         outer_limit_percent = node.limit_percent
         outer_ctes = node.ctes
+        view_name = node.view_name
         node.ctes = None
         node.order_by = None
         node.limit = None
         node.offset = None
         node.limit_with_ties = False
         node.limit_percent = False
+        node.view_name = None
 
         return ast.SelectQuery(
             ctes=outer_ctes,
@@ -356,7 +362,7 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
             offset=outer_offset,
             limit_with_ties=outer_limit_with_ties,
             limit_percent=outer_limit_percent,
-            view_name=node.view_name,
+            view_name=view_name,
         )
 
     def _output_names(self, node: ast.SelectQuery) -> list[str]:
