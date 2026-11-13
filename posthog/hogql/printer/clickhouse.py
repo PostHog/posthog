@@ -9,7 +9,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX, HogQLDialect
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -669,9 +669,7 @@ class ClickHousePrinter(BasePrinter):
                 if name == "$session_id_uuid":
                     field_sql = f"toUInt128(toUUIDOrNull({field_sql}))"
         serialized = self._serialize_events_json_field(type, field_sql)
-        if serialized is not None:
-            return self._maybe_apply_json_drop_keys(type, serialized)
-        return self._maybe_apply_json_drop_keys(type, field_sql, mask_feature_flags=True)
+        return self._maybe_apply_json_drop_keys(type, field_sql if serialized is None else serialized)
 
     def _events_json_document_field(self, type: ast.FieldType) -> StringJSONDatabaseField | None:
         """The field when it is a JSON document column of the native events table, otherwise None."""
@@ -689,10 +687,12 @@ class ClickHousePrinter(BasePrinter):
         return resolved_field
 
     def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
-        if self._inside_json_function_argument:
-            return None
         resolved_field = self._events_json_document_field(type)
         if resolved_field is None:
+            return None
+        # toJSONString serializes the stored column itself. A masked document is a string either way, and
+        # JSONDropKeysPool only reaches a key inside an object in the rebuilt document.
+        if self._inside_json_function_argument and not self._restricted_blob_keys(type, resolved_field.name):
             return None
 
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
@@ -782,12 +782,14 @@ class ClickHousePrinter(BasePrinter):
             return None
         if self._events_json_document_field(field_type) is not None:
             return None
-        keys_to_drop = restricted_property_keys_for_table_type(
-            field_type.table_type, self.context, group_type_index=_group_type_index_of_blob(resolved_field.name)
-        )
-        if key_read_overlaps_restriction(first_key, keys_to_drop):
+        if key_read_overlaps_restriction(first_key, self._restricted_blob_keys(field_type, resolved_field.name)):
             return None
         return field_type
+
+    def _restricted_blob_keys(self, type: ast.FieldType, blob_name: str) -> set[str]:
+        return restricted_property_keys_for_table_type(
+            type.table_type, self.context, group_type_index=_group_type_index_of_blob(blob_name)
+        )
 
     @contextmanager
     def _without_json_drop_keys(self, field_type: ast.FieldType | None) -> Iterator[None]:
@@ -801,15 +803,10 @@ class ClickHousePrinter(BasePrinter):
         finally:
             self._unmasked_blob_type = previous
 
-    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str, mask_feature_flags: bool = False) -> str:
+    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
         """
         Wraps a StringJSONDatabaseField in JSONDropKeysPool() to strip restricted property keys
         when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
-
-        `mask_feature_flags` is for an events_json `properties` column printed as stored rather than as the rebuilt
-        document, which happens under `toJSONString(if(..., properties, ...))`. That document holds the flags in the
-        `$feature_flags` map, where JSONDropKeysPool cannot reach a restricted `$feature/<key>`, so the map is dropped
-        and merged back without the restricted flags.
         """
         if not self.context.restricted_properties or type is self._unmasked_blob_type:
             return field_sql
@@ -827,28 +824,12 @@ class ClickHousePrinter(BasePrinter):
         if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
             return field_sql
 
-        keys_to_drop = restricted_property_keys_for_table_type(
-            type.table_type, self.context, group_type_index=_group_type_index_of_blob(resolved_field.name)
-        )
+        keys_to_drop = self._restricted_blob_keys(type, resolved_field.name)
         if not keys_to_drop:
             return field_sql
 
-        is_events_json_document = self._events_json_document_field(type) is not None
-        restricted_flags = restricted_feature_flag_names(keys_to_drop)
-        mask_stored_feature_flags = (
-            mask_feature_flags
-            and bool(restricted_flags)
-            and "$feature_flags" not in keys_to_drop
-            and resolved_field.name == "properties"
-            and is_events_json_document
-        )
-        if mask_stored_feature_flags:
-            keys_to_drop = {key for key in keys_to_drop if not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)} | {
-                "$feature_flags"
-            }
-
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        if is_events_json_document:
+        if self._events_json_document_field(type) is not None:
             # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
             # The UDF reads RowBinary, which encodes a JSON column differently from a String. Without toString the
             # worker misreads the row and waits for more input until ClickHouse times out the pipe.
@@ -861,12 +842,7 @@ class ClickHousePrinter(BasePrinter):
             stripped = (
                 f"if(empty({field_sql}), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}({guarded_sql}, {keys_placeholder}))"
             )
-        if not mask_stored_feature_flags:
-            return stripped
-
-        filtered_flags = self._visible_feature_flags_sql(field_sql, restricted_flags)
-        flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_flags}), '}}')"
-        return f"if(empty({filtered_flags}), {stripped}, JSONMergePatch({stripped}, {flags_patch}))"
+        return stripped
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""

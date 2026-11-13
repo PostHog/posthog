@@ -474,13 +474,17 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 ("'{\"$feature_flags\":'", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
             ),
             (
-                "stored_document_restricted",
+                "restricted_document_under_to_json_string",
                 "SELECT toJSONString(if(1, properties, properties)) FROM events",
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("JSONMergePatch(", "mapFilter((key, value) -> not(has(", f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
-                ("'\"$active_feature_flags\":'", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                (
+                    "mapFilter((key, value) -> not(has(",
+                    "'\"$active_feature_flags\":'",
+                    f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
+                ),
+                ("JSONMergePatch(", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
             ),
             (
                 "whole_document_adds_temporary_keys",
@@ -1121,7 +1125,8 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 {field}.$groups.project,
                 JSONHas({field}, '$groups', 'organization'),
                 JSONHas({field}, '$groups', if(event = 'synthetic', 'organization', 'project')),
-                JSONHas({field}, '$groups', 'project')
+                JSONHas({field}, '$groups', 'project'),
+                toJSONString(tuple({field}))
             FROM events"""
         )
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
@@ -1145,7 +1150,15 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
-        assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
+        assert row == (
+            '{"project":"visible"}',
+            None,
+            "visible",
+            0,
+            0,
+            1,
+            '["{\\"$groups\\":{\\"project\\":\\"visible\\"}}"]',
+        )
 
     def test_person_restriction_masks_set_containers_on_events(self) -> None:
         context = self._context()
@@ -2396,12 +2409,9 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             context=restricted_context,
         )
         assert restricted.results is not None
-        # The masked document is a String, so toJSONString quotes it, as it quotes the legacy String column.
-        stored_document = json.loads(json.loads(restricted.results[0][3]))
-        assert "$feature/secret" not in stored_document
-        assert "secret" not in stored_document["$feature_flags"]
-        assert stored_document["$feature_flags"]["variant"] == "control"
         restricted_document = json.loads(restricted.results[0][0])
+        # The masked document is a String, so toJSONString quotes it, as it quotes the legacy String column.
+        assert json.loads(json.loads(restricted.results[0][3])) == restricted_document
         assert "$feature_flags" not in restricted_document
         # The fixture sends "true" as a string, which the cleaner stores as `$true`, so it comes back as a string.
         assert {key: value for key, value in restricted_document.items() if key.startswith("$feature/")} == {
