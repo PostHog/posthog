@@ -22,6 +22,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.facade.api import slack_followup_invite, slack_followup_invite_text
+from products.subscriptions.backend.logic.insight_groups import GroupHeadings
 from products.subscriptions.backend.logic.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
     UTM_TAGS_BASE,
@@ -123,6 +124,14 @@ def _insight_link_block(asset: ExportedAsset) -> dict[str, Any] | None:
             }
         ],
     }
+
+
+# Slack caps a header block's text at 150 characters.
+MAX_SLACK_HEADER_LENGTH = 150
+
+
+def _group_heading_block(heading: str) -> dict[str, Any]:
+    return {"type": "header", "text": {"type": "plain_text", "text": heading[:MAX_SLACK_HEADER_LENGTH], "emoji": True}}
 
 
 def _subscription_title(
@@ -230,6 +239,7 @@ def _prepare_slack_gallery(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: IntegrationRecord | None = None,
+    group_headings: GroupHeadings | None = None,
 ) -> SlackGallery:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     resource_info = subscription.resource_info
@@ -252,9 +262,16 @@ def _prepare_slack_gallery(
 
     file_uploads: list[dict[str, Any]] = []
     insight_links: list[dict[str, Any]] = []
+    grouped_insight_links: list[tuple[str | None, list[dict[str, Any]]]] = []
+    # A group's first asset can fail or lack an insight, so its heading waits for the next asset that gets a link.
+    pending_heading: str | None = None
+    opens_section = False
     failed_names: list[str] = []
     unattached_assets: list[ExportedAsset] = []
     for asset in assets:
+        if group_headings and asset.id in group_headings:
+            pending_heading = group_headings[asset.id]
+            opens_section = True
         if _has_asset_failed(asset):
             failed_names.append(_insight_name(asset))
             continue
@@ -275,9 +292,16 @@ def _prepare_slack_gallery(
             continue
         file_uploads.append({"content": content, "filename": asset.filename, "title": _insight_name(asset)})
         if subscription.dashboard_id and asset.insight:
-            if insight_links:
-                insight_links.append({"type": "text", "text": " · "})
-            insight_links.append({"type": "link", "url": asset.insight.url, "text": _insight_name(asset)})
+            link = {"type": "link", "url": asset.insight.url, "text": _insight_name(asset)}
+            if group_headings:
+                if opens_section or not grouped_insight_links:
+                    grouped_insight_links.append((pending_heading if opens_section else None, []))
+                    opens_section = False
+                grouped_insight_links[-1][1].append(link)
+            else:
+                if insight_links:
+                    insight_links.append({"type": "text", "text": " · "})
+                insight_links.append(link)
 
     if failed_names:
         lines.append("_Could not generate: " + ", ".join(failed_names) + "_")
@@ -321,6 +345,9 @@ def _prepare_slack_gallery(
     if insight_links:
         blocks.append({"type": "markdown", "text": "### Insights"})
         blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": insight_links}]})
+    elif grouped_insight_links:
+        blocks.append({"type": "markdown", "text": "### Insights"})
+        blocks.extend(_grouped_insight_links_blocks(grouped_insight_links))
     blocks.extend(_subscription_footer_blocks(subscription, resource_info, integration))
 
     return SlackGallery(
@@ -330,6 +357,20 @@ def _prepare_slack_gallery(
         blocks=blocks,
         undelivered_asset_count=len(unattached_assets),
     )
+
+
+def _grouped_insight_links_blocks(groups: list[tuple[str | None, list[dict[str, Any]]]]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for heading, links in groups:
+        elements: list[dict[str, Any]] = []
+        if heading:
+            elements = [{"type": "text", "text": heading, "style": {"bold": True}}, {"type": "text", "text": "\n"}]
+        for index, link in enumerate(links):
+            if index:
+                elements.append({"type": "text", "text": " · "})
+            elements.append(link)
+        blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": elements}]})
+    return blocks
 
 
 def _blocks_for_asset(asset: ExportedAsset, resource_url: str, *, include_insight_link: bool = True) -> list[dict]:
@@ -435,6 +476,7 @@ def _prepare_slack_message(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: IntegrationRecord | None = None,
+    group_headings: GroupHeadings | None = None,
 ) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -460,6 +502,9 @@ def _prepare_slack_message(
         notice = summary_skipped_over_budget_message(f"<{billing_url}|Billing settings>")
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"_{notice}_"}]})
 
+    headings = group_headings or {}
+    if heading := headings.get(first_asset.id):
+        blocks.append(_group_heading_block(heading))
     blocks.extend(
         _blocks_for_asset(
             first_asset, resource_url=resource_info.url, include_insight_link=bool(subscription.dashboard_id)
@@ -482,6 +527,8 @@ def _prepare_slack_message(
         asset_blocks = _blocks_for_asset(
             asset, resource_url=resource_info.url, include_insight_link=bool(subscription.dashboard_id)
         )
+        if heading := headings.get(asset.id):
+            asset_blocks = [_group_heading_block(heading), *asset_blocks]
         thread_messages.append({"blocks": asset_blocks})
 
     if total_asset_count > len(assets):
@@ -704,6 +751,7 @@ async def send_slack_message_with_integration_async(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
+    group_headings: GroupHeadings | None = None,
 ) -> SlackDeliveryResult:
     if subscription.delivery_config.get("post_all_insights_in_main_message"):
         gallery = await database_sync_to_async(_prepare_slack_gallery, thread_sensitive=False)(
@@ -714,6 +762,7 @@ async def send_slack_message_with_integration_async(
             change_summary=change_summary,
             summary_skipped_over_budget=summary_skipped_over_budget,
             integration=integration,
+            group_headings=group_headings,
         )
         return await deliver_slack_gallery(integration, subscription, gallery)
 
@@ -727,5 +776,6 @@ async def send_slack_message_with_integration_async(
         change_summary=change_summary,
         summary_skipped_over_budget=summary_skipped_over_budget,
         integration=integration,
+        group_headings=group_headings,
     )
     return await deliver_slack_message_data(integration, subscription, message_data)

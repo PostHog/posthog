@@ -5,7 +5,7 @@ from django.db.models import Q
 
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from products.dashboards.backend.facade.contracts import InsightPlacement, TilePlacement
+from products.dashboards.backend.facade.contracts import DashboardTileGroupSummary, InsightPlacement, TilePlacement
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -88,3 +88,50 @@ def delete_widget_tiles_for_teams(team_ids: list[int]) -> None:
 
     # The base manager, because the default one hides soft-deleted tiles, and those protect their widget too.
     _raw_delete_batch(DashboardTile._base_manager.filter(team_id__in=team_ids, widget__isnull=False))
+
+
+def layout_order_key(tile_id: int, layouts: dict | None) -> tuple[float, float, int]:
+    """Top to bottom, then left to right, as the dashboard grid shows tiles. A tile without a position goes last."""
+    sm = layouts.get("sm") if isinstance(layouts, dict) else None
+    y, x = (sm.get("y"), sm.get("x")) if isinstance(sm, dict) else (None, None)
+    if not isinstance(y, int | float) or not isinstance(x, int | float):
+        return (float("inf"), float("inf"), tile_id)
+    return (y, x, tile_id)
+
+
+def tile_groups(*, team_id: int, dashboard_id: int) -> list[DashboardTileGroupSummary]:
+    # Mirrors getDashboardSections in products/dashboards/frontend/dashboardTileSections.ts: a group sits
+    # where its top-left tile is, and the tiles counted are the ones the dashboard shows.
+    dashboard = (
+        Dashboard.objects_including_soft_deleted.only("customization").filter(team_id=team_id, pk=dashboard_id).first()
+    )
+    if dashboard is None:
+        return []
+    saved_groups = dashboard.customization.get("groups") if isinstance(dashboard.customization, dict) else None
+    if not isinstance(saved_groups, dict):
+        saved_groups = {}
+
+    # The dashboard comes from the team-scoped lookup above.
+    # nosemgrep: idor-lookup-without-team
+    tiles = (
+        DashboardTile.objects.filter(dashboard_id=dashboard.id)
+        .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+        .values_list("id", "layouts", "group_key")
+    )
+    ordered = sorted(tiles, key=lambda tile: layout_order_key(tile[0], tile[1]))
+
+    counts: dict[str, int] = {}
+    for _id, _layouts, group_key in ordered:
+        if group_key:
+            counts[group_key] = counts.get(group_key, 0) + 1
+
+    summaries: list[DashboardTileGroupSummary] = []
+    for group_key, tile_count in counts.items():
+        group = saved_groups.get(group_key)
+        title = group.get("title") if isinstance(group, dict) else None
+        summaries.append(
+            DashboardTileGroupSummary(
+                key=group_key, title=title if isinstance(title, str) else "", tile_count=tile_count
+            )
+        )
+    return summaries

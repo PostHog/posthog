@@ -1128,6 +1128,79 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assert len(message.thread_messages) == len(assets) - 1
 
 
+class TestSlackTileGroupHeadings(APIBaseTest):
+    def setUp(self) -> None:
+        self.dashboard = Dashboard.objects.create(team=self.team, name="Grouped dashboard")
+        self.assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                insight_id=Insight.objects.create(team=self.team, name=name).id,
+                export_format="image/png",
+                content=b"PNG",
+            )
+            for name in ["Top", "Signups", "Activations", "MRR"]
+        ]
+
+    def _subscription(self, post_all_in_main: bool) -> Subscription:
+        return create_subscription(
+            team=self.team,
+            dashboard=self.dashboard,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C123|#test",
+            delivery_config={"post_all_insights_in_main_message": post_all_in_main},
+        )
+
+    @staticmethod
+    def _outline(blocks: list[dict[str, Any]]) -> list[str]:
+        return [
+            f"# {block['text']['text']}" if block["type"] == "header" else block["alt_text"]
+            for block in blocks
+            if block["type"] in ("header", "image")
+        ]
+
+    @parameterized.expand(
+        [
+            ("ungrouped_first", {1: "Growth", 3: "Revenue"}, ["Top"], [["# Growth", "Signups"], ["Activations"]]),
+            ("all_grouped", {0: "Growth", 3: "Revenue"}, ["# Growth", "Top"], [["Signups"], ["Activations"]]),
+        ]
+    )
+    def test_threaded_message_heads_the_first_insight_of_each_group(
+        self, _name: str, headings: dict[int, str], main: list[str], first_threads: list[list[str]]
+    ) -> None:
+        message = _prepare_slack_message(
+            self._subscription(post_all_in_main=False),
+            self.assets,
+            total_asset_count=4,
+            group_headings={self.assets[index].id: heading for index, heading in headings.items()},
+        )
+
+        # The message opens with its own title header, before any group heading.
+        assert self._outline(message.blocks)[1:] == main
+        assert [self._outline(thread["blocks"]) for thread in message.thread_messages] == [
+            *first_threads,
+            ["# Revenue", "MRR"],
+        ]
+
+    def test_gallery_keeps_a_group_heading_when_its_first_insight_fails(self) -> None:
+        self.assets[1].exception = "boom"
+        self.assets[1].save(update_fields=["exception"])
+
+        gallery = _prepare_slack_gallery(
+            self._subscription(post_all_in_main=True),
+            self.assets,
+            total_asset_count=4,
+            group_headings={self.assets[1].id: "Growth", self.assets[3].id: "Revenue"},
+        )
+
+        sections = [
+            [element.get("text") for element in block["elements"][0]["elements"]]
+            for block in gallery.blocks
+            if block["type"] == "rich_text" and block["elements"][0]["type"] == "rich_text_section"
+        ]
+        assert sections == [["Top"], ["Growth", "\n", "Activations"], ["Revenue", "\n", "MRR"]]
+
+
 class TestSlackExploreHint(APIBaseTest):
     def setUp(self) -> None:
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")

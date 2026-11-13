@@ -33,6 +33,16 @@ from products.subscriptions.backend.logic.failure_notifications import (
     create_subscription_delivery_failure_notification,
     send_subscription_delivery_failure_email,
 )
+from products.subscriptions.backend.logic.insight_groups import (
+    SECTIONS_SNAPSHOT_KEY,
+    GroupHeadings,
+    InsightSection,
+    StoredSection,
+    group_headings_by_asset_id,
+    section_by_tile_group,
+    stored_sections,
+    tile_group_sections_enabled,
+)
 from products.subscriptions.backend.logic.slack_subscriptions import send_slack_message_with_integration_async
 from products.subscriptions.backend.logic.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
@@ -98,10 +108,7 @@ class ResolvedExportableInsights:
 def _insight_tiles_in_layout_order(
     *, team_id: int, dashboard_id: int
 ) -> list[tuple[DashboardInsightTileSummary | None, Insight]]:
-    tiles = sorted(
-        dashboards_api.insight_tiles(dashboard_id=dashboard_id),
-        key=lambda tile: (tile.layouts.get("sm", {}).get("y", 100), tile.layouts.get("sm", {}).get("x", 100)),
-    )
+    tiles = dashboards_api.insight_tiles_in_layout_order(dashboard_id=dashboard_id)
     insights = {
         insight.id: insight
         for insight in insights_including_soft_deleted_for_team(
@@ -179,11 +186,31 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
     )
 
 
+async def _tile_group_sections(
+    subscription: Subscription,
+    tile_insight_pairs: list[tuple[DashboardInsightTileSummary | None, Insight]],
+) -> list[InsightSection[Insight]]:
+    if subscription.dashboard_id is None or not any(tile and tile.group_key for tile, _ in tile_insight_pairs):
+        return []
+    owner = subscription.created_by
+    enabled = await database_sync_to_async(tile_group_sections_enabled, thread_sensitive=False)(
+        organization_id=str(subscription.team.organization_id),
+        distinct_id=str(owner.distinct_id) if owner and owner.distinct_id else None,
+    )
+    if not enabled:
+        return []
+    groups = await database_sync_to_async(dashboards_api.tile_groups, thread_sensitive=False)(
+        team_id=subscription.team_id, dashboard_id=subscription.dashboard_id
+    )
+    return section_by_tile_group(tile_insight_pairs, groups)
+
+
 async def _persist_content_snapshot(
     *,
     delivery_id: uuid.UUID,
     total_insight_count: int,
     insight_snapshots: list[dict[str, typing.Any]],
+    sections: list[StoredSection] | None = None,
 ) -> int:
     """Merge insight snapshots onto SubscriptionDelivery.content_snapshot.
 
@@ -203,6 +230,11 @@ async def _persist_content_snapshot(
             "total_insight_count": total_insight_count,
             "insights": insight_snapshots,
         }
+        # A retried export can find no sections where the first attempt found some.
+        if sections is None:
+            delivery.content_snapshot.pop(SECTIONS_SNAPSHOT_KEY, None)
+        else:
+            delivery.content_snapshot[SECTIONS_SNAPSHOT_KEY] = [section.to_dict() for section in sections]
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
     await _merge()
@@ -351,7 +383,13 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             failure_context=failure_context,
         )
 
-    export_pairs = tile_insight_pairs[:max_asset_count]
+    sections = await _tile_group_sections(subscription, tile_insight_pairs)
+    indexed_pairs = (
+        [(index, pair) for index, section in enumerate(sections) for pair in section.items]
+        if sections
+        else [(0, pair) for pair in tile_insight_pairs]
+    )[:max_asset_count]
+    export_pairs = [pair for _index, pair in indexed_pairs]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [
@@ -389,12 +427,19 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
     # Standalone callers (tests, management commands) that don't pass delivery_id
     # skip the persist — they don't have a row to write to.
+    exported_sections = (
+        stored_sections(sections, [index for index, _pair in indexed_pairs], [asset.id for asset in assets])
+        if sections
+        else None
+    )
+
     target_delivery_id = inputs.delivery_id
     if target_delivery_id is not None:
         snapshot_bytes = await _persist_content_snapshot(
             delivery_id=target_delivery_id,
             total_insight_count=total_insight_count,
             insight_snapshots=insight_snapshots,
+            sections=exported_sections,
         )
         await LOGGER.ainfo(
             "create_export_assets.content_snapshot_persisted",
@@ -530,7 +575,7 @@ async def _deliver_insight_dashboard_subscription(
         },
         thread_sensitive=False,
     )()
-    # Preserve the order from create_export_assets (sorted by dashboard tile layout)
+    # Keep the order create_export_assets chose: tile groups first when it found any, else dashboard layout order.
     assets = [assets_by_id[aid] for aid in inputs.exported_asset_ids if aid in assets_by_id]
 
     if not assets:
@@ -555,11 +600,15 @@ async def _deliver_insight_dashboard_subscription(
         _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
+    group_headings = await _group_headings(inputs.delivery_id, assets)
+
     # The failed tiles in this delivery already tell the recipients why, so nobody else gets an email.
     disable_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
 
     try:
-        result = await _send_to_target(subscription, inputs, assets, recipient_results, send_only_to_new_recipients)
+        result = await _send_to_target(
+            subscription, inputs, assets, recipient_results, send_only_to_new_recipients, group_headings
+        )
     except Exception as error:
         # Temporal retries every failure but a non-retryable one, so the retry delivers the reason
         # and the row stays enabled until it does.
@@ -592,12 +641,28 @@ async def _deliver_insight_dashboard_subscription(
     return result
 
 
+async def _group_headings(delivery_id: uuid.UUID | None, assets: list[ExportedAsset]) -> GroupHeadings:
+    if delivery_id is None:
+        return {}
+    # Reads only the small sections key, not the multi-MB insight snapshots beside it.
+    stored = await database_sync_to_async(
+        lambda: (
+            SubscriptionDelivery.objects.filter(pk=delivery_id)
+            .values_list(f"content_snapshot__{SECTIONS_SNAPSHOT_KEY}", flat=True)
+            .first()
+        ),
+        thread_sensitive=False,
+    )()
+    return group_headings_by_asset_id(StoredSection.parse_list(stored), [asset.id for asset in assets])
+
+
 async def _send_to_target(
     subscription: Subscription,
     inputs: DeliverSubscriptionInputs,
     assets: list[ExportedAsset],
     recipient_results: list[RecipientResult],
     send_only_to_new_recipients: bool,
+    group_headings: GroupHeadings | None = None,
 ) -> DeliverSubscriptionResult:
     """Send the assets over the subscription's channel. Split out so the caller can wrap the one send."""
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
@@ -613,6 +678,7 @@ async def _send_to_target(
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
                 delivery_id=inputs.delivery_id,
+                group_headings=group_headings,
             )
 
         result = await deliver_email(subscription, inputs, recipient_results, _send_email)
@@ -628,6 +694,7 @@ async def _send_to_target(
                 is_new_subscription=send_only_to_new_recipients,
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+                group_headings=group_headings,
             ),
         )
     elif subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
@@ -638,6 +705,7 @@ async def _send_to_target(
             is_new_subscription=send_only_to_new_recipients,
             change_summary=inputs.change_summary,
             summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+            group_headings=group_headings,
         )
         result = await deliver_teams_webhook(subscription, recipient_results, body=card)
     else:
