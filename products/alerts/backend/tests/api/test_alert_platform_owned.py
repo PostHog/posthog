@@ -589,10 +589,11 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("list", True), ("retrieve", True), ("list_without_insight_access", False)])
     def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(self, action: str, can_view: bool) -> None:
+        assert self.alert.threshold is not None
         AlertConfiguration.objects.filter(id=self.alert.id).update(name="Drifted")
-        copy_threshold = self.alert.threshold.configuration if self.alert.threshold else None
+        copy_threshold = self.alert.threshold.configuration
         row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
-        Threshold.objects.filter(id=self.alert.threshold_id).update(configuration=row_threshold)
+        Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
         if not can_view:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -610,10 +611,10 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
         assert [
-            (threshold["configuration"], alert["name"], alert["threshold"]["configuration"])
+            (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
             for threshold in thresholds
             for alert in threshold["alerts"]
-        ] == ([(row_threshold, self.alert.name, copy_threshold)] if can_view else [])
+        ] == ([(row_threshold, self.alert.name, copy_threshold, "Revenue bound")] if can_view else [])
 
     @parameterized.expand(
         [
