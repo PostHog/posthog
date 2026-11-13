@@ -46,7 +46,7 @@ class JevTagger:
                     answer=repr(answer),
                 )
                 continue
-            # Any Jev row blocks the taggers ranked below Jev, so Jev writes a row only when it applies the label.
+            # Below yes_at, the label does not apply. The Tagger.answer docstring tells why Jev omits this tag.
             if answer.probability < configs[definition.key].yes_at:
                 continue
             answers[definition.key] = TagAnswer(
