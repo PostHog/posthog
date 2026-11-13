@@ -47,6 +47,7 @@ interface WarmActivationPayload {
   pendingUserMessage?: string;
   pendingUserArtifactIds?: string[];
   suppressWarmReuse: boolean;
+  warmRunId?: string;
 }
 
 // The local connect path appends channel CONTEXT.md to initialPrompt and gets
@@ -822,7 +823,11 @@ export class TaskCreationSaga extends Saga<
       suppressWarmReuse: false,
     };
 
-    if (input.contextWindow === "1m" || input.fastMode === true) {
+    if (
+      input.signalReportId ||
+      input.contextWindow === "1m" ||
+      input.fastMode === true
+    ) {
       return { ...base, suppressWarmReuse: true };
     }
 
@@ -845,6 +850,7 @@ export class TaskCreationSaga extends Saga<
       return {
         ...base,
         suppressWarmReuse: !lease,
+        warmRunId: lease?.permissionModeMutable ? lease.runId : undefined,
       };
     }
     if (!lease) {
@@ -863,6 +869,7 @@ export class TaskCreationSaga extends Saga<
         ...base,
         pendingUserArtifactIds:
           artifactIds.length > 0 ? artifactIds : undefined,
+        warmRunId: lease.permissionModeMutable ? lease.runId : undefined,
       };
     } catch (error) {
       this.log.warn(
@@ -977,6 +984,7 @@ export class TaskCreationSaga extends Saga<
           signal_report: input.signalReportId ?? undefined,
           channel: input.channelId ?? undefined,
           runtime: input.runtime ?? "acp",
+          warm_run_id: canActivateWarmRun ? warmPayload?.warmRunId : undefined,
           pending_user_message: warmPayload?.pendingUserMessage,
           pending_user_artifact_ids: warmPayload?.pendingUserArtifactIds,
           // If creation activates a pre-warmed run, this is the only request

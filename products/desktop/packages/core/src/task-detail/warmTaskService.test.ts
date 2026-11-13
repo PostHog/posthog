@@ -58,6 +58,71 @@ describe("warm task drafts", () => {
   });
 
   it.each([
+    { mutable: true, late: false },
+    { mutable: true, late: true },
+    { mutable: false, late: false },
+    { mutable: false, late: true },
+  ])(
+    "negotiates permission-only changes with server support: %j",
+    async ({ mutable, late }) => {
+      const { client, draft } = setup();
+      const response = { ...warm, permission_mode_mutable: mutable };
+      const pending = Promise.withResolvers<typeof response>();
+      client.warmTask.mockReturnValueOnce(
+        late ? pending.promise : Promise.resolve(response),
+      );
+      draft.update(options, client);
+      await vi.advanceTimersByTimeAsync(600);
+      const changed = {
+        ...options,
+        initial_permission_mode: "default" as const,
+      };
+      draft.update(changed, client);
+      if (late) pending.resolve(response);
+      await vi.advanceTimersByTimeAsync(600);
+      expect(client.warmTask).toHaveBeenCalledTimes(1);
+      const submission = draft.beginSubmission();
+      expect(submission?.take(changed)).toEqual(
+        mutable ? { ...lease, permissionModeMutable: true } : null,
+      );
+      submission?.finish(true, warm.task_id);
+      expect(client.cancelTaskRun).toHaveBeenCalledTimes(mutable ? 0 : 1);
+    },
+  );
+
+  it.each([
+    { repository: "example/other" },
+    { github_integration: 2 },
+    { branch: "feature" },
+    { runtime_adapter: "codex" },
+    { model: "other" },
+    { sandbox_environment_id: "other" },
+    { custom_image_id: "other" },
+  ])(
+    "keeps non-permission settings strict with a mutable mode: %j",
+    async (change) => {
+      const { client, draft } = setup();
+      client.warmTask.mockResolvedValue({
+        ...warm,
+        permission_mode_mutable: true,
+      });
+      draft.update(options, client);
+      await vi.advanceTimersByTimeAsync(600);
+      const changed = { ...options, ...change };
+      draft.update(changed, client);
+      await vi.advanceTimersByTimeAsync(600);
+      expect(draft.beginSubmission()?.take(changed)).toBeNull();
+      expect(client.warmTask).toHaveBeenCalledTimes(1);
+      expect(client.cancelTaskRun).toHaveBeenCalledExactlyOnceWith(
+        warm.task_id,
+        warm.run_id,
+        undefined,
+        true,
+      );
+    },
+  );
+
+  it.each([
     { initial_permission_mode: "default" as const },
     { repository: "example/other" },
     { repositories: ["example/project", "example/other"] },

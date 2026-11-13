@@ -1064,6 +1064,7 @@ export function TaskInput({
 
   const warmDraft = useWarmTask({
     sessionId,
+    signalReportId: activeReportAssociation?.reportId,
     claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
     codexModelAccess: adapter === "codex" ? composerModelAccess : undefined,
     workspaceMode,
