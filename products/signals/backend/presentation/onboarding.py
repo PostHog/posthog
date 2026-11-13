@@ -67,7 +67,25 @@ class InboxActivationMode(models.TextChoices):
     GITHUB_OPTIONAL = "github_optional", "GitHub optional"
 
 
+class InboxOnboardingOrigin(models.TextChoices):
+    APP = "app", "App"
+    AGENT = "agent", "Agent"
+
+
+class InboxOnboardingExposureSerializer(serializers.Serializer):
+    onboarding_origin = serializers.ChoiceField(
+        choices=InboxOnboardingOrigin.choices,
+        required=False,
+        help_text="Where setup started: the app or a link from an agent.",
+    )
+
+
 class InboxOnboardingDraftSerializer(serializers.Serializer):
+    onboarding_origin = serializers.ChoiceField(
+        choices=InboxOnboardingOrigin.choices,
+        required=False,
+        help_text="Where setup started: the app or a link from an agent.",
+    )
     activation_mode = serializers.ChoiceField(
         choices=InboxActivationMode.choices,
         required=False,
@@ -224,10 +242,12 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             lambda write: self._check_suggestion_access(self.request, write=write),
         )
 
-    @extend_schema(request=None, responses=InboxOnboardingStateSerializer)
+    @extend_schema(request=InboxOnboardingExposureSerializer, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])
     def expose(self, request: Request, *args: object, **kwargs: object) -> Response:
-        return Response(self._service().expose())
+        serializer = InboxOnboardingExposureSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(self._service().expose(serializer.validated_data.get("onboarding_origin", "app")))
 
     @extend_schema(responses=InboxOnboardingStateSerializer)
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:

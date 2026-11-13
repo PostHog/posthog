@@ -173,7 +173,7 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
+from posthog.rate_limit import EmailSenderCreateThrottle, GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, flag_identity, is_relative_url
 
@@ -1927,6 +1927,8 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         if self.action == "push_tokens":
             return [PushTokenImportThrottle(), *super().get_throttles()]
+        if self.action == "create" and self.request.data.get("kind") == "email":
+            return [EmailSenderCreateThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: IntegrationRecord) -> None:
