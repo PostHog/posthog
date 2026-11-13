@@ -344,5 +344,21 @@ describe('catalogTablesLogic', () => {
             expect(qualityLogic.values.shownRows).toEqual([])
             qualityLogic.unmount()
         })
+
+        it('the data quality section ignores search and Failing while a link shows one table', async () => {
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality' })
+            const qualityLogic = catalogDataQualityLogic()
+            qualityLogic.mount()
+            await waitFor(() => expect(qualityLogic.values.checkedRows).toHaveLength(2))
+            qualityLogic.actions.setSearch('mrr')
+            qualityLogic.actions.setScope('failing')
+
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality', table: 'stripe.charges' })
+
+            await waitFor(() =>
+                expect(qualityLogic.values.shownRows.map((row) => row.name)).toEqual(['stripe.charges'])
+            )
+            qualityLogic.unmount()
+        })
     })
 })

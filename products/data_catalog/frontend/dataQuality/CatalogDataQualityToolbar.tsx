@@ -3,8 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSearch } from '@posthog/icons'
 import { InputGroup, InputGroupAddon, InputGroupInput, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
-import { CHECKS_SCOPES, ChecksScope } from '../catalogTableRows'
-import { catalogDataQualityLogic } from './catalogDataQualityLogic'
+import { CHECKS_SCOPES, ChecksScope, catalogDataQualityLogic } from './catalogDataQualityLogic'
 
 const SCOPE_LABELS: Record<ChecksScope, string> = {
     all: 'All',
@@ -12,7 +11,7 @@ const SCOPE_LABELS: Record<ChecksScope, string> = {
 }
 
 export function CatalogDataQualityToolbar(): JSX.Element {
-    const { search, scope, scopeCounts, rowsLoaded } = useValues(catalogDataQualityLogic)
+    const { search, scope, scopeCounts } = useValues(catalogDataQualityLogic)
     const { setSearch, setScope } = useActions(catalogDataQualityLogic)
 
     return (
@@ -39,11 +38,9 @@ export function CatalogDataQualityToolbar(): JSX.Element {
                 {CHECKS_SCOPES.map((option) => (
                     <ToggleGroupItem key={option} value={option} data-attr={`data-catalog-quality-scope-${option}`}>
                         {SCOPE_LABELS[option]}
-                        {rowsLoaded && (
-                            <span translate="no" className="tabular-nums text-muted-foreground">
-                                {scopeCounts[option]}
-                            </span>
-                        )}
+                        <span translate="no" className="tabular-nums text-muted-foreground">
+                            {scopeCounts[option]}
+                        </span>
                     </ToggleGroupItem>
                 ))}
             </ToggleGroup>

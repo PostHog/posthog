@@ -484,10 +484,6 @@ export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean 
     return textMatchesSearch(search, row.name, row.subtitle)
 }
 
-export type ChecksScope = 'all' | 'failing'
-
-export const CHECKS_SCOPES: ChecksScope[] = ['all', 'failing']
-
 export function subjectMatchesSearch(subject: ChecksSubject, search: string): boolean {
     return textMatchesSearch(search, subject.name)
 }

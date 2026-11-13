@@ -53,6 +53,17 @@ function NoTables({ tableFilter }: { tableFilter: string | null }): JSX.Element 
     )
 }
 
+function SectionFilters(): JSX.Element | null {
+    const { tableFilter, rowsLoaded, checkedRows } = useValues(catalogDataQualityLogic)
+    if (tableFilter) {
+        return <TableFilterNote tableName={tableFilter} />
+    }
+    if (!rowsLoaded || checkedRows.length === 0) {
+        return null
+    }
+    return <CatalogDataQualityToolbar />
+}
+
 function NoMatchingTables(): JSX.Element {
     const { clearFilters } = useActions(catalogDataQualityLogic)
     return (
@@ -117,14 +128,13 @@ function QualityContent(): JSX.Element {
 export function CatalogDataQualitySection(): JSX.Element {
     const { lastActionCheckId } = useValues(dataQualityOverviewLogic)
     const { loadOverview, runChecks } = useActions(dataQualityOverviewLogic)
-    const { tableFilter } = useValues(catalogDataQualityLogic)
     const editorProps = overviewCheckEditorProps({ lastActionCheckId, loadOverview, runChecks })
 
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <section aria-label="Data quality" className="flex flex-col gap-3" data-attr="data-catalog-quality">
                 <div className="flex flex-wrap items-center gap-2">
-                    {tableFilter ? <TableFilterNote tableName={tableFilter} /> : <CatalogDataQualityToolbar />}
+                    <SectionFilters />
                     <CatalogDataQualityActions />
                 </div>
                 <QuillRunAllBanners />
