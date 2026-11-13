@@ -7092,6 +7092,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'billing_limit'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -7133,6 +7134,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'billing_limit'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 

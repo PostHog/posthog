@@ -1493,6 +1493,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    BILLING_LIMIT = "billing_limit"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1517,6 +1518,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    BILLING_LIMIT = "billing_limit"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):

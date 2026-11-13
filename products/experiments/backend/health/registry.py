@@ -24,6 +24,7 @@ from products.experiments.backend.health.checks.bias_risk import (
     bias_risk_multiple_excluded,
     bias_risk_values,
 )
+from products.experiments.backend.health.checks.billing_limit import billing_limit, billing_limit_values
 from products.experiments.backend.health.checks.bucketing_changed import (
     bucketing_changed_mid_run,
     bucketing_changed_rows,
@@ -331,7 +332,19 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 # split and the release conditions are part of the exposure query's cache key. `unserved_variant_exposures` also reads
 # whether the flag is on and when it was last saved. The page's query carries the flag's `active` and `version`, so an
 # edit recalculates the page's answer, and a backend answer's older finding still holds for the users it counts.
+# `billing_limit` reads the organization's billing limit, whose end the cache key carries while the limit holds.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
+    HealthCheck(
+        key=ExperimentHealthCheckKey.BILLING_LIMIT,
+        name="Product analytics billing limit",
+        description=(
+            "Checks whether your organization reached its billing limit for product analytics. While the limit holds, "
+            "PostHog drops the project's product analytics events, so a running experiment counts no new users and "
+            "its metrics on these events get no new data."
+        ),
+        run=billing_limit,
+        read=billing_limit_values,
+    ),
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
         name="Exposures not received since launch",

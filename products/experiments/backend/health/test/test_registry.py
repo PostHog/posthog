@@ -20,6 +20,7 @@ from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
+    EventsBillingLimit,
     ExperimentOnFlag,
     ExposureEvents,
     ExposureTotals,
@@ -40,7 +41,7 @@ from products.experiments.backend.health.registry import (
     HealthCheck,
     evaluate,
 )
-from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
+from products.experiments.backend.health.test.factories import BILLING_LIMITED, DRAFT, RUNNING_CONTEXT, flag_history
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.feature_flags.backend.facade.edits import FlagVariant
 
@@ -199,6 +200,16 @@ class TestEvaluate(TestCase):
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
+            (
+                "billing_limit_with_exposures",
+                {"events_billing_limit": BILLING_LIMITED, "exposures": _filtered_totals(950, 1000)},
+                [ExperimentHealthFindingCode.BILLING_LIMIT],
+            ),
+            (
+                "billing_limit_in_the_first_day",
+                {"events_billing_limit": BILLING_LIMITED, "exposures": replace(NO_EXPOSURES, hours_since_launch=1)},
+                [ExperimentHealthFindingCode.BILLING_LIMIT],
+            ),
             ("test_account_filter_under_100_users_without_it", {"exposures": _filtered_totals(4, 99)}, []),
             (
                 "test_account_filter_keeps_nobody",
@@ -282,6 +293,16 @@ class TestEvaluate(TestCase):
                 "zero_exposures_finds_a_day_after_launch",
                 {"exposures": replace(NO_EXPOSURES, hours_since_launch=24)},
                 {Key.ZERO_EXPOSURES: Status.FINDING},
+            ),
+            (
+                "billing_limit_is_not_checked_when_unread",
+                {"events_billing_limit": None},
+                {Key.BILLING_LIMIT: Status.NOT_CHECKED},
+            ),
+            (
+                "billing_limit_is_not_reported_after_the_end",
+                {**ENDED, "events_billing_limit": BILLING_LIMITED},
+                {Key.BILLING_LIMIT: Status.NOT_APPLICABLE},
             ),
             (
                 "events_not_received_are_not_reported_after_the_end",
@@ -580,6 +601,20 @@ class TestEvaluate(TestCase):
                 {Value.SINCE_START_HOURS: 72, Value.DAILY_CALCULATION_ENDS_AT: "2026-11-30T09:00:00+00:00"},
             ),
             (
+                "billing_limit_reads_when_the_limit_lifts",
+                Key.BILLING_LIMIT,
+                {"events_billing_limit": BILLING_LIMITED},
+                Status.FINDING,
+                {Value.BILLING_LIMIT_REACHED: True, Value.BILLING_LIMIT_ENDS_AT: "2026-12-01T00:00:00+00:00"},
+            ),
+            (
+                "billing_limit_reads_a_limit_that_is_not_reached",
+                Key.BILLING_LIMIT,
+                {"events_billing_limit": EventsBillingLimit(ends_at=None)},
+                Status.PASSED,
+                {Value.BILLING_LIMIT_REACHED: False},
+            ),
+            (
                 "new_flag_reads_its_last_call_before_launch",
                 Key.NEW_FLAG_NO_TRAFFIC,
                 {**DRAFT, "flag_called": True, "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC)},
@@ -823,6 +858,20 @@ class TestEvaluate(TestCase):
                 _events("checkout_viewed", {"checkout_viewed": True}),
                 ExperimentHealthFindingCode.ZERO_EXPOSURES,
             ),
+            (
+                "billing_limit",
+                {"events_billing_limit": BILLING_LIMITED, "flag_called_during_run": False},
+                ExperimentHealthFindingCode.BILLING_LIMIT,
+            ),
+            (
+                "billing_limit_on_a_custom_exposure_event",
+                {
+                    **_events("checkout_viewed", {"checkout_viewed": True}),
+                    "events_billing_limit": BILLING_LIMITED,
+                    "flag_called_during_run": False,
+                },
+                ExperimentHealthFindingCode.BILLING_LIMIT,
+            ),
         ]
     )
     def test_one_check_reports_an_experiment_without_exposures(
@@ -835,6 +884,7 @@ class TestEvaluate(TestCase):
         reporting = {finding.code for finding in health.findings} & {
             ExperimentHealthFindingCode.ZERO_EXPOSURES,
             ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+            ExperimentHealthFindingCode.BILLING_LIMIT,
         }
         zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
         self.assertEqual(
