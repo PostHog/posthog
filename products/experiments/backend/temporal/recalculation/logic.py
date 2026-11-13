@@ -1,6 +1,6 @@
 """Synchronous implementation for the metrics recalculation activities.
 
-The thin ``@temporalio.activity.defn`` entrypoints live in ``recalculation_activities`` and delegate here. This
+The thin ``@temporalio.activity.defn`` entrypoints live in ``recalculation.activities`` and delegate here. This
 module holds the DB-touching ``_*_sync`` implementations plus the pure helpers they compose from.
 """
 
