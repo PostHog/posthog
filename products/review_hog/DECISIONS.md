@@ -198,6 +198,27 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-13 — performance lens gated by path, changed lines in follow-up prompts, outcomes on the reviews API
+
+- **What.**
+  - The performance and reliability lens reviews a lens part only when the part changes a non-test file on its surface: queries and HogQL, ClickHouse, migrations, caching, Temporal and Celery tasks, ingestion and queues, Rust and Go services, Docker and Terraform (`PERFORMANCE_LENS_PATH_WORDS`, `PERFORMANCE_LENS_EXTENSIONS`, `performance_lens_parts`).
+    The contracts and security lens still runs on every part.
+  - On a follow-up turn that reviews the whole PR, every session's prompt lists the lines changed since the last reviewed head and the levels the `old_code` drop discards elsewhere.
+  - The reviews detail returns each finding's `issue_key` and its `outcome` (the `finding_outcome` artefact the merge sweep writes), so the fate of a published finding is readable per review.
+  - The completed event carries `flash_performance_lens_parts`, and the single-agent fingerprint hashes the gate rule.
+- **Why.** In a sample of recent Standard reviews, the performance lens cost about as much as the main session, none of its findings was must-fix, and most of its candidates dropped as `old_code` or as duplicates.
+  The contracts and security lens found must-fix problems the main session missed, so it stays on every PR.
+  An `old_code` drop happens only on a follow-up turn: the sessions saw the whole PR diff, but dedup keeps a finding below must-fix only near the lines changed since the last review.
+  `lens_priority.md` already limits the lenses to issues the PR causes, and `core.md` excludes bugs the PR did not introduce, so neither covers a PR-caused finding on lines an earlier turn already reviewed.
+- **Why a path rule and not the perspective selector.** The selector is an LLM call per chunk on the pipeline, and a Standard turn has no chunks or chunk types.
+  `owners.yaml` routing (the devex lens) names teams, not code shapes, and is specific to this repository.
+  A path rule is deterministic and works on any repository.
+- **Why the activity decides.** A field on `ReviewMeta` read by the workflow changes the commands of a history an older worker recorded during a rolling deploy.
+  `lens_review_activity` returns `False` before the sandbox instead, so the command sequence is unchanged and no patch is needed.
+- **`resolution` and `latest_resolution` are not outcomes.** They describe the Resolve stage's runs, and they are null wherever no Resolve run queued threads, because `resolve_comments` is off by default.
+- **Known gaps.** Outcomes need the project's GitHub data warehouse source to see merges, and a PR closed without merging gets no outcome.
+  Dropped findings carry no outcome. The gate's words can miss a hot path with a generic name; tune the word set and watch `flash_performance_lens_parts` against must-fix findings on the remaining lens.
+
 ### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, pilot failed three bars)
 
 - **What.** A Standard turn adds one lens session, `DEVEX_LENS` (`lens_devex.md`, pass 2003), when the PR changes a file the devex team owns and `reviewhog-devex-lens` is on for the PR.
