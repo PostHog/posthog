@@ -1,8 +1,4 @@
-import { useActions } from 'kea'
-
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@posthog/quill'
-
-import { dashboardsModel } from '~/models/dashboardsModel'
 
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
 import { QuillDashboardTileGroupMenuItems } from './QuillDashboardTileGroupMenuItems'
@@ -19,14 +15,12 @@ export function QuillDashboardTileGroupContextMenu({
     children,
     ...actions
 }: QuillDashboardTileGroupContextMenuProps): JSX.Element {
-    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
-
     if (!hasTileGroupMenuActions(actions)) {
         return <span className={className}>{children}</span>
     }
 
     return (
-        <ContextMenu onOpenChange={(open) => open && actions.onCopyToDashboard && loadDashboardsIfNeeded()}>
+        <ContextMenu>
             <ContextMenuTrigger
                 render={
                     <span

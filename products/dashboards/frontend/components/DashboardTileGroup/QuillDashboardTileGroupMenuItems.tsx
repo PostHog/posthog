@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions } from 'kea'
 
 import {
     DropdownMenuItem,
@@ -9,28 +9,33 @@ import {
 } from '@posthog/quill'
 
 import { QuillDashboardWidgetPlacementMenu } from 'lib/components/Cards/InsightCard/QuillDashboardWidgetPlacementMenu'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
-import { type DashboardTileGroupMenuActions, TILE_GROUP_MENU_ITEMS } from './DashboardTileGroupMenuOverlay'
+import { type DashboardTileGroupMenuActions, useTileGroupMenuRows } from './DashboardTileGroupMenuOverlay'
 
 // Base UI's context menu is built from the same menu parts, so these rows render in both the dropdown and the context menu.
-export function QuillDashboardTileGroupMenuItems({
-    groupDisplay,
-    addTileOptions,
-    onStartRename,
-    onRemove,
-    groupHasTiles,
-    onChangeGroupDisplay,
-    copyToDestinations,
-    onCopyToDashboard,
-    copyLoading,
-}: DashboardTileGroupMenuActions): JSX.Element {
-    // Each rename sends every group, so a second rename before the first saves would undo it.
-    const { dashboardLoading: dashboardSaving } = useValues(dashboardsModel)
-    const { renameLabel, removeLabel, copyLabel, copyNoun, switchTo, switchLabel } = TILE_GROUP_MENU_ITEMS[groupDisplay]
-    const savingReason = dashboardSaving ? 'Saving dashboard changes' : undefined
-    const hasEditItems = !!onStartRename || !!onRemove
+export function QuillDashboardTileGroupMenuItems(actions: DashboardTileGroupMenuActions): JSX.Element {
+    const { addTileOptions, onStartRename, onRemove, onChangeGroupDisplay, onCopyToDashboard } = actions
+    const {
+        labels: { renameLabel, removeLabel, copyLabel, switchTo, switchLabel },
+        savingReason,
+        removeDisabledReason,
+        copyDestinations,
+        onSelectCopyDestination,
+        separatorAfterAdd,
+        separatorAfterEdit,
+        separatorAfterCopy,
+    } = useTileGroupMenuRows(actions)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
+
+    // The copy row shows "No other dashboards" until the list loads, so start loading as soon as the menu opens.
+    useOnMountEffect(() => {
+        if (onCopyToDashboard) {
+            loadDashboardsIfNeeded()
+        }
+    })
 
     return (
         <>
@@ -52,7 +57,7 @@ export function QuillDashboardTileGroupMenuItems({
                             ))}
                         </DropdownMenuSubContent>
                     </DropdownMenuSub>
-                    {(hasEditItems || onCopyToDashboard || onChangeGroupDisplay) && <DropdownMenuSeparator />}
+                    {separatorAfterAdd && <DropdownMenuSeparator />}
                 </>
             )}
             {onStartRename && (
@@ -68,27 +73,22 @@ export function QuillDashboardTileGroupMenuItems({
                 <DropdownMenuItem
                     variant="destructive"
                     onClick={onRemove}
-                    disabledReason={
-                        savingReason ??
-                        (groupHasTiles ? `Move this ${copyNoun}'s tiles out before deleting it` : undefined)
-                    }
+                    disabledReason={removeDisabledReason}
                     data-attr="dashboard-tile-group-menu-remove"
                 >
                     {removeLabel}
                 </DropdownMenuItem>
             )}
-            {hasEditItems && (onCopyToDashboard || onChangeGroupDisplay) && <DropdownMenuSeparator />}
+            {separatorAfterEdit && <DropdownMenuSeparator />}
             {onCopyToDashboard && (
                 <>
                     <QuillDashboardWidgetPlacementMenu
                         label={copyLabel}
-                        destinations={(copyToDestinations ?? []).map((destination) =>
-                            copyLoading ? { ...destination, disabledReason: `Copying ${copyNoun}` } : destination
-                        )}
-                        onSelect={({ id, name }) => onCopyToDashboard(id, name || 'Untitled')}
+                        destinations={copyDestinations}
+                        onSelect={onSelectCopyDestination}
                         emptyDisabledReason="No other dashboards"
                     />
-                    {onChangeGroupDisplay && <DropdownMenuSeparator />}
+                    {separatorAfterCopy && <DropdownMenuSeparator />}
                 </>
             )}
             {onChangeGroupDisplay && (

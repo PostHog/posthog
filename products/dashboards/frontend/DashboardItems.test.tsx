@@ -850,11 +850,9 @@ describe('DashboardItems', () => {
                 logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
             )
 
-            const { container, getByText, findByText, findByDisplayValue, rerender, unmount } = render(
-                <DashboardItems />
-            )
+            const { container, findByText, findByDisplayValue, rerender, unmount } = render(<DashboardItems />)
             if (opener === 'right-click') {
-                fireEvent.contextMenu(getByText('Plans'))
+                fireEvent.contextMenu(within(container).getByText('Plans'))
             } else {
                 fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
             }
