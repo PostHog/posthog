@@ -15,6 +15,31 @@ const cdpEmailSuppressionTotal = new Counter({
     labelNames: ['result'],
 })
 
+const SUPPRESSION_WRITE_OPERATIONS = [
+    'transient_bounce',
+    'hard_bounce',
+    'global_hard_bounce',
+    'complaint',
+    'delivery_reset',
+    'global_hard_bounce_clear',
+    'global_hard_bounce_copy',
+    'global_hard_bounce_release',
+] as const
+
+const cdpEmailSuppressionWriteFailures = new Counter({
+    name: 'cdp_email_suppression_write_failures_total',
+    help: 'Suppression-list writes that failed, by operation. `transient_bounce`, `hard_bounce`, `complaint` = recording a bounce or complaint on the team list; `global_hard_bounce` = recording a hard bounce on the global list; `delivery_reset` = resetting soft-bounce counts after a delivery; `global_hard_bounce_clear` = ending a global entry after a delivery; `global_hard_bounce_copy` = copying a global entry to the team list; `global_hard_bounce_release` = releasing such a copy once the global entry ends.',
+    labelNames: ['operation'],
+})
+
+for (const operation of SUPPRESSION_WRITE_OPERATIONS) {
+    cdpEmailSuppressionWriteFailures.inc({ operation }, 0)
+}
+
+const countFailedWrite = (operation: (typeof SUPPRESSION_WRITE_OPERATIONS)[number]): void => {
+    cdpEmailSuppressionWriteFailures.inc({ operation })
+}
+
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
 const EVENT_ID_MAX_LENGTH = 128
@@ -313,6 +338,7 @@ export class EmailSuppressionService {
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
+            countFailedWrite('transient_bounce')
             logger.error('[EmailSuppression] Failed to record transient bounces', { teamId, error })
             if (throwOnFailure) {
                 throw error
@@ -344,6 +370,7 @@ export class EmailSuppressionService {
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
+            countFailedWrite('hard_bounce')
             logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
             if (throwOnFailure) {
                 throw error
@@ -448,6 +475,7 @@ export class EmailSuppressionService {
                 )
             }
         } catch (error) {
+            countFailedWrite('global_hard_bounce')
             logger.error('[EmailSuppression] Failed to record global hard bounces', { error })
             if (throwOnFailure) {
                 throw error
@@ -532,6 +560,7 @@ export class EmailSuppressionService {
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
+            countFailedWrite('complaint')
             logger.error('[EmailSuppression] Failed to record complaints', { teamId, error })
             if (throwOnFailure) {
                 throw error
@@ -582,6 +611,7 @@ export class EmailSuppressionService {
             )
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
+            countFailedWrite('delivery_reset')
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
             if (throwOnFailure) {
                 throw error
@@ -622,6 +652,7 @@ export class EmailSuppressionService {
                 cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_cleared' }, cleared)
             }
         } catch (error) {
+            countFailedWrite('global_hard_bounce_clear')
             logger.error('[EmailSuppression] Failed to clear global hard bounces on delivery', { teamId, error })
             if (throwOnFailure) {
                 throw error
@@ -767,6 +798,7 @@ export class EmailSuppressionService {
             try {
                 await this.upsertHardBounces(teamId, identifiers, GLOBAL_HARD_BOUNCE_DIAGNOSTIC, { keepRemoved: true })
             } catch (error) {
+                countFailedWrite('global_hard_bounce_copy')
                 logger.error('[EmailSuppression] Failed to copy global hard bounces to the team list', {
                     teamId,
                     error,
@@ -792,6 +824,7 @@ export class EmailSuppressionService {
                     'releaseGlobalHardBounceCopies'
                 )
             } catch (error) {
+                countFailedWrite('global_hard_bounce_release')
                 logger.error('[EmailSuppression] Failed to release copied global hard bounces', { teamId, error })
             }
         }

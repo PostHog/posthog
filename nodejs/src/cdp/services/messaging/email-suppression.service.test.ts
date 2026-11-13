@@ -1,4 +1,5 @@
 import { Client } from 'pg'
+import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -986,6 +987,127 @@ describe('EmailSuppressionService', () => {
             }
             const enforcing = new EmailSuppressionService(hub.postgres, { ...config, globalHardBounceEnforce: true })
             expect(await enforcing.isSuppressed(team.id, email)).toBe(true)
+        })
+    })
+
+    describe('a write the database refuses', () => {
+        const OPERATIONS = [
+            'transient_bounce',
+            'hard_bounce',
+            'global_hard_bounce',
+            'complaint',
+            'delivery_reset',
+            'global_hard_bounce_clear',
+            'global_hard_bounce_copy',
+            'global_hard_bounce_release',
+        ]
+
+        const failedWrites = async (): Promise<Record<string, number>> => {
+            const metric = await register.getSingleMetric('cdp_email_suppression_write_failures_total')?.get()
+            return Object.fromEntries((metric?.values ?? []).map((v) => [String(v.labels.operation), v.value]))
+        }
+
+        const enforcing = (postgres: Pick<PostgresRouter, 'query'>): EmailSuppressionService =>
+            new EmailSuppressionService(postgres, { ...emailSuppressionConfigFromEnv(), globalHardBounceEnforce: true })
+
+        const bounceForAnotherTeam = async (email: string): Promise<void> => {
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+            await enforcing(hub.postgres).recordHardBounces(otherTeamId, [email], 'smtp; 550 5.1.1 user unknown')
+            await enforcing(hub.postgres).recordGlobalHardBounces([email])
+        }
+
+        const copyThenLapse = async (email: string): Promise<void> => {
+            await bounceForAnotherTeam(email)
+            await enforcing(hub.postgres).isSuppressed(team.id, email)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_emailhardbounce
+                 SET first_bounced_at = NOW() - INTERVAL '3 days', last_bounced_at = NOW() - INTERVAL '2 days'
+                 WHERE email = $1`,
+                [email],
+                'test-lapse-global-hard-bounce'
+            )
+        }
+
+        it('exports every operation before the first failure', async () => {
+            expect(Object.keys(await failedWrites()).sort()).toEqual([...OPERATIONS].sort())
+        })
+
+        it.each<
+            [
+                string,
+                Record<string, number>,
+                ((email: string) => Promise<void>) | null,
+                (svc: EmailSuppressionService, email: string) => Promise<unknown>,
+            ]
+        >([
+            [
+                'transient_bounce',
+                { transient_bounce: 1 },
+                null,
+                (svc, email) => svc.recordTransientBounces(team.id, [email]),
+            ],
+            ['hard_bounce', { hard_bounce: 1 }, null, (svc, email) => svc.recordHardBounces(team.id, [email])],
+            [
+                'global_hard_bounce',
+                { global_hard_bounce: 1 },
+                null,
+                (svc, email) => svc.recordGlobalHardBounces([email]),
+            ],
+            ['complaint', { complaint: 1 }, null, (svc, email) => svc.recordComplaints(team.id, [email])],
+            [
+                'delivery_reset',
+                { delivery_reset: 1 },
+                null,
+                (svc, email) => svc.recordDeliveries(team.id, [email], new Date().toISOString()),
+            ],
+            [
+                'global_hard_bounce_clear',
+                { delivery_reset: 1, global_hard_bounce_clear: 1 },
+                bounceForAnotherTeam,
+                (svc, email) => svc.recordDeliveries(team.id, [email], new Date().toISOString(), { clearGlobal: true }),
+            ],
+            [
+                'global_hard_bounce_copy',
+                { global_hard_bounce_copy: 1 },
+                bounceForAnotherTeam,
+                (svc, email) => svc.isSuppressed(team.id, email),
+            ],
+            [
+                'global_hard_bounce_release',
+                { global_hard_bounce_release: 1 },
+                copyThenLapse,
+                (svc, email) => svc.isSuppressed(team.id, email),
+            ],
+        ])('counts a failed %s write and still returns', async (operation, expected, setup, write) => {
+            const email = `refused-${operation}-${team.id}@example.com`
+            await setup?.(email)
+            const impatientUrl = new URL(hub.DATABASE_URL)
+            impatientUrl.searchParams.set('options', '-c lock_timeout=100')
+            const impatient = new PostgresRouter({
+                DATABASE_URL: impatientUrl.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
+            const holder = new Client({ connectionString: hub.DATABASE_URL })
+            await holder.connect()
+            const before = await failedWrites()
+            try {
+                await holder.query('BEGIN')
+                await holder.query('LOCK TABLE posthog_messagesuppression, posthog_emailhardbounce IN EXCLUSIVE MODE')
+
+                await write(enforcing(impatient), email)
+            } finally {
+                await holder.end()
+                await impatient.end()
+            }
+
+            const after = await failedWrites()
+            const moved = Object.fromEntries(
+                Object.entries(after)
+                    .map(([label, value]) => [label, value - (before[label] ?? 0)])
+                    .filter(([, delta]) => delta !== 0)
+            )
+            expect(moved).toEqual(expected)
         })
     })
 })
