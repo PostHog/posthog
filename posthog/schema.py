@@ -1747,6 +1747,33 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
     events: list[str]
 
 
+class ErrorTrackingIssueTag(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str = Field(..., description="What the tag means, for a tooltip.")
+    key: str = Field(..., description="Key of the tag definition.")
+    label: str = Field(..., description="Short name of the tag.")
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results send null."
+        ),
+    )
+
+
+class ErrorTrackingIssueTagFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    applied: bool = Field(
+        ...,
+        description=("True matches the issues the tag is applied to. False matches every other issue."),
+    )
+    key: str = Field(..., description="Key of the tag definition.")
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3426,6 +3453,7 @@ class ResultCustomizationByValue(BaseModel):
     color: DataColorToken | None = None
     customColor: str | None = None
     hidden: bool | None = None
+    label: str | None = None
 
 
 class RetentionValue(BaseModel):
@@ -19720,6 +19748,13 @@ class ErrorTrackingIssue(BaseModel):
     severity: ErrorTrackingQueryIssueSeverity | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingIssueEventsQueryResponse(BaseModel):
@@ -19853,6 +19888,13 @@ class ErrorTrackingRelationalIssue(BaseModel):
     name: str | None = None
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingReleasesQueryResponse(BaseModel):
@@ -32801,6 +32843,13 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     population: Population
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingFingerprintProjectionQuery(BaseModel):
@@ -36948,6 +36997,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
+    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+        default=None,
+        description=(
+            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+        ),
+    )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
