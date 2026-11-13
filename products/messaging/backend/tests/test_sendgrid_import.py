@@ -598,6 +598,12 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             "{% raw %}{{ person.properties.secret }}{% endraw %} {% raw %}{{ x }}{% endraw %}"
         )
 
+    def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
+        converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})
+
+        assert converted.html == '<p>{{ "{{" }}helper endraw" | append: person.properties.secret}}</p>'
+        assert converted.text == '{{ "{{" }}helper endraw" | append: person.properties.secret}}'
+
     def test_plain_text_source_cannot_stand_in_for_a_held_tag(self) -> None:
         text = plain_text_from_html("<p>{% raw %}{{ person.properties.secret }}{% endraw %} \x011\x01</p>")
 

@@ -1003,7 +1003,13 @@ _HTML_LINK = re.compile(
 )
 _HTML_LINE_BREAK = re.compile(r"<br\s*/?>|</(?:p|div|tr|li|h[1-6]|table|ul|ol)\s*>", re.IGNORECASE)
 _HTML_TAG = re.compile(r"<[^<>]*>")
-_LIQUID_TAG = re.compile(r"\{\{(?:(?!\{\{).){0,2000}?\}\}|\{%(?:(?!\{%).){0,2000}?%\}", re.DOTALL)
+# A quoted string is one piece, so the `{{` inside `{{ "{{" }}` doesn't start a tag of its own. Atomic groups keep
+# a quote from being retried as a plain character, which would make long runs of quotes slow.
+_LIQUID_TAG = re.compile(
+    r"\{\{(?>\"[^\"]{0,2000}\"|'[^']{0,2000}'|(?!\{\{).){0,2000}?\}\}"
+    r"|\{%(?>\"[^\"]{0,2000}\"|'[^']{0,2000}'|(?!\{%).){0,2000}?%\}",
+    re.DOTALL,
+)
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
 _RAW_OPEN = re.compile(r"\{%-?\s*raw\s*-?%\}")
 _RAW_CLOSE = re.compile(r"\{%-?\s*endraw\s*-?%\}")
