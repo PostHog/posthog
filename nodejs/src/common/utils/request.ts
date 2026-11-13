@@ -415,9 +415,17 @@ function admitNewConnection(hostname: string, addresses: LookupAddress[]): Looku
             })
         }
     }
+    // A DNS answer can repeat an address, and each address may only take one token.
+    const admittedAddresses = new Map<string, boolean>(admitted ? [[admitted, true]] : [])
     const kept = addresses.filter((_, index) => {
         const address = natAddresses[index]
-        return address === null || address === admitted || connectionRateLimiter.tryTake(address)
+        if (address === null) {
+            return true
+        }
+        if (!admittedAddresses.has(address)) {
+            admittedAddresses.set(address, connectionRateLimiter.tryTake(address))
+        }
+        return admittedAddresses.get(address)
     })
     if (!enforced) {
         return addresses
