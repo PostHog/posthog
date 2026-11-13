@@ -24,6 +24,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { hogFunctionTemplatesRetrieve } from 'products/cdp/frontend/generated/api'
+
 import { FLAG_CALLS_NOT_LOADABLE } from '../filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
@@ -32,10 +34,14 @@ jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
     hogFunctions: {
         get: jest.fn(),
-        getTemplate: jest.fn(),
         update: jest.fn(),
         create: jest.fn(),
     },
+}))
+
+jest.mock('products/cdp/frontend/generated/api', () => ({
+    ...jest.requireActual('products/cdp/frontend/generated/api'),
+    hogFunctionTemplatesRetrieve: jest.fn(),
 }))
 
 jest.mock('~/queries/query', () => ({
@@ -51,6 +57,8 @@ jest.mock('../sampleEventsQuery', () => ({
 // the mock api object
 
 const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
+// The logic reads the generated template as the handwritten `HogFunctionTemplateType`, so the fixtures use that shape.
+const mockGetTemplate = hogFunctionTemplatesRetrieve as unknown as jest.Mock<Promise<HogFunctionTemplateType>>
 
 const HOG_TEMPLATE: HogFunctionTemplateType = {
     free: false,
@@ -151,7 +159,7 @@ describe('hogFunctionConfigurationLogic', () => {
         beforeEach(() => {
             initKeaTests()
 
-            mockApi.getTemplate.mockReturnValue(Promise.resolve(HOG_TEMPLATE))
+            mockGetTemplate.mockReturnValue(Promise.resolve(HOG_TEMPLATE))
             mockApi.create.mockReturnValue(Promise.resolve(HOG_FUNCTION))
             mockApi.update.mockReturnValue(Promise.resolve(HOG_FUNCTION))
 
@@ -247,7 +255,7 @@ describe('hogFunctionConfigurationLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            mockApi.getTemplate.mockReturnValue(Promise.resolve(LOG_TEMPLATE))
+            mockGetTemplate.mockReturnValue(Promise.resolve(LOG_TEMPLATE))
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()
         })
@@ -297,7 +305,7 @@ describe('hogFunctionConfigurationLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            mockApi.getTemplate.mockResolvedValue(TEMPLATE_WITH_DEFAULT_FILTERS)
+            mockGetTemplate.mockResolvedValue(TEMPLATE_WITH_DEFAULT_FILTERS)
         })
 
         it.each([
@@ -334,7 +342,7 @@ describe('hogFunctionConfigurationLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            mockApi.getTemplate.mockResolvedValue(TEMPLATE_WITH_SECRETS)
+            mockGetTemplate.mockResolvedValue(TEMPLATE_WITH_SECRETS)
             mockApi.create.mockResolvedValue(HOG_FUNCTION)
         })
 
@@ -499,7 +507,7 @@ describe('hogFunctionConfigurationLogic', () => {
                 actions: [{ id: '99', name: 'Globally configured action', type: 'actions' }],
                 properties: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
             }
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 filters: globalFilters,
                 mapping_templates: [
@@ -545,7 +553,7 @@ describe('hogFunctionConfigurationLogic', () => {
         })
 
         it('matches every event for an all-events mapping', async () => {
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 mapping_templates: [
                     {
@@ -576,7 +584,7 @@ describe('hogFunctionConfigurationLogic', () => {
         })
 
         it('matches every event when a mapping has no event or action matchers', async () => {
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 mapping_templates: [
                     {
@@ -610,7 +618,7 @@ describe('hogFunctionConfigurationLogic', () => {
             const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
                 { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
             ]
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 filters: { properties: globalProperties },
                 mapping_templates: [
@@ -658,11 +666,11 @@ describe('hogFunctionConfigurationLogic', () => {
         })
 
         it.each([
-            { case: 'function', props: { id: 'missing-id' }, mockFn: 'get', loader: 'loadHogFunction' },
+            { case: 'function', props: { id: 'missing-id' }, mockFn: mockApi.get, loader: 'loadHogFunction' },
             {
                 case: 'template',
                 props: { templateId: 'template-missing' },
-                mockFn: 'getTemplate',
+                mockFn: mockGetTemplate,
                 loader: 'loadTemplate',
             },
         ] as const)(
@@ -670,7 +678,7 @@ describe('hogFunctionConfigurationLogic', () => {
             async ({ props, mockFn, loader }) => {
                 // A cross-project deep link or a bad template id 404s here; the loader must swallow it rather
                 // than reject, which would surface as an unhandled rejection in error tracking.
-                mockApi[mockFn].mockRejectedValue(new ApiError('Not found', 404))
+                mockFn.mockRejectedValue(new ApiError('Not found', 404))
                 logic = hogFunctionConfigurationLogic(props)
                 logic.mount()
 
@@ -682,10 +690,15 @@ describe('hogFunctionConfigurationLogic', () => {
         )
 
         it.each([
-            { case: 'function', props: { id: 'boom-id' }, mockFn: 'get', loader: 'loadHogFunction' },
-            { case: 'template', props: { templateId: 'template-boom' }, mockFn: 'getTemplate', loader: 'loadTemplate' },
+            { case: 'function', props: { id: 'boom-id' }, mockFn: mockApi.get, loader: 'loadHogFunction' },
+            {
+                case: 'template',
+                props: { templateId: 'template-boom' },
+                mockFn: mockGetTemplate,
+                loader: 'loadTemplate',
+            },
         ] as const)('still rejects a $case load on non-404 errors', async ({ props, mockFn, loader }) => {
-            mockApi[mockFn].mockRejectedValue(new ApiError('Boom', 500))
+            mockFn.mockRejectedValue(new ApiError('Boom', 500))
             logic = hogFunctionConfigurationLogic(props)
             logic.mount()
 
@@ -746,7 +759,7 @@ describe('hogFunctionConfigurationLogic', () => {
             mode: FlagEvaluationsModeEnumApi,
             events: CyclotronJobFilterEvents[] = [FLAG_CALLED]
         ): void {
-            mockApi.getTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
+            mockGetTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()
