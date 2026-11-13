@@ -189,7 +189,7 @@ return response.body
                 { label: 'Turn off', value: 'off' },
             ],
             description:
-                'For widget tickets. Turning this on emails the customer a confirmation message. After they reply to it, your replies on the ticket are also sent by email, and their email replies are added to the ticket. Leave empty to keep the current setting.',
+                'For widget tickets. Turning this on emails the customer a confirmation message. After they reply to it, your replies on the ticket are sent by email, and their email replies are added to the ticket. In the widget, those replies then show only to a customer who is logged in with that email address. Leave empty to keep the current setting.',
         },
     ],
 }

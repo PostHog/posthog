@@ -192,7 +192,7 @@
         {
             "id": "action_function_0253b6d9-c1f8-4c24-a5e6-669599d23694",
             "name": "Turn on email delivery",
-            "description": "Emails the customer a confirmation message. After they reply to it, your replies on the ticket are also sent by email, and their email replies are added to the ticket.",
+            "description": "Emails the customer a confirmation message. After they reply to it, your replies on the ticket are sent by email, and their email replies are added to the ticket.",
             "on_error": null,
             "created_at": 1794441600000,
             "updated_at": 1794441600000,

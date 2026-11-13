@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Case, F, Q, When
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -28,7 +28,7 @@ from .events import (
     capture_ticket_created,
 )
 from .models import ConversationDeliveryPart, SigningSecret, Ticket
-from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel
+from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel, EmailDelivery
 from .services.delivery import enqueue_slack_body_delivery
 from .services.email_delivery import enqueue_email_reply, ticket_delivering_replies_by_email
 from .services.messages import is_outbound_reply, is_private_message, visible_ticket_messages
@@ -226,7 +226,14 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         }
 
         if is_team_message:
-            update_fields["unread_customer_count"] = F("unread_customer_count") + 1
+            # A reply delivered by email is not shown to a widget session, so it must not raise its unread count.
+            update_fields["unread_customer_count"] = Case(
+                When(
+                    ~Q(channel_source=Channel.EMAIL) & Q(email_delivery=EmailDelivery.ACTIVE),
+                    then=F("unread_customer_count"),
+                ),
+                default=F("unread_customer_count") + 1,
+            )
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
@@ -460,7 +467,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # checked here: every customer-facing reply on an email ticket gets an outbox row, and
     # _process_outbox_row fails undeliverable ones with a reason. Skipping row creation instead
     # would leave the reply looking sent in the agent UI, with no record of why nothing went out.
-    enqueue_email_reply(ticket, comment)
+    enqueue_email_reply(ticket, comment, written_for_confirmed_address=ticket.channel_source != Channel.EMAIL)
 
 
 @receiver(post_save, sender=Comment)

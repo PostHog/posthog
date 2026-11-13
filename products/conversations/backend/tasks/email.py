@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from email.utils import formataddr
+from typing import Any
 from uuid import UUID
 
 from django.core import mail
@@ -49,9 +50,8 @@ EMAIL_OUTBOX_MAX_AGE = timedelta(days=5)  # give up past this (comfortably > a F
 EMAIL_OUTBOX_FLUSH_BATCH_SIZE = 100
 
 
-def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str) -> None:
-    """Denormalize delivery status onto the comment's item_context so the agent UI can
-    show a sending/failed badge. Uses a queryset update to avoid re-firing Comment signals.
+def merge_comment_context(team_id: int, comment_id: UUID, values: dict[str, Any]) -> None:
+    """Set keys on a comment's item_context. Uses a queryset update to avoid re-firing Comment signals.
 
     Merges at the DB level (JSONB ``||``) rather than read-modify-write: a concurrent
     edit to another key (e.g. an agent flipping ``is_private``) must not be clobbered.
@@ -59,12 +59,18 @@ def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: s
     """
     merged = models.Func(
         Coalesce("item_context", models.Value({}, output_field=JSONField())),
-        models.Value({"email_delivery_status": status_value}, output_field=JSONField()),
+        models.Value(values, output_field=JSONField()),
         template="%(expressions)s",
         arg_joiner=" || ",
         output_field=JSONField(),
     )
     CommentModel.objects.filter(id=comment_id, team_id=team_id).update(item_context=merged)
+
+
+def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str) -> None:
+    """Denormalize delivery status onto the comment's item_context so the agent UI can
+    show a sending/failed badge."""
+    merge_comment_context(team_id, comment_id, {"email_delivery_status": status_value})
 
 
 def _mark_outbox_sent(outbox: EmailOutboxMessage) -> None:

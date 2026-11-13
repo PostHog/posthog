@@ -214,6 +214,8 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
             self._team_reply("Shown in the widget")
         with self.captureOnCommitCallbacks(execute=True):
             self._email_from(CUSTOMER_EMAIL, in_reply_to=confirmation.message_id)
+        with self.captureOnCommitCallbacks(execute=True):
+            self._team_reply("Written for the confirmed address")
         EmailChannel.objects.filter(id=self.config.id).delete()
         session = f"widget_session_id={self.ticket.widget_session_id}"
 
@@ -224,9 +226,11 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
             f"/api/conversations/v1/widget/tickets?{session}", HTTP_X_CONVERSATIONS_TOKEN=widget_token
         )
 
-        assert Ticket.objects.get(id=self.ticket.id).last_message_text == "Yes, email me"
+        assert Ticket.objects.get(id=self.ticket.id).last_message_text == "Written for the confirmed address"
         assert [message["content"] for message in messages.json()["messages"]] == ["Shown in the widget"]
-        assert [ticket["last_message"] for ticket in tickets.json()["results"]] == ["Shown in the widget"]
+        assert [(ticket["last_message"], ticket["unread_count"]) for ticket in tickets.json()["results"]] == [
+            ("Shown in the widget", 1)
+        ]
 
     def test_replies_behind_many_customer_messages_are_still_emailed_on_confirmation(self):
         confirmation = self._request_and_send_confirmation()

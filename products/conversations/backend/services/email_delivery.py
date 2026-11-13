@@ -40,11 +40,16 @@ from products.conversations.backend.services.email_confirmation import (
     new_confirmation_message_id,
 )
 from products.conversations.backend.services.messages import (
+    DELIVERED_BY_EMAIL_CONTEXT_KEY,
     TICKET_MESSAGE_SCOPE,
     is_outbound_reply,
     visible_ticket_messages,
 )
-from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket, send_email_reply
+from products.conversations.backend.tasks.email import (
+    cancel_pending_email_replies_for_ticket,
+    merge_comment_context,
+    send_email_reply,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -106,13 +111,21 @@ def _message_id_domain(ticket: Ticket) -> str | None:
     return get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)
 
 
-def enqueue_email_reply(ticket: Ticket, comment: Comment, *, message_id: str | None = None) -> EmailOutboxMessage:
+def enqueue_email_reply(
+    ticket: Ticket, comment: Comment, *, message_id: str | None = None, written_for_confirmed_address: bool = False
+) -> EmailOutboxMessage:
     """Queue one ticket message in the email outbox and send it after the transaction commits.
 
     Call this in the transaction that writes the comment, so the durable outbox row commits
     atomically with it. If Celery or the broker is down, the row still exists and
     flush_pending_email_replies sends it.
+
+    `written_for_confirmed_address` marks a reply written after the customer confirmed the
+    address on a ticket from another channel. The agent wrote it for the mailbox owner, so a
+    widget session that has not proved it owns the address no longer reads it.
     """
+    if written_for_confirmed_address:
+        merge_comment_context(ticket.team_id, comment.id, {DELIVERED_BY_EMAIL_CONTEXT_KEY: True})
     if message_id is None:
         domain = _message_id_domain(ticket)
         message_id = make_msgid(domain=domain) if domain else make_msgid()
@@ -251,8 +264,7 @@ def stop_email_delivery(ticket: Ticket) -> str:
     """
     if ticket.channel_source == Channel.EMAIL:
         return ticket.email_delivery_state
-    # Under the ticket lock, so a new request cannot queue its confirmation between the two steps
-    # and have it cancelled.
+    # Under the ticket lock, so a new request cannot have its confirmation cancelled by this one.
     with transaction.atomic():
         locked = Ticket.objects.select_for_update().filter(id=ticket.id, team_id=ticket.team_id).first()
         if locked is not None and locked.email_delivery is not None:

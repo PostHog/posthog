@@ -1199,7 +1199,12 @@ class TestWidgetIdentityVerification(BaseTest):
 
     @parameterized.expand(
         [
-            ("signed_email_and_authenticated_mail", "person@example.com", True, ["From the team", "From the mailbox"]),
+            (
+                "signed_email_and_authenticated_mail",
+                "person@example.com",
+                True,
+                ["From the team", "From the mailbox", "Written for the confirmed address"],
+            ),
             ("no_signed_email", None, True, ["From the team"]),
             ("signed_email_for_another_address", "other@example.com", True, ["From the team"]),
             ("mail_that_failed_sender_authentication", "person@example.com", False, ["From the team"]),
@@ -1231,6 +1236,10 @@ class TestWidgetIdentityVerification(BaseTest):
                     "email_from": "earlier@example.com",
                     "email_sender_authenticated": True,
                 },
+            ),
+            (
+                "Written for the confirmed address",
+                {"author_type": "support", "is_private": False, "delivered_by_email": True},
             ),
         ]:
             Comment.objects.create(

@@ -20,7 +20,7 @@ export function TicketEmailDelivery({ ticket }: TicketEmailDeliveryProps): JSX.E
                     <span className="text-xs truncate" title={ticket.email_from}>
                         {ticket.email_from}
                     </span>
-                    <Tooltip title="Email confirmed. The customer replied to the confirmation email from this address, and replies on this ticket are also emailed to it.">
+                    <Tooltip title="Email confirmed. The customer replied to the confirmation email from this address. Replies on this ticket are emailed to it. In the widget, they show only to a customer who is logged in with this address.">
                         <span className="text-success text-base shrink-0 flex" aria-label="Email confirmed">
                             <IconCheckCircle />
                         </span>

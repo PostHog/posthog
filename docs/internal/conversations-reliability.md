@@ -153,6 +153,7 @@ A reply to the latest confirmation email from the ticket's address sets the stat
 An auto-reply does not count, and neither does a reply to any other message in the thread or a reply that fails sender authentication.
 Turning delivery off cancels the emails still queued for the ticket.
 An address gets at most three confirmation emails per team in 24 hours.
+A team reply written while delivery is active is marked `delivered_by_email`. A widget session does not read it and it does not raise the widget's unread count.
 An email that lands on a widget ticket is shown in the inbox and is not returned to a widget session, because the session has not proved it owns the mailbox.
 A widget viewer reads those emails under the conditions of the email bridge: a signed email claim equal to the ticket's address, and mail from that address that passed sender authentication.
 The send path checks the state again right before each send, so a reply queued while delivery was active is not sent after delivery is turned off.
