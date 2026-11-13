@@ -87,7 +87,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -1906,6 +1906,11 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
             alert.last_value = None  # type: ignore[attr-defined]
 
 
+def _viewable_insights(user_access_control: UserAccessControl, team_id: int) -> QuerySet[Insight]:
+    """The team's insights the user may view, which gate every read of an alert or its results."""
+    return user_access_control.filter_queryset_by_access_level(Insight.objects.filter(team_id=team_id))
+
+
 class AlertCheckHistoryUnavailable(APIException):
     status_code = 503
     default_code = "alert_check_history_unavailable"
@@ -2220,7 +2225,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _viewable_insights(self) -> QuerySet[Insight]:
         """The team's insights the user may view, which gate every alert read."""
-        return self.user_access_control.filter_queryset_by_access_level(Insight.objects.filter(team_id=self.team_id))
+        return _viewable_insights(self.user_access_control, self.team_id)
 
     def _native_alert(self) -> AlertConfiguration | None:
         try:
@@ -2848,7 +2853,5 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
         # The embedded alerts carry the insight's results, as the alert API's do, so the same gate on
         # viewer access to the insight applies.
-        viewable = self.user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team_id=self.team_id)
-        )
+        viewable = _viewable_insights(self.user_access_control, self.team_id)
         return queryset.filter(insight_id__in=viewable.values("id"))
