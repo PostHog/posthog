@@ -6,4 +6,5 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class MoneybirdSourceConfig(config.Config):
-    pass
+    api_token: str
+    administration_id: str

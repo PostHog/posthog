@@ -152,6 +152,20 @@ end
 return 0
 `
 
+const REFUND_CLAIM_SPEND_LUA = `
+local claimKey = KEYS[#KEYS]
+if redis.call('hget', claimKey, 'spent') ~= ARGV[1] then
+    return 0
+end
+for i = 1, #KEYS - 1 do
+    if redis.call('exists', KEYS[i]) == 1 then
+        redis.call('hincrbyfloat', KEYS[i], 'pool', ARGV[i + 1])
+    end
+end
+redis.call('del', claimKey)
+return 1
+`
+
 const CLAIM_ALL_OR_NOTHING_ACROSS_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
@@ -213,6 +227,7 @@ export const CLAIM_DEADLINE_MS = 2_000
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
+    claimDeadlineMs?: number
 }
 
 export interface ClaimRequest {
@@ -284,6 +299,37 @@ export class RateLimiterService {
 
     public async releaseClaimSpend(claim: { key: string; attempt: string }): Promise<boolean> {
         return await this.evalClaimMark('releaseClaimSpend', RELEASE_CLAIM_SPEND_LUA, claim)
+    }
+
+    public async refundClaimSpend(
+        claim: { key: string; attempt: string },
+        buckets: Pick<ClaimRequest, 'key' | 'requested'>[]
+    ): Promise<boolean> {
+        try {
+            const result = await this.valkey.useClient(
+                {
+                    name: `rate-limiter:${this.config.name}:refundClaimSpend`,
+                    timeout: 1000,
+                    deadlineMs: CLAIM_DEADLINE_MS,
+                },
+                (client) =>
+                    client.eval(
+                        REFUND_CLAIM_SPEND_LUA,
+                        buckets.length + 1,
+                        ...buckets.map((bucket) => bucket.key),
+                        claim.key,
+                        claim.attempt,
+                        ...buckets.map((bucket) => String(bucket.requested))
+                    )
+            )
+            return result === 1
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) refundClaimSpend threw`, {
+                key: claim.key,
+                error: String(err),
+            })
+            return false
+        }
     }
 
     private async evalClaimMark(
@@ -392,7 +438,11 @@ export class RateLimiterService {
             // useClient throws on error (failOpen unset), so the catch block
             // handles Valkey reachability — no need for a null-result branch.
             const result = await this.valkey.useClient(
-                { name: `rate-limiter:${this.config.name}:claimUpTo`, timeout: 1000 },
+                {
+                    name: `rate-limiter:${this.config.name}:claimUpTo`,
+                    timeout: 1000,
+                    deadlineMs: this.config.claimDeadlineMs,
+                },
                 (client) =>
                     client.eval(
                         CLAIM_UP_TO_LUA,

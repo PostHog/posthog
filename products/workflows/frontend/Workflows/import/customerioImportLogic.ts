@@ -9,6 +9,7 @@ import { workflowImportsCreate } from 'products/workflows/frontend/generated/api
 import { WorkflowImportResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { WorkflowImportResultApi } from '../../generated/api.schemas'
+import type { WorkflowImportSegmentCohortApi } from '../../generated/api.schemas'
 import { workflowsLogic } from '../workflowsLogic'
 import { ParsedCustomerioFile, parseCustomerioFiles } from './customerioImportFile'
 
@@ -65,6 +66,7 @@ export interface customerioImportLogicActions {
             content_fetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
+            segment_cohorts: WorkflowImportSegmentCohortApi[]
         } | null,
         payload?: {
             dryRun: boolean
@@ -74,6 +76,7 @@ export interface customerioImportLogicActions {
             content_fetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
+            segment_cohorts: WorkflowImportSegmentCohortApi[]
         } | null
         payload?: {
             dryRun: boolean

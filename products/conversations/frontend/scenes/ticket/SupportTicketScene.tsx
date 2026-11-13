@@ -515,6 +515,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
                                 </div>
                             )}
+                            {ticket?.intercom_conversation_id && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">Intercom ID</span>
+                                    <LemonTag type="highlight">#{ticket.intercom_conversation_id}</LemonTag>
+                                </div>
+                            )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>

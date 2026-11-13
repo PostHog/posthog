@@ -36,8 +36,6 @@ steps:
     - tap: { id: view-range }
     - await: { visible: { id: range-sheet } }
     - tap: { id: range-chip-7d }
-    - await: { idle: true }
-    - tap: { id: sheet-done }
     - await: { hidden: { id: range-sheet } }
     - assert: { text: { in: { id: view-range }, contains: Last 7 days } }
     - await: { hidden: { id: view-range-not-saved } }
@@ -50,8 +48,6 @@ steps:
     - tool: gesture-swipe
       args: { fromX: 0.5, fromY: 0.85, toX: 0.5, toY: 0.35, durationMs: 300 }
     - tap: { id: range-reset }
-    - await: { hidden: { id: range-reset } }
-    - tap: { id: sheet-done }
     - await: { hidden: { id: range-sheet } }
     - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
     - await: { hidden: { id: view-range-not-saved } }
@@ -69,7 +65,7 @@ steps:
       args: { fromX: 0.5, fromY: 0.85, toX: 0.5, toY: 0.35, durationMs: 300 }
     - tap: { id: range-compare }
     - await: { idle: true }
-    - tap: { id: sheet-done }
+    - tap: { id: range-preset-14d }
     - await: { hidden: { id: range-sheet } }
     - await: { visible: { text: Previous period } }
 

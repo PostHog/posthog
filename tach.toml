@@ -296,6 +296,9 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.batch_exports",
+    # Facade-only: the admin replay of failed runs reads workflows through
+    # products.workflows.backend.facade.workflows.
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -553,6 +556,7 @@ depends_on = [
     "products.approvals",
     "products.ai_observability",
     "products.analytics_platform",
+    "products.cdp",
     "products.data_tools",
     "products.event_definitions",
     "products.feature_flags",
@@ -1370,30 +1374,6 @@ from = [
     "products.billing_alerts",
 ]
 
-# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
-# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
-# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
-
-[[interfaces]]
-expose = [
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.recalculation_metrics.*",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_scheduled_recalculation_schedules",
-]
-from = [
-    "products.experiments",
-]
-
 # streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
 
 [[interfaces]]
@@ -1417,7 +1397,6 @@ expose = [
     "backend\\.llm_metric_templates.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
-    "stats\\..*",
 ]
 from = [
     "products.experiments",

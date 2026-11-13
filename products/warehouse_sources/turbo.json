@@ -63,6 +63,7 @@
                 "backend/activity_logging.py",
                 "backend/apps.py",
                 "backend/source_icons.py",
+                "backend/sync_alerts/default_alert.py",
                 "backend/sync_alerts/registration.py",
                 "backend/sync_alerts/wording.py",
                 "backend/temporal/data_imports/person_property_update_consumer.py",
