@@ -18,8 +18,9 @@ import {
     countStaleCommit,
 } from '../cyclotron-v2'
 import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
-import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
-import { JobQueue } from './job-queue.interface'
+import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
+import { CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
+import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 export { extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
@@ -69,7 +70,7 @@ async function settleBefore(deadline: number, work: Promise<unknown>): Promise<b
     }
 }
 
-export class CyclotronJobQueuePostgresV2 implements JobQueue {
+export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
@@ -289,6 +290,27 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         }
     }
 
+    public async queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]> {
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+        const invocations = this.sanitizer.sanitizeInvocations(entries.map((entry) => entry.invocation))
+        return await this.manager.claimJobs(
+            invocations.map((invocation, i) => ({
+                job: invocationToV2JobInit(invocation),
+                fingerprint: entries[i].fingerprint,
+            })),
+            { lockTimeoutMs: IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS }
+        )
+    }
+
+    public async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+        return await this.manager.findIdempotencyKey(id)
+    }
+
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 
@@ -430,12 +452,12 @@ function dueTimeOf(
         : { wait: 'scheduled', dueAt: job.scheduled.toMillis() }
 }
 
-export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
+export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit & { id: string } {
     const init = encodeJob(invocation)
     const sizeKb = (init.state?.length ?? 0) / 1024
     cdpJobSizeKb.labels('postgres-v2').observe(sizeKb)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(sizeKb)
-    return init
+    return { ...init, id: invocation.id }
 }
 
 function releaseOperationOf(result: CyclotronJobInvocationResult): 'fail' | 'cancel' | 'ack' | 'reschedule' {

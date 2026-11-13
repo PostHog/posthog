@@ -35,7 +35,13 @@ import {
 } from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import {
+    EmailStatusReason,
+    EmailStatusService,
+    isKeyedMessageId,
+    isTransactionalEmailSend,
+    messageCreatedAtOf,
+} from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -51,7 +57,11 @@ import {
     removeSuppressedRecipients,
     unquoteMailbox,
 } from './helpers/suppressed-recipients'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    TRACKING_CODE_HEADER_NAME,
+} from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
@@ -1147,6 +1157,7 @@ export class EmailService {
                     status: success ? 'sent' : 'failed',
                     reason: success ? undefined : failureReason,
                     sendingDomain,
+                    messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
             }
         }
@@ -1544,6 +1555,9 @@ export class EmailService {
             { ...result.invocation, distinctId, workflowVersion },
             isTest
         )
+        const messageCreatedAt = isKeyedMessageId(result.invocation.id)
+            ? messageCreatedAtOf(result.invocation.state.globals.event)
+            : undefined
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const html = params.html
@@ -1621,6 +1635,17 @@ export class EmailService {
         // (with distinct_id). The configuration set's event destination needs
         // `IncludeOriginalHeaders: true` for the webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
+        const messageCreatedHeaders: MessageHeader[] = messageCreatedAt
+            ? [
+                  {
+                      Name: MESSAGE_CREATED_HEADER_NAME,
+                      Value: this.trackingCodeSigner.messageCreatedHeaderValue(
+                          result.invocation.id,
+                          messageCreatedAt.getTime()
+                      ),
+                  },
+              ]
+            : []
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
@@ -1630,7 +1655,12 @@ export class EmailService {
                       preferencesTokenSourceForInvocation(result.invocation)
                   )
                 : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            sendEmailParams.Content.Simple.Headers = [
+                ...unsubscribeHeaders,
+                trackingHeader,
+                ...messageCreatedHeaders,
+                AUTO_SUBMITTED_HEADER,
+            ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({
                     RawContent: bytes,

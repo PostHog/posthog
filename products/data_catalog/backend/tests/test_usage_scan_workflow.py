@@ -14,6 +14,12 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Team
 
 from products.data_catalog.backend.logic.usage_snapshots import SCAN_EXECUTION_TIMEOUT, SCAN_STOPPED_MESSAGE
+from products.data_catalog.backend.temporal.effectiveness.types import (
+    EffectivenessInput,
+    MeasureTeamInput,
+    TeamMeasured,
+)
+from products.data_catalog.backend.temporal.effectiveness.workflows import DataCatalogEffectivenessWorkflow
 from products.data_catalog.backend.temporal.usage_scan.activities import create_snapshot
 from products.data_catalog.backend.temporal.usage_scan.types import (
     CreateSnapshotInput,
@@ -145,3 +151,32 @@ def test_every_step_with_every_retry_fits_inside_the_scan_timeout() -> None:
     finalize = _BOUNDED_RETRY_POLICY.maximum_attempts * _FINALIZE_TIMEOUT
 
     assert steps + backoff + finalize < SCAN_EXECUTION_TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_a_failed_team_does_not_stop_the_effectiveness_run(environment: WorkflowEnvironment) -> None:
+    @activity.defn(name="data-catalog-effectiveness-list-teams")
+    async def list_teams() -> list[int]:
+        return [1, 2, 3]
+
+    @activity.defn(name="data-catalog-effectiveness-measure-team")
+    async def measure(input: MeasureTeamInput) -> TeamMeasured:
+        if input.team_id == 1:
+            raise ApplicationError("ClickHouse refused the query.", non_retryable=True)
+        return TeamMeasured(skipped=input.team_id == 3, analysis_sessions=5, rows=6)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[DataCatalogEffectivenessWorkflow],
+        activities=[list_teams, measure],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        result = await environment.client.execute_workflow(
+            DataCatalogEffectivenessWorkflow.run,
+            EffectivenessInput(),
+            id="effectiveness-run",
+            task_queue=QUEUE,
+        )
+
+    assert result == {"teams": 3, "measured": 1, "skipped": 1, "failed": 1}
