@@ -13,8 +13,8 @@ from posthog.clickhouse.query_log_archive import (
 # Rows archived before this migration keep an empty array: there is no backfill.
 #
 # Every table on the write path gets the column first, then the MV starts to fill it. MODIFY QUERY
-# swaps the MV select in one step, so no row of system.query_log is missed in between. ALTER TABLE IF
-# EXISTS and ADD COLUMN IF NOT EXISTS let a stack that already built the column from 0273 run it again.
+# swaps the MV select in one step, so no row of system.query_log is missed in between. ADD COLUMN IF NOT
+# EXISTS lets a stack that already built the column from 0273 run it again.
 
 COLUMN = "lc_warehouse_table_ids SimpleAggregateFunction(max, Array(String))"
 AFTER = "AFTER lc_estimated_bytes"
@@ -43,7 +43,7 @@ WRITE_ROLES = [
 
 
 def add_column(table: str) -> str:
-    return f"ALTER TABLE IF EXISTS posthog.{table} ADD COLUMN IF NOT EXISTS {COLUMN} {AFTER}"
+    return f"ALTER TABLE posthog.{table} ADD COLUMN IF NOT EXISTS {COLUMN} {AFTER}"
 
 
 operations = [
@@ -62,7 +62,7 @@ operations = [
         )
     ),
     run_sql_with_exceptions(
-        f"ALTER TABLE IF EXISTS posthog.{QUERY_LOG_ARCHIVE_V3_MV} MODIFY QUERY {MV_SELECT_SQL_V3}",
+        f"ALTER TABLE posthog.{QUERY_LOG_ARCHIVE_V3_MV} MODIFY QUERY {MV_SELECT_SQL_V3}",
         node_roles=WRITE_ROLES,
         sharded=False,
         is_alter_on_replicated_table=False,
