@@ -35,14 +35,23 @@ export class RedisCachedKeyStore implements KeyStore {
         await this.delegate.start()
     }
 
-    private async getCached(sessionId: string, teamId: number): Promise<SessionKey | null> {
+    // Best effort: the delegate holds every key and deletion, so a failed read (e.g. a command timeout) costs only a
+    // lookup. Returns 'unavailable' so the caller skips the fill write against a Redis that just failed.
+    private async getCached(sessionId: string, teamId: number): Promise<SessionKey | null | 'unavailable'> {
         const startTime = performance.now()
-        const client = await this.redisPool.acquire()
         try {
-            const cached = await client.get(this.cacheKey(sessionId, teamId))
-            return cached ? deserializeSessionKey(cached) : null
+            const client = await this.redisPool.acquire()
+            try {
+                const cached = await client.get(this.cacheKey(sessionId, teamId))
+                return cached ? deserializeSessionKey(cached) : null
+            } finally {
+                await this.redisPool.release(client)
+            }
+        } catch (error) {
+            SessionBatchMetrics.incrementKeystoreRedisReadErrors()
+            logger.warn('🔑', 'keystore_redis_cache_read_failed', { sessionId, teamId, error: serializeError(error) })
+            return 'unavailable'
         } finally {
-            await this.redisPool.release(client)
             SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }
@@ -92,18 +101,13 @@ export class RedisCachedKeyStore implements KeyStore {
     }
 
     async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        // The delegate holds every key and deletion, so a failed cache read (e.g. a command timeout) only costs a lookup.
-        const cached = await this.getCached(sessionId, teamId).catch((error) => {
-            SessionBatchMetrics.incrementKeystoreRedisReadErrors()
-            logger.warn('🔑', 'keystore_redis_cache_read_failed', { sessionId, teamId, error: serializeError(error) })
-            return null
-        })
-        if (cached) {
+        const cached = await this.getCached(sessionId, teamId)
+        if (cached && cached !== 'unavailable') {
             return cached
         }
 
         const key = await this.delegate.getKey(sessionId, teamId)
-        if (this.cacheMissingKeys || key.sessionState !== 'cleartext') {
+        if (cached !== 'unavailable' && (this.cacheMissingKeys || key.sessionState !== 'cleartext')) {
             await this.setCached(sessionId, teamId, key, 'if_absent')
         }
         return key
