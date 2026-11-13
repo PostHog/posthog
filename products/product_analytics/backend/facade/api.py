@@ -11,7 +11,7 @@ Saved query variables and insight-view tracking cross as data: callers pass a te
 project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -28,6 +28,7 @@ from products.product_analytics.backend.facade.contracts import (
     AgentInsightRead,
     ChartExplanation,
     ChartExplanationAuthor,
+    InsightActionReference,
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
@@ -189,6 +190,19 @@ def insights_viewed_standalone(*, team_id: int, insight_ids: Collection[int], vi
     return view_context.insights_viewed_standalone(team_id=team_id, insight_ids=insight_ids, viewed_since=viewed_since)
 
 
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    """Store metadata a backfill computed from ``query_at_read``, without holding a lock while it computed.
+
+    Writes only while the insight still lacks current metadata and its query is still ``query_at_read``,
+    so a save that landed after the backfill read the insight wins. Returns whether the write happened.
+    """
+    return logic.store_backfilled_query_metadata(
+        insight_id=insight_id, query_at_read=query_at_read, query_metadata=query_metadata
+    )
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, preserving any newer timestamp for this viewer.
 
@@ -308,6 +322,16 @@ def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], sinc
     Shared and embedded views have no viewer, so they are not counted. Insights nobody viewed are left out.
     """
     return logic.viewer_counts_by_insight(team_id=team_id, insight_ids=insight_ids, since=since)
+
+
+def insights_referencing_action(*, team_id: int, action_id: int, limit: int) -> list[InsightActionReference]:
+    """Up to `limit` live saved insights of the team whose query or filters reference the action."""
+    return logic.insights_referencing_action(team_id=team_id, action_id=action_id, limit=limit)
+
+
+def count_insights_referencing_actions(*, team_id: int, action_ids: Sequence[int]) -> dict[int, int]:
+    """For each action, how many live saved insights of the team reference it. An action without one is absent."""
+    return logic.count_insights_referencing_actions(team_id=team_id, action_ids=action_ids)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:

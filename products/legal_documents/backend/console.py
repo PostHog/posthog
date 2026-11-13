@@ -2,9 +2,11 @@ from uuid import UUID
 
 from django import forms
 from django.contrib import messages
+from django.contrib.admin.utils import unquote
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 
+from posthog.admin.console.moved import MovedRecord
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
 from posthog.cloud_utils import is_cloud, is_dev_mode
@@ -13,6 +15,7 @@ from products.legal_documents.backend.facade.api import (
     can_refetch_signed_pdf,
     can_resend_signing_email,
     delete_as_staff,
+    get_organization_id_for_staff,
     list_for_staff,
     refetch_signed_pdf,
     resend_signing_email,
@@ -108,6 +111,7 @@ class LegalDocumentsPanel(Panel):
     key = "legal-documents"
     title = "Legal documents"
     owner = GROWTH
+    operation_keys = frozenset({"refetch-pdf", "resend-signing-email", "delete"})
 
     def facts(self, obj: Model) -> list[Fact]:
         documents = list_for_staff(obj.pk)
@@ -165,3 +169,35 @@ class LegalDocumentsPanel(Panel):
                 )
             )
         return operations
+
+
+def find_document_organization(object_id: str) -> MovedRecord | None:
+    # Django admin unquotes the object ID and reads it as any spelling of a UUID (uppercase, without hyphens),
+    # so this does the same, and no spelling of a document ID reaches the admin delete view.
+    try:
+        document_id = UUID(unquote(object_id))
+    except ValueError:
+        return None
+    # The old document URLs carry only the document ID, so the organization is looked up to find the panel.
+    organization_id = get_organization_id_for_staff(document_id)
+    if organization_id is None:
+        return None
+    # The console form lists every document of the organization, so the ID preselects the one staff picked.
+    return MovedRecord(pk=organization_id, query={"document": str(document_id)})
+
+
+console.register_moved_action(
+    old_path="admin/legal_documents/legaldocument/<path:object_id>/refetch-pdf/",
+    record="organization",
+    target="#panel-legal-documents",
+    resolver=find_document_organization,
+)
+# The Delete button of the Django admin change page leads to the console operation, which says what a delete
+# leaves behind: PandaDoc's copy of a signed document, and the AI opt-outs of a BAA. The pattern matches every
+# object ID the admin delete route does, so a document is never deleted without that cleanup.
+console.register_moved_action(
+    old_path="admin/legal_documents/legaldocument/<path:object_id>/delete/",
+    record="organization",
+    target="legal-documents/delete/",
+    resolver=find_document_organization,
+)

@@ -14,6 +14,11 @@ def daily_calculation_start_cutoff(now: datetime) -> datetime:
     return now - timedelta(days=DAILY_CALCULATION_DAYS)
 
 
+def daily_calculation_end(start_date: datetime | None) -> datetime | None:
+    """When the daily calculation stops covering an experiment with this start date."""
+    return None if start_date is None else start_date + timedelta(days=DAILY_CALCULATION_DAYS)
+
+
 def is_past_daily_calculation(start_date: datetime | None, now: datetime) -> bool:
     """Whether the daily calculation leaves out an experiment with this start date. The daily jobs keep the
     experiments with `start_date >= daily_calculation_start_cutoff(now)`, so this is the exact complement."""

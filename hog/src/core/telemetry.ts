@@ -7,8 +7,9 @@ import { INGESTION_HOSTS } from '@/posthog/host'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
+import { detectCi, isRunningInCI } from './ci'
 import { parseJsonOrUndefined } from './json'
-import type { Env, Runtime } from './runtime'
+import type { Runtime } from './runtime'
 import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
@@ -22,71 +23,29 @@ const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
 
-type EnvCheck = (env: Env) => boolean
-const has =
-    (name: string): EnvCheck =>
-    (env) =>
-        Boolean(env[name])
-
-// First match wins. Platforms that also set the variables of another one come first: Depot CI
-// before GitHub Actions, Harness and Woodpecker before Drone. Vercel sets VERCEL outside builds too.
-const CI_PROVIDERS: ReadonlyArray<readonly [provider: string, check: EnvCheck]> = [
-    ['depot-ci', has('DEPOT_JOB_URL')],
-    ['harness', has('HARNESS_BUILD_ID')],
-    ['woodpecker', (env) => env.CI === 'woodpecker'],
-    ['github-actions', has('GITHUB_ACTIONS')],
-    ['gitlab', has('GITLAB_CI')],
-    ['circleci', has('CIRCLECI')],
-    ['buildkite', has('BUILDKITE')],
-    ['jenkins', has('JENKINS_URL')],
-    ['travis', has('TRAVIS')],
-    ['bitbucket', has('BITBUCKET_COMMIT')],
-    ['azure-pipelines', has('TF_BUILD')],
-    ['aws-codebuild', has('CODEBUILD_BUILD_ARN')],
-    ['google-cloud-build', has('BUILDER_OUTPUT')],
-    ['vercel', (env) => Boolean(env.VERCEL && env.CI)],
-    ['netlify', has('NETLIFY')],
-    ['cloudflare-pages', has('CF_PAGES')],
-    ['cloudflare-workers', has('WORKERS_CI')],
-    ['render', has('RENDER')],
-    ['railway', has('RAILWAY_SERVICE_ID')],
-    ['heroku-ci', has('HEROKU_TEST_RUN_ID')],
-    ['expo-eas', has('EAS_BUILD')],
-    ['bitrise', has('BITRISE_IO')],
-    ['xcode-cloud', has('CI_XCODE_CLOUD')],
-    ['codemagic', has('CM_BUILD_ID')],
-    ['semaphore', has('SEMAPHORE')],
-    ['drone', has('DRONE')],
-    ['teamcity', has('TEAMCITY_VERSION')],
-    ['appveyor', has('APPVEYOR')],
-]
-
-// Vendors that run GitHub Actions jobs on their own machines. Some of these variables hold tokens,
-// so hog only checks that they are set.
-const runnerName =
-    (prefix: string): EnvCheck =>
-    (env) =>
-        env.RUNNER_NAME?.startsWith(prefix) === true
-const CI_RUNNERS: ReadonlyArray<readonly [runner: string, check: EnvCheck]> = [
-    ['depot', (env) => has('DEPOT_ORG_ID')(env) || runnerName('depot-')(env)],
-    ['blacksmith', has('BLACKSMITH_VM_ID')],
-    ['namespace', (env) => has('NSC_CACHE_PATH')(env) || runnerName('nsc-runner-')(env)],
-    ['warpbuild', has('WARPBUILD_RUNNER_VERIFICATION_TOKEN')],
-    ['ubicloud', has('UBICLOUD_CACHE_URL')],
-    ['runs-on', has('RUNS_ON_RUNNER_NAME')],
-    ['cirun', runnerName('cirun-')],
-]
-
-export function detectCi(env: Env): { provider: string | null; runner: string | null } {
-    const provider = CI_PROVIDERS.find(([, check]) => check(env))?.[0] ?? null
-    const runner = CI_RUNNERS.find(([, check]) => check(env))?.[0] ?? env.RUNNER_ENVIRONMENT ?? null
-    return { provider, runner }
-}
-
 interface QueuedEvent {
     event: string
     properties: Record<string, unknown>
     timestamp: string
+}
+
+interface BatchEvent {
+    event: string
+    timestamp: string
+    distinct_id: string
+    properties: Record<string, unknown>
+}
+
+interface Sender {
+    distinctId: string
+    installId: string
+    identified: boolean
+    properties: Record<string, unknown>
+}
+
+export interface SentEvent {
+    sent: boolean
+    identified: boolean
 }
 
 interface Identity {
@@ -163,6 +122,58 @@ export class Telemetry {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
+
+        const sender = await this.sender()
+        if (this.loggedIn && sender.identified) {
+            this.queue.unshift({
+                event: '$identify',
+                properties: { $anon_distinct_id: sender.installId },
+                timestamp: new Date(this.runtime.now()).toISOString(),
+            })
+        }
+
+        const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
+            event,
+            timestamp,
+            distinct_id: sender.distinctId,
+            properties: { ...sender.properties, ...properties },
+        }))
+        await this.post(batch, debug)
+    }
+
+    // Sends one event a person asked hog to send, such as feedback, at once and outside the usage
+    // queue. Unless it belongs to the person's PostHog user, it goes out under an ID of its own, with
+    // no install ID or invocation ID: an earlier login can have linked the install ID to that user,
+    // and this run's usage event pairs the invocation ID with the install ID.
+    async send(event: string, properties: Record<string, unknown>, debug = false): Promise<SentEvent> {
+        if (this.runtime.telemetryToken === undefined) {
+            return { sent: false, identified: false }
+        }
+
+        const known = this.enabled ? await this.sender() : undefined
+        const sender: Sender = known?.identified
+            ? known
+            : {
+                  distinctId: randomUUID(),
+                  installId: '',
+                  identified: false,
+                  properties: { ...this.commonProperties(), invocation_id: undefined, $process_person_profile: false },
+              }
+        const sent = await this.post(
+            [
+                {
+                    event,
+                    timestamp: new Date(this.runtime.now()).toISOString(),
+                    distinct_id: sender.distinctId,
+                    properties: { ...sender.properties, ...properties },
+                },
+            ],
+            debug
+        )
+        return { sent, identified: sent && sender.identified }
+    }
+
+    private async sender(): Promise<Sender> {
         const key = this.loggedIn ?? (await this.credentials?.().catch(() => undefined))?.key
         const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
@@ -171,36 +182,31 @@ export class Telemetry {
         const workloadId =
             workload &&
             `workload_${createHash('sha256').update(`${key?.host}\n${workload.provider}\n${workload.subject}`).digest('hex').slice(0, 32)}`
-        const distinctId = identity?.distinctId ?? workloadId ?? installId
         const groups = Object.fromEntries(
             Object.entries({
                 organization: identity?.organization ?? workload?.organization,
                 project: identity?.project,
             }).filter(([, key]) => key !== undefined)
         )
-        const common = {
-            ...this.commonProperties(),
-            install_id: installId,
-            // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
-            env_id: key && isCloudHost(key.host) ? key.projectId : null,
-            credential_type: key?.status().kind ?? null,
-            ...(workload ? { workload_provider: workload.provider } : {}),
-            ...(identity?.distinctId ? {} : { $process_person_profile: false }),
-            ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+
+        return {
+            distinctId: identity?.distinctId ?? workloadId ?? installId,
+            installId,
+            identified: identity?.distinctId !== undefined,
+            properties: {
+                ...this.commonProperties(),
+                install_id: installId,
+                // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
+                env_id: key && isCloudHost(key.host) ? key.projectId : null,
+                credential_type: key?.status().kind ?? null,
+                ...(workload ? { workload_provider: workload.provider } : {}),
+                ...(identity?.distinctId ? {} : { $process_person_profile: false }),
+                ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+            },
         }
-        if (this.loggedIn && identity?.distinctId) {
-            this.queue.unshift({
-                event: '$identify',
-                properties: { $anon_distinct_id: installId },
-                timestamp: new Date(this.runtime.now()).toISOString(),
-            })
-        }
-        const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
-            event,
-            timestamp,
-            distinct_id: distinctId,
-            properties: { ...common, ...properties },
-        }))
+    }
+
+    private async post(batch: BatchEvent[], debug: boolean): Promise<boolean> {
         try {
             const response = await this.runtime.fetch(new URL('/batch/', TELEMETRY_HOST), {
                 method: 'POST',
@@ -211,12 +217,14 @@ export class Telemetry {
             if (debug) {
                 this.runtime.writeStderr(`[debug] telemetry: sent ${batch.length} events, ${response.status}\n`)
             }
+            return response.ok
         } catch (error) {
             if (debug) {
                 this.runtime.writeStderr(
                     `[debug] telemetry: not sent: ${error instanceof Error ? error.message : error}\n`
                 )
             }
+            return false
         }
     }
 
@@ -233,7 +241,7 @@ export class Telemetry {
             os: process.platform,
             arch: process.arch,
             runtime_version: process.versions.bun,
-            is_ci: env.CI !== undefined || ci.provider !== null,
+            is_ci: isRunningInCI(env),
             ci_provider: ci.provider,
             ci_runner: ci.runner,
             is_terminal: this.runtime.stdoutIsTTY,

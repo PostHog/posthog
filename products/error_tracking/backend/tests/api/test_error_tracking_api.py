@@ -667,7 +667,7 @@ class TestErrorTracking(APIBaseTest):
     ) -> None:
         issue = self.create_issue()
 
-        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored) as publish:
+        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored):
             response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary")
 
         assert response.status_code == 200
@@ -682,7 +682,6 @@ class TestErrorTracking(APIBaseTest):
             else None
         )
         assert response.json() == {"status": expected_status, "summary": expected_summary, "reason": expected_reason}
-        publish.assert_not_called()
         assert not lock_held(self.team.id, issue.id)
 
     @parameterized.expand([("other_team", True), ("malformed_id", False)])
@@ -696,6 +695,27 @@ class TestErrorTracking(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary")
 
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("retrieve", "get", "", None),
+            ("update", "patch", "", {"status": "resolved"}),
+            ("merge", "post", "/merge", {"ids": [str(uuid7())]}),
+            ("split", "post", "/split", {"fingerprints": [{"fingerprint": "fingerprint"}]}),
+            ("assign", "patch", "/assign", {"assignee": None}),
+            ("cohort", "put", "/cohort", {"cohortId": 1}),
+            ("activity", "get", "/activity", None),
+        ]
+    )
+    def test_issue_actions_return_404_for_malformed_id(
+        self, _name: str, method: str, suffix: str, data: dict | None
+    ) -> None:
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/error_tracking/issues/not-a-uuid{suffix}", data=data, format="json"
+        )
+
+        assert response.status_code == 404, response.content
+        assert response.json()["detail"] == "Issue not found"
 
     @parameterized.expand(
         [

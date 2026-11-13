@@ -25,7 +25,7 @@
     "tree-sitter-cli": "^0.26.6",
     "tsup": "^9.0.0",
     "typescript": "^5.5.0",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "files": [
     "dist/**/*",

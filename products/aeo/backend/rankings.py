@@ -32,6 +32,7 @@ from products.aeo.backend.facade.contracts import (
     BrandedSegment,
     BrandKind,
     BrandStatus,
+    CheckMode,
     PromptSetRankings,
     RankedBrand,
     RankedBrandDay,
@@ -67,6 +68,7 @@ _BRAND_DAYS_SQL = f"""
     FROM posthog_aeo_citation_check AS check_row
     CROSS JOIN unnest(%s::text[], %s::text[], %s::bool[]) AS brand(domain, pattern, is_target)
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
         AND {SEGMENT_SQL}
     GROUP BY brand.domain, day
 """
@@ -79,6 +81,7 @@ _CITED_HOSTS_SQL = f"""
             CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
         ) AS host
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
         AND {SEGMENT_SQL}
 """
 # The host to registrable domain mapping arrives as two parallel arrays.
@@ -91,6 +94,7 @@ _DOMAIN_ANSWERS_SQL = f"""
         ) AS cited_host
     WHERE lower(cited_host) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
         AND {SEGMENT_SQL}
     GROUP BY mapping.domain
 """
@@ -104,6 +108,7 @@ _DOMAIN_URLS_SQL = f"""
         ) AS url
     WHERE lower(substring(url from '^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^@/?#]*@)?([^/:?#]+)')) = mapping.host
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
         AND {SEGMENT_SQL}
     GROUP BY mapping.domain
 """
@@ -114,6 +119,7 @@ _PAGES_SQL = f"""
             CASE WHEN jsonb_typeof(check_row.cited_urls) = 'array' THEN check_row.cited_urls ELSE '[]'::jsonb END
         ) AS url
     WHERE url <> '' AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
+        AND check_row.mode = 'web_search'
         AND {SEGMENT_SQL}
     GROUP BY url
     ORDER BY count(DISTINCT check_row.id) DESC, url
@@ -139,7 +145,11 @@ def get_rankings(
     # Every read stops at the same instant, so a check written mid-request can't make the counts disagree.
     until = timezone.now()
     answered = AEOCitationCheck.objects.for_team(team_id).filter(
-        segment_filter(segment, target_domains), created_at__gte=window_start, created_at__lt=until, check_failed=False
+        segment_filter(segment, target_domains),
+        created_at__gte=window_start,
+        created_at__lt=until,
+        check_failed=False,
+        mode=CheckMode.WEB_SEARCH,
     )
     answers = answered.count()
 

@@ -198,10 +198,11 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         return bool(request.user and request.user.is_staff)
 
     def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
-        # Kept so that a Django admin delete of an organization can cascade to its documents. A delete of one
-        # document goes to the Delete document operation in PostHog Admin: posthog/admin/console/urls.py routes
-        # the <id>/delete/ URL there, and get_actions removes the bulk delete.
-        return bool(request.user and request.user.is_staff)
+        # A delete must also remove PandaDoc's copy of a signed document and the AI opt-outs of a BAA, which the
+        # Delete document operation in PostHog Admin does. The old <id>/delete/ URL redirects there, and this keeps
+        # the raw delete view closed when that redirect is missing. A Django admin delete of an organization that
+        # has documents is refused too, because the cascade would skip the same cleanup.
+        return False
 
     def get_actions(
         self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST

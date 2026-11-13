@@ -115,7 +115,7 @@ The token can read every repository its owning user has access to; only those re
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
-            if endpoint in ("builds", "jobs"):
+            if endpoint in ("builds", "jobs", "stages", "requests"):
                 return (
                     "Synced newest-first; incremental syncs stop at the last-synced id, so rows that "
                     "were still running when previously synced keep their state from that sync — run a "
@@ -123,6 +123,8 @@ The token can read every repository its owning user has access to; only those re
                 )
             if endpoint == "branches":
                 return "Full refresh only, walking every accessible repository's branch list"
+            if endpoint == "crons":
+                return "Full refresh only, walking every accessible repository's cron list"
             return None
 
         schemas = [

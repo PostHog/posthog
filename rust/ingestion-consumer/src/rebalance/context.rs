@@ -27,7 +27,7 @@ impl RebalanceContext {
         Self::default()
     }
 
-    pub(crate) fn on_started(&self, drain_timeout: Option<Duration>) {
+    pub(crate) fn on_started(&self, drain_timeout: Duration) {
         self.rebalance_state().on_started(drain_timeout);
     }
 
@@ -198,13 +198,13 @@ mod tests {
 
     struct CallbackCase {
         loop_running: bool,
-        revoke_queued: bool,
+        drain_queued: bool,
         still_assigned: usize,
     }
 
     #[rstest::rstest]
-    #[case::loop_running(CallbackCase { loop_running: true, revoke_queued: true, still_assigned: 2 })]
-    #[case::no_loop(CallbackCase { loop_running: false, revoke_queued: false, still_assigned: 0 })]
+    #[case::loop_running(CallbackCase { loop_running: true, drain_queued: true, still_assigned: 2 })]
+    #[case::no_loop(CallbackCase { loop_running: false, drain_queued: false, still_assigned: 0 })]
     fn the_loop_applies_the_unassign_while_it_runs(#[case] case: CallbackCase) {
         let consumer: BaseConsumer<RebalanceContext> = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:1")
@@ -216,7 +216,7 @@ mod tests {
         tpl.add_partition("events", 0);
         let context = consumer.context();
         if case.loop_running {
-            context.on_started(None);
+            context.on_started(Duration::from_secs(10));
         }
 
         context.rebalance(
@@ -235,15 +235,17 @@ mod tests {
             TopicPartition::new("events", 1),
         ];
         let mut expected = vec![Event::Assigned(partitions.clone())];
-        if case.revoke_queued {
-            expected.push(Event::Revoked {
+        if case.drain_queued {
+            expected.push(Event::Draining {
                 revoke: RevokeId(1),
                 partitions,
-                unassign: Unassign::new(tpl.clone(), false),
             });
         }
         assert_eq!(context.take_events(), expected);
         assert_eq!(consumer.assignment().unwrap().count(), case.still_assigned);
+        // The drain's unassign holds partition handles of the client, so it
+        // must go before the client does.
+        drop(context.on_dropped());
     }
 
     #[test]

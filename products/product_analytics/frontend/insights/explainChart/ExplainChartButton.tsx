@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -22,7 +22,7 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
         explainDisabledReason,
     } = useValues(explainChartLogic(insightProps))
     const { explainClicked, approveConsent, dismissConsent } = useActions(explainChartLogic(insightProps))
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
     if (!explainAvailable && !(storyAvailable && story)) {
         return null
@@ -35,7 +35,7 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
             onApprove={approveConsent}
             onDismiss={dismissConsent}
         >
-            {todayRailNav ? (
+            {quillSurface ? (
                 <span data-quill>
                     <Button
                         variant="outline"

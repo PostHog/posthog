@@ -58,6 +58,7 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
@@ -583,6 +584,12 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial: the stuck-research sweep reads IN_PROGRESS reports across all teams by run start.
+            models.Index(
+                fields=["last_run_at"],
+                condition=models.Q(status="in_progress"),
+                name="signals_report_in_progress",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(

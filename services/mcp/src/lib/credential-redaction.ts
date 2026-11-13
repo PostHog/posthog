@@ -59,7 +59,7 @@ export function decodeEscapes(text: string): string | null {
     }
 }
 
-function isCredentialName(name: string, rule: CredentialNameRule): boolean {
+export function isCredentialName(name: string, rule: CredentialNameRule = isLogCredentialName): boolean {
     const decoded = decodeEscapes(name)
     return decoded === null || rule(decoded.toLowerCase().replace(/[^a-z0-9]/g, ''))
 }
@@ -206,4 +206,19 @@ export function redactCredentials(value: unknown, rule: CredentialNameRule = isL
         return redacted
     }
     return value
+}
+
+// A `{ key, value }` pair names its field in `key`, so the pair is classified by that name. Call this only on paths that
+// are known to hold pairs. An attribute map can contain an attribute that is literally called `key`, and the generic
+// walk in redactCredentials must redact that attribute's value.
+export function redactKeyValuePair(pair: unknown, rule: CredentialNameRule = isLogCredentialName): unknown {
+    if (!isRecord(pair) || typeof pair.key !== 'string') {
+        return redactCredentials(pair, rule)
+    }
+    const { key, value, ...rest } = pair
+    return {
+        ...(redactCredentials(rest, rule) as Record<string, unknown>),
+        key: redactCredentialsInText(key, rule),
+        value: isCredentialName(key, rule) ? REDACTED_VALUE : redactCredentials(value, rule),
+    }
 }

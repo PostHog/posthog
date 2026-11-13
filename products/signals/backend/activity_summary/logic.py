@@ -26,9 +26,10 @@ from products.signals.backend.activity_summary.inputs import (
     user_tasks,
     user_views,
 )
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
+from products.signals.backend.activity_summary.prompt import MIN_PROMPT_VERSION, PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
+    MIN_RENDER_VERSION,
     RENDER_VERSION,
     ActivityItem,
     Drop,
@@ -109,6 +110,7 @@ class ActivitySummaryUpdate:
     computed: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
     rebuilt: bool = False
+    outdated: bool = False
     # The pair had no generated summary before this update.
     new_summary: bool = False
 
@@ -125,15 +127,30 @@ class StoredSummaryVersion(Protocol):
 
 
 def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datetime | None) -> bool:
-    """True when a stored summary came from an older prompt or render, or before `rebuild_before`.
+    """True when a stored summary came from a prompt or render below `MIN_PROMPT_VERSION` or `MIN_RENDER_VERSION`,
+    or before `rebuild_before`.
 
-    A stale summary is rebuilt from the full window, so a version change reaches every input.
+    A stale summary must be rebuilt: the queue makes it due without new activity, and a skipped rebuild stops
+    the read from serving it.
     """
     if stored is None or stored.generated_at is None:
         return False
-    if (stored.prompt_version, stored.render_version) != (PROMPT_VERSION, RENDER_VERSION):
+    if stored.prompt_version is None or stored.render_version is None:
+        return True
+    if stored.prompt_version < MIN_PROMPT_VERSION or stored.render_version < MIN_RENDER_VERSION:
         return True
     return rebuild_before is not None and stored.generated_at < rebuild_before
+
+
+def is_outdated(stored: StoredSummaryVersion | None) -> bool:
+    """True when a stored summary came from a prompt or render other than `PROMPT_VERSION` and `RENDER_VERSION`.
+
+    An outdated summary that is not stale stays served and is not due on its own. Its next normal update reads
+    the full window without the previous summary, so the new version reaches every input.
+    """
+    if stored is None or stored.generated_at is None:
+        return False
+    return (stored.prompt_version, stored.render_version) != (PROMPT_VERSION, RENDER_VERSION)
 
 
 def skip_backoff(consecutive_skips: int, max_skip_backoff: datetime.timedelta) -> datetime.timedelta:
@@ -399,13 +416,15 @@ def update_activity_summary(
     """Update the stored activity summary of one user in one project.
 
     Reads only the inputs newer than the stored watermark, or the last `limits.window_days` on a first
-    run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
-    update records the error and keeps the stored summary and the watermark. With `dry_run`, the
-    model is still called but nothing is written. `force` ignores `next_eligible_at`.
+    run or for a stale or outdated summary (see `is_stale` and `is_outdated`). A stale or outdated summary
+    is not sent to the model. A failed update records the error and keeps the stored summary and the
+    watermark. With `dry_run`, the model is still called but nothing is written. `force` ignores
+    `next_eligible_at`.
     A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units or for an
     empty first profile sets it to `skip_backoff` from now, which doubles with each skip until a good update
     resets it. An empty first profile keeps the cost of its model call.
     A skip of a stale summary's rebuild keeps the stored summary, but sets the status, so the read stops serving it.
+    A skip of an outdated summary's update keeps it served.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     With `mcp_buffer_days`, the update also reads up to that many UTC days of the MCP intent buffer.
     """
@@ -419,8 +438,10 @@ def update_activity_summary(
         return ActivitySummaryUpdate(status=UpdateStatus.SKIPPED_NOT_ELIGIBLE_YET)
 
     rebuild = is_stale(stored, rebuild_before)
+    outdated = is_outdated(stored)
+    full_window = rebuild or outdated
     window_start = _input_start(None, now, limits.window_days)
-    start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
+    start = _input_start(stored.input_watermark if stored and not full_window else None, now, limits.window_days)
     window = _read_inputs(team_id, user_id, start, now, mcp_buffer_days)
     tasks, activity, views = window.tasks, window.activity, window.views
     rendered = _render(
@@ -459,7 +480,7 @@ def update_activity_summary(
         full = _read_inputs(team_id, user_id, window_start, now, read_inbox=False)
         fields = compute_fields(full.tasks, full.activity, full.views)
     computed = fields.with_line_refs(rendered).as_json()
-    previous = stored.summary if stored is not None and not rebuild else None
+    previous = stored.summary if stored is not None and not full_window else None
     outcome, cost = _call_model(team_id, user_id, rendered, computed, previous=previous, as_of=now, limits=limits)
     if outcome.summary is not None:
         status = UpdateStatus.OK
@@ -480,6 +501,7 @@ def update_activity_summary(
         computed=computed if outcome.summary is not None else None,
         input_watermark=watermark if outcome.summary is not None else None,
         rebuilt=rebuild,
+        outdated=outdated,
         new_summary=stored is None or stored.generated_at is None,
     )
     if dry_run:

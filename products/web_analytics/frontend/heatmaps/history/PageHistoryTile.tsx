@@ -84,7 +84,7 @@ export function PageHistoryTile({
             }
             onClick={onSelect}
             data-attr="heatmap-page-history-capture"
-            className={cn('min-w-0 overflow-hidden rounded', selected && 'ring-2 ring-accent')}
+            className={cn('min-w-0 rounded', selected && 'ring-2 ring-accent')}
         >
             <div className="w-full min-w-0 font-normal">
                 <div className="h-20 overflow-hidden bg-surface-secondary flex items-center justify-center">

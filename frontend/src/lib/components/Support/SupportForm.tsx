@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
-import { LemonInput, lemonToast } from '@posthog/lemon-ui'
-
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 

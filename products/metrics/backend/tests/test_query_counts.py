@@ -1,8 +1,12 @@
 import datetime as dt
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.db import connections, router
 
 from parameterized import parameterized
 
@@ -12,6 +16,29 @@ from products.metrics.backend.models import MetricDailyQueryCount
 from products.metrics.backend.query_counts import list_metric_query_counts, record_metric_queries, record_promql_query
 
 NOW = dt.datetime(2026, 10, 20, 12, 0, tzinfo=dt.UTC)
+
+
+@contextmanager
+def _missing_table() -> Iterator[None]:
+    with patch.object(MetricDailyQueryCount._meta, "db_table", "metrics_table_that_does_not_exist"):
+        yield
+
+
+@contextmanager
+def _table_locked_by_another_query() -> Iterator[None]:
+    using = router.db_for_write(MetricDailyQueryCount)
+    blocker = connections.create_connection(using)
+    blocker.set_autocommit(False)
+    try:
+        with blocker.cursor() as cursor:
+            cursor.execute(f"LOCK TABLE {MetricDailyQueryCount._meta.db_table} IN ACCESS EXCLUSIVE MODE")
+        # The test holds a transaction open, so the write leaves the lock timeout to its caller.
+        with connections[using].cursor() as cursor:
+            cursor.execute("SET LOCAL lock_timeout = '100ms'")
+        yield
+    finally:
+        blocker.rollback()
+        blocker.close()
 
 
 class TestMetricQueryCounts(BaseTest):
@@ -31,11 +58,25 @@ class TestMetricQueryCounts(BaseTest):
             ("cpu", 1, NOW - dt.timedelta(days=2)),
         ]
 
-    def test_a_failed_write_does_not_fail_the_query_or_the_next_write(self) -> None:
-        with patch.object(MetricDailyQueryCount._meta, "db_table", "metrics_table_that_does_not_exist"):
+    @parameterized.expand(
+        [
+            ("unexpected_error_is_reported", _missing_table, True),
+            ("lock_timeout_is_expected_and_not_reported", _table_locked_by_another_query, False),
+        ]
+    )
+    def test_a_failed_write_does_not_fail_the_query_or_the_next_write(
+        self, _name: str, failure: Callable[[], AbstractContextManager[None]], reported: bool
+    ) -> None:
+        with (
+            patch("products.metrics.backend.query_counts.logger") as logger,
+            patch("products.metrics.backend.query_counts.capture_exception") as capture_exception,
+        ):
+            with failure():
+                record_metric_queries(self.team, ["cpu"])
             record_metric_queries(self.team, ["cpu"])
-        record_metric_queries(self.team, ["cpu"])
 
+        assert [call.args[0] for call in logger.warning.call_args_list] == ["metric_query_count_write_failed"]
+        assert capture_exception.called is reported
         assert [(count.metric_name, count.query_count) for count in list_metric_query_counts(self.team)] == [("cpu", 1)]
 
     @parameterized.expand(

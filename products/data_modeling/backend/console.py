@@ -389,3 +389,15 @@ class DagTiersTool(ConsoleTool):
                 )
             )
         return dag_tiers_page(report)
+
+
+console.register_moved_page(
+    old_path="admin/data_modeling/dag/clear-suspensions/",
+    title="Clearing node suspensions",
+    url="/admin/console/tools/clear-node-suspensions/",
+)
+console.register_moved_page(
+    old_path="admin/data_modeling/dag/<str:dag_id>/tiers/",
+    title="DAG schedule tiers",
+    url="/admin/console/tools/dag-tiers/?dag={dag_id}",
+)

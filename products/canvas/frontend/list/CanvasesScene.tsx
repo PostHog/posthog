@@ -32,7 +32,8 @@ export function CanvasesScene(): JSX.Element {
 }
 
 function CanvasesList(): JSX.Element {
-    const { canvases, canvasesResponse, canvasesResponseLoading, search, ordering, page } = useValues(canvasesListLogic)
+    const { canvases, canvasesResponse, canvasesResponseLoading, canvasesLoadFailed, search, ordering, page } =
+        useValues(canvasesListLogic)
     const { loadCanvases, setSearch, setOrdering, setPage, deleteCanvas } = useActions(canvasesListLogic)
 
     // Loads on mount rather than on the route, because the list only mounts once the flag is on.
@@ -112,7 +113,25 @@ function CanvasesList(): JSX.Element {
                     onForward: canvasesResponse?.next ? () => setPage(page + 1) : undefined,
                     onBackward: page > 1 ? () => setPage(page - 1) : undefined,
                 }}
-                emptyState={search ? 'No canvases match that search.' : 'No canvases yet. Create one to get started.'}
+                emptyState={
+                    canvasesLoadFailed ? (
+                        <div className="flex flex-col items-center gap-2 py-4">
+                            <span>Couldn't load your canvases. Check your connection and try again.</span>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => loadCanvases()}
+                                data-attr="canvases-load-retry"
+                            >
+                                Try again
+                            </LemonButton>
+                        </div>
+                    ) : search ? (
+                        'No canvases match that search.'
+                    ) : (
+                        'No canvases yet. Create one to get started.'
+                    )
+                }
                 nouns={['canvas', 'canvases']}
             />
         </SceneContent>

@@ -617,6 +617,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         github_integration = GitHubIntegration(integration, source="warehouse", priority=Priority.CRITICAL)
         if github_integration.access_token_expired():
             github_integration.refresh_access_token()
+        integration = github_integration.integration
 
         if not integration.access_token:
             raise ValueError("GitHub access token not found")
