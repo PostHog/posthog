@@ -12,7 +12,8 @@ import { buildOpenInActivityTabMenuItem } from './menuItems'
 export interface PageItem extends TimelineItem {
     payload: {
         runtime: ErrorTrackingRuntime
-        url: string
+        url?: string
+        screenName?: string
     }
 }
 
@@ -20,7 +21,7 @@ export const pageRenderer: ItemRenderer<PageItem> = {
     sourceIcon: ({ item }) => <RuntimeIcon runtime={item.payload.runtime} />,
     categoryIcon: <IconEye />,
     render: ({ item }): JSX.Element => {
-        return <StandardizedPreview primaryText={getUrlPathname(item.payload.url)} />
+        return <StandardizedPreview primaryText={item.payload.screenName ?? getUrlPathname(item.payload.url ?? '')} />
     },
     renderExpanded: LazyEventDetailsRenderer,
     getMenuItems: ({ item }) => [

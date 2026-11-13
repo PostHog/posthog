@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -24,6 +25,8 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
 from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
@@ -203,7 +206,6 @@ class TestSearchRecentRuns(BaseTest):
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
     def test_summary_surfaces_run_metadata(self) -> None:
-        # New runs also carry accounting metadata; legacy NULL rows must still project as {}.
         routed = _create_run(self.team, metadata={"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"})
         legacy = _create_run(self.team, metadata=None)
         SignalScoutRun.objects.for_team(self.team.id).filter(pk=legacy.pk).update(metadata=None)
@@ -213,7 +215,6 @@ class TestSearchRecentRuns(BaseTest):
         assert by_run_id[str(routed.id)].metadata == {
             "model": "@cf/zai-org/glm-5.2",
             "runtime_adapter": "claude",
-            "spend_accounting_failed_stages": ["scout"],
         }
         assert by_run_id[str(legacy.id)].metadata == {}
 
@@ -1111,7 +1112,7 @@ async def aorganization_emit():
     # test's transaction, so this delete is the only cleanup these rows get. Without it every
     # emit test leaks a committed org into the shared --reuse-db database and poisons later
     # product suites in the same CI job (cascade also removes the team/config/run fixtures).
-    await database_sync_to_async(org.delete)()
+    await database_sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture
@@ -1966,6 +1967,11 @@ def _no_flag_payload():
 
 
 class TestLighthouseAudit:
+    @pytest.fixture(autouse=True)
+    def mock_target_dns(self) -> Iterator[None]:
+        with mock_anti_ssrf_dns_lookup():
+            yield
+
     def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):
         response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = payload

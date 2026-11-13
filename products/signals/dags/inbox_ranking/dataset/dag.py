@@ -1,6 +1,6 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Nine assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Twelve assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
@@ -11,6 +11,9 @@ Nine assets on one daily partition, each writing Parquet under the configured S3
     inbox_report_reviewers/v1/dt=D/         one row per suggested reviewer of each spine report
     inbox_user_report_interactions/v1/dt=D/ cumulative interactions at (report, person) grain
     inbox_project_vectors/v1/dt=D/          per-team mean report vectors of past engagement, by kind
+    inbox_user_vectors/v1/dt=D/             per-user mean report vectors of past engagement, by kind
+    inbox_activity_summary_vectors/v1/dt=D/ one row per activity summary vector generated during D
+    inbox_activity_summary_profile_vectors/v1/dt=D/  the same shape, for the rendering with the profile
 
 inbox_engagement_export writes no dataset object. It sends the dt=D engagement moments of the other
 region's reports to the serving mirror store, for that region's project vectors.
@@ -22,6 +25,11 @@ is a report-grain leaf: nothing joins it, and no model family trains on it. inbo
 it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
 leaf with its own schema version, so nothing joins it either. inbox_project_vectors is a
 (team, kind) leaf with its own schema version, built from the embeddings and labels snapshots.
+inbox_user_vectors is an (organization, user, kind) leaf with its own schema version, built from the
+embeddings and interactions snapshots.
+inbox_activity_summary_vectors is a (team, user, day) leaf with its own schema version: the durable
+copy of the per-user activity summary vectors, which the source table drops after its 3-month TTL.
+inbox_activity_summary_profile_vectors is the same leaf for the rendering with the profile.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -62,7 +70,9 @@ Point-in-time caveats, per source:
 import io
 import json
 import datetime
-from collections.abc import Collection, Iterator, Mapping
+import resource
+import dataclasses
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any, cast
 from uuid import UUID
 
@@ -81,13 +91,28 @@ from posthog.dags.common import dagster_tags
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
 
+from products.signals.backend.activity_summary.tick import (
+    EMBEDDING_DOCUMENT_TYPE as ACTIVITY_SUMMARY_DOCUMENT_TYPE,
+    EMBEDDING_RENDERING as ACTIVITY_SUMMARY_RENDERING,
+    EMBEDDING_RENDERING_PROFILE as ACTIVITY_SUMMARY_RENDERING_PROFILE,
+)
 from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
     SignalReportSuggestedReviewer,
 )
+from products.signals.backend.ranking.features import SCORED_AT_COLUMN
 from products.signals.backend.ranking.inventory import spine_report_filter
+from products.signals.backend.ranking.report_facts import (
+    JUDGMENT_TYPES,
+    REPORT_FACT_FIELDS,
+    ReportFacts,
+    judgment_facts,
+    no_judgment_facts,
+    report_content_annotations,
+    report_row_facts,
+)
 from products.signals.backend.ranking.serving_manifest import serving_engagement_key
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -132,17 +157,28 @@ from products.signals.dags.inbox_ranking.common import (
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    CONTEXT_KINDS,
+    CONTEXT_LABEL_COLUMNS,
     EMBEDDING_COLUMNS,
-    LABEL_COLUMNS,
+    ENGAGEMENT_EXPORT_COLUMNS,
     PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_INTERACTION_COLUMNS,
+    USER_VECTORS_SCHEMA_VERSION,
+    history_buckets,
+    prior_views,
     project_vectors,
     teams_with_history,
+    user_vectors,
+    with_user_hashes,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
+    ACTIVITY_SUMMARY_VECTORS_QUERY_SETTINGS,
+    ACTIVITY_SUMMARY_VECTORS_SQL,
     LABEL_DEFAULTS,
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
     LABELS_TEAM_ID,
+    REPORT_EMBEDDINGS_PAGES,
     REPORT_EMBEDDINGS_QUERY_SETTINGS,
     REPORT_EMBEDDINGS_SQL,
     SERVER_ACTIONS_COLUMNS,
@@ -161,6 +197,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     hogql_rows,
     labels_team,
     merge_label_streams,
+    report_facts_events,
     valid_report_uuids,
 )
 
@@ -178,14 +215,26 @@ SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
 REVIEWERS_TABLE = "inbox_report_reviewers"
 USER_INTERACTIONS_TABLE = "inbox_user_report_interactions"
 PROJECT_VECTORS_TABLE = "inbox_project_vectors"
+USER_VECTORS_TABLE = "inbox_user_vectors"
 ENGAGEMENT_EXPORT = "inbox_engagement_export"
+ACTIVITY_SUMMARY_VECTORS_TABLE = "inbox_activity_summary_vectors"
+ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE = "inbox_activity_summary_profile_vectors"
+SCORED_FACTS_TABLE = "inbox_report_scored_facts"
 
 # The reviewers asset is a leaf with its own columns, so its schema moves apart from
 # FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
 REVIEWERS_SCHEMA_VERSION = 1
 
 # The engagement export is read in another region, so its shape moves apart from every local snapshot.
-ENGAGEMENT_EXPORT_SCHEMA_VERSION = 1
+ENGAGEMENT_EXPORT_SCHEMA_VERSION = 2
+# The activity summary vectors are a (team, user, day) leaf, so their shape moves apart too.
+ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION = 1
+ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION = 1
+# The scored facts are a report leaf read from the scoring sweep's events, so their shape moves apart too.
+SCORED_FACTS_SCHEMA_VERSION = 1
+# Every document type that carries an activity summary vector. A backfilled type joins this tuple,
+# and its rows say so through `source`.
+ACTIVITY_SUMMARY_DOCUMENT_TYPES = (ACTIVITY_SUMMARY_DOCUMENT_TYPE,)
 # Most labels rows belong to this region's reports. A share below this floor means the local report
 # lookup lost rows, and the export would send this region's report ids to the other region.
 ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE = 0.25
@@ -205,6 +254,20 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
     "pool": "inbox_ranking_etl",
 }
 
+# The steps of inbox_ranking_dataset_job share one run pod, so its peak memory is the sum of the steps
+# that run at the same time. A step that holds report vectors or a fleet-wide report spine carries
+# this op tag, and the job's executor runs those steps one at a time. A tag and not a `deps` edge,
+# because an edge makes a step's failure skip the next step.
+MEMORY_HEAVY_OP_TAG = "inbox_ranking/memory"
+HEAVY_ASSET_KWARGS: dict[str, Any] = {**COMMON_ASSET_KWARGS, "op_tags": {MEMORY_HEAVY_OP_TAG: "heavy"}}
+
+
+def peak_rss_metadata() -> dict[str, dagster.MetadataValue]:
+    """The step's peak memory, so a heavy step that grows toward the run pod's limit shows on its
+    materializations before it gets the pod OOMKilled. The multiprocess executor runs each step in its
+    own process, so the process peak is the step's peak. Linux reports `ru_maxrss` in KiB."""
+    return {"peak_rss_mib": dagster.MetadataValue.int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024)}
+
 
 def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
     """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
@@ -219,11 +282,18 @@ def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str)
 
 _TIMESTAMP = pa.timestamp("us", tz="UTC")
 
-_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
-    ("snapshot_date", pa.date32()),
-    ("report_id", pa.string()),
-    ("report_team_id", pa.int64()),
-    ("region", pa.string()),
+_REPORT_CONTENT_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("chart_count", pa.int32()),
+    ("metric_count", pa.int32()),
+    ("suggested_prompt_count", pa.int32()),
+    ("tag_count", pa.int32()),
+    ("content_revision_count", pa.int32()),
+    ("corroboration_count", pa.int32()),
+    ("user_authored", pa.bool_()),
+    ("already_addressed", pa.bool_()),
+]
+
+_REPORT_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("status", pa.string()),
     ("billing_exempt_reason", pa.string()),
     ("report_created_at", _TIMESTAMP),
@@ -239,6 +309,15 @@ _STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("actionability", pa.string()),
     ("title_chars", pa.int32()),
     ("summary_chars", pa.int32()),
+    *_REPORT_CONTENT_FIELDS,
+]
+
+_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("report_id", pa.string()),
+    ("report_team_id", pa.int64()),
+    ("region", pa.string()),
+    *_REPORT_STATE_FIELDS,
     ("features_observed_at", _TIMESTAMP),
 ]
 STATE_SCHEMA = pa.schema(_STATE_FIELDS)
@@ -288,6 +367,41 @@ _REVIEWER_FIELDS: list[tuple[str, pa.DataType]] = [
     ("identity_resolution", pa.string()),
 ]
 REVIEWERS_SCHEMA = pa.schema(_REVIEWER_FIELDS)
+
+_ACTIVITY_SUMMARY_VECTOR_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("team_id", pa.int64()),
+    ("user_id", pa.int64()),
+    ("document_id", pa.string()),
+    ("generated_date", pa.date32()),
+    ("generated_at", _TIMESTAMP),
+    ("embedding_small", pa.list_(pa.float32())),
+    ("embedding_inserted_at", _TIMESTAMP),
+    ("prompt_version", pa.int32()),
+    ("render_version", pa.int32()),
+    ("model", pa.string()),
+    ("source", pa.string()),
+]
+ACTIVITY_SUMMARY_VECTORS_SCHEMA = pa.schema(_ACTIVITY_SUMMARY_VECTOR_FIELDS)
+
+# One column per `ReportFacts` field, typed like the state snapshot's column of the same name, so a
+# fact reads the same in both. `source_products` is the one fact the state snapshot does not hold.
+SCORED_FACT_COLUMNS = tuple(field.name for field in dataclasses.fields(ReportFacts))
+_STATE_COLUMN_TYPES = dict(_REPORT_STATE_FIELDS)
+_SCORED_FACT_TYPES: dict[str, pa.DataType] = {
+    name: pa.list_(pa.string()) if name == "source_products" else _STATE_COLUMN_TYPES[name]
+    for name in SCORED_FACT_COLUMNS
+}
+_SCORED_FACTS_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("report_id", pa.string()),
+    ("report_team_id", pa.int64()),
+    ("report_created_at", _TIMESTAMP),
+    (SCORED_AT_COLUMN, _TIMESTAMP),
+    ("embedding_inserted_at", _TIMESTAMP),
+    ("facts_schema_version", pa.int32()),
+    *_SCORED_FACT_TYPES.items(),
+]
+SCORED_FACTS_SCHEMA = pa.schema(_SCORED_FACTS_FIELDS)
 
 # What makes one emission distinct from another, so a re-run can tell a row it already archived from
 # a genuinely new one. embedding_inserted_at is the version: the source keys a signal by
@@ -391,21 +505,7 @@ _MODEL_DATA_FIELDS: list[tuple[str, pa.DataType]] = [
     ("built_at", _TIMESTAMP),
     ("run_id", pa.string()),
     ("features_observed_at", _TIMESTAMP),
-    ("status", pa.string()),
-    ("billing_exempt_reason", pa.string()),
-    ("report_created_at", _TIMESTAMP),
-    ("promoted_at", _TIMESTAMP),
-    ("last_run_at", _TIMESTAMP),
-    ("pg_updated_at", _TIMESTAMP),
-    ("report_age_hours", pa.float32()),
-    ("hours_since_promotion", pa.float32()),
-    ("signal_count", pa.int32()),
-    ("total_weight", pa.float32()),
-    ("run_count", pa.int32()),
-    ("priority", pa.string()),
-    ("actionability", pa.string()),
-    ("title_chars", pa.int32()),
-    ("summary_chars", pa.int32()),
+    *_REPORT_STATE_FIELDS,
     ("embedding_small", pa.list_(pa.float32())),
     ("embedding_inserted_at", _TIMESTAMP),
     ("embedding_rendering", pa.string()),
@@ -507,6 +607,7 @@ _STATE_PASSTHROUGH_COLUMNS = (
     "actionability",
     "title_chars",
     "summary_chars",
+    *(name for name, _ in _REPORT_CONTENT_FIELDS),
 )
 
 
@@ -519,16 +620,12 @@ def _chunked[T](ids: list[T]) -> Iterator[list[T]]:
         yield ids[offset : offset + _ORM_ID_CHUNK]
 
 
-def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
-    # Legacy artefact content is unconstrained JSON; a non-string value must not reach the
-    # pa.string() column, where it would abort the whole partition build.
-    value = parsed.get(key)
-    return value if isinstance(value, str) else None
-
-
-def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, dict[str, str | None]]:
+def _artefact_judgments(
+    report_ids: list[str], snapshot_end: datetime.datetime
+) -> dict[str, dict[str, str | bool | None]]:
     """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
-    the artefact content JSON.
+    the artefact content JSON. `already_addressed` comes from the same actionability artefact, so
+    it follows the same cutoff rules rather than the current `SignalReport.latest_already_addressed`.
 
     Artefacts are appended in normal operation but the API permits editing one in place
     (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so a row's
@@ -537,15 +634,12 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
     selection instead would hand back the judgment they superseded, which was already stale at the
     cutoff — silently wrong where null is merely unknown. The genuinely immutable classification is
     status_event_priority/actionability, snapshotted onto each transition in the label stream."""
-    judgments: dict[str, dict[str, str | None]] = {}
+    judgments: dict[str, dict[str, str | bool | None]] = {}
     for chunk in _chunked(report_ids):
         artefacts = (
             SignalReportArtefact.objects.filter(
                 report_id__in=chunk,
-                type__in=[
-                    SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                    SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                ],
+                type__in=JUDGMENT_TYPES,
                 created_at__lt=snapshot_end,
             )
             .order_by("report_id", "type", "-created_at")
@@ -556,18 +650,10 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
             # A null updated_at is a row predating the field, never an edit.
             if updated_at is not None and updated_at >= snapshot_end:
                 continue
-            try:
-                parsed = json.loads(content)
-            except ValueError:
+            facts = judgment_facts(artefact_type, content)
+            if facts is None:
                 continue
-            # Legacy artefact rows can hold JSON that is not an object; readers tolerate them.
-            if not isinstance(parsed, dict):
-                continue
-            entry = judgments.setdefault(str(report_id), {"priority": None, "actionability": None})
-            if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-                entry["priority"] = _judgment_value(parsed, "priority")
-            else:
-                entry["actionability"] = _judgment_value(parsed, "actionability")
+            judgments.setdefault(str(report_id), no_judgment_facts()).update(facts)
     return judgments
 
 
@@ -614,10 +700,10 @@ def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -
             .values("report_id")
             .annotate(row_count=Count("id"), earliest_at=Min("first_at"))
         )
-        for row in discussions.iterator(chunk_size=2000):
-            values = entry(row["report_id"])
-            values["slack_discussion_count"] = row["row_count"]
-            values["first_slack_discussed_at"] = row["earliest_at"]
+        for discussion_row in discussions.iterator(chunk_size=2000):
+            values = entry(discussion_row["report_id"])
+            values["slack_discussion_count"] = discussion_row["row_count"]
+            values["first_slack_discussed_at"] = discussion_row["earliest_at"]
     return [
         (report_id, *(values[column] for column in SERVER_ACTIONS_COLUMNS)) for report_id, values in entries.items()
     ]
@@ -782,7 +868,7 @@ def assemble_user_interaction_rows(
     )
 
 
-@dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=STATE_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
@@ -824,10 +910,12 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     ordered_spine_ids = sorted(report_id for report_id, team_id in spine_teams.items() if team_id in consent_team_ids)
     judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
 
+    content = report_content_annotations()
     rows: list[dict[str, Any]] = []
     for spine_chunk in _chunked(ordered_spine_ids):
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
+            .annotate(**content)
             .values(
                 "id",
                 "team_id",
@@ -837,18 +925,14 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                 "promoted_at",
                 "last_run_at",
                 "updated_at",
-                "signal_count",
-                "total_weight",
-                "run_count",
-                "title",
-                "summary",
+                *REPORT_FACT_FIELDS,
+                *content,
             )
             .iterator(chunk_size=2000)
         ):
             report_id = str(report["id"])
             created_at = ensure_utc(report["created_at"])
             promoted_at = ensure_utc(report["promoted_at"])
-            judgment = judgments.get(report_id, {})
             rows.append(
                 {
                     "snapshot_date": snapshot_date,
@@ -865,13 +949,8 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                     "hours_since_promotion": (snapshot_end - promoted_at).total_seconds() / 3600
                     if promoted_at
                     else None,
-                    "signal_count": report["signal_count"],
-                    "total_weight": report["total_weight"],
-                    "run_count": report["run_count"],
-                    "priority": judgment.get("priority"),
-                    "actionability": judgment.get("actionability"),
-                    "title_chars": len(report["title"] or ""),
-                    "summary_chars": len(report["summary"] or ""),
+                    **report_row_facts(report),
+                    **judgments.get(report_id, no_judgment_facts()),
                     "features_observed_at": features_observed_at,
                 }
             )
@@ -881,6 +960,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     write_parquet(s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=STATE_SCHEMA))
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             "labeled_report_ids": dagster.MetadataValue.int(len(labeled_ids)),
             "excluded_no_training_consent_reports": dagster.MetadataValue.int(
@@ -1044,65 +1124,57 @@ def report_embeddings_table(partition_key: str, rendering: str, consent_team_ids
     """Point-in-time snapshot of one embedding rendering as of the end of dt=D, for the teams in
     `consent_team_ids`. Every region's ClickHouse holds only its own reports, so a dag in each region
     reads its own vectors through this function."""
-    _, snapshot_end = snapshot_bounds(partition_key)
-    snapshot_date = datetime.date.fromisoformat(partition_key)
-
     # With no consenting team there is no row to read, so the query is not sent.
-    results = (
-        cast(
-            list[tuple[Any, ...]],
-            sync_execute(
-                REPORT_EMBEDDINGS_SQL,
-                {
-                    "product": EMBEDDING_PRODUCT,
-                    "document_type": EMBEDDING_DOCUMENT_TYPE,
-                    "rendering": rendering,
-                    "snapshot_end": snapshot_end.replace(tzinfo=None),
-                    "team_ids": sorted(consent_team_ids),
-                },
-                settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
-                workload=etl_workload(),
-                ch_user=ClickHouseUser.SIGNALS,
-            )
-            or [],
-        )
-        if consent_team_ids
-        else []
-    )
+    if not consent_team_ids:
+        return EMBEDDINGS_SCHEMA.empty_table()
 
-    # Consumed column-wise straight into Arrow, and each source row is released as it is converted.
-    # This is the widest thing the dag holds — a 1536-float vector per live report, fleet-wide — so
-    # the intermediate list of row dicts that from_pylist would need is a whole extra copy of it.
-    row_count = len(results)
-    report_ids: list[str] = []
-    team_ids: list[int] = []
-    embeddings: list[list[float] | None] = []
-    inserted_ats: list[datetime.datetime | None] = []
-    tombstone_flags: list[bool] = []
-    for index in range(row_count):
-        team_id, document_id, embedding, is_tombstone, inserted_at = results[index]
-        results[index] = ()
-        report_ids.append(str(document_id))
-        team_ids.append(int(team_id))
+    _, snapshot_end = snapshot_bounds(partition_key)
+    params = {
+        "product": EMBEDDING_PRODUCT,
+        "document_type": EMBEDDING_DOCUMENT_TYPE,
+        "rendering": rendering,
+        "snapshot_end": snapshot_end.replace(tzinfo=None),
+        "team_ids": sorted(consent_team_ids),
+        "page_count": REPORT_EMBEDDINGS_PAGES,
+    }
+    snapshot_date = datetime.date.fromisoformat(partition_key)
+    # This is the widest thing the dag holds: a 1536-float vector per live report, fleet-wide. As
+    # Python floats a vector takes about 8 times its float32 size, so only one page is held as Python
+    # objects at a time, and the snapshot accumulates as float32 Arrow batches.
+    batches = [
+        _report_embeddings_page(params, page, snapshot_date, rendering) for page in range(REPORT_EMBEDDINGS_PAGES)
+    ]
+    return pa.Table.from_batches(batches, schema=EMBEDDINGS_SCHEMA)
+
+
+def _report_embeddings_page(
+    params: dict[str, Any], page: int, snapshot_date: datetime.date, rendering: str
+) -> pa.RecordBatch:
+    rows = cast(
+        list[tuple[Any, ...]],
+        sync_execute(
+            REPORT_EMBEDDINGS_SQL,
+            {**params, "page": page},
+            settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
+            workload=etl_workload(),
+            ch_user=ClickHouseUser.SIGNALS,
+        )
+        or [],
+    )
+    row_count = len(rows)
+    columns: dict[str, list[Any]] = {
+        "snapshot_date": [snapshot_date] * row_count,
+        "report_id": [str(document_id) for _, document_id, _, _, _ in rows],
+        "report_team_id": [int(team_id) for team_id, _, _, _, _ in rows],
         # Tombstoned vectors embed the fixed retraction text, not report content, so they are
         # useless as features; keep the row for lineage but null the vector.
-        embeddings.append(None if is_tombstone else list(embedding))
-        inserted_ats.append(ensure_utc(inserted_at))
-        tombstone_flags.append(bool(is_tombstone))
-    del results
-
-    return pa.Table.from_pydict(
-        {
-            "snapshot_date": [snapshot_date] * row_count,
-            "report_id": report_ids,
-            "report_team_id": team_ids,
-            "embedding_small": embeddings,
-            "embedding_inserted_at": inserted_ats,
-            "embedding_rendering": [rendering] * row_count,
-            "is_tombstone": tombstone_flags,
-        },
-        schema=EMBEDDINGS_SCHEMA,
-    )
+        "embedding_small": [None if is_tombstone else embedding for _, _, embedding, is_tombstone, _ in rows],
+        "embedding_inserted_at": [ensure_utc(inserted_at) for _, _, _, _, inserted_at in rows],
+        "embedding_rendering": [rendering] * row_count,
+        "is_tombstone": [bool(is_tombstone) for _, _, _, is_tombstone, _ in rows],
+    }
+    del rows
+    return pa.RecordBatch.from_pydict(columns, schema=EMBEDDINGS_SCHEMA)
 
 
 def _snapshot_report_embeddings(
@@ -1123,6 +1195,7 @@ def _snapshot_report_embeddings(
     write_parquet(s3_client(), bucket, key, arrow_table)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(arrow_table.num_rows),
             "tombstones": dagster.MetadataValue.int(pc.sum(arrow_table.column("is_tombstone")).as_py() or 0),
             "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
@@ -1131,7 +1204,7 @@ def _snapshot_report_embeddings(
     )
 
 
-@dagster.asset(name=EMBEDDINGS_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=EMBEDDINGS_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     _snapshot_report_embeddings(
         context,
@@ -1150,7 +1223,7 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     # asset for the day, and the schedule never revisits a day. A single-asset backfill inside the
     # source TTL repairs the gap.
     deps=[MODEL_DATA_TABLE],
-    **COMMON_ASSET_KWARGS,
+    **HEAVY_ASSET_KWARGS,
 )
 def inbox_report_title_embeddings(context: dagster.AssetExecutionContext) -> None:
     """The title-only rendering of the same reports, so a later family can measure the title
@@ -1303,7 +1376,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-@dagster.asset(name=LABELS_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=LABELS_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
@@ -1343,6 +1416,7 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     )
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             **{
                 f"{stream_name}_reports": dagster.MetadataValue.int(len(stream))
@@ -1353,7 +1427,7 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-@dagster.asset(name=USER_INTERACTIONS_TABLE, **COMMON_ASSET_KWARGS)
+@dagster.asset(name=USER_INTERACTIONS_TABLE, **HEAVY_ASSET_KWARGS)
 def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> None:
     """Cumulative interactions at (report, person) grain, for user-report affinity models.
 
@@ -1417,6 +1491,7 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     )
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             "reports": dagster.MetadataValue.int(len({row["report_id"] for row in rows})),
             "users": dagster.MetadataValue.int(len({row["user_distinct_id"] for row in rows})),
@@ -1438,7 +1513,7 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     # not share the run pod's memory. Nothing joins this asset, so its failure does not fail the
     # training table.
     deps=[EMBEDDINGS_TABLE, LABELS_TABLE],
-    **COMMON_ASSET_KWARGS,
+    **HEAVY_ASSET_KWARGS,
 )
 def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     """Per-team context vectors as of the partition end, for a report born on the next day."""
@@ -1461,21 +1536,402 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     excluded_reports = embeddings.num_rows - consented.num_rows
     del embeddings
     labels = read_parquet(
-        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
+        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), list(CONTEXT_LABEL_COLUMNS)
     )
-    table = project_vectors(labels, consented, snapshot_end)
+    table = project_vectors(labels, consented, snapshot_end, CONTEXT_KINDS)
 
     key = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
     write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(table.num_rows),
             "teams": dagster.MetadataValue.int(len(set(table.column("team_id").to_pylist()))),
             **{
                 f"teams_with_{kind}_history": dagster.MetadataValue.int(count)
-                for kind, count in teams_with_history(table).items()
+                for kind, count in teams_with_history(table, CONTEXT_KINDS).items()
             },
             "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded_reports),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
+def team_organizations(team_ids: frozenset[int]) -> dict[int, str]:
+    return {
+        team_id: str(organization_id)
+        for team_id, organization_id in Team.objects.filter(id__in=team_ids).values_list("id", "organization_id")
+    }
+
+
+@dagster.asset(
+    name=USER_VECTORS_TABLE,
+    # After the project vectors, so the two reads of the embeddings snapshot do not share the run
+    # pod's memory. Nothing joins this asset, so its failure does not fail the training table.
+    deps=[PROJECT_VECTORS_TABLE, USER_INTERACTIONS_TABLE],
+    **HEAVY_ASSET_KWARGS,
+)
+def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
+    """Per-user context vectors as of the partition end, for a report scored on the next day.
+
+    The rows are the user vectors the pair lane rebuilds through `pair_user_vectors` for a report
+    born on D+1, so serving reads the same inputs that training reads. Each row carries the
+    `user_hash` of its (organization, user).
+    """
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    _, snapshot_end = snapshot_bounds(partition_key)
+    bucket = dataset_bucket()
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    client = s3_client()
+
+    interactions = read_parquet(
+        client,
+        bucket,
+        partition_object_key(prefix, USER_INTERACTIONS_TABLE, partition_key),
+        list(USER_INTERACTION_COLUMNS),
+    )
+    # The snapshot was filtered when it was written. Filter it again, so an opt-out since then counts.
+    consent_team_ids = training_consent_team_ids()
+    consented = interactions.filter(
+        pc.is_in(interactions.column("report_team_id"), value_set=pa.array(sorted(consent_team_ids), type=pa.int64()))
+    )
+    excluded_rows = interactions.num_rows - consented.num_rows
+    del interactions
+    organizations = team_organizations(consent_team_ids)
+    embeddings = read_parquet(
+        client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key), list(EMBEDDING_COLUMNS)
+    )
+    table = with_user_hashes(user_vectors(consented, embeddings, snapshot_end, organizations=organizations))
+    del embeddings
+
+    key = partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)
+    write_parquet(client, bucket, key, table, schema_version=USER_VECTORS_SCHEMA_VERSION)
+    users = set(
+        zip(table.column("organization_id").to_pylist(), table.column("user_distinct_id").to_pylist(), strict=True)
+    )
+    context.add_output_metadata(
+        {
+            **peak_rss_metadata(),
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "users": dagster.MetadataValue.int(len(users)),
+            "organizations": dagster.MetadataValue.int(len({organization_id for organization_id, _ in users})),
+            **{
+                f"users_with_{name}_prior_views": dagster.MetadataValue.int(count)
+                for name, count in history_buckets(
+                    prior_views(consented, snapshot_end, organizations=organizations)
+                ).items()
+            },
+            "excluded_no_training_consent_rows": dagster.MetadataValue.int(excluded_rows),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
+def activity_summary_vectors_table(
+    partition_key: str, rendering: str, consent_team_ids: Collection[int]
+) -> tuple[pa.Table, int]:
+    """The activity summary vectors of one rendering generated during dt=D for the teams in
+    `consent_team_ids`, one row per document, and the number of rows skipped because their document_id
+    names no user."""
+    window_start, window_end = snapshot_bounds(partition_key)
+    results = (
+        cast(
+            list[tuple[Any, ...]],
+            sync_execute(
+                ACTIVITY_SUMMARY_VECTORS_SQL,
+                {
+                    "product": EMBEDDING_PRODUCT,
+                    "document_types": list(ACTIVITY_SUMMARY_DOCUMENT_TYPES),
+                    "rendering": rendering,
+                    "window_start": window_start.replace(tzinfo=None),
+                    "window_end": window_end.replace(tzinfo=None),
+                    "team_ids": sorted(consent_team_ids),
+                },
+                settings=ACTIVITY_SUMMARY_VECTORS_QUERY_SETTINGS,
+                workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
+            )
+            or [],
+        )
+        if consent_team_ids
+        else []
+    )
+
+    columns: dict[str, list[Any]] = {name: [] for name, _type in _ACTIVITY_SUMMARY_VECTOR_FIELDS}
+    malformed = 0
+    for (
+        team_id,
+        document_id,
+        generated_at,
+        embedding,
+        inserted_at,
+        prompt_version,
+        render_version,
+        model,
+        source,
+    ) in results:
+        # A malformed id is skipped and counted rather than raised: failing the asset would lose
+        # the whole day's vectors, and the source drops them after its TTL.
+        user_part, _, _ = str(document_id).partition(":")
+        try:
+            user_id = int(user_part)
+        except ValueError:
+            malformed += 1
+            continue
+        generated_at_utc = cast(datetime.datetime, ensure_utc(generated_at))
+        columns["team_id"].append(int(team_id))
+        columns["user_id"].append(user_id)
+        columns["document_id"].append(str(document_id))
+        columns["generated_date"].append(generated_at_utc.date())
+        columns["generated_at"].append(generated_at_utc)
+        columns["embedding_small"].append(list(embedding))
+        columns["embedding_inserted_at"].append(ensure_utc(inserted_at))
+        columns["prompt_version"].append(prompt_version)
+        columns["render_version"].append(render_version)
+        columns["model"].append(model)
+        columns["source"].append(source)
+    return pa.Table.from_pydict(columns, schema=ACTIVITY_SUMMARY_VECTORS_SCHEMA), malformed
+
+
+def merge_activity_summary_vectors(existing: pa.Table, fresh: pa.Table, consent_team_ids: Collection[int]) -> pa.Table:
+    """The rows a re-run writes over a partition it already holds.
+
+    A fresh row replaces the existing row of its document, so a re-embedded vector is updated and
+    each document keeps one row. An existing row whose document the fresh scan no longer returns
+    stays, because the source TTL or a merge removed it and this partition is the only copy left. A
+    team without training consent now loses its rows in both cases."""
+    fresh_documents = set(
+        zip(fresh.column("team_id").to_pylist(), fresh.column("document_id").to_pylist(), strict=True)
+    )
+    keep = pa.array(
+        [
+            team_id in consent_team_ids and (team_id, document_id) not in fresh_documents
+            for team_id, document_id in zip(
+                existing.column("team_id").to_pylist(), existing.column("document_id").to_pylist(), strict=True
+            )
+        ],
+        type=pa.bool_(),
+    )
+    return pa.concat_tables([fresh, existing.filter(keep)])
+
+
+def _snapshot_activity_summary_vectors(
+    context: dagster.AssetExecutionContext, table_name: str, rendering: str, schema_version: int, query_type: str
+) -> None:
+    """Write one activity summary rendering's vectors of dt=D, shared by the two vector assets."""
+    if skip_unconfigured(context):
+        return
+    tag_dagster_queries(context, query_type=query_type)
+    partition_key = context.partition_key
+    consent_team_ids = training_consent_team_ids()
+    fresh, malformed = activity_summary_vectors_table(partition_key, rendering, consent_team_ids)
+
+    bucket = dataset_bucket()
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table_name, partition_key)
+    client = s3_client()
+    existing = read_parquet_if_exists(client, bucket, key)
+    table = fresh if existing is None else merge_activity_summary_vectors(existing, fresh, consent_team_ids)
+    write_parquet(client, bucket, key, table, schema_version=schema_version)
+
+    team_ids = table.column("team_id").to_pylist()
+    user_ids = table.column("user_id").to_pylist()
+    sources = table.column("source").to_pylist()
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "teams": dagster.MetadataValue.int(len(set(team_ids))),
+            "users": dagster.MetadataValue.int(len(set(zip(team_ids, user_ids, strict=True)))),
+            **{f"{source}_rows": dagster.MetadataValue.int(sources.count(source)) for source in ("live", "backfill")},
+            "carried_over": dagster.MetadataValue.int(table.num_rows - fresh.num_rows),
+            "malformed_document_ids": dagster.MetadataValue.int(malformed),
+            "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
+@dagster.asset(name=ACTIVITY_SUMMARY_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_activity_summary_vectors(context: dagster.AssetExecutionContext) -> None:
+    """One row per activity summary vector generated during dt=D, for user vectors in ranking training.
+
+    The source table drops a vector 3 months after its timestamp, and `UserActivitySummaryVersion`
+    keeps only the newest versions of a pair, so this partition is the durable history: a vector
+    that is not copied before it expires cannot be rebuilt. Partition D holds only the vectors
+    generated during D, not a cumulative snapshot. Training reads the union of partitions and takes
+    the vector a user had at a moment through `activity_vector_as_of`.
+
+    A leaf: nothing joins it, and it carries no summary text. A re-run replaces the rows the source
+    still returns and keeps the rest (`merge_activity_summary_vectors`).
+    """
+    _snapshot_activity_summary_vectors(
+        context,
+        ACTIVITY_SUMMARY_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_RENDERING,
+        ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION,
+        query_type="inbox_ranking_activity_summary_vectors",
+    )
+
+
+@dagster.asset(name=ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_activity_summary_profile_vectors(context: dagster.AssetExecutionContext) -> None:
+    """The same leaf as `inbox_activity_summary_vectors`, for the rendering with the profile, so a
+    backtest can compare the two user vectors on the same builds. The tick emits this rendering only
+    while `emit_profile_embeddings` is on, so a day without it writes an empty object."""
+    _snapshot_activity_summary_vectors(
+        context,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_RENDERING_PROFILE,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION,
+        query_type="inbox_ranking_activity_summary_profile_vectors",
+    )
+
+
+@frozen
+class Newborn:
+    team_id: int
+    created_at: datetime.datetime
+
+
+@frozen
+class ScoredFactRows:
+    rows: list[dict[str, Any]]
+    tenant_mismatch_events: int
+
+
+_INT32_MIN, _INT32_MAX = -(2**31), 2**31 - 1
+
+
+def _as_utc(value: datetime.datetime) -> datetime.datetime:
+    return value.replace(tzinfo=datetime.UTC) if value.tzinfo is None else value.astimezone(datetime.UTC)
+
+
+def _event_moment(value: Any) -> datetime.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return _as_utc(datetime.datetime.fromisoformat(value))
+    except ValueError:
+        return None
+
+
+def _scored_fact_value(value: Any, data_type: pa.DataType) -> Any:
+    """The event's value when it fits the column, else None. The facts events are analytics events in
+    the dogfood project, so a value of another type reads as unknown instead of aborting the build."""
+    if pa.types.is_list(data_type):
+        return sorted({item for item in value if isinstance(item, str)}) if isinstance(value, list) else None
+    if pa.types.is_boolean(data_type):
+        return value if isinstance(value, bool) else None
+    if isinstance(value, bool):
+        return None
+    if pa.types.is_int32(data_type):
+        return value if isinstance(value, int) and _INT32_MIN <= value <= _INT32_MAX else None
+    if pa.types.is_floating(data_type):
+        return float(value) if isinstance(value, int | float) else None
+    return value if isinstance(value, str) else None
+
+
+def scored_fact_rows(
+    events: Iterable[tuple[datetime.datetime, Mapping[str, Any]]],
+    newborns: Mapping[str, Newborn],
+    consent_team_ids: Collection[int],
+    *,
+    snapshot_date: datetime.date,
+) -> ScoredFactRows:
+    """One row per newborn report of a consenting team with a facts event, from its earliest `scored_at`.
+
+    `team_id` is an event property, so the tenant an event names is claimed and not proven: an event
+    that names another team than the report's own is dropped. An event without a usable `scored_at`
+    takes its event timestamp. A fact the event does not carry is null, never 0.
+    """
+    earliest: dict[str, tuple[datetime.datetime, Mapping[str, Any]]] = {}
+    mismatched = 0
+    for timestamp, properties in events:
+        raw_report_id = properties.get("report_id")
+        report_id = canonical_report_uuid(raw_report_id) if isinstance(raw_report_id, str) else None
+        newborn = newborns.get(report_id) if report_id else None
+        if report_id is None or newborn is None or newborn.team_id not in consent_team_ids:
+            continue
+        if str(properties.get("team_id")) != str(newborn.team_id):
+            mismatched += 1
+            continue
+        scored_at = _event_moment(properties.get(SCORED_AT_COLUMN)) or _as_utc(timestamp)
+        if report_id not in earliest or scored_at < earliest[report_id][0]:
+            earliest[report_id] = (scored_at, properties)
+
+    rows = [
+        {
+            "snapshot_date": snapshot_date,
+            "report_id": report_id,
+            "report_team_id": newborns[report_id].team_id,
+            "report_created_at": newborns[report_id].created_at,
+            SCORED_AT_COLUMN: scored_at,
+            "embedding_inserted_at": _event_moment(properties.get("embedding_inserted_at")),
+            "facts_schema_version": _scored_fact_value(properties.get("facts_schema_version"), pa.int32()),
+            **{
+                name: _scored_fact_value(properties.get(name), data_type)
+                for name, data_type in _SCORED_FACT_TYPES.items()
+            },
+        }
+        for report_id, (scored_at, properties) in sorted(earliest.items())
+    ]
+    return ScoredFactRows(rows=rows, tenant_mismatch_events=mismatched)
+
+
+@dagster.asset(name=SCORED_FACTS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_report_scored_facts(context: dagster.AssetExecutionContext) -> None:
+    """The report facts the scoring sweep recorded at its first score of each report created on D.
+
+    A leaf with its own schema version: nothing joins it, so a failure here leaves the training table
+    alone. `inbox_report_state` holds the same facts at the end of the report's first day; this holds
+    them as the sweep saw them when it scored, which is what a served model reads. A report the sweep
+    did not score during D has no row.
+    """
+    if skip_unconfigured(context):
+        return
+    tag_dagster_queries(context, query_type="inbox_ranking_report_scored_facts")
+    partition_key = context.partition_key
+    snapshot_start, snapshot_end = snapshot_bounds(partition_key)
+
+    newborns = {
+        str(report_id): Newborn(team_id=team_id, created_at=_as_utc(created_at))
+        for report_id, team_id, created_at in SignalReport.objects.filter(
+            created_at__gte=snapshot_start, created_at__lt=snapshot_end
+        ).values_list("id", "team_id", "created_at")
+    }
+    consent_team_ids = training_consent_team_ids()
+    events = report_facts_events(
+        labels_team(),
+        window_start=snapshot_start,
+        window_end=snapshot_end,
+        environment=settings.CLOUD_DEPLOYMENT or "",
+    )
+    assembled = scored_fact_rows(
+        events, newborns, consent_team_ids, snapshot_date=datetime.date.fromisoformat(partition_key)
+    )
+    rows = assembled.rows
+
+    bucket = dataset_bucket()
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, SCORED_FACTS_TABLE, partition_key)
+    write_parquet(
+        s3_client(),
+        bucket,
+        key,
+        pa.Table.from_pylist(rows, schema=SCORED_FACTS_SCHEMA),
+        schema_version=SCORED_FACTS_SCHEMA_VERSION,
+    )
+    consented_newborns = sum(1 for newborn in newborns.values() if newborn.team_id in consent_team_ids)
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(len(rows)),
+            "facts_events": dagster.MetadataValue.int(len(events)),
+            "newborn_reports": dagster.MetadataValue.int(consented_newborns),
+            "newborn_coverage": dagster.MetadataValue.float(
+                len(rows) / consented_newborns if consented_newborns else 0.0
+            ),
+            "tenant_mismatch_events": dagster.MetadataValue.int(assembled.tenant_mismatch_events),
+            "excluded_no_training_consent_reports": dagster.MetadataValue.int(len(newborns) - consented_newborns),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
@@ -1511,11 +1967,11 @@ def engagement_export_refusal(label_rows: int, local_rows: int) -> str | None:
     **COMMON_ASSET_KWARGS,
 )
 def inbox_engagement_export(context: dagster.AssetExecutionContext) -> None:
-    """Export the UI engagement moments of the other region's reports to the mirror store.
+    """Export the engagement moments of the other region's reports to the mirror store.
 
     The other region builds its project vectors from its own report embeddings, but the open,
-    action and dismiss moments exist only in this region's labels snapshot. The export carries
-    only `LABEL_COLUMNS`: report ids and timestamps, no team ids, no text and no vectors. The
+    action, dismiss and fixed moments exist only in this region's labels snapshot. The export
+    carries only `ENGAGEMENT_EXPORT_COLUMNS`: report ids and timestamps, no team ids, no text and no vectors. The
     labels snapshot is cumulative, so each day is a full snapshot as of the end of dt=D.
     """
     if skip_unconfigured(context):
@@ -1529,7 +1985,10 @@ def inbox_engagement_export(context: dagster.AssetExecutionContext) -> None:
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
 
     labels = read_parquet(
-        s3_client(), dataset_bucket(), partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
+        s3_client(),
+        dataset_bucket(),
+        partition_object_key(prefix, LABELS_TABLE, partition_key),
+        list(ENGAGEMENT_EXPORT_COLUMNS),
     )
     # telemetry imports the training modules, which import this module.
     from products.signals.dags.inbox_ranking.training.telemetry import (  # noqa: PLC0415
@@ -1711,7 +2170,7 @@ def assemble_model_rows(
 @dagster.asset(
     name=MODEL_DATA_TABLE,
     deps=[STATE_TABLE, EMBEDDINGS_TABLE, LABELS_TABLE],
-    **COMMON_ASSET_KWARGS,
+    **HEAVY_ASSET_KWARGS,
 )
 def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
@@ -1749,6 +2208,7 @@ def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
     with_state = sum(1 for row in rows if row["status"] is not None)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "rows": dagster.MetadataValue.int(len(rows)),
             "rows_with_state": dagster.MetadataValue.int(with_state),
             "rows_with_embedding": dagster.MetadataValue.int(sum(1 for row in rows if row["has_embedding"])),
@@ -1771,8 +2231,16 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         REVIEWERS_TABLE,
         USER_INTERACTIONS_TABLE,
         PROJECT_VECTORS_TABLE,
+        USER_VECTORS_TABLE,
         ENGAGEMENT_EXPORT,
+        ACTIVITY_SUMMARY_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
+        SCORED_FACTS_TABLE,
     ],
+    # The light steps still run in parallel, beside the one heavy step that is running.
+    executor_def=dagster.multiprocess_executor.configured(
+        {"tag_concurrency_limits": [{"key": MEMORY_HEAVY_OP_TAG, "value": "heavy", "limit": 1}]}
+    ),
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH. The cap must end before
@@ -1780,15 +2248,17 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     tags={
         **owner_tags,
         "dagster/max_runtime": str(2 * 60 * 60),
-        # The state, embeddings, signal-embeddings and labels assets execute as parallel subprocesses
-        # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
-        # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
-        # without this tag, and the peak crossed it (OOMKilled) once the inventory grew enough.
+        # Every step executes as a subprocess of one run pod, and a vector-heavy step holds a
+        # 1536-float vector per live report, so the pod's peak memory grows with the inventory. The
+        # default 8Gi limit is what a run gets without this tag. The heavy steps run one at a time
+        # (MEMORY_HEAVY_OP_TAG), so the limit has to fit the largest of them plus the light steps,
+        # not their sum. 32Gi is a stopgap from before that change (#130394): lower it once each heavy
+        # step's `peak_rss_mib` metadata shows headroom.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {
                     "requests": {"memory": "8Gi"},
-                    "limits": {"memory": "24Gi"},
+                    "limits": {"memory": "32Gi"},
                 }
             }
         },

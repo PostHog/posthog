@@ -783,20 +783,36 @@ class TestHasDuplicatePrimaryKeys:
 
         mock_capture.assert_not_called()
 
+    def test_access_denied_leaves_key_unverified_without_capturing(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            "Code: 497. DB::Exception: posthog: Not enough privileges. To execute this query, it's necessary "
+            "to have the grant SELECT ON db.t. (ACCESS_DENIED)"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
 
 class TestDuplicateProbeTargetsMergeKey:
     _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
     _INCREMENTAL = ExternalDataSchemaSyncType.INCREMENTAL
 
-    def _run(self, *, sync_type, stored_primary_keys, sorting_key, probe_outcome):
+    def _run(self, *, sync_type, stored_primary_keys, sorting_key, probe_outcome, last_value=None):
         probe_queries: list[str] = []
+        probe_parameters: list[dict | None] = []
 
-        def fake_query(query, **_kwargs):
+        def fake_query(query, parameters=None, **_kwargs):
             result = MagicMock()
             if "is_in_sorting_key" in query:
                 result.result_rows = [(name,) for name in sorting_key]
             elif "HAVING count() > 1" in query:
                 probe_queries.append(query)
+                probe_parameters.append(parameters)
                 if isinstance(probe_outcome, Exception):
                     raise probe_outcome
                 result.result_rows = probe_outcome
@@ -835,11 +851,11 @@ class TestDuplicateProbeTargetsMergeKey:
                 incremental_field="created_at",
                 incremental_field_type=IncrementalFieldType.Timestamp,
                 logger=MagicMock(),
-                db_incremental_field_last_value=None,
+                db_incremental_field_last_value=last_value,
                 stored_primary_keys=stored_primary_keys,
                 sync_type=sync_type,
             )
-        return response, probe_queries
+        return response, probe_queries, probe_parameters
 
     @pytest.mark.parametrize(
         "sync_type,stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
@@ -861,7 +877,7 @@ class TestDuplicateProbeTargetsMergeKey:
     def test_probe_checks_the_merge_key(
         self, sync_type, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
     ):
-        response, probe_queries = self._run(
+        response, probe_queries, _ = self._run(
             sync_type=sync_type,
             stored_primary_keys=stored_primary_keys,
             sorting_key=sorting_key,
@@ -874,6 +890,31 @@ class TestDuplicateProbeTargetsMergeKey:
             assert len(probe_queries) == 1
             assert expected_group_by in probe_queries[0]
         assert response.has_duplicate_primary_keys is expected_blocked
+
+    @pytest.mark.parametrize(
+        "last_value,expected_from,expected_last_value",
+        [
+            (None, "FROM `db`.`events` GROUP BY", None),
+            (
+                datetime(2026, 1, 1, tzinfo=UTC),
+                "FROM `db`.`events` WHERE `created_at` > fromUnixTimestamp64Micro(%(last_value)s) GROUP BY",
+                1_767_225_600_000_000,
+            ),
+        ],
+        ids=["first_sync_probes_the_table", "cursor_scopes_the_probe_to_new_rows"],
+    )
+    def test_probe_reads_only_the_rows_after_the_cursor(self, last_value, expected_from, expected_last_value):
+        _, probe_queries, probe_parameters = self._run(
+            sync_type=self._INCREMENTAL,
+            stored_primary_keys=["id"],
+            sorting_key=["created_at", "id"],
+            probe_outcome=[],
+            last_value=last_value,
+        )
+
+        assert len(probe_queries) == 1
+        assert expected_from in probe_queries[0]
+        assert (probe_parameters[0] or {}).get("last_value") == expected_last_value
 
     def test_source_for_pipeline_passes_the_schema_key_to_the_probe(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module

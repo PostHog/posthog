@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_kafka::kafka_producer::{create_kafka_producer, spawn_bounded_flush_on_shutdown};
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
@@ -12,7 +11,9 @@ use k8s_awareness::{K8sAwareness, PodInfo};
 use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_common::grpc::{
+    tracked_tcp_incoming_until, until_incoming_ends, GrpcLoadShedLayer, GrpcMetricsLayer,
+};
 use personhog_common::metrics::{WARM_LATENCY_BUCKETS_MS, WRITE_PATH_LATENCY_BUCKETS_MS};
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::changelog::{
@@ -46,7 +47,7 @@ use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
 use personhog_leader::warming::{
-    changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
+    changelog_kafka, changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
 };
 use personhog_leader::warnings;
 
@@ -133,15 +134,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "coordination",
         ComponentOptions::new().with_graceful_shutdown(config.coordination_graceful_shutdown()),
     );
-    let kafka_handle = manager.register(
-        "kafka-producer",
-        // The graceful window is the ceiling; the bounded flush task
-        // spawned after the producer is built normally completes well
-        // inside it.
-        ComponentOptions::new()
-            .with_graceful_shutdown(config.phase1_graceful_shutdown())
-            .with_shutdown_phase(1),
-    );
 
     let authority_metrics_handle = manager.register(
         "authority-metrics",
@@ -184,6 +176,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // visible before messages start getting rejected.
     const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
         256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
+    ];
+    const PG_LOAD_AGE_BUCKETS_SECONDS: &[f64] = &[
+        60.0, 300.0, 900.0, 3600.0, 14400.0, 43200.0, 86400.0, 259200.0, 604800.0, 2592000.0,
+        7776000.0, 31536000.0,
     ];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
@@ -253,6 +249,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
                 CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
             ),
+            (
+                Matcher::Full("personhog_leader_pg_load_person_age_seconds".into()),
+                PG_LOAD_AGE_BUCKETS_SECONDS,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_last_seen_age_seconds".into()),
+                PG_LOAD_AGE_BUCKETS_SECONDS,
+            ),
         ],
     );
     preregister_metrics();
@@ -298,27 +302,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(
         PartitionedCache::new(config.cache_memory_capacity_bytes)
             .with_properties_compression(config.cache_properties_compression_enabled),
-    );
-
-    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
-        Ok(producer) => producer,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to create Kafka producer");
-            return Err(e.into());
-        }
-    };
-    // Runs at phase 1, after the coordination drain, so the drain's last
-    // records are in the queue it flushes. The changelog path awaits each
-    // record's delivery before acking, so a timed-out flush drops only
-    // records nobody acked.
-    spawn_bounded_flush_on_shutdown(
-        kafka_producer.clone(),
-        kafka_handle,
-        Duration::from_secs(10),
     );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
@@ -361,21 +347,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     };
-    let etcd_store = EtcdStore::connect(etcd_config)
+    let etcd_store = EtcdStore::connect_with_member_failover(etcd_config)
         .await
         .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
 
     // The same source the router hashes against.
-    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
-        .await
-        .expect("Failed to load the changelog config from etcd");
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &changelog_handle.shutdown_token(),
+    )
+    .await
+    .expect("Failed to load the changelog config from etcd") else {
+        return Ok(());
+    };
     let changelog_topic = loaded.topic.clone();
     let num_partitions = loaded.partitions;
-    let topic_partitions =
-        changelog_partition_count(&config.kafka, &changelog_topic, Duration::from_secs(10))
-            .await
-            .expect("Failed to read the changelog topic's metadata");
+    let live_cluster = loaded.cluster.clone();
+    let topic_partitions = changelog_partition_count(
+        &changelog_kafka(&config.kafka, live_cluster.as_ref()),
+        &changelog_topic,
+        Duration::from_secs(10),
+    )
+    .await
+    .expect("Failed to read the changelog topic's metadata");
     assert_eq!(
         topic_partitions, num_partitions,
         "changelog topic {changelog_topic} has {topic_partitions} partitions but the config says {num_partitions}"
@@ -424,6 +420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pod_name: config.pod_name.clone(),
             recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
             pool_size: config.recovery_pool_size,
+            cluster: live_cluster.clone().map(Arc::new),
         })
         .expect("Failed to build changelog recovery consumer pool"),
     );
@@ -654,10 +651,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // this stays best-effort.
     {
         let warm_slots = pod_config.warm_concurrency;
+        let live_pools = warm_pools.on(live_cluster.as_ref());
         let warm_up = async {
             tokio::join!(
-                warm_pools.offsets.warm_up(warm_slots),
-                warm_pools.warming.warm_up(warm_slots),
+                live_pools.offsets.warm_up(warm_slots),
+                live_pools.warming.warm_up(warm_slots),
             );
         };
         if timeout(POOL_WARM_UP_DEADLINE, warm_up).await.is_err() {
@@ -760,7 +758,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        let incoming = tracked_tcp_incoming(listener);
+        let incoming = tracked_tcp_incoming_until(listener, grpc_handle.shutdown_token());
         let mut server = http2_windows.apply_to_server(
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
@@ -782,7 +780,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
             )
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, until_incoming_ends())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));
@@ -828,7 +826,7 @@ async fn run_dirty_index_prune_loop(
             &dirty_index,
             &cache,
             &locks,
-            &pools.offsets,
+            &pools,
             offsets_timeout,
             |topic| retired_topic(&changelog.current(), &writer_group, topic),
         )

@@ -1,4 +1,5 @@
 import asyncio
+import functools
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -145,7 +146,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                         posthoganalytics.capture(
                             distinct_id=user.distinct_id,
                             event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
+                            properties={"source_type": source.source_type, "$update_person_last_seen_at": False},
                         )
 
                 # Mark the team as notified, avoiding spamming emails
@@ -181,12 +182,13 @@ async def _seed_cdc_companion_from_snapshot(
     from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
         CDC_OP_COLUMN,
         CDC_TIMESTAMP_COLUMN,
+        CURRENT_HISTORY_PARTITION,
         DELETED_AT_COLUMN,
         DELETED_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
         companion_resource_name as build_companion_resource_name,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import history_naming
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
@@ -194,6 +196,7 @@ async def _seed_cdc_companion_from_snapshot(
     snapshot_dt = await snapshot_delta_table_ref.get_delta_table()
     if snapshot_dt is None:
         return
+    history = await database_sync_to_async_pool(history_naming)(schema)
 
     dataset = await asyncio.to_thread(snapshot_dt.to_pyarrow_dataset)
 
@@ -203,12 +206,11 @@ async def _seed_cdc_companion_from_snapshot(
         CDC_TIMESTAMP_COLUMN,
         DELETED_COLUMN,
         DELETED_AT_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
+        *history.stamped_columns,
     }
     read_columns = [c for c in dataset.schema.names if c not in cdc_meta_cols]
 
-    companion_resource_name = build_companion_resource_name(schema.name)
+    companion_resource_name = build_companion_resource_name(schema.name, history)
     companion_ref = DeltaTableRef(
         resource_name=companion_resource_name,
         job=job,
@@ -254,18 +256,28 @@ async def _seed_cdc_companion_from_snapshot(
             .append_column(pa.field(CDC_TIMESTAMP_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
             .append_column(pa.field(DELETED_COLUMN, pa.bool_()), pa.array([False] * n, type=pa.bool_()))
             .append_column(pa.field(DELETED_AT_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
-            .append_column(pa.field(SCD2_VALID_FROM_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
-            .append_column(pa.field(SCD2_VALID_TO_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
+            .append_column(pa.field(history.valid_from, ts_type), pa.array([epoch_us] * n, type=ts_type))
+            .append_column(pa.field(history.valid_to, ts_type), pa.array([None] * n, type=ts_type))
         )
 
         # Plain append — the companion table is freshly reset so there are no existing
         # rows to close, making SCD2 merge unnecessary.
-        await DeltaWriter(companion_ref).write(
-            data=batch_table,
-            write_type="append",
-            should_overwrite_table=False,
-            primary_keys=None,
-        )
+        if history.partition_column is None:
+            await DeltaWriter(companion_ref).write(
+                data=batch_table,
+                write_type="append",
+                should_overwrite_table=False,
+                primary_keys=None,
+            )
+        else:
+            # The SCD2 writer creates the table partitioned and files each row. Without keys it closes nothing.
+            await Scd2DeltaWriter(
+                companion_ref,
+                valid_from_column=history.valid_from,
+                valid_to_column=history.valid_to,
+                partition_column=history.partition_column,
+                current_partition=CURRENT_HISTORY_PARTITION,
+            ).write(data=batch_table, primary_keys=[])
         hogql_schema.add_pyarrow_table(batch_table)
         total_rows += n
 
@@ -292,6 +304,7 @@ async def _run_delta_maintenance(
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_PARTITION_COLUMN
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
     )
@@ -308,6 +321,8 @@ async def _run_delta_maintenance(
             is_cdc_companion=is_cdc_companion,
             compact_small_files=not schema.is_cdc,
         )
+        if is_cdc_companion:
+            await DeltaMaintenance(delta_table_ref).compact_history_partitions(HISTORY_PARTITION_COLUMN)
 
 
 def _stored_sync_type_config(schema_id: Any, team_id: int) -> Any:
@@ -498,6 +513,7 @@ async def _run_cdc_post_load(
     is_initial_load: bool,
     logger: FilteringBoundLogger,
 ) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.incremental_history import registered_history_columns
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
         register_cdc_companion_table,
     )
@@ -517,6 +533,17 @@ async def _run_cdc_post_load(
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
                 live_row_count=await delta_table_ref.get_live_row_count(),
                 live_size_mib=await delta_table_ref.get_live_size_mib(),
+                # An incremental history table keeps the past values of a column the user stopped syncing.
+                project_columns=(
+                    functools.partial(
+                        registered_history_columns,
+                        enabled_columns=schema.enabled_columns,
+                        primary_keys=schema.primary_key_columns,
+                        incremental_field=schema.incremental_field,
+                    )
+                    if schema.is_incremental and schema.keeps_history
+                    else None
+                ),
             )
         logger.debug("Finished registering CDC companion table")
         return

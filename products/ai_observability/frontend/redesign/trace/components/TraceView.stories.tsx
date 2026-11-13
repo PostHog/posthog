@@ -1,14 +1,38 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import type { TraceNodeApi } from '../../../generated/api.schemas'
+import type { TraceEvaluationSummaryApi, TraceNodeApi } from '../../../generated/api.schemas'
+import type { TraceSearchResultsApi } from '../../../generated/api.schemas'
 import { anthropicMessagesThinkingToolUse } from '../sampleFixtures/anthropicMessagesThinkingToolUse'
 import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSession'
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
+import { messagesContent } from '../sampleFixtures/sampleContent'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
-import { FIXTURE_TRACE, withWidth } from '../storyFixtures'
-import { NodeDetailTab, TraceMode } from '../types'
+import {
+    FIXTURE_EVAL_OUTCOMES,
+    FIXTURE_EVALS_SUMMARY,
+    FIXTURE_FEEDBACK_STEPS,
+    FIXTURE_FEEDBACK_WITH_SURVEYS,
+    FIXTURE_GENERATION_INPUT,
+    FIXTURE_GENERATION_OUTPUT,
+    FIXTURE_SUMMARY,
+    FIXTURE_TRACE,
+    fixtureGenerationDetail,
+    withWidth,
+    stepFeedbackWithCounts,
+} from '../storyFixtures'
+import { toMatchingNodeIds, toSearchBox } from '../traceSearchBox'
+import { stepLabelsOf } from '../traceTreeLookups'
+import { EvalRollupOutcome, MessagesOpening, NodeDetailTab, TraceMode } from '../types'
+import { SummaryModeView } from './SummaryModeView'
+import { Thread } from './Thread'
+import { TraceFeedbackView } from './TraceFeedbackView'
+import { TraceHeader } from './TraceHeader'
+import { TraceModeTabs } from './TraceModeTabs'
+import { TraceSplitView } from './TraceSplitView'
+import { TraceSummaryBar } from './TraceSummaryBar'
+import { TraceTimeline } from './TraceTimeline'
 import { TraceView } from './TraceView'
 
 function findNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | null {
@@ -40,46 +64,148 @@ const FIXTURE_ERROR_TRACE: SampleTraceFixture = {
     tree: markErrors(FIXTURE_TRACE.tree),
     details: {
         ...FIXTURE_TRACE.details,
-        'gen-answer': { ...FIXTURE_TRACE.details['gen-answer'], error: 'RateLimitError: 429 Too Many Requests' },
+        'gen-answer': fixtureGenerationDetail(
+            messagesContent(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
+            'RateLimitError: 429 Too Many Requests'
+        ),
     },
+}
+
+interface PlaygroundSearch {
+    query: string
+    matchCounts: Record<string, number>
 }
 
 interface PlaygroundProps {
     fixture: SampleTraceFixture
     initialMode: TraceMode
     initialNodeId?: string
+    evals?: TraceEvaluationSummaryApi
+    evalOutcomes?: Record<string, EvalRollupOutcome>
+    search?: PlaygroundSearch
 }
 
-function Playground({ fixture, initialMode, initialNodeId }: PlaygroundProps): JSX.Element {
+function searchResults(search: PlaygroundSearch): TraceSearchResultsApi {
+    const matches = Object.entries(search.matchCounts).map(([nodeId, count]) => ({ nodeId, count }))
+    return { total: matches.reduce((sum, match) => sum + match.count, 0), matches }
+}
+
+function Playground({
+    fixture,
+    initialMode,
+    initialNodeId,
+    evals,
+    evalOutcomes = {},
+    search,
+}: PlaygroundProps): JSX.Element {
     const [mode, setMode] = useState<TraceMode>(initialMode)
     const [selectedNodeId, setSelectedNodeId] = useState(initialNodeId ?? fixture.initialNodeId)
     const [tab, setTab] = useState<NodeDetailTab>('messages')
+    const [opening, setOpening] = useState<MessagesOpening>('lastTurn')
     const node = findNode(fixture.tree, selectedNodeId) ?? fixture.tree[0]
     const selectAndShowSpans = (id: string): void => {
         setSelectedNodeId(id)
         setMode('spans')
     }
+    const showFailingEvals = (): void => {
+        selectAndShowSpans(Object.keys(evalOutcomes).find((id) => evalOutcomes[id] === 'fail') ?? fixture.tree[0].id)
+        setTab('evals')
+    }
+    const evalOutcomeMap = new Map(Object.entries(evalOutcomes))
+    const matchingNodeIds = search ? toMatchingNodeIds(searchResults(search)) : null
+    const highlightQuery = search?.query ?? null
+    const stepFeedback = stepFeedbackWithCounts({ 'trace-1': 7, 'gen-answer': 2 })
+    const body =
+        mode === 'spans' ? (
+            <TraceSplitView
+                tree={fixture.tree}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+                onPrefetchNode={() => {}}
+                detail={{
+                    ...fixture.details[node.id],
+                    node,
+                    trace: fixture.trace,
+                    evaluationResults: fixture.evaluationResults,
+                    evaluationResultsFailed: false,
+                    stepLabels: stepLabelsOf(fixture.tree),
+                    tab,
+                    onTabChange: setTab,
+                    messagesOpening: opening,
+                    onMessagesOpeningChange: setOpening,
+                    onViewInThread: node.kind === 'generation' ? () => setMode('thread') : null,
+                }}
+                evalOutcomes={evalOutcomeMap}
+                stepFeedback={stepFeedback}
+                matchingNodeIds={matchingNodeIds}
+                highlightQuery={highlightQuery}
+            />
+        ) : mode === 'thread' ? (
+            <Thread
+                conversation={fixture.thread}
+                onSelectMessage={selectAndShowSpans}
+                highlightQuery={highlightQuery}
+                matchingNodeIds={matchingNodeIds}
+            />
+        ) : mode === 'summary' ? (
+            <SummaryModeView
+                state={{ status: 'ready', summary: FIXTURE_SUMMARY }}
+                requesting={false}
+                requestError={null}
+                consentGiven
+                onRequest={() => {}}
+                onRegenerate={() => {}}
+                onReload={() => {}}
+                onSelectStep={selectAndShowSpans}
+            />
+        ) : mode === 'feedback' ? (
+            <TraceFeedbackView
+                feedback={FIXTURE_FEEDBACK_WITH_SURVEYS}
+                failed={false}
+                steps={FIXTURE_FEEDBACK_STEPS}
+                onSelectStep={selectAndShowSpans}
+            />
+        ) : (
+            <TraceTimeline
+                rows={fixture.timeline.rows}
+                totalMs={fixture.timeline.totalMs}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={selectAndShowSpans}
+                onPrefetchNode={() => {}}
+                matchingNodeIds={matchingNodeIds}
+            />
+        )
     return (
         <TraceView
             status="ready"
-            header={fixture.header}
-            summary={fixture.summary}
-            mode={mode}
-            onModeChange={setMode}
-            tree={fixture.tree}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={setSelectedNodeId}
-            onPrefetchNode={() => {}}
-            onSelectFromView={selectAndShowSpans}
-            detail={{
-                ...fixture.details[node.id],
-                node,
-                tab,
-                onTabChange: setTab,
-                onViewInThread: node.kind === 'generation' ? () => setMode('thread') : null,
-            }}
-            thread={fixture.thread}
-            timeline={fixture.timeline}
+            header={
+                <TraceHeader
+                    {...fixture.header}
+                    search={
+                        search
+                            ? {
+                                  ...toSearchBox(search.query, 'ready', searchResults(search), null, selectedNodeId),
+                                  onQueryChange: () => {},
+                                  onStep: () => {},
+                              }
+                            : null
+                    }
+                />
+            }
+            summaryBar={
+                <TraceSummaryBar
+                    trace={fixture.trace}
+                    evals={evals ? { summary: evals, onClick: showFailingEvals } : null}
+                />
+            }
+            modeTabs={
+                <TraceModeTabs
+                    mode={mode}
+                    onModeChange={setMode}
+                    feedbackCount={FIXTURE_FEEDBACK_WITH_SURVEYS.summary.total}
+                />
+            }
+            body={body}
         />
     )
 }
@@ -100,14 +226,43 @@ export const GenerationSelected: Story = { args: { fixture: FIXTURE_TRACE, initi
 export const ErrorTrace: Story = { args: { fixture: FIXTURE_ERROR_TRACE, initialMode: 'spans' } }
 export const ThreadMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'thread' } }
 export const TimelineMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'timeline' } }
+export const FeedbackMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'feedback' } }
 export const Narrow: Story = {
     args: { fixture: FIXTURE_TRACE, initialMode: 'spans' },
+    decorators: [withWidth(520)],
+}
+export const NarrowWithEvals: Story = {
+    args: {
+        fixture: FIXTURE_TRACE,
+        initialMode: 'spans',
+        evals: FIXTURE_EVALS_SUMMARY,
+        evalOutcomes: FIXTURE_EVAL_OUTCOMES,
+    },
+    decorators: [withWidth(520)],
+}
+export const NarrowWithSearch: Story = {
+    args: {
+        fixture: FIXTURE_TRACE,
+        initialMode: 'spans',
+        search: { query: 'seats', matchCounts: { 'gen-answer': 2 } },
+    },
     decorators: [withWidth(520)],
 }
 export const SampleAnthropicThinkingToolUse: Story = {
     args: { fixture: anthropicMessagesThinkingToolUse, initialMode: 'spans' },
 }
 export const SampleClaudeCodeSession: Story = { args: { fixture: claudeCodePluginSession, initialMode: 'spans' } }
+export const FillsShortHost: Story = {
+    args: { fixture: claudeCodePluginSession, initialMode: 'spans' },
+    decorators: [
+        (Story) => (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div className="flex flex-col border border-dashed border-primary" style={{ width: 1100, height: 480 }}>
+                <Story />
+            </div>
+        ),
+    ],
+}
 export const SampleLangChainImageError: Story = {
     args: { fixture: langchainCerebrasImageError, initialMode: 'spans' },
 }
@@ -121,10 +276,6 @@ export const Loading: StoryObj<typeof TraceView> = {
 }
 export const LoadError: StoryObj<typeof TraceView> = {
     render: () => (
-        <TraceView
-            status="error"
-            errorMessage="This trace is outside the loaded time range."
-            backLink={{ label: 'Back to traces', href: '/traces' }}
-        />
+        <TraceView status="error" loadFailure="not_found" backLink={{ label: 'Back to traces', href: '/traces' }} />
     ),
 }

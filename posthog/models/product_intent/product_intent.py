@@ -20,9 +20,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
@@ -112,10 +110,11 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return False
 
     def has_activated_experiments(self) -> bool:
-        # the team has any launched experiments
-        return Experiment.objects.filter(
-            team=self.team, status__in=[Experiment.Status.RUNNING, Experiment.Status.STOPPED]
-        ).exists()
+        # Local import: this module loads during django.setup() (via posthog.models), and the
+        # experiments facade API imports posthog.schema, which must stay off the startup path.
+        from products.experiments.backend.facade import api as experiments  # noqa: PLC0415
+
+        return experiments.team_has_launched_experiments(self.team_id)
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
@@ -129,8 +128,11 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
 
     def has_activated_feature_flags(self) -> bool:
+        # Local import: see has_activated_experiments.
+        from products.experiments.backend.facade import api as experiments  # noqa: PLC0415
+
         # Get feature flags that have at least one filter group, excluding ones used by experiments, surveys, and product tours
-        experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
+        experiment_flags = experiments.experiment_flag_ids([self.team_id], include_deleted=True)
         survey_flags = Survey.objects.filter(team=self.team).values_list("targeting_flag_id", flat=True)
         product_tour_flags = ProductTour.all_objects.filter(team=self.team).values_list(
             "internal_targeting_flag_id", flat=True
@@ -179,14 +181,15 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return False
 
     def has_activated_product_analytics(self) -> bool:
+        # Local import: the dashboards facade pulls in posthog.event_usage -> posthog.models (circular).
+        from products.dashboards.backend.facade import api as dashboards  # noqa: PLC0415
+
         insights = Insight.objects.filter(team=self.team, created_by__isnull=False)
 
         if insights.count() < 3:
             return False
 
-        dashboards = Dashboard.objects.filter(team=self.team, created_by__isnull=False)
-
-        if dashboards.count() < 1:
+        if not dashboards.has_user_created_dashboard(team_id=self.team_id):
             return False
 
         return self.team.ingested_event

@@ -103,7 +103,6 @@ BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS: int = get_from_env(
 BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS: int = get_from_env("BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS", 30, type_cast=int)
 
 BATCH_EXPORT_ORDERLESS_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORT_ORDERLESS_TEAM_IDS", ""))
-UNCONSTRAINED_TIMESTAMP_TEAM_IDS: list[str] = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_TEAM_IDS", ""))
 DEFAULT_TIMESTAMP_LOOKBACK_DAYS = 7
 # Comma separated list of overrides in the format "team_id:lookback_days"
 OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(

@@ -57,6 +57,28 @@ class TestLifecycleInsightActors(ClickhouseTestMixin, APIBaseTest):
     def select(self, query: str, placeholders: Optional[dict[str, Any]] = None):
         return execute_hogql_query(query=query, team=self.team, placeholders=placeholders or {})
 
+    def test_actors_query_options_reject_a_range_with_too_many_buckets(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "InsightActorsQueryOptions",
+                    "source": {
+                        "kind": "InsightActorsQuery",
+                        "source": {
+                            "kind": "LifecycleQuery",
+                            "interval": "minute",
+                            "dateRange": {"date_from": "-365d"},
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("Choose a shorter date range or a longer interval.", response.json()["detail"])
+
     @snapshot_clickhouse_queries
     def test_insight_persons_lifecycle_query(self):
         self._create_test_events()

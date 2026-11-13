@@ -132,6 +132,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Why: merge messages and transfers are redelivered, redriven and retried.
 - Kept by: drain and apply markers keyed by the original merge message, and an outbox row that is cleared only after the transfer is acknowledged.
 - Limit: markers are local to a partition and expire after their retention, and a revoke or a wipe deletes the outbox with the rest of the slice.
+  A pod whose catalog does not process the team drops the team's merges and transfers, after a team access revoke and also before the pod has read a grant.
 - See [merges and cascades](merges-and-cascades.md).
 
 **17. Cascades are bounded.**
@@ -206,6 +207,8 @@ Most of these are not enforced by a single test, and a violation usually shows u
   Every outcome write is fenced by the dispatch epoch, and `reconcile_observed_at` is written last.
 - Limit: the proof covers planned days, not persons.
   Raising the seeder's band count while a run is seeding leaves persons unscanned, and every chunk still confirms.
+- Limit: a chunk skips a person's tile on a condition where only the newest day counts, once a newer day's chunk of the run has scanned that person.
+  If the newer chunk fails and the person's events on its day are deleted before the retry, neither day sends the person, and every chunk still confirms.
 - See [completion and readiness](completion-and-readiness.md).
 
 **26. A readiness stamp vouches only for the definition its run replayed.**
@@ -230,6 +233,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
   With it off, which is the default, the last message in Kafka order wins.
 - Limit: across a restart or a partition move, version order follows the wall clock.
   A change with no usable version bypasses the ordering.
+  With version writes off, a producer retry can land an older change after a newer one.
 - See [membership output and readers](membership-output-and-readers.md).
 
 **29. Membership rows, snapshot bookkeeping and consumer progress commit together.**
@@ -250,17 +254,17 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 ## Delivery, in one table
 
-| Path                                                                                                    | Guarantee                                                                              | What repairs a loss                           |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Firehose to stream topic                                                                                | At least once, with counted abandons                                                   | Backfill                                      |
-| Node to person merge events                                                                             | At most once, uncounted                                                                | Backfill, for the survivor's counts           |
-| Live event to membership change                                                                         | At most once                                                                           | Reconcile                                     |
-| Merge membership output, composed sweep output, first-hop cascades from the live, merge and sweep paths | At most once                                                                           | Reconcile                                     |
-| Single-leaf sweep output                                                                                | At least once while the worker runs, and across a restart only with durable restore on | Retries within the path                       |
-| Cascade messages consumed                                                                               | At least once                                                                          | Holds and replays                             |
-| Merge state and its transfer                                                                            | At least once while the slice survives. A store wipe deletes a pending transfer        | The outbox and its redrive                    |
-| Seeds and reconcile, including their first-hop cascades                                                 | At least once                                                                          | Replays after holds                           |
-| Membership consumer                                                                                     | At least once, applied idempotently                                                    | The version guard, when version writes are on |
+| Path                                                                                                    | Guarantee                                                                                                                          | What repairs a loss                                             |
+| ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Firehose to stream topic                                                                                | At least once, with counted abandons                                                                                               | Backfill                                                        |
+| Node to person merge events                                                                             | At most once, uncounted                                                                                                            | Backfill, for the survivor's counts                             |
+| Live event to membership change                                                                         | At most once                                                                                                                       | Reconcile                                                       |
+| Merge membership output, composed sweep output, first-hop cascades from the live, merge and sweep paths | At most once                                                                                                                       | Reconcile                                                       |
+| Single-leaf sweep output                                                                                | At least once while the worker runs, and across a restart only with durable restore on                                             | Retries within the path                                         |
+| Cascade messages consumed                                                                               | At least once                                                                                                                      | Holds and replays                                               |
+| Merge state and its transfer                                                                            | At least once while the slice survives. A store wipe deletes a pending transfer, and a pod that does not process the team drops it | The outbox and its redrive, and backfill for a dropped transfer |
+| Seeds and reconcile, including their first-hop cascades                                                 | At least once                                                                                                                      | Replays after holds                                             |
+| Membership consumer                                                                                     | At least once, applied idempotently                                                                                                | The version guard, when version writes are on                   |
 
 "At most once" means the path never retries a failed produce.
 It does not rule out duplicates: a store that loses unflushed writes, or is wiped, replays its inputs against older state and can emit a change a second time.

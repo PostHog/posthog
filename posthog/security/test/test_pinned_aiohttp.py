@@ -63,6 +63,38 @@ async def test_direct_connections_keep_pins_and_tls_identity(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("refresh_pins", [False, True])
+async def test_direct_connections_rotate_validated_addresses(refresh_pins: bool) -> None:
+    pins: dict[str, ResolvedIPs] = {"example.com": {PUBLIC_IP, ipaddress.ip_address("1.1.1.1")}}
+    with (
+        patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected DNS lookup")),
+        patch("aiohttp.TCPConnector._wrap_create_connection", side_effect=ConnectionIntercepted) as connect,
+    ):
+        async with pinned_session(pins) as client:
+            with pytest.raises(ConnectionIntercepted):
+                await client.get("https://example.com/")
+
+            first_order = [addr[4][0] for addr in connect.call_args.kwargs["addr_infos"]]
+            assert set(first_order) == {str(ip) for ip in pins["example.com"]}
+            expected_order = first_order[1:] + first_order[:1]
+
+            if refresh_pins:
+                pins["example.com"] = {
+                    ipaddress.ip_address(first_order[1]),
+                    ipaddress.ip_address("8.8.8.8"),
+                    ipaddress.ip_address("9.9.9.9"),
+                }
+                expected_order = [first_order[1]] + [str(ip) for ip in pins["example.com"] if str(ip) != first_order[1]]
+
+            for _ in range(2):
+                with pytest.raises(ConnectionIntercepted):
+                    await client.get("https://example.com/")
+
+                assert [addr[4][0] for addr in connect.call_args.kwargs["addr_infos"]] == expected_order
+                expected_order = expected_order[1:] + expected_order[:1]
+
+
+@pytest.mark.asyncio
 @override_settings(SSRF_TRUSTED_PROXY_URLS=[PROXY_URL])
 @pytest.mark.parametrize("pinned", [False, True])
 @pytest.mark.parametrize(

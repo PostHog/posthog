@@ -1,6 +1,6 @@
 use crate::avro_schema::AVRO_SCHEMA;
 use crate::log_record::{min_kafka_log_row_timestamp_micros, sum_kafka_log_row_bytes, KafkaLogRow};
-use crate::metric_record::KafkaMetricRow;
+use crate::metric_record::{sum_kafka_metric_row_bytes, KafkaMetricRow};
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use crate::trace_record::KafkaTraceRow;
 use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
@@ -21,6 +21,9 @@ use std::result::Result::Ok;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::log::{debug, info};
+
+// The logs consumer verifies this signature against the team it resolves from the token.
+pub const INTERNAL_LOGS_KAFKA_HEADER: &str = "posthog-internal";
 
 struct KafkaContext {
     liveness: HealthHandle,
@@ -402,6 +405,7 @@ impl KafkaSink {
         timestamps_overridden: u64,
         min_timestamp_micros: Option<i64>,
         backfill_days: Option<u32>,
+        internal_signature: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
@@ -454,6 +458,12 @@ impl KafkaSink {
                         value: Some(&days.to_string()),
                     });
                 }
+                if let Some(signature) = internal_signature {
+                    headers = headers.insert(Header {
+                        key: INTERNAL_LOGS_KAFKA_HEADER,
+                        value: Some(signature),
+                    });
+                }
                 headers
                     .insert(Header {
                         key: "bytes_compressed",
@@ -494,6 +504,7 @@ impl KafkaSink {
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
         backfill_days: Option<u32>,
+        internal_signature: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -523,6 +534,7 @@ impl KafkaSink {
             timestamps_overridden,
             min_kafka_log_row_timestamp_micros(&rows),
             backfill_days,
+            internal_signature,
         )
         .await?;
 
@@ -555,6 +567,7 @@ impl KafkaSink {
             timestamps_overridden,
             None,
             None,
+            None,
         )
         .await?;
 
@@ -566,6 +579,7 @@ impl KafkaSink {
         token: &str,
         rows: Vec<KafkaMetricRow>,
         uncompressed_bytes: u64,
+        records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
@@ -576,6 +590,15 @@ impl KafkaSink {
             counter!("capture_metrics_timestamps_overridden").increment(timestamps_overridden);
         }
 
+        // Callers that strip labels before the write (the capture-apm-metrics
+        // series label gate) pass the billable bytes measured beforehand, so
+        // the meter counts every label the customer sent.
+        let records_uncompressed_bytes =
+            records_uncompressed_bytes.unwrap_or_else(|| sum_kafka_metric_row_bytes(&rows));
+        counter!("capture_metrics_bytes_uncompressed_payload").increment(uncompressed_bytes);
+        counter!("capture_metrics_bytes_uncompressed_records")
+            .increment(records_uncompressed_bytes);
+
         self.write_avro_batch(
             &self.metrics_producer,
             &self.metrics_topic,
@@ -583,8 +606,9 @@ impl KafkaSink {
             token,
             &rows,
             uncompressed_bytes,
-            None,
+            Some(records_uncompressed_bytes),
             timestamps_overridden,
+            None,
             None,
             None,
         )

@@ -52,8 +52,31 @@ describe('createPageReportsFilters', () => {
             expectedHostValues: [],
             expectKeys: ['$current_url'],
         },
-    ])('$name', ({ url, selectedHost, expectedHostValues, expectKeys }) => {
-        const filters = createPageReportsFilters(url, true, selectedHost)
+        {
+            name: 'hostless path matches every host when the directory is off',
+            url: '/pricing',
+            selectedHost: null,
+            expectedHostValues: [],
+            expectKeys: ['$pathname'],
+        },
+        {
+            name: 'hostless path matches only events without a host when the directory is on',
+            url: '/pricing',
+            selectedHost: null,
+            hostlessMeansNoHost: true,
+            expectedHostValues: [undefined],
+            expectKeys: ['$host', '$pathname'],
+        },
+        {
+            name: 'selected host wins over the hostless match',
+            url: '/pricing',
+            selectedHost: 'posthog.com',
+            hostlessMeansNoHost: true,
+            expectedHostValues: ['posthog.com'],
+            expectKeys: ['$host', '$pathname'],
+        },
+    ])('$name', ({ url, selectedHost, hostlessMeansNoHost, expectedHostValues, expectKeys }) => {
+        const filters = createPageReportsFilters(url, true, selectedHost, false, hostlessMeansNoHost)
 
         expect(hostFilters(filters).map((filter) => filter.value)).toEqual(expectedHostValues)
         expect(filters.map((filter) => filter.key).sort()).toEqual([...expectKeys].sort())

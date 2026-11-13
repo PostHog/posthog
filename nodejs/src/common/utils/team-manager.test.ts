@@ -117,6 +117,25 @@ describe('TeamManager()', () => {
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('does not resolve a numeric token as a team id', async () => {
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+
+            // Also once the team is cached by its id
+            expect((await teamManager.getTeam(teamId))?.id).toEqual(teamId)
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+
+            // A real token made only of digits still resolves by token
+            const numericToken = String(9_000_000_000 + teamId)
+            const numericTeamId = await createTeam(hub.postgres, organizationId, numericToken)
+            expect((await teamManager.getTeamByToken(numericToken))?.id).toEqual(numericTeamId)
+        })
+
+        it('getTeamsByTokens only matches real tokens', async () => {
+            const result = await teamManager.getTeamsByTokens([String(teamId), teamToken])
+            expect(result[String(teamId)]).toBeNull()
+            expect(result[teamToken]?.id).toEqual(teamId)
+        })
+
         it('efficiently loads multiple teams', async () => {
             const promises = [
                 teamManager.getTeam(teamId),
@@ -274,16 +293,20 @@ describe('TeamManager()', () => {
     })
 
     describe('hasAvailableFeature()', () => {
-        it('returns false by default', async () => {
-            await updateOrganizationAvailableFeatures(postgres, organizationId, [])
-            const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
-            expect(result).toBe(false)
-        })
-
-        it('returns false if the available features does not exist', async () => {
-            await updateOrganizationAvailableFeatures(postgres, organizationId, [
-                { key: 'not_data_pipelines', name: 'Feature 1' },
-            ])
+        it.each<{ name: string; features: ({ key: string; name: string } | null)[] }>([
+            { name: 'by default', features: [] },
+            {
+                name: 'if the available features does not exist',
+                features: [{ key: 'not_data_pipelines', name: 'Feature 1' }],
+            },
+            // A malformed row must load, because a throw fails the batched lookup for every team in it.
+            { name: 'if the available features holds a null entry', features: [null] },
+        ])('returns false $name', async ({ features }) => {
+            await updateOrganizationAvailableFeatures(
+                postgres,
+                organizationId,
+                features as { key: string; name: string }[]
+            )
             const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(false)
         })
@@ -327,7 +350,7 @@ describe('TeamManager()', () => {
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(
                 newTeam,
                 'first team event ingested',
-                expect.objectContaining({ sdk: 'web' }),
+                expect.objectContaining({ sdk: 'web', $update_person_last_seen_at: false }),
                 expect.any(String)
             )
         })

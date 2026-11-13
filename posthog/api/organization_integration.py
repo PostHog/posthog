@@ -11,8 +11,9 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 from posthog.permissions import OrganizationAdminWritePermissions
 
 logger = structlog.get_logger(__name__)
@@ -121,10 +122,16 @@ class OrganizationIntegrationViewSet(
                     error=str(e),
                 )
 
-        team_integrations_deleted, _ = Integration.objects.filter(
-            team__organization=instance.organization,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).delete()
+        team_integrations_deleted = 0
+        org_team_ids = Team.objects.filter(organization_id=instance.organization_id).values_list("id", flat=True)
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(org_team_ids))
+        ):
+            try:
+                IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+            except IntegrationNotFound:
+                continue  # Another request deleted the resource after the list.
+            team_integrations_deleted += 1
 
         logger.info(
             "organization_integration.deleted",
@@ -152,27 +159,19 @@ class OrganizationIntegrationViewSet(
         preview_id = serializer.validated_data.get("preview", production_id)
         development_id = serializer.validated_data.get("development", production_id)
 
-        from posthog.models.team import Team
-
         org = integration.organization
         for tid in {production_id, preview_id, development_id}:
             if not Team.objects.filter(pk=tid, organization=org).exists():
                 return Response({"detail": f"Project {tid} does not belong to this organization."}, status=400)
 
-        from posthog.models.integration import Integration as TeamIntegration
-
         from ee.vercel.client import VercelAPIClient
+        from ee.vercel.integration import get_or_create_connectable_resource
 
         teams_by_id: dict[int, Team] = {}
-        resources: dict[int, TeamIntegration] = {}
+        resources: dict[int, IntegrationRecord] = {}
         for tid in {production_id, preview_id, development_id}:
             teams_by_id[tid] = Team.objects.get(pk=tid, organization=org)
-            resources[tid], _ = TeamIntegration.objects.get_or_create(
-                team=teams_by_id[tid],
-                kind=TeamIntegration.IntegrationKind.VERCEL,
-                integration_id=str(tid),
-                defaults={"config": {"type": "connectable"}},
-            )
+            resources[tid], _ = get_or_create_connectable_resource(teams_by_id[tid])
 
         integration.config["environment_mapping"] = {
             "production": production_id,
@@ -196,7 +195,7 @@ class OrganizationIntegrationViewSet(
             client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
                 integration_config_id=integration.integration_id,
-                resource_id=str(production_resource.pk),
+                resource_id=str(production_resource.id),
                 product_id="posthog",
                 name=production_team.name,
                 secrets=secrets,

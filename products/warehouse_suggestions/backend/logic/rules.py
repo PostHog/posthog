@@ -87,7 +87,6 @@ class CertifyRules:
 
 @frozen
 class DeprecateRules:
-    min_days_with_data: int
     seconds_floor: float
     bytes_floor: float
     counts_background_reads: bool
@@ -102,7 +101,16 @@ class MaterializeRules:
     min_seconds_saved: float
     min_bytes_saved: float
     min_saved_share: float
+    max_extra_bytes: float
     incremental_lookback_seconds: int
+
+
+@frozen
+class MeasurementRules:
+    max_per_team: int
+    max_per_run: int
+    max_seconds: int
+    retry_after_days: int
 
 
 @frozen
@@ -143,6 +151,7 @@ class Rules:
     certify: CertifyRules
     deprecate: DeprecateRules
     materialize: MaterializeRules
+    measurement: MeasurementRules
     unmaterialize: UnmaterializeRules
     refresh: RefreshRules
     lifecycle: LifecycleRules
@@ -202,21 +211,25 @@ RULES = Rules(
         top_share=0.10, min_users=5, min_users_floor=2, min_user_share=0.5, min_days=20, min_surfaces=2
     ),
     deprecate=DeprecateRules(
-        min_days_with_data=30, seconds_floor=600.0, bytes_floor=float(TERABYTE), counts_background_reads=True
+        seconds_floor=600.0,
+        bytes_floor=float(TERABYTE),
+        counts_background_reads=True,
     ),
     materialize=MaterializeRules(
         min_days=10,
         min_requests=50,
         min_users_or_surfaces=2,
         min_alone_reads=3,
-        min_seconds_saved=600.0,
+        min_seconds_saved=3600.0,
         min_bytes_saved=float(TERABYTE),
         min_saved_share=0.5,
+        max_extra_bytes=float(TERABYTE),
         incremental_lookback_seconds=int(timedelta(days=3).total_seconds()),
     ),
+    measurement=MeasurementRules(max_per_team=3, max_per_run=50, max_seconds=180, retry_after_days=7),
     unmaterialize=UnmaterializeRules(
         min_runs=3,
-        min_seconds_saved=600.0,
+        min_seconds_saved=3600.0,
         min_bytes_saved=float(TERABYTE),
         min_saved_share=0.5,
         max_read_seconds=10.0,
@@ -225,9 +238,9 @@ RULES = Rules(
     lifecycle=LifecycleRules(
         reproposal_score_multiple=3.0,
         expire_after_days=7,
-        max_surfaced_per_day=5,
-        max_open=15,
-        max_open_per_kind=3,
+        max_surfaced_per_day=10,
+        max_open=30,
+        max_open_per_kind=8,
         first_week_runs=2,
         flip_cooldown_days=30,
         kind_order=(

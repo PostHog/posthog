@@ -30,24 +30,34 @@ import {
     StoredCohortMembership,
 } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
+import { EmailStatusService } from '../messaging/email-status.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler, counterHogflowCohortLookupFailure } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
+import {
+    SANDBOX_QUEUE,
+    SandboxEmailActionHandler,
+    SandboxEmailStep,
+    SandboxEmailTestClient,
+    sendsOnSandboxSender,
+} from './actions/email_sandbox'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { SlackAppLookup, TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { buildConversionWatcher } from './conversion-watcher'
+import { buildConversionWatcher, runStartedAt } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { hasSensitiveEmailStep } from './hogflow-sensitivity'
+import { hasSensitiveMessageStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
     actionIdForLogging,
+    aiTaskLogToken,
+    canSendEmail,
     ensureCurrentAction,
     findContinueAction,
     shouldSkipAction,
@@ -73,6 +83,33 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched',
     'exit_on_trigger_not_matched_or_conversion',
 ])
+
+const PER_SEND_METADATA_KEYS = [
+    'teamCapped',
+    'suppressionLookupAttempts',
+    'attachmentLoadRetries',
+    'ownershipCheckRetries',
+    'teamBudgetClaimed',
+    'workflowRateClaimed',
+] as const
+
+const SEND_WITH_FILES_METADATA_KEYS = ['attachmentDueAt', 'attachmentDeferrals'] as const
+
+function withoutMetadata(
+    metadata: CyclotronJobInvocationHogFlow['queueMetadata'],
+    keys: readonly string[]
+): CyclotronJobInvocationHogFlow['queueMetadata'] {
+    if (!metadata || !keys.some((key) => key in metadata)) {
+        return metadata
+    }
+    return Object.fromEntries(Object.entries(metadata).filter(([key]) => !keys.includes(key)))
+}
+
+function dropErrorContinuedPast(result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>): void {
+    if (!result.finished) {
+        result.error = undefined
+    }
+}
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -106,7 +143,7 @@ export function createHogFlowInvocation(
             // manager may be serving a newer version. A message step re-pins this to the version
             // that actually sent (see HogFunctionHandler); until then this is the best answer.
             flowVersion: hogFlow.version,
-            ...(hasSensitiveEmailStep(hogFlow) ? { sensitive: true } : {}),
+            ...(hasSensitiveMessageStep(hogFlow) ? { sensitive: true } : {}),
         },
         teamId: hogFlow.team_id,
         // The version lives on `state.flowVersion` rather than here — functionId is the cyclotron
@@ -133,9 +170,19 @@ export class HogFlowExecutorService {
         emailValidationService: EmailValidationService,
         cohortMembershipRepository: CohortMembershipRepository,
         integrationManager: SlackAppLookup,
+        // Required, so that a caller which builds the executor without it fails to compile. Pass null
+        // only where no email status is recorded.
+        emailStatusService: EmailStatusService | null,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
-        options: { awaitedStepsEnabled?: boolean } = {}
+        options: {
+            awaitedStepsEnabled?: boolean
+            sandboxEmail?: {
+                enabled: boolean
+                send?: SandboxEmailStep | null
+                testClient?: SandboxEmailTestClient | null
+            }
+        } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.cohortMembershipRepository = cohortMembershipRepository
@@ -145,6 +192,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'fetch',
+            null,
             usageReporter,
             options
         )
@@ -153,6 +201,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'email',
+            emailStatusService,
             usageReporter
         )
         const hogFunctionSmsHandler = new HogFunctionHandler(
@@ -160,6 +209,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'sms',
+            null,
             usageReporter,
             options
         )
@@ -168,6 +218,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'push',
+            null,
             usageReporter
         )
 
@@ -182,6 +233,12 @@ export class HogFlowExecutorService {
             function_sms: hogFunctionSmsHandler,
             function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
+            email_sandbox: new SandboxEmailActionHandler(
+                { enabled: options.sandboxEmail?.enabled ?? false },
+                options.sandboxEmail?.send ?? null,
+                options.sandboxEmail?.testClient ?? null,
+                emailStatusService
+            ),
             exit: new ExitHandler(),
         }
     }
@@ -293,6 +350,12 @@ export class HogFlowExecutorService {
         const messageAssets: MessageAssetRow[] = []
         const conversionWatchers: ConversionWatcherRow[] = []
 
+        // A run that started before a step was protected must keep it out of its snapshot too, even when
+        // a recovery path later holds only the workflow id.
+        if (hasSensitiveMessageStep(invocation.hogFlow)) {
+            invocation.state.sensitive = true
+        }
+
         // A run enrolls on its first execution, before any exit check: a run that exits immediately
         // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
         // overstate the rate.
@@ -323,6 +386,8 @@ export class HogFlowExecutorService {
             logs.push(this.logExecutionTriggerInfo(invocation))
         }
 
+        const runsOneActionOnly = invocation.queue === SANDBOX_QUEUE
+
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
@@ -346,6 +411,10 @@ export class HogFlowExecutorService {
             messageAssets.push(...result.messageAssets)
             conversionWatchers.push(...result.conversionWatchers)
 
+            if (runsOneActionOnly) {
+                dropErrorContinuedPast(result)
+                break
+            }
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
             }
@@ -372,7 +441,7 @@ export class HogFlowExecutorService {
      */
     private async conversionAtEnrollment(
         invocation: CyclotronJobInvocationHogFlow
-    ): Promise<{ metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null> {
+    ): Promise<{ metrics: MinimalAppMetric[]; event: HogFunctionCapturedEvent | null } | null> {
         const { hogFlow } = invocation
         if (!invocation.person || !hogFlow.conversion?.filters?.length || !hogFlow.conversion.bytecode?.length) {
             return null
@@ -387,15 +456,16 @@ export class HogFlowExecutorService {
             return null
         }
         const distinctId = invocation.state.event?.distinct_id
+        const metric: MinimalAppMetric = {
+            team_id: hogFlow.team_id,
+            app_source_id: invocation.parentRunId ?? hogFlow.id,
+            instance_id: hogFlow.id,
+            metric_kind: 'other',
+            metric_name: 'conversion',
+            count: 1,
+        }
         return {
-            metric: {
-                team_id: hogFlow.team_id,
-                app_source_id: invocation.parentRunId ?? hogFlow.id,
-                instance_id: hogFlow.id,
-                metric_kind: 'other',
-                metric_name: 'conversion',
-                count: 1,
-            },
+            metrics: [metric, { ...metric, metric_name: 'conversion_by_start', timestamp: runStartedAt(invocation) }],
             // Mirrors the matcher's payload so both paths produce the same billable event. A run with
             // no distinct_id has nothing to attribute the capture to; the metric still counts.
             event: distinctId
@@ -416,14 +486,14 @@ export class HogFlowExecutorService {
     }
 
     private recordEnrollment(
-        enrollmentConversion: { metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null,
+        enrollmentConversion: { metrics: MinimalAppMetric[]; event: HogFunctionCapturedEvent | null } | null,
         watcher: ConversionWatcherRow | null,
         metrics: MinimalAppMetric[],
         capturedPostHogEvents: HogFunctionCapturedEvent[],
         conversionWatchers: ConversionWatcherRow[]
     ): void {
         if (enrollmentConversion) {
-            metrics.push(enrollmentConversion.metric)
+            metrics.push(...enrollmentConversion.metrics)
             if (enrollmentConversion.event) {
                 capturedPostHogEvents.push(enrollmentConversion.event)
             }
@@ -671,6 +741,10 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
+            queueMetadata:
+                invocation.queue === 'email'
+                    ? withoutMetadata(invocation.queueMetadata, PER_SEND_METADATA_KEYS)
+                    : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 
@@ -710,7 +784,10 @@ export class HogFlowExecutorService {
                 actionType: currentAction.type,
             })
 
-            const handler = this.actionHandlers[currentAction.type]
+            const handler =
+                this.actionHandlers[
+                    sendsOnSandboxSender(invocation, currentAction) ? 'email_sandbox' : currentAction.type
+                ]
             if (!handler) {
                 throw new Error(`Action type '${currentAction.type}' not supported`)
             }
@@ -882,6 +959,12 @@ export class HogFlowExecutorService {
         result.finished = false
 
         result.invocation.state.actionStepCount++
+        if (canSendEmail(currentAction)) {
+            result.invocation.queueMetadata = withoutMetadata(
+                result.invocation.queueMetadata,
+                SEND_WITH_FILES_METADATA_KEYS
+            )
+        }
         // Update the state to be going to the next action
         result.invocation.state.currentAction = {
             id: nextAction.id,
@@ -1082,28 +1165,20 @@ export class HogFlowExecutorService {
             )
         }
 
-        const storedSummary = allStoredKeys
-            .map((key) => `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`)
-            .join(', ')
+        // A protected run keeps its variables out of every stored copy, so the log names them without their values.
+        const storedSummary = result.invocation.state.sensitive
+            ? allStoredKeys.join(', ')
+            : allStoredKeys
+                  .map(
+                      (key) =>
+                          `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`
+                  )
+                  .join(', ')
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
     }
 
-    // The create-ai-task destination's result variable is what lets a workflow author jump from a
-    // run's logs to the task it kicked off. Everything else stays plain JSON.
     private describeStoredVariable(action: HogFlowAction, value: unknown): string {
-        const isCreateAiTaskAction =
-            action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
-        if (
-            isCreateAiTaskAction &&
-            value &&
-            typeof value === 'object' &&
-            typeof (value as Record<string, unknown>).id === 'string' &&
-            (value as Record<string, unknown>).id !== ''
-        ) {
-            const runId = (value as Record<string, unknown>).run_id
-            return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
-        }
-        return JSON.stringify(value)
+        return aiTaskLogToken(action, value) ?? JSON.stringify(value)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {

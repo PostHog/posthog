@@ -257,6 +257,14 @@ class TestWarehouseRoutes:
             },
         )
 
+    @_routes(
+        {("GET", W): _detail(data_store={"kind": "s3bucket", "bucket_name": "posthog-duckling-acme", "prefix": "lake"})}
+    )
+    def test_status_reports_the_data_store_prefix(self, fake: FakeHogtower) -> None:
+        body = _mapped("GET", "/warehouse/status").json()
+
+        assert (body["bucket"], body["bucket_prefix"]) == ("posthog-duckling-acme", "lake")
+
     @_routes({("GET", W): _detail(state="provisioning", ready_at=None, data_store={"kind": "external"})})
     def test_status_omits_connection_and_bucket_until_known(self, fake: FakeHogtower) -> None:
         body = _mapped("GET", "/warehouse/status").json()
@@ -293,6 +301,16 @@ class TestWarehouseRoutes:
         out = hogtower.request("GET", ORG, "database-name/check", params={"name": "acme"})
 
         assert (out.status_code, out.json()) == (200, {"name": "acme", "available": True})
+
+    @_routes({("GET", "/database-names/acme"): (200, {"name": "acme", "available": True, "reason": ""})})
+    @pytest.mark.parametrize("org_id, params", [(ORG, {"org_id": ORG}), ("", None)])
+    def test_check_name_asks_for_the_calling_org(
+        self, fake: FakeHogtower, org_id: str, params: dict[str, str] | None
+    ) -> None:
+        # hogtower treats a name the org's own warehouses carried as free only when told the org.
+        hogtower.request("GET", org_id, "database-name/check", params={"name": "acme"})
+
+        assert fake.calls[0]["params"] == params
 
     @_routes(
         {
@@ -382,6 +400,39 @@ class TestTrinoRoute:
     @_routes({("GET", f"{W}/trino"): (200, {"trino": {"org_id": ORG, "enabled": True}, "live": _TRINO_LIVE})})
     def test_live_detail_is_the_v1_body(self, fake: FakeHogtower) -> None:
         assert _mapped("GET", "/trino").json() == _TRINO_LIVE
+
+    @_routes(
+        {
+            ("GET", f"{W}/trino"): (
+                200,
+                {
+                    "trino": {"org_id": ORG, "enabled": True, "backend": "ducklake", "hoglake_initialized": False},
+                    "live": _TRINO_LIVE,
+                },
+            )
+        }
+    )
+    def test_live_detail_takes_the_backend_from_the_tenancy(self, fake: FakeHogtower) -> None:
+        # duckgres's live body can't tell a hoglake catalog from a DuckLake one; hogtower's row can.
+        body = _mapped("GET", "/trino").json()
+
+        assert body["backend"] == "ducklake"
+        assert body["hoglake_initialized"] is False
+        assert body["status"] == _TRINO_LIVE["status"]
+
+    @_routes(
+        {
+            ("GET", f"{W}/trino"): (
+                200,
+                {"trino": {"org_id": ORG, "enabled": True, "backend": "hoglake", "hoglake_initialized": True}},
+            )
+        }
+    )
+    def test_tenancy_alone_carries_hoglake_initialized(self, fake: FakeHogtower) -> None:
+        body = _mapped("GET", "/trino").json()
+
+        assert body["backend"] == "hoglake"
+        assert body["hoglake_initialized"] is True
 
     @_routes({("GET", f"{W}/trino"): (200, {"trino": None})})
     def test_no_tenancy_is_disabled(self, fake: FakeHogtower) -> None:
@@ -507,6 +558,7 @@ class TestViewsUseHogtower:
         resp = managed_warehouse.check_name(ORG, "acme")
 
         assert (resp.status_code, resp.data) == (200, {"name": "acme", "available": False})
+        assert fake.calls[0]["params"] == {"org_id": ORG}
 
     @_routes(
         {
@@ -576,3 +628,430 @@ class TestCPTeamsUseHogtower:
             ),
         ):
             assert cp_teams.list_org_teams(ORG) is None
+
+
+_HLC = "hlc_0123456789abcdef01234567"
+_HLC_ISSUED = {
+    "client_id": _HLC,
+    "client_secret": _FAKE_SECRET,
+    "name": "laptop",
+    "scope": "read",
+    "expires_at": "2027-02-01T00:00:00Z",
+}
+_HLC_ROW = {
+    "client_id": _HLC,
+    "name": "laptop",
+    "scope": "read",
+    "created_at": "2026-11-01T00:00:00Z",
+    "last_rotated_at": "2026-11-01T00:00:00Z",
+    "expires_at": "2027-02-01T00:00:00Z",
+}
+
+
+class TestHoglakeCredentialRoutes:
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [_HLC_ROW]})})
+    def test_list(self, fake: FakeHogtower) -> None:
+        out = _mapped("GET", "/hoglake-credentials")
+
+        assert (out.status_code, out.json()) == (200, {"hoglake_credentials": [_HLC_ROW]})
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_passes_the_body(self, fake: FakeHogtower) -> None:
+        out = _mapped("POST", "/hoglake-credentials", json_body={"name": "laptop", "scope": "read"})
+
+        assert out.status_code == 201
+        assert fake.calls[0]["json"] == {"name": "laptop", "scope": "read"}
+
+    @_routes({("POST", f"{W}/hoglake-credentials/{_HLC}/rotate"): (200, _HLC_ISSUED)})
+    def test_rotate(self, fake: FakeHogtower) -> None:
+        out = _mapped("POST", f"/hoglake-credentials/{_HLC}/rotate")
+
+        assert out.json()["client_secret"] == _FAKE_SECRET
+        assert fake.calls[0]["json"] is None
+
+    @_routes({("DELETE", f"{W}/hoglake-credentials/{_HLC}"): (200, {"revoked": _HLC})})
+    def test_revoke(self, fake: FakeHogtower) -> None:
+        out = _mapped("DELETE", f"/hoglake-credentials/{_HLC}")
+
+        assert (out.status_code, out.json()) == (200, {"revoked": _HLC})
+
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            ("GET", f"/hoglake-credentials/{_HLC}"),
+            ("DELETE", f"/hoglake-credentials/{_HLC}/rotate"),
+            ("PUT", "/hoglake-credentials"),
+        ],
+    )
+    def test_other_methods_are_not_forwarded(self, fake: FakeHogtower, method: str, path: str) -> None:
+        assert _mapped(method, path).status_code == 501
+        assert fake.calls == []
+
+
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+class TestHoglakeCredentialViews:
+    @pytest.fixture(autouse=True)
+    def _public_token_url(self):
+        with override_settings(HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token"):
+            yield
+
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [_HLC_ROW]})})
+    def test_list_adds_where_to_connect(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with override_settings(
+            HOGLAKE_PUBLIC_URL="https://hoglake.example.test",
+            HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token",
+        ):
+            resp = managed_warehouse.list_hoglake_credentials(ORG)
+
+        assert resp.status_code == 200
+        assert resp.data["connect"] == {
+            "catalog": ORG,
+            "hoglake_url": "https://hoglake.example.test",
+            "token_url": "https://hogtower-oauth.example.test/oauth/token",
+        }
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_logs_the_action_without_the_secret(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with patch("products.managed_warehouse.backend.presentation.views.logger") as log:
+            resp = managed_warehouse.create_hoglake_credential(
+                ORG, name="laptop", scope="read", ttl_seconds=None, triggered_by=PRINCIPAL
+            )
+
+        assert (resp.status_code, resp.data["client_secret"]) == (201, _FAKE_SECRET)
+        assert fake.calls[0]["json"] == {"name": "laptop", "scope": "read"}
+        log.info.assert_any_call(
+            "managed_warehouse_action",
+            action="create_hoglake_credential",
+            triggered_by=PRINCIPAL,
+            organization_id=ORG,
+            scope="read",
+            credential_id=_HLC,
+        )
+        assert _FAKE_SECRET not in str(log.mock_calls)
+
+    @_routes({("DELETE", f"{W}/hoglake-credentials/{_HLC}"): (404, {"error": "credential not found"})})
+    def test_revoke_error_passes_through_unlogged(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with patch("products.managed_warehouse.backend.presentation.views.logger") as log:
+            resp = managed_warehouse.revoke_hoglake_credential(ORG, _HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code == 404
+        assert not any(c.args[:1] == ("managed_warehouse_action",) for c in log.info.mock_calls)
+
+    def test_without_hogtower_is_501_and_never_reaches_duckgres(self, _enabled: MagicMock) -> None:
+        with (
+            override_settings(HOGTOWER_API_URL=None, DUCKGRES_API_URL="http://duckgres.invalid"),
+            patch("products.managed_warehouse.backend.presentation.views.internal_requests") as duckgres,
+        ):
+            resp = managed_warehouse.create_hoglake_credential(
+                ORG, name="laptop", scope="read", ttl_seconds=None, triggered_by=PRINCIPAL
+            )
+
+        assert resp.status_code == 501
+        duckgres.request.assert_not_called()
+
+    def test_without_a_public_token_url_is_501(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with override_settings(HOGLAKE_OAUTH_TOKEN_URL=None):
+            resp = managed_warehouse.list_hoglake_credentials(ORG)
+
+        assert (resp.status_code, resp.data) == (
+            501,
+            {"error": "Hoglake credentials are not available in this region yet"},
+        )
+        assert fake.calls == []
+
+
+_TEAM_HLC = "hlc_fedcba9876543210fedcba98"
+_TEAM_HLC_ROW = {**_HLC_ROW, "client_id": _TEAM_HLC, "kind": "team", "owner_user_uuid": str(uuid4()), "team_ids": [7]}
+
+
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+class TestHoglakeCredentialRotateByAdmin:
+    @pytest.fixture(autouse=True)
+    def _public_token_url(self):
+        with override_settings(HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token"):
+            yield
+
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [{**_HLC_ROW, "kind": "org"}]}),
+            ("POST", f"{W}/hoglake-credentials/{_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_rotates_an_org_credential(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _HLC, triggered_by=PRINCIPAL)
+
+        assert (resp.status_code, resp.data["client_secret"]) == (200, _FAKE_SECRET)
+
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [_TEAM_HLC_ROW]}),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_never_rotates_a_members_personal_credential(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code == 403
+        assert [c["method"] for c in fake.calls] == ["GET"]
+
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (503, {"error": "unavailable"}),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_does_not_rotate_when_it_cannot_tell_the_kind(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code >= 500
+        assert "client_secret" not in (resp.data or {})
+        assert [c["method"] for c in fake.calls] == ["GET"]
+
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [{**_HLC_ROW, "kind": "org"}]}),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_does_not_rotate_a_credential_it_does_not_list(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code == 404
+        assert [c["method"] for c in fake.calls] == ["GET"]
+
+
+@pytest.mark.django_db
+def test_list_names_owners_only_from_the_organizations_members() -> None:
+    from posthog.models import Organization, User
+
+    org = Organization.objects.create(name="acme")
+    member = User.objects.create_and_join(org, "member@acme.test", None, first_name="Mia")
+    outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@other.test", None)
+    creds = [
+        {"client_id": "hlc_1", "kind": "team", "owner_user_uuid": str(member.uuid)},
+        {"client_id": "hlc_2", "kind": "team", "owner_user_uuid": str(outsider.uuid)},
+        {"client_id": "hlc_3", "kind": "org"},
+    ]
+
+    managed_warehouse._add_owners(org.id, creds)
+
+    assert (creds[0]["owner_name"], creds[0]["owner_email"]) == ("Mia", "member@acme.test")
+    assert "owner_email" not in creds[1] and "owner_email" not in creds[2]
+
+
+_MT = "products.managed_warehouse.backend.member_teams"
+
+
+class TestHoglakeCredentialListOwnerFilter:
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": []})})
+    def test_forwards_only_the_owner(self, fake: FakeHogtower) -> None:
+        _mapped("GET", "/hoglake-credentials", params={"owner_user_uuid": "u-1", "kind": "org"})
+        _mapped("GET", "/hoglake-credentials")
+
+        assert [c["params"] for c in fake.calls] == [{"owner_user_uuid": "u-1"}, None]
+
+    @_routes(
+        {
+            ("POST", f"{W}/hoglake-credentials/{_HLC}/rotate"): (200, _HLC_ISSUED),
+            ("DELETE", f"{W}/hoglake-credentials/{_HLC}"): (200, {"revoked": _HLC}),
+        }
+    )
+    def test_rotate_and_revoke_forward_only_the_acting_owner(self, fake: FakeHogtower) -> None:
+        _mapped("POST", f"/hoglake-credentials/{_HLC}/rotate", json_body={"owner_user_uuid": "u-1", "ttl_seconds": 1})
+        _mapped("POST", f"/hoglake-credentials/{_HLC}/rotate")
+        _mapped("DELETE", f"/hoglake-credentials/{_HLC}", params={"owner_user_uuid": "u-1", "x": "y"})
+        _mapped("DELETE", f"/hoglake-credentials/{_HLC}")
+
+        assert [(c["json"], c["params"]) for c in fake.calls] == [
+            ({"owner_user_uuid": "u-1"}, None),
+            (None, None),
+            (None, {"owner_user_uuid": "u-1"}),
+            (None, None),
+        ]
+
+
+def _membership(team_id: int, *, enabled: bool) -> MagicMock:
+    row = MagicMock()
+    row.team_id, row.enabled = team_id, enabled
+    return row
+
+
+@pytest.mark.django_db
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+@patch(f"{_MT}.is_enabled", return_value=True)
+class TestMyHoglakeCredentials:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        from posthog.models import Organization, Team, User
+
+        self.org = Organization.objects.create(id=ORG, name="acme")
+        self.team = Team.objects.create(organization=self.org, name="Prod")
+        self.user = User.objects.create_and_join(self.org, "mia@acme.test", None)
+        self.mine = {**_TEAM_HLC_ROW, "owner_user_uuid": str(self.user.uuid), "team_ids": [self.team.id]}
+        self.other = Team.objects.create(organization=self.org, name="Not in the warehouse")
+        with (
+            override_settings(
+                HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token",
+                HOGLAKE_TEAM_CREDENTIALS_ENABLED=True,
+            ),
+            patch(f"{_MT}.member_teams", return_value={self.team.id: "write", self.other.id: "write"}),
+            patch(f"{_MT}.push_member") as self.push,
+            patch(
+                "products.managed_warehouse.backend.facade.cp_teams.list_org_team_memberships",
+                return_value=[_membership(self.team.id, enabled=True), _membership(self.other.id, enabled=False)],
+            ) as self.memberships,
+        ):
+            yield
+
+    def _list_route(self, rows):
+        return {("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": rows})}
+
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": []})})
+    def test_list_is_the_callers_own_with_their_projects(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.list_my_hoglake_credentials(self.org, self.user)
+
+        assert resp.status_code == 200
+        assert fake.calls[0]["params"] == {"owner_user_uuid": str(self.user.uuid)}
+        assert resp.data["projects"] == [{"id": self.team.id, "name": "Prod", "access": "write"}]
+        assert resp.data["connect"]["catalog"] == ORG
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, {**_HLC_ISSUED, "kind": "team"})})
+    def test_create_owns_it_and_brings_hogtowers_copy_current_first(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.create_my_hoglake_credential(
+            self.org,
+            self.user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.team.id, self.team.id],
+            ttl_seconds=None,
+            triggered_by=PRINCIPAL,
+        )
+
+        assert resp.status_code == 201
+        self.push.assert_called_once_with(ORG, str(self.user.uuid))
+        assert fake.calls[0]["json"] == {
+            "name": "laptop",
+            "scope": "read",
+            "owner_user_uuid": str(self.user.uuid),
+            "team_ids": [self.team.id],
+        }
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_refuses_a_project_the_caller_cannot_see(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.create_my_hoglake_credential(
+            self.org,
+            self.user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.team.id, 999999],
+            ttl_seconds=None,
+            triggered_by=PRINCIPAL,
+        )
+
+        assert resp.status_code == 403
+        assert fake.calls == []
+        self.push.assert_not_called()
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_goes_ahead_when_the_push_fails(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        from products.managed_warehouse.backend.member_teams import MemberTeamsPushError
+
+        self.push.side_effect = MemberTeamsPushError("hogtower unreachable")
+        resp = managed_warehouse.create_my_hoglake_credential(
+            self.org,
+            self.user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.team.id],
+            ttl_seconds=None,
+            triggered_by=PRINCIPAL,
+        )
+
+        assert resp.status_code == 201
+
+    @pytest.mark.parametrize("action", ["rotate", "revoke"])
+    def test_rotate_and_revoke_only_the_callers_own(
+        self, _push_on: MagicMock, _enabled: MagicMock, action: str
+    ) -> None:
+        call = getattr(managed_warehouse, f"{action}_my_hoglake_credential")
+        theirs = "hlc_00000000000000000000000a"
+        routes = {
+            **self._list_route([self.mine]),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+            ("DELETE", f"{W}/hoglake-credentials/{_TEAM_HLC}"): (200, {"revoked": _TEAM_HLC}),
+        }
+        fake = FakeHogtower(routes)
+        with (
+            HOGTOWER,
+            patch(
+                "products.managed_warehouse.backend.presentation.hogtower.internal_requests.request", side_effect=fake
+            ),
+        ):
+            refused = call(self.org, self.user, theirs, triggered_by=PRINCIPAL)
+            assert refused.status_code == 404
+            assert [c["method"] for c in fake.calls] == ["GET"]
+
+            done = call(self.org, self.user, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert done.status_code == 200
+        last = fake.calls[-1]
+        assert last["method"] == ("POST" if action == "rotate" else "DELETE")
+        # hogtower is told who is acting, and holds the call to their own credentials too.
+        sent = last["json"] if action == "rotate" else last["params"]
+        assert sent == {"owner_user_uuid": str(self.user.uuid)}
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_refuses_a_project_the_warehouse_does_not_serve(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.create_my_hoglake_credential(
+            self.org,
+            self.user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.other.id],
+            ttl_seconds=None,
+            triggered_by=PRINCIPAL,
+        )
+
+        assert resp.status_code == 403
+        assert fake.calls == []
+
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": []})})
+    def test_projects_leave_out_ones_the_warehouse_does_not_serve(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.list_my_hoglake_credentials(self.org, self.user)
+
+        assert [p["id"] for p in resp.data["projects"]] == [self.team.id]
+
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": []})})
+    def test_projects_are_all_visible_ones_when_the_control_plane_cannot_say(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        self.memberships.return_value = None
+
+        resp = managed_warehouse.list_my_hoglake_credentials(self.org, self.user)
+
+        assert sorted(p["id"] for p in resp.data["projects"]) == sorted([self.team.id, self.other.id])
+
+    def test_off_without_the_setting(self, _push_on: MagicMock, _enabled: MagicMock) -> None:
+        with override_settings(HOGLAKE_TEAM_CREDENTIALS_ENABLED=False):
+            resp = managed_warehouse.list_my_hoglake_credentials(self.org, self.user)
+
+        assert resp.status_code == 501
+
+    def test_off_without_the_member_push(self, _push_on: MagicMock, _enabled: MagicMock) -> None:
+        _push_on.return_value = False
+
+        resp = managed_warehouse.list_my_hoglake_credentials(self.org, self.user)
+
+        assert resp.status_code == 501

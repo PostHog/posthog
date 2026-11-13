@@ -1,10 +1,12 @@
+from typing import Any
+
 import django.db.models.deletion
 from django.db import migrations, models
 
 from posthog.migration_helpers import DropIndexConcurrently
 
 
-def _project_field() -> models.ForeignKey:
+def _project_field() -> "models.ForeignKey[Any, Any]":
     return models.ForeignKey(
         db_index=False,
         null=True,

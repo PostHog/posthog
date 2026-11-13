@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from queue import Queue
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -10,6 +14,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -17,6 +22,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import JsonValue
 
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.models.scoping import team_scope
@@ -28,6 +34,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutRun,
     SignalScratchpad,
+    SignalSpend,
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.scout_harness.tools.report import (
@@ -50,11 +57,60 @@ from products.signals.backend.scout_harness.trial_state import (
     memory_snapshot,
 )
 from products.signals.backend.scout_report.persistence import MAX_REPORT_SIGNALS, set_scout_report_inferred_repository
+from products.signals.backend.spend import record_task_cost_delta
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import TaskRun
+
+
+@pytest.mark.django_db(transaction=True)
+def test_trial_memory_write_and_accounting_both_commit(team: Team) -> None:
+    with team_scope(team.id):
+        run = _make_run(team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
+    spend = SignalSpend.objects.for_team(team.id).create(
+        team_id=team.id,
+        kind=SignalSpend.Kind.SCOUT_RUN,
+        scout_run_id=run.id,
+        task_run_id=run.task_run_id,
+        spend=Decimal("4"),
+        billing_exempt=True,
+    )
+    trial_pid: Queue[int] = Queue()
+
+    def remember() -> None:
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '10s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    trial_pid.put(cursor.fetchone()[0])
+                ScoutTrialStore(run, initial_memory=[]).remember(key="finding", content="Synthetic finding")
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with transaction.atomic():
+            TaskRun.objects.select_for_update().get(id=run.task_run_id, team_id=team.id)
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '10s'")
+                future = pool.submit(remember)
+                pid = trial_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                while monotonic() < deadline:
+                    cursor.execute("SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))", [pid])
+                    if cursor.fetchone()[0]:
+                        break
+                else:
+                    pytest.fail("Trial writer did not reach the held task run lock")
+            record_task_cost_delta(team_id=team.id, run_id=run.task_run_id, cost_delta_microusd=10_000)
+        future.result(timeout=15)
+
+    spend.refresh_from_db()
+    run.refresh_from_db()
+    assert spend.spend == run.total_spend == Decimal("5")
+    assert ScoutTrialStore(run, initial_memory=[]).search_memory(key="finding")[0].content == "Synthetic finding"
 
 
 class TestScoutTrialState(APIBaseTest):
@@ -732,9 +788,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             )
         select_repository.assert_not_called()
         assert result.report_id is not None
-        report = self.store.get_report(result.report_id)
-        assert report is not None
-        assert report.operator_metadata["skipped_automatic_repository_selection"] is True
+        assert self.store.get_report(result.report_id) is not None
 
     @parameterized.expand(
         [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]
@@ -941,16 +995,31 @@ class TestScoutTrialReportCapture(APIBaseTest):
         may_read_snapshot.assert_any_call(metric)
         may_read_query.assert_any_call(metric)
 
-    def test_inbox_search_and_pagination_merge_private_edits_without_duplicates(self) -> None:
+    @parameterized.expand(
+        [("oldest", {"sort": "oldest"}, [0, 1, 2]), ("priority", {"ordering": "priority"}, [2, 1, 0])]
+    )
+    def test_inbox_search_and_pagination_merge_private_edits_without_duplicates(
+        self, _name: str, query: dict[str, str], order: list[int]
+    ) -> None:
         first = SignalReport.objects.create(team=self.team, title="Earlier report", summary="Original", status="ready")
         second = SignalReport.objects.create(team=self.team, title="Second report", summary="Original", status="ready")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=second,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": "P3"}),
+        )
         private_id = self._emit()
         edit_report_sync(
             team=self.team,
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(first.id),
             title="A synthetic checkout revision",
+            priority="P4",
+            priority_explanation="The fixture affects an optional path.",
         )
+        report_ids = [str(first.id), str(second.id), private_id]
+        expected_ids = [report_ids[index] for index in order]
         base = f"/api/projects/{self.team.id}/signals/reports/"
         with (
             patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
@@ -959,27 +1028,52 @@ class TestScoutTrialReportCapture(APIBaseTest):
         ):
             results = []
             for offset in range(3):
-                response = self.client.get(base, {"sort": "oldest", "offset": str(offset), "limit": "1"})
+                response = self.client.get(base, {**query, "offset": str(offset), "limit": "1"})
                 assert response.status_code == 200
                 assert response.json()["count"] == 3
                 results.extend(response.json()["results"])
-            assert [row["id"] for row in results] == [str(first.id), str(second.id), private_id]
-            search = self.client.get(base, {"search": "checkout", "sort": "oldest"})
-            assert [row["id"] for row in search.json()["results"]] == [str(first.id), private_id]
+            assert [row["id"] for row in results] == expected_ids
+            search = self.client.get(base, {**query, "search": "checkout"})
+            assert [row["id"] for row in search.json()["results"]] == [
+                pk for pk in expected_ids if pk != str(second.id)
+            ]
             detail = self.client.get(f"{base}{first.id}/")
             assert detail.json()["title"] == "A synthetic checkout revision"
             count = self.client.get(base, {"search": "checkout", "count_only": "true"})
             assert count.json()["count"] == 2
             fetch_sources.reset_mock()
-            without_metadata = self.client.get(base, {"include_source_metadata": "false", "sort": "oldest"})
+            without_metadata = self.client.get(base, {**query, "include_source_metadata": "false"})
             assert without_metadata.status_code == 200
             rows = without_metadata.json()["results"]
-            assert [row["id"] for row in rows] == [str(first.id), str(second.id), private_id]
+            assert [row["id"] for row in rows] == expected_ids
             assert all(row["source_products"] == [] and row["scout_name"] is None for row in rows)
             fetch_sources.assert_not_called()
             assert self.store.invalid_reason() is None
         first.refresh_from_db()
         assert first.title == "Earlier report"
+
+    def test_inbox_list_preserves_source_metadata_failure_across_trial_rows(self) -> None:
+        edited = SignalReport.objects.create(team=self.team, title="Edited report", status="ready")
+        SignalReport.objects.create(team=self.team, title="Production report", status="ready")
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(edited.id),
+            title="Private revision",
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                side_effect=[ClickHouseQueryTimeOut(), {}],
+            ),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            response = self.client.get(base)
+
+        assert response.status_code == 200
+        assert response.json()["source_metadata_available"] is False
 
     @parameterized.expand(
         [

@@ -26,6 +26,17 @@ The daily snapshots and selectable scoring-moment and report grains remain avail
 
 See the [ranking DAG README](../../products/signals/dags/inbox_ranking/README.md) for the feature-set contract and operating instructions.
 
+## Cached Inbox ordering
+
+The `inbox-sort-cache` flag controls reads from the cached priority and ranking columns.
+The flag stays off during deployment. API processes and workers update the cache even when the flag is off.
+
+After every API process and worker uses the new cache writers, run `python manage.py backfill_inbox_sort_cache --team-id <team-id>` for each team in the rollout.
+The command uses locked batches and can run again after an interruption.
+Complete the backfill for every team in an organization before you enable the flag for that organization.
+Keep the flag off if any old writer remains. Old writers do not update the cache.
+Disable the flag to return to artefact queries if ordering differs during rollout.
+
 ## What each probability means
 
 Each head is conditioned on its cohort (`training/heads.py`).
@@ -199,8 +210,8 @@ A missing object is a skip in the asset metadata, not a failure.
 
 Caveats:
 
-- A manual promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
-- The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. `pool_coverage_by_model` shows how much of the pool each key covered.
+- A promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
+- The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. A new manifest does not rescore reports that already have a score, and a change of the served key does not either. So a candidate, or a newly served model, scores only the reports that are new or have a new vector after its manifest is published. `pool_coverage_by_model` shows how much of the pool each key covered.
 - A report first scored after D ends, for example when its vector arrived late, is not in D's rows. `served_pool_coverage` shows this for the served model. A later score never fills it in.
 - The sweep scores with the vector current at scoring time, so two keys that scored one report at different times did not always read the same vector.
 - A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.

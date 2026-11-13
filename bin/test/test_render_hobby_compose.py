@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import subprocess
 from pathlib import Path
 
@@ -48,3 +50,39 @@ printf '%s\n' "$${ELAPSED}s"
                 command = rendered.split(compose_default, 1)[1].replace("$$", "$")
                 result = subprocess.run(["sh", "-c", command], text=True, capture_output=True, check=True, env=env)
                 self.assertEqual(result.stdout.splitlines(), ["example_events", "example_logs", "2s"])
+
+    def test_object_storage_keys_come_from_env(self) -> None:
+        compose = Path(__file__).resolve().parents[2] / "docker-compose.hobby.yml"
+        # A default value would let an install start without keys of its own.
+        references = re.findall(
+            r"(?<!\$)\$\{(OBJECT_STORAGE_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY))([^}]*)\}", compose.read_text()
+        )
+        self.assertTrue(references)
+        for name, modifier in references:
+            self.assertTrue(modifier.startswith(":?"), f"${{{name}{modifier}}} must fail without the key")
+
+        install_keys = {
+            "OBJECT_STORAGE_ACCESS_KEY_ID": "install-access-key",
+            "OBJECT_STORAGE_SECRET_ACCESS_KEY": "install-secret-key",
+        }
+        # Ignore a local .env, so only the values below fill in the file.
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(compose), "--env-file", os.devnull, "config", "--format", "json"],
+            text=True,
+            capture_output=True,
+            env={"PATH": os.environ["PATH"], **install_keys},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        services = json.loads(result.stdout)["services"]
+        for service in ("web", "objectstorage"):
+            environment = services[service]["environment"]
+            self.assertEqual({key: environment.get(key) for key in install_keys}, install_keys)
+        # Services that extend docker-compose.base.yml also get the shared keys from .env.services,
+        # unless the hobby file overrides them.
+        shared = sorted(
+            f"{name}: {key}"
+            for name, service in services.items()
+            for key, value in (service.get("environment") or {}).items()
+            if "object_storage_root" in (value or "")
+        )
+        self.assertEqual(shared, [])

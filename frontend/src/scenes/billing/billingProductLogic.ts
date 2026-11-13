@@ -9,6 +9,10 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import type { FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from 'lib/logic/billing/billingLogic'
+import { billingProductRowDisplayName } from 'lib/logic/billing/billingProductDisplayName'
+import { getHeldCompanions } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
@@ -21,21 +25,18 @@ import {
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { ProductKey } from '../../queries/schema/schema-general'
+import { ProductKey } from '../../queries/schema/schema-general'
 import {
     calculateFreeTier,
     canHaveBillingLimit,
     createGaugeItems,
-    getHeldCompanions,
     isAddonVisible,
     isProductVariantPrimary,
 } from './billing-utils'
 import { getBillingLimitConfig } from './billingLimitConfig'
 import type { BillingLimitConfig } from './billingLimitConfig'
-import { billingLogic } from './billingLogic'
-import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
-import { billingProductRowDisplayName } from './billingProductDisplayName'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
+import { legacyInboxPricingNotice } from './inboxPricing'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -60,6 +61,7 @@ export const UNSUBSCRIBE_REASONS: UnsubscribeReason[] = [
     { reason: 'Not enough hedgehogs', question: 'How many hedgehogs do you need? (but really why are you leaving)' },
     { reason: 'Shutting down company', question: "We're sorry to hear that ❤️. What was your favorite feature?" },
     { reason: 'Technical issues', question: 'What technical problems did you experience?' },
+    { reason: 'Building it ourselves', question: 'What will you build, and what made building it the better option?' },
     { reason: 'Other (let us know below!)', question: 'Why are you leaving?' },
 ]
 
@@ -99,8 +101,11 @@ export interface BillingProductLogicProps {
 export interface billingProductLogicValues {
     billing: BillingType | null // billingLogic
     currentPlatformAddon: BillingProductV2AddonType | null // billingLogic
+    currentPlatformAddonPlan: BillingPlanType | null // billingLogic
     isUnlicensedDebug: boolean // billingLogic
     platformAddons: BillingProductV2AddonType[] // billingLogic
+    productAnalyticsFreePlan: BillingPlanType | null // billingLogic
+    productAnalyticsPlanAfterPackageDowngrade: BillingPlanType | null // billingLogic
     scrollToProductKey: ProductKey | null // billingLogic
     selfServeBillingNotice: string | null // billingLogic
     timeRemainingInSeconds: number // billingLogic
@@ -145,6 +150,7 @@ export interface billingProductLogicValues {
         upgradePlan: BillingPlanType
     }
     customLimitUsd: number | null
+    eventsRetentionPlansAfterUnsubscribe: (BillingPlanType | null)[] | null
     freeTier: number
     hasCustomLimitSet: boolean
     hedgehogSatisfied: boolean
@@ -160,6 +166,7 @@ export interface billingProductLogicValues {
     isProductWithVariants: boolean
     isProrated: boolean
     isSubscribedToAnotherAddon: boolean
+    legacyInboxPricingNotice: string | null
     noLimitCompanionAmounts: {
         companion: BillingProductV2Type
         currentAmount: number
@@ -170,6 +177,7 @@ export interface billingProductLogicValues {
         key: string
         product: BillingProductV2AddonType | BillingProductV2Type
     }> | null
+    productsToDeactivate: string
     projectedAmountExcludingAddons: string
     proratedAmount: number
     removingBillingLimitNextPeriod: boolean
@@ -452,6 +460,7 @@ export interface billingProductLogicMeta {
         ) => BillingProductV2AddonType[]
         hasCustomLimitSet: (customLimitUsd: number | null) => boolean
         isDataPipelinesDeprecated: (product: BillingProductV2AddonType | BillingProductV2Type) => boolean
+        legacyInboxPricingNotice: (product: BillingProductV2AddonType | BillingProductV2Type) => string | null
         currentAndUpgradePlans: (product: BillingProductV2AddonType | BillingProductV2Type) => {
             currentPlan: BillingPlanType | null
             upgradePlan: BillingPlanType
@@ -477,6 +486,18 @@ export interface billingProductLogicMeta {
             billing: BillingType | null,
             product: BillingProductV2AddonType | BillingProductV2Type
         ) => boolean
+        productsToDeactivate: (
+            billing: BillingType | null,
+            isAddonProduct: boolean,
+            product: BillingProductV2AddonType | BillingProductV2Type
+        ) => string
+        eventsRetentionPlansAfterUnsubscribe: (
+            product: BillingProductV2AddonType | BillingProductV2Type,
+            productsToDeactivate: string,
+            productAnalyticsFreePlan: BillingPlanType | null,
+            productAnalyticsPlanAfterPackageDowngrade: BillingPlanType | null,
+            currentPlatformAddonPlan: BillingPlanType | null
+        ) => (BillingPlanType | null)[] | null
         unsubscribeReasonQuestions: (surveyResponse: {
             $survey_response: string
             $survey_response_2: string[]
@@ -589,6 +610,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'timeTotalInSeconds',
                 'unusedPlatformAddonAmount',
                 'selfServeBillingNotice',
+                'productAnalyticsFreePlan',
+                'productAnalyticsPlanAfterPackageDowngrade',
+                'currentPlatformAddonPlan',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -940,6 +964,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return product.type === 'data_pipelines' && dayjs().isAfter(dayjs(DATA_PIPELINES_CUTOFF_DATE))
             },
         ],
+        legacyInboxPricingNotice: [
+            (_s, p) => [p.product],
+            (product: BillingProductV2Type | BillingProductV2AddonType): string | null => {
+                return legacyInboxPricingNotice(product.type, dayjs())
+            },
+        ],
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
             (product: BillingProductV2AddonType | BillingProductV2Type) => {
@@ -1010,6 +1040,41 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s, p) => [s.billing, p.product],
             (billing: BillingType | null, product: BillingProductV2AddonType | BillingProductV2Type): boolean =>
                 !!billing?.products?.some((p) => p.addons?.some((addon) => addon.type === product?.type)),
+        ],
+        productsToDeactivate: [
+            (s, p) => [s.billing, s.isAddonProduct, p.product],
+            (
+                billing: BillingType | null,
+                isAddonProduct: boolean,
+                product: BillingProductV2AddonType | BillingProductV2Type
+            ): string => (billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type),
+        ],
+        eventsRetentionPlansAfterUnsubscribe: [
+            (s, p) => [
+                p.product,
+                s.productsToDeactivate,
+                s.productAnalyticsFreePlan,
+                s.productAnalyticsPlanAfterPackageDowngrade,
+                s.currentPlatformAddonPlan,
+            ],
+            (
+                product: BillingProductV2AddonType | BillingProductV2Type,
+                productsToDeactivate: string,
+                productAnalyticsFreePlan: BillingPlanType | null,
+                productAnalyticsPlanAfterPackageDowngrade: BillingPlanType | null,
+                currentPlatformAddonPlan: BillingPlanType | null
+            ): (BillingPlanType | null)[] | null => {
+                if (isPlatformAndSupportAddon(product)) {
+                    return [productAnalyticsPlanAfterPackageDowngrade]
+                }
+                if (productsToDeactivate === 'all_products') {
+                    return [productAnalyticsFreePlan]
+                }
+                if (productsToDeactivate === ProductKey.PRODUCT_ANALYTICS) {
+                    return [productAnalyticsFreePlan, currentPlatformAddonPlan]
+                }
+                return null
+            },
         ],
         unsubscribeReasonQuestions: [
             (s) => [s.surveyResponse],

@@ -16,7 +16,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TagSelect } from 'lib/components/TagSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -24,7 +23,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -120,8 +118,6 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 }
 
 export function WorkflowsTable(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const logic = workflowsLogic()
     const {
@@ -133,7 +129,6 @@ export function WorkflowsTable(): JSX.Element {
         allArchivedSelected,
         selectedArchivedCount,
         localWorkflowTags,
-        tags: allTags,
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
@@ -158,7 +153,6 @@ export function WorkflowsTable(): JSX.Element {
         clearArchivedWorkflowSelection,
         updateWorkflowTags,
         setTagsFilter,
-        loadTagsIfNeeded,
     } = useActions(logic)
 
     useOnMountEffect(() => {
@@ -168,7 +162,6 @@ export function WorkflowsTable(): JSX.Element {
             id: 'new',
         })
         newWorkflowLogic?.unmount()
-        loadTagsIfNeeded()
 
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
         // when the component re-mounts
@@ -223,9 +216,7 @@ export function WorkflowsTable(): JSX.Element {
                             <LemonTableLink
                                 to={urls.workflow(
                                     item.id,
-                                    overviewTabEnabled && item.status === 'active' && item.trigger?.type !== 'batch'
-                                        ? 'overview'
-                                        : 'workflow'
+                                    item.status === 'active' && item.trigger?.type !== 'batch' ? 'overview' : 'workflow'
                                 )}
                                 title={
                                     <span className="flex items-center gap-2 flex-wrap">
@@ -273,7 +264,6 @@ export function WorkflowsTable(): JSX.Element {
                 return (
                     <WorkflowTagsCell
                         tags={tags}
-                        tagsAvailable={allTags.filter((tag) => !tags.includes(tag))}
                         canEdit={canEdit}
                         onChange={(newTags) => updateWorkflowTags(item, newTags)}
                         onTagClick={filterByTag}

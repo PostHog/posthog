@@ -1,5 +1,5 @@
 import time
-from typing import NotRequired, TypedDict
+from typing import NotRequired, TypedDict, cast
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
@@ -153,6 +153,93 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Numeric external IDs (e.g. a numeric user ID) crashed in trim() before the fetch, so the
+            # conversion was never sent. Functions created earlier keep the frozen code without toString().
+            "openai-ads-numeric-external-id": {
+                "template_id": "template-openai-ads",
+                "replacements": [
+                    {
+                        "from_string": "sha256Hex(trim(inputs.externalId))",
+                        "to_string": "sha256Hex(trim(toString(inputs.externalId)))",
+                    },
+                ],
+            },
+            # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
+            # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
+            "microsoft-ads-capi-normalization": {
+                "template_id": "template-microsoft-ads",
+                "replacements": [
+                    {
+                        "from_string": """if (not empty(inputs.email)) {
+    userData.em := sha256Hex(lower(trim(inputs.email)))
+}
+if (not empty(inputs.phone)) {
+    userData.ph := sha256Hex(lower(trim(inputs.phone)))
+}""",
+                        "to_string": """// A value that is already a SHA-256 hash is sent as is, so a mapping that hashes upstream is not hashed twice
+fn existingSha256(value) {
+    let lowered := lower(trim(toString(value)))
+    return match(lowered, '^[a-f0-9]{64}$') ? lowered : null
+}
+
+// Microsoft removes dots and any +alias from the part before the @ for every email domain, not only Gmail
+fn hashEmail(value) {
+    let email := lower(trim(toString(value)))
+    let parts := splitByString('@', email)
+    if (length(parts) != 2) {
+        return null
+    }
+    let localPart := replaceAll(splitByString('+', parts[1])[1], '.', '')
+    if (empty(localPart) or empty(parts[2])) {
+        return null
+    }
+    return sha256Hex(f'{localPart}@{parts[2]}')
+}
+
+// Removes every whitespace character, not only the ASCII space, so a number with non-breaking or thin spaces between digit groups still hashes
+fn removeWhitespace(value) {
+    return arrayStringConcat(arrayFilter(character -> not match(character, '[\\t\\n\\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]'), splitByString('', value)), '')
+}
+
+// Microsoft hashes the E.164 form including the leading +. A number without a country code
+// is dropped, because guessing the country would send a hash that matches the wrong person or nobody.
+fn hashPhone(value) {
+    let phone := removeWhitespace(toString(value))
+    for (let separator in ['-', '.', '(', ')']) {
+        phone := replaceAll(phone, separator, '')
+    }
+    if (startsWith(phone, '00')) {
+        phone := concat('+', substring(phone, 3))
+    }
+    if (not match(phone, '^[+][1-9][0-9]{6,14}$')) {
+        return null
+    }
+    return sha256Hex(phone)
+}
+
+if (not empty(inputs.email)) {
+    let em := existingSha256(inputs.email) ?? hashEmail(inputs.email)
+    if (empty(em)) {
+        print('`email` is not a valid email address. Sending the conversion without it.')
+    } else {
+        userData.em := em
+    }
+}
+if (not empty(inputs.phone)) {
+    let ph := existingSha256(inputs.phone) ?? hashPhone(inputs.phone)
+    if (empty(ph)) {
+        print('`phone` has no country code or is not a valid phone number. Sending the conversion without it.')
+    } else {
+        userData.ph := ph
+    }
+}""",
+                    },
+                    {
+                        "from_string": "'data': [conversion]\n",
+                        "to_string": "'data': [conversion],\n        'dataProvider': 'posthog'\n",
+                    },
+                ],
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:
@@ -200,7 +287,8 @@ class Command(BaseCommand):
 
                 # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
                 try:
-                    new_bytecode = compile_hog(new_hog, destination.type)
+                    # The queryset filters on type="destination", so the type is set.
+                    new_bytecode = compile_hog(new_hog, cast(str, destination.type))
                 except Exception as e:
                     failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))
                     continue

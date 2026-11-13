@@ -131,6 +131,10 @@ class TestSystemPromptFormat(SimpleTestCase):
                     "must call `get_generation_detail` before claiming",
                     "cache_read_input_tokens",
                     "cache_creation_input_tokens",
+                    "input_length",
+                    "Prompt caching is normal",
+                    "A trace can contain many generations",
+                    "Recheck any such caveat from a prior report",
                 ],
                 ["sample_trace_details", "sample_session_details"],
             ),
@@ -262,6 +266,12 @@ class TestFallbackContent(SimpleTestCase):
         content = _fallback_content("X", metrics, "custom reason here")
         self.assertIn("custom reason here", content.sections[0].content)
         self.assertIn("fallback", content.sections[0].content.lower())
+
+    def test_boolean_period_with_only_na_results_has_no_pass_rate(self):
+        metrics = EvalReportMetrics(total_runs=4, result_counts={"pass": 0, "fail": 0, "na": 4})
+        content = _fallback_content("X", metrics, "reason")
+        self.assertIn("No applicable results", content.sections[0].content)
+        self.assertNotIn("None%", content.sections[0].content)
 
     def test_citations_empty(self):
         metrics = EvalReportMetrics(total_runs=0)
@@ -493,6 +503,7 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
             session_id="report-session-1",
             properties={"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"},
             distinct_id="team-1",
+            use_responses_api=True,
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)

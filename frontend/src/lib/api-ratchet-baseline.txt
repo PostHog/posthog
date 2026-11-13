@@ -96,7 +96,6 @@ errorTrackingSpikeEvents projects/{}/error_tracking/spike_events
 errorTrackingStackFrames projects/{}/error_tracking/stack_frames/batch_get
 errorTrackingSymbolSet projects/{}/error_tracking/symbol_sets/{}
 errorTrackingSymbolSets projects/{}/error_tracking/symbol_sets
-evaluationRuns projects/{}/evaluation_runs
 eventDefinitionDetail projects/{}/event_definitions/{}
 eventDefinitions projects/{}/event_definitions
 experimentCreateExposureCohort projects/{}/experiments/{}/create_exposure_cohort_for_experiment
@@ -179,7 +178,6 @@ logsQuery projects/{}/logs/query
 logsSparkline projects/{}/logs/sparkline
 media projects/{}/uploaded_media
 messagingCategories projects/{}/messaging_categories
-messagingCategoriesImportFromCustomerIO projects/{}/messaging_categories/import_from_customerio
 messagingCategoriesOptOutSyncConfig projects/{}/messaging_categories/optout_sync_config
 messagingCategoriesRemoveCustomerIOAppConfig projects/{}/messaging_categories/remove_customerio_app_config
 messagingCategoriesRemoveTrackConfig projects/{}/messaging_categories/remove_track_config

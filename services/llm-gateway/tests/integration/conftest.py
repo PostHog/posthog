@@ -193,9 +193,13 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
                 thread = threading.Thread(target=server.run, daemon=True)
                 thread.start()
 
-                time.sleep(0.5)
-
                 try:
+                    deadline = time.monotonic() + 10
+                    while not server.started:
+                        assert thread.is_alive(), "the gateway server exited"
+                        assert time.monotonic() < deadline, "the gateway server never started"
+                        # nosemgrep: no-fixed-sleeps-in-tests -- the server exposes a readiness flag, not an event
+                        time.sleep(0.01)
                     yield f"http://127.0.0.1:{port}"
                 finally:
                     server.should_exit = True
@@ -222,7 +226,7 @@ def gateway_url_all_providers():
 def openai_client(gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{gateway_url}/v1",
+        base_url=f"{gateway_url}/django/v1",
     )
 
 
@@ -231,7 +235,7 @@ def openai_client_all_providers(gateway_url_all_providers):
     """OpenAI client with all providers configured (for models endpoint tests)."""
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{gateway_url_all_providers}/v1",
+        base_url=f"{gateway_url_all_providers}/django/v1",
     )
 
 
@@ -239,7 +243,7 @@ def openai_client_all_providers(gateway_url_all_providers):
 def anthropic_client(gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=gateway_url,
+        base_url=f"{gateway_url}/django",
     )
 
 
@@ -253,7 +257,7 @@ def bedrock_gateway_url():
 def bedrock_anthropic_client(bedrock_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=bedrock_gateway_url,
+        base_url=f"{bedrock_gateway_url}/django",
         default_headers={"X-PostHog-Provider": "bedrock"},
     )
 
@@ -268,7 +272,7 @@ def cloudflare_gateway_url():
 def cloudflare_anthropic_client(cloudflare_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=cloudflare_gateway_url,
+        base_url=f"{cloudflare_gateway_url}/django",
         default_headers={"X-PostHog-Provider": "cloudflare"},
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
@@ -279,7 +283,7 @@ def cloudflare_anthropic_client(cloudflare_gateway_url):
 def cloudflare_openai_client(cloudflare_gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{cloudflare_gateway_url}/v1",
+        base_url=f"{cloudflare_gateway_url}/django/v1",
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
     )

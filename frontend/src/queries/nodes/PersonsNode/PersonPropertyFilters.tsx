@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { isActorsQuery } from '~/queries/schema/node-guards'
 import { ActorsQuery, NodeKind, PersonsNode } from '~/queries/schema/schema-general'
-import { isActorsQuery } from '~/queries/utils'
 import { PersonPropertyFilter } from '~/types'
 
 interface PersonPropertyFiltersProps {
@@ -26,7 +26,7 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
             }}
             pageKey={`PersonPropertyFilters.${id}`}
             taxonomicGroupTypes={
-                isActorsQuery(query)
+                isActorsQuery(query) && query.source?.kind !== NodeKind.AccountUsersQuery
                     ? [
                           TaxonomicFilterGroupType.PersonProperties,
                           TaxonomicFilterGroupType.Cohorts,

@@ -29,7 +29,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install "mirascope[openai]" opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
+                            pip install "mirascope[openai]" opentelemetry-sdk "posthog[otel]<8" opentelemetry-instrumentation-openai-v2
                         `}
                     />
                 </>

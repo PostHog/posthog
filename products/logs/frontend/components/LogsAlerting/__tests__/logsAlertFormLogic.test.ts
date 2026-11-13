@@ -5,6 +5,9 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
@@ -531,11 +534,19 @@ describe('logsAlertFormLogic', () => {
     })
 
     describe('grouping', () => {
+        const setGroupingFlag = (enabled: boolean): void => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_ALERTS_GROUPING]: enabled })
+        }
+
+        beforeEach(() => setGroupingFlag(true))
+
         it.each<[string, LogsAlertConfigurationApi | null, LogsAlertConfigurationApi[], boolean]>([
             ['alert the source owns', MOCK_ALERT, [], false],
             ['alert the source owns in a team that has cut over', MOCK_ALERT, [PLATFORM_ALERT], false],
             ['alert the platform owns', PLATFORM_ALERT, [], true],
             ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true],
+            ['new alert in a team that has no alerts', null, [], true],
             ['new alert in a team that has not cut over', null, [MOCK_ALERT], false],
             ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], true],
         ])('can group for %s', async (_, alert, teamAlerts, expected) => {
@@ -546,6 +557,23 @@ describe('logsAlertFormLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.canGroup).toBe(expected)
+            logic.unmount()
+        })
+
+        it.each<[string, LogsAlertConfigurationApi | null, LogsAlertConfigurationApi[], boolean, LogsAlertGroupBy]>([
+            ['alert the platform owns', PLATFORM_ALERT, [], false, 'none'],
+            ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true, 'service'],
+            ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], false, 'none'],
+        ])('with the flag off, can group for %s', async (_, alert, teamAlerts, expected, lockedGroupBy) => {
+            setGroupingFlag(false)
+            givenTeamAlerts(teamAlerts)
+            const logic = logsAlertFormLogic({ alert })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.canGroup).toBe(expected)
+            expect(logic.values.lockedGroupBy).toBe(lockedGroupBy)
             logic.unmount()
         })
 

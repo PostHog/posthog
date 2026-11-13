@@ -24,6 +24,8 @@ describe('Suggested reviewer presentation', () => {
         [
             'keyboard focus',
             async (tag: HTMLElement) => {
+                // The reviewer's name is the first tab stop because it opens the row menu.
+                await userEvent.tab()
                 await userEvent.tab()
                 expect(tag).toHaveFocus()
             },
@@ -57,7 +59,7 @@ describe('Suggested reviewer presentation', () => {
 
         expect(await screen.findByText(scoutName)).toBeInTheDocument()
     })
-    it('shows each reason before its indented reviewer and keeps actions visible', async () => {
+    it('shows each reason before its reviewer and keeps actions visible', async () => {
         const maya: EnrichedReviewer = {
             github_login: 'maya',
             github_name: 'Maya Rivera',
@@ -85,19 +87,21 @@ describe('Suggested reviewer presentation', () => {
         const reason = screen.getByText('Recently changed the affected transport.')
         const reviewer = screen.getByText('Maya Rivera')
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
-        expect(screen.getByText('Quinn Foster').closest('.pl-3')).not.toBeInTheDocument()
         const addButton = screen.getByText('Add Reviewer')
         expect(addButton).toBeVisible()
         expect(
             screen.getByText('Quinn Foster').compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
 
-        const removeButton = screen.getByLabelText('Remove Maya Rivera')
-        expect(removeButton).toBeVisible()
-        expect(removeButton).not.toHaveClass('opacity-0')
-        await userEvent.click(removeButton)
-        expect(onRemove).toHaveBeenCalledWith([maya])
+        // The row shows no buttons. The name opens the reviewer's menu, and the picked reason travels with the removal.
+        const row = screen.getByLabelText('Actions for Maya Rivera')
+        expect(row).toBeVisible()
+        await userEvent.click(row)
+        await userEvent.click(await screen.findByText('Not their area'))
+        expect(onRemove).toHaveBeenLastCalledWith([maya], { reason: 'wrong_area' })
+        await userEvent.click(row)
+        await userEvent.click(await screen.findByText('Without a reason'))
+        expect(onRemove).toHaveBeenLastCalledWith([maya], undefined)
     })
     test.each([
         ['your own row while your claim is saving', 'me', true, 'Updating…'],
@@ -139,7 +143,6 @@ describe('Suggested reviewer presentation', () => {
         const reason = screen.getByText('Added by Avery Chen')
         const reviewer = screen.getByText('Quinn Foster')
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
         expect(screen.queryByText('Added by teammate')).not.toBeInTheDocument()
     })
 })

@@ -111,3 +111,4 @@ The merge queue squash-merges, and GitHub adds a `Co-authored-by` line for every
 When the new PR merges, the `Thank fork contributor` job in `.github/workflows/pr-closed.yml` reads the marker.
 It comments on the fork PR with a link to the merged PR, then closes the fork PR.
 Leave the fork PR open until then.
+If that job fails, a rerun reuses the failed run's workflow file, so fix the cause and then run `gh workflow run pr-closed.yml -f merged_pr_number=<new PR number>`.

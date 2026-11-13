@@ -15,6 +15,7 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMetricMathType,
+    ExperimentWarehouseNativeNode,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     GroupMathType,
@@ -22,19 +23,24 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.ai_observability.backend.facade.api import resolve_evaluation_pass_markers
+from products.experiments.backend.hogql_queries.exposure_query_logic import rule_exposure_criteria_error
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     contains_aggregation,
     extract_aggregation_and_inner_expr,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, get_experiment_rule
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, ExperimentRuleError
 from products.product_analytics.backend.facade.queries import ALLOWED_SESSION_MATH_PROPERTIES
 
 
@@ -108,10 +114,14 @@ def is_threshold_supported_math(math_type: ExperimentMetricMathType | None) -> b
     return math_type in [ExperimentMetricMathType.SUM, ExperimentMetricMathType.TOTAL]
 
 
-def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
+def get_source_value_expr(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode],
+) -> ast.Expr:
     """
     Return the per-row value that the metric aggregates.
     """
+    if isinstance(source, ExperimentWarehouseNativeNode):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         if hasattr(source, "math") and is_continuous(source.math):
@@ -170,9 +180,9 @@ def event_or_action_to_filter(
 ) -> ast.Expr:
     if isinstance(entity_node, ActionsNode):
         try:
-            action = Action.objects.get(pk=int(entity_node.id), team__project_id=team.project_id)
+            action = get_action(action_id=int(entity_node.id), project_id=team.project_id)
             event_filter = action_to_expr(action)
-        except Action.DoesNotExist:
+        except ActionNotFound:
             # A missing action matches no events, so that the query still runs.
             event_filter = ast.Constant(value=False)
     else:
@@ -223,6 +233,20 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
         raise ValueError(f"Unsupported conversion window unit: {conversion_window_unit}")
 
     return conversion_window * multipliers[conversion_window_unit]
+
+
+def winsorization_bound_expr(level: float, value: str, *, ignore_zeros: bool = False) -> ast.Expr:
+    """The outlier bound at the percentile `level` of `value` across the entities. `value` is an internal column name,
+    never user input, because it is interpolated into the expression. `quantile_exact_position` mirrors the value that
+    this function picks, so a change of the aggregate here must change that function too."""
+    over = f"if({value} != 0, {value}, null)" if ignore_zeros else value
+    return parse_expr(f"quantileExact({{level}})({over})", placeholders={"level": ast.Constant(value=level)})
+
+
+def quantile_exact_position(level: float, count: int) -> int:
+    """The position, among `count` values in ascending order, of the value that `quantileExact(level)` returns."""
+    # ClickHouse truncates `level * count` computed in double precision, which Python's float multiplication matches.
+    return int(level * count) if level < 1 else count - 1
 
 
 def analysis_window_end(end_date: Optional[datetime], as_of: datetime) -> datetime:
@@ -276,6 +300,25 @@ def analysis_window(
         date_to=resolved_end.isoformat(),
         explicitDate=True,
     )
+
+
+def rule_for_query(experiment: Experiment) -> Optional[ExperimentRuleConfig]:
+    """The rule that a query of a rule-linked experiment analyses, or None for a legacy experiment.
+
+    A query never falls back to the legacy analysis or to the flag's current config. When the rule cannot
+    be read, or the stored exposure criteria name something the rule analysis cannot count, the query
+    fails with the reason.
+    """
+    if not experiment.is_rule_linked:
+        return None
+    try:
+        rule = get_experiment_rule(experiment)
+    except (ExperimentRuleError, ConfigFormatError) as error:
+        raise ValidationError(f"This experiment's feature flag rule can't be read: {error}") from error
+    criteria_error = rule_exposure_criteria_error(experiment.exposure_criteria)
+    if criteria_error is not None:
+        raise ValidationError(criteria_error)
+    return rule
 
 
 def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:

@@ -1,6 +1,11 @@
 import re
 
+from rest_framework.request import Request
+
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
+from posthog.clickhouse.workload import Workload
+
+from products.metrics.backend.facade.api import record_promql_query
 
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 
@@ -15,6 +20,7 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
 
     scope_object = "metrics"
     upstream_prefix = "/api/v1"
+    workload = Workload.METRICS
     allowed_paths = (
         re.compile(r"query"),
         re.compile(r"query_range"),
@@ -27,3 +33,11 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
         re.compile(r"alerts"),
         re.compile(r"status/buildinfo"),
     )
+
+    def before_forward(self, request: Request, path: str) -> None:
+        if path not in ("query", "query_range"):
+            return
+        # The Prometheus API takes the query from the form body of a POST or from the query string.
+        expr = request.data.get("query") or request.query_params.get("query")
+        if expr:
+            record_promql_query(team=self.team, expr=expr)

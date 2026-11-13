@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError
@@ -26,6 +27,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.cdp.backend.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
+from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.quota import (
@@ -33,10 +35,20 @@ from products.signals.backend.quota import (
     notify_scout_quota_paused,
     self_driving_quota_gate,
 )
+from products.signals.backend.report_check_agent import _refuse_dispatch, legacy_check_dispatch_ready
+from products.signals.backend.report_check_final_agents import (
+    MonitoringScoutCheck,
+    bound_monitoring_scout_run,
+    build_monitoring_run_note,
+    finalize_monitoring_scout_run,
+    ready_monitoring_scout_check,
+)
+from products.signals.backend.report_monitoring_results import InvalidMonitoringResult
 from products.signals.backend.scout_harness.limits import (
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
+    TRIGGERED_BY_MONITORING,
     TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
@@ -44,6 +56,11 @@ from products.signals.backend.scout_harness.limits import (
 )
 from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
+from products.signals.backend.scout_harness.workflow_trigger_queue import (
+    ClaimedTriggers,
+    claim_pending_triggers,
+    requeue_claimed_triggers,
+)
 from products.signals.backend.temporal import metrics
 from products.skills.backend.models.skills import LLMSkill
 
@@ -75,10 +92,15 @@ class RunSignalsScoutInput:
     run_note: str | None = None
     # The workflow whose "Run scout" step started a `workflow` run. Rendered in the run's prompt.
     trigger_workflow_id: str | None = None
+    # Queued workflow fires this run takes when it starts (`workflow_trigger_queue.py`). Only the
+    # ids travel here; the run claims the rows and renders their notes, so a run that never starts
+    # leaves them queued.
+    pending_trigger_ids: tuple[str, ...] = ()
     trial_launch_id: str | None = None
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
     check_id: str | None = None
+    check_dispatched_at: datetime | None = None
     # The rows the pre-check found, set by the workflow on a scheduled run the pre-check started.
     precheck_rows: str | None = None
     # Which pre-check started the run (`config` or `skill_default`), stamped on the run row.
@@ -86,6 +108,7 @@ class RunSignalsScoutInput:
     # Seconds a coordinator dispatch sleeps before it starts work, to spread the run starts of one
     # tick. 0 for every other trigger, so those runs start at once.
     start_delay_seconds: int = 0
+    monitoring_check: MonitoringScoutCheck | None = None
 
 
 @frozen
@@ -244,6 +267,21 @@ def cancel_failed_scout_trial_activity(input: RunSignalsScoutInput) -> None:
             )
 
 
+async def _requeue_unrun_triggers(input: RunSignalsScoutInput, claimed: ClaimedTriggers) -> None:
+    # Best effort: this runs in a `finally`, and a failure here must not mask the run's own outcome.
+    try:
+        await database_sync_to_async(requeue_claimed_triggers, thread_sensitive=False)(
+            team_id=input.team_id, skill_name=input.skill_name, claimed=claimed, reason="run_not_started"
+        )
+    except Exception:
+        logger.exception(
+            "signals_scout: failed to requeue claimed workflow triggers",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+            claimed_count=claimed.count,
+        )
+
+
 async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
     """One scheduled scout run for a (team, skill) pair.
 
@@ -259,9 +297,15 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
-    # Queued check workflows can outlive their dispatch, so retiring the coordinator lane alone
-    # cannot prevent them from starting paid scout work.
-    if input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK:
+    # A queued workflow must still own a live check before starting paid scout work.
+    if (input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK) and not await database_sync_to_async(
+        legacy_check_dispatch_ready, thread_sensitive=False
+    )(
+        team_id=input.team_id,
+        skill_name=input.skill_name,
+        check_id=input.check_id,
+        dispatched_at=input.check_dispatched_at,
+    ):
         return RunSignalsScoutOutput(
             run_id=None,
             task_run_id=None,
@@ -271,6 +315,48 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
             skill_version=input.skill_version or 0,
             skip_reason="report_check_execution_disabled",
         )
+
+    if input.monitoring_check is not None:
+        try:
+            check = await database_sync_to_async(ready_monitoring_scout_check, thread_sensitive=False)(
+                input.monitoring_check
+            )
+            if (
+                input.run_note is None
+                or input.triggered_by != TRIGGERED_BY_MONITORING
+                or (check.report.team.parent_team_id or check.team_id) != input.team_id
+                or input.run_note != build_monitoring_run_note(input.monitoring_check, check)
+            ):
+                raise InvalidMonitoringResult("The scout dispatch does not match the Monitoring check.")
+            prior = await database_sync_to_async(bound_monitoring_scout_run, thread_sensitive=False)(
+                input.team_id, input.run_note
+            )
+            if prior is not None:
+                return RunSignalsScoutOutput(
+                    run_id=str(prior.id),
+                    task_run_id=str(prior.task_run_id),
+                    status=prior.task_run.status,
+                    runtime_s=0,
+                    skill_name=prior.skill_name,
+                    skill_version=prior.skill_version,
+                )
+            refusal = await database_sync_to_async(_refuse_dispatch, thread_sensitive=False)(
+                input.skill_name, input.team_id
+            )
+            if refusal is not None:
+                raise InvalidMonitoringResult(refusal.reason)
+        except InvalidMonitoringResult:
+            return RunSignalsScoutOutput(
+                run_id=None,
+                task_run_id=None,
+                status=None,
+                runtime_s=0,
+                skill_name=input.skill_name,
+                skill_version=input.skill_version or 0,
+                skip_reason="monitoring_check_unavailable",
+            )
+    elif input.triggered_by == TRIGGERED_BY_MONITORING:
+        raise InvalidMonitoringResult("A Monitoring run needs an authored check binding.")
 
     # Skip the run when the team is over its self-driving credits quota or its daily report limit,
     # before any LLM work: a scout run exists to feed signals into the pipeline, and ingestion
@@ -328,7 +414,21 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     # is the import entry point. Imported here at call time, after both modules are loaded.
     from products.signals.backend.scout_harness.runner import arun_signals_scout  # noqa: PLC0415
 
+    claimed = ClaimedTriggers(count=0)
+    run_started = False
     try:
+        # Claimed after the gates above, so a skipped run leaves the fires queued for a later one.
+        # The runner has skip checks of its own, so the `finally` below puts the fires back when
+        # the run never got a row.
+        claimed = await database_sync_to_async(claim_pending_triggers, thread_sensitive=False)(
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+            trigger_ids=input.pending_trigger_ids,
+            triggered_by=input.triggered_by,
+        )
+        run_note = claimed.run_note if claimed.count else input.run_note
+        trigger_workflow_id = input.trigger_workflow_id or claimed.trigger_workflow_id
+        workflow_run_id = temporalio.activity.info().workflow_run_id
         async with Heartbeater():
             result = await arun_signals_scout(
                 team_id=input.team_id,
@@ -336,13 +436,18 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 skill_version=input.skill_version,
                 repository=input.repository,
                 triggered_by=input.triggered_by,
-                run_note=input.run_note,
-                trigger_workflow_id=input.trigger_workflow_id,
+                run_note=run_note,
+                trigger_workflow_id=trigger_workflow_id,
+                queued_trigger_count=claimed.count,
                 trial_launch_id=input.trial_launch_id,
                 check_id=input.check_id,
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
+                first_report_run_id=(
+                    UUID(workflow_run_id) if input.skill_name == FIRST_REPORT_SCOUT and workflow_run_id else None
+                ),
             )
+        run_started = result.run_id is not None
     except SkillNotFoundError:
         # A person deleted or renamed the skill after the run was dispatched. Nothing is left to run.
         metrics.increment_scout_run("skill_missing")
@@ -380,6 +485,9 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
             skill_name=input.skill_name,
             skill_version=input.skill_version or 0,
         )
+    finally:
+        if claimed.count and not run_started:
+            await _requeue_unrun_triggers(input, claimed)
     metrics.increment_scout_run(result.status or "unknown")
     logger.info(
         "signals_scout activity finished",
@@ -390,7 +498,24 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
         runtime_s=result.runtime_s,
         skip_reason=result.skip_reason,
     )
-    return _to_output(result, include_summary=input.trial_launch_id is None)
+    return _to_output(result, include_summary=input.trial_launch_id is None and input.monitoring_check is None)
+
+
+@temporalio.activity.defn
+@close_db_connections
+def finalize_monitoring_scout_run_activity(
+    input: RunSignalsScoutInput, run_id: str | None, failed: bool = False, execution_finished: bool = True
+) -> None:
+    if input.monitoring_check is not None and input.run_note is not None:
+        finalize_monitoring_scout_run(
+            input.monitoring_check,
+            canonical_team_id=input.team_id,
+            skill_name=input.skill_name,
+            run_note=input.run_note,
+            run_id=run_id,
+            failed=failed,
+            execution_finished=execution_finished,
+        )
 
 
 @temporalio.workflow.defn
@@ -418,7 +543,19 @@ class RunSignalsScoutWorkflow:
                     skill_version=input.skill_version or 0,
                     skip_reason="config_disabled",
                 )
-        if input.triggered_by == TRIGGERED_BY_SCHEDULE and temporalio.workflow.patched("scout-precheck"):
+        # A scheduled run that carries queued workflow fires has subjects to handle, so a quiet
+        # pre-check must not skip it. The patch sits in front of the ids, so a history recorded
+        # without it replays the `scout-precheck` marker and the pre-check activity it holds.
+        carries_queued_triggers = (
+            input.triggered_by == TRIGGERED_BY_SCHEDULE
+            and temporalio.workflow.patched("scout-queued-triggers-skip-precheck-2026-11")
+            and bool(input.pending_trigger_ids)
+        )
+        if (
+            input.triggered_by == TRIGGERED_BY_SCHEDULE
+            and not carries_queued_triggers
+            and temporalio.workflow.patched("scout-precheck")
+        ):
             precheck = await self._evaluate_precheck(input)
             if not precheck.should_run:
                 # No run row exists for a skipped run. The coordinator already advanced `last_run_at`.
@@ -446,6 +583,9 @@ class RunSignalsScoutWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except (ActivityError, asyncio.CancelledError) as error:
+            if input.monitoring_check is not None:
+                await asyncio.shield(self._finalize_monitoring_run(input, None, failed=True))
+
             if input.trial_launch_id is not None and temporalio.workflow.patched("cancel-failed-scout-trial"):
                 try:
                     await asyncio.shield(
@@ -474,9 +614,29 @@ class RunSignalsScoutWorkflow:
                 )
                 await asyncio.shield(self._resume_step(input, output))
             raise
+        if input.monitoring_check is not None and (
+            output.run_id is not None or output.status in {"failed", "cancelled"}
+        ):
+            await self._finalize_monitoring_run(
+                input,
+                output.run_id,
+                failed=output.status in {"failed", "cancelled"},
+                execution_finished=output.status in {"completed", "failed", "cancelled"},
+            )
         if managed_resume:
             await self._resume_step(input, output)
         return output
+
+    async def _finalize_monitoring_run(
+        self, input: RunSignalsScoutInput, run_id: str | None, *, failed: bool = False, execution_finished: bool = True
+    ) -> None:
+        await temporalio.workflow.execute_activity(
+            finalize_monitoring_scout_run_activity,
+            args=[input, run_id, failed, execution_finished],
+            start_to_close_timeout=timedelta(seconds=30),
+            schedule_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=5),
+        )
 
     async def _sleep_start_delay(self, input: RunSignalsScoutInput) -> bool:
         """Sleep the start delay, then return whether the config can still run.
@@ -556,7 +716,9 @@ async def _start_off_schedule_run(
     workflow_origin_key: str | None = None,
     run_note: str | None = None,
     check_id: str | None = None,
+    check_dispatched_at: datetime | None = None,
     trigger_workflow_id: str | None = None,
+    pending_trigger_ids: tuple[str, ...] = (),
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
@@ -579,7 +741,9 @@ async def _start_off_schedule_run(
             workflow_origin_key=workflow_origin_key,
             run_note=run_note,
             check_id=check_id,
+            check_dispatched_at=check_dispatched_at,
             trigger_workflow_id=trigger_workflow_id,
+            pending_trigger_ids=tuple(pending_trigger_ids),
         ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -662,7 +826,7 @@ def check_run_workflow_id(team_id: int, skill_name: str) -> str:
 
 
 def start_check_signals_scout_run(
-    client: Client, *, team_id: int, skill_name: str, run_note: str, check_id: str
+    client: Client, *, team_id: int, skill_name: str, run_note: str, check_id: str, dispatched_at: datetime
 ) -> str:
     """Dispatch one scout run to answer a report check; return its workflow id.
 
@@ -682,6 +846,7 @@ def start_check_signals_scout_run(
         source=TRIGGERED_BY_CHECK,
         run_note=run_note,
         check_id=check_id,
+        check_dispatched_at=dispatched_at,
     )
 
 
@@ -693,6 +858,7 @@ def start_workflow_signals_scout_run(
     workflow_origin_key: str | None = None,
     run_note: str | None = None,
     trigger_workflow_id: str | None = None,
+    pending_trigger_ids: tuple[str, ...] = (),
 ) -> str:
     """Dispatch one workflow-triggered scout run on the signals task queue; return its workflow id.
 
@@ -703,6 +869,7 @@ def start_workflow_signals_scout_run(
 
     `run_note` is the note the step rendered from its triggering event, for this run alone.
     `trigger_workflow_id` is the workflow that fired, so the run can name it.
+    `pending_trigger_ids` are queued fires the run takes when it starts, and renders in place of `run_note`.
     """
     return _start_off_schedule_run(
         client,
@@ -713,4 +880,27 @@ def start_workflow_signals_scout_run(
         workflow_origin_key=workflow_origin_key,
         run_note=run_note,
         trigger_workflow_id=trigger_workflow_id,
+        pending_trigger_ids=pending_trigger_ids,
     )
+
+
+@async_to_sync
+async def start_monitoring_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str, binding: MonitoringScoutCheck
+) -> str:
+    workflow_id = _off_schedule_run_workflow_id("signals-scout-monitoring", team_id, skill_name)
+    await client.start_workflow(
+        RunSignalsScoutWorkflow.run,
+        RunSignalsScoutInput(
+            team_id=team_id,
+            skill_name=skill_name,
+            triggered_by=TRIGGERED_BY_MONITORING,
+            run_note=run_note,
+            monitoring_check=binding,
+        ),
+        id=workflow_id,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+    )
+    return workflow_id

@@ -375,7 +375,7 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
-    it('resets axes when y-axis columns are no longer numerical', async () => {
+    it('resets axes when y-axis columns are no longer numerical and keeps column settings', async () => {
         const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
 
         dataNode.actions.setResponse({
@@ -421,6 +421,8 @@ describe('dataVisualizationLogic', () => {
             ],
         })
 
+        logic.actions.updateSeries('2', { formatting: { prefix: '$', suffix: '' } })
+
         dataNode.actions.setResponse({
             columns: ['1', '2', '3'],
             types: [
@@ -433,16 +435,11 @@ describe('dataVisualizationLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             selectedXAxis: '1',
-            selectedYAxis: [
-                {
-                    name: '2',
-                    settings: {
-                        formatting: {
-                            prefix: '',
-                            suffix: '',
-                        },
-                    },
-                },
+            selectedYAxis: [{ name: '2', settings: { formatting: { prefix: '$', suffix: '' } } }],
+            tabularColumnSettings: [
+                { name: '1', settings: { formatting: { prefix: '', suffix: '' } } },
+                { name: '2', settings: { formatting: { prefix: '$', suffix: '' } } },
+                { name: '3', settings: { formatting: { prefix: '', suffix: '' } } },
             ],
         })
     })
@@ -953,6 +950,39 @@ describe('dataVisualizationLogic', () => {
         expect(logic.values.query.tableSettings?.transpose).toEqual(true)
     })
 
+    it.each([
+        { change: 'unchanged', nextQuery: { ...defaultQuery }, resyncs: false },
+        {
+            change: 'changed',
+            nextQuery: { ...defaultQuery, display: ChartDisplayType.ActionsLineGraph },
+            resyncs: true,
+        },
+    ])(
+        're-syncs a visualization without setQuery only when its query prop is $change',
+        async ({ nextQuery, resyncs }) => {
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['value'],
+                types: [['value', 'Int64']],
+                results: [[1]],
+            })
+            expect(logic.values.query).not.toEqual(defaultQuery)
+            await expectLogic(logic).toFinishAllListeners().clearHistory()
+
+            const rerenderWithQuery = (): void => {
+                dataVisualizationLogic({
+                    key: testKey,
+                    query: nextQuery,
+                    dataNodeCollectionId,
+                } as DataVisualizationLogicProps)
+            }
+            if (resyncs) {
+                await expectLogic(logic, rerenderWithQuery).toDispatchActions(['_setQuery'])
+            } else {
+                await expectLogic(logic, rerenderWithQuery).toNotHaveDispatchedActions(['_setQuery'])
+            }
+        }
+    )
+
     it('flags the table as sorted only after setTableSorted', async () => {
         await expectLogic(logic).toMatchValues({ hasSortedTable: false })
 
@@ -967,6 +997,13 @@ describe('dataVisualizationLogic', () => {
             display: ChartDisplayType.ActionsTable,
             rules: [equalsRule],
             hogVm: expect.anything(),
+        },
+        {
+            name: 'loads the Hog VM for a BI hierarchy pivot with formatting rules',
+            display: ChartDisplayType.TwoDimensionalHeatmap,
+            rules: [equalsRule],
+            hogVm: expect.anything(),
+            pivot: true,
         },
         {
             name: 'does not load the Hog VM for a table without formatting rules',
@@ -986,10 +1023,28 @@ describe('dataVisualizationLogic', () => {
             rules: [equalsRule],
             hogVm: null,
         },
-    ])('$name', async ({ display, rules, hogVm }) => {
+    ])('$name', async ({ display, rules, hogVm, pivot }) => {
         const tableLogic = dataVisualizationLogic({
             key: 'hog-vm-loading',
-            query: { ...defaultQuery, display, tableSettings: { conditionalFormatting: rules } },
+            query: {
+                ...defaultQuery,
+                ...(pivot
+                    ? {
+                          kind: NodeKind.BIVisualizationNode,
+                          config: {
+                              source: null,
+                              chartType: display,
+                              rows: [],
+                              columns: [],
+                              values: [],
+                              filters: [],
+                              limit: 100,
+                          },
+                      }
+                    : {}),
+                display,
+                tableSettings: { conditionalFormatting: rules },
+            },
             dataNodeCollectionId,
         } as DataVisualizationLogicProps)
         tableLogic.mount()

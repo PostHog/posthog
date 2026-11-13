@@ -82,6 +82,7 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicValues {
     previewTable: {
         aggregation_target_field?: string | undefined
         certification?: DatabaseSchemaTableCertification | undefined
+        description?: string | undefined
         distinct_id_field?: string | undefined
         fields: {
             [k: string]: DatabaseSchemaField
@@ -150,6 +151,7 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicMeta {
         previewTable: (table: DataWarehouseTableForInsight) => {
             aggregation_target_field?: string | undefined
             certification?: DatabaseSchemaTableCertification | undefined
+            description?: string | undefined
             distinct_id_field?: string | undefined
             fields: {
                 [k: string]: DatabaseSchemaField

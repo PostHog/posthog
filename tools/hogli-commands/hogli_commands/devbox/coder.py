@@ -15,13 +15,16 @@ import time
 import shlex
 import base64
 import shutil
+import signal
 import socket
 import functools
 import itertools
 import threading
+import contextlib
 import subprocess
 import webbrowser
 import urllib.parse
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
@@ -55,7 +58,9 @@ DEFAULT_PRESET = NO_PRESET
 AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
+_SESSION_TOKEN_ENV = "CODER_SESSION_TOKEN"
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
+REMOTE_REPO_PATH = "/home/coder/posthog"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
@@ -230,10 +235,14 @@ def _resolve_coder(args: list[str]) -> list[str]:
 
 
 def _run(
-    args: list[str], *, capture_output: bool = False, timeout: float | None = None
+    args: list[str],
+    *,
+    capture_output: bool = False,
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout, env=env)
 
 
 def _execvp(file: str, args: list[str]) -> NoReturn:
@@ -252,6 +261,59 @@ def _run_or_exit(args: list[str]) -> None:
     sys.exit(_run(args).returncode)
 
 
+_BUILD_CANCEL_TIMEOUT = 60
+
+
+class _BuildTerminated(Exception):
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+_STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+@contextlib.contextmanager
+def _signal_handlers(
+    handler: Callable[[int, Any], object] | signal.Handlers, signums: tuple[signal.Signals, ...]
+) -> Iterator[None]:
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    previous = {signum: signal.signal(signum, handler) for signum in signums}
+    try:
+        yield
+    finally:
+        for signum, previous_handler in previous.items():
+            signal.signal(signum, previous_handler)
+
+
+def _raise_build_terminated(signum: int, _frame: object) -> NoReturn:
+    raise _BuildTerminated(signum)
+
+
+def _echo_best_effort(message: str) -> None:
+    with contextlib.suppress(OSError):
+        click.echo(message, err=True)
+
+
+def _cancel_build(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    with _signal_handlers(signal.SIG_IGN, _STOP_SIGNALS):
+        proc.send_signal(signal.SIGINT)
+        _echo_best_effort("\nCanceling the Coder build...")
+        try:
+            proc.communicate(timeout=_BUILD_CANCEL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            _echo_best_effort(
+                "The Coder build did not stop. Check `coder provisioner jobs list` for a job that is still pending."
+            )
+
+
 def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a Coder build command with a spinner.
 
@@ -259,40 +321,62 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     build step. In verbose mode, streams all output including Terraform
     internals. On failure the full captured output is always printed.
     """
-    proc = subprocess.Popen(_resolve_coder(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(
+        _resolve_coder(args),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
     captured: list[str] = []
     if proc.stdout is None:
         raise RuntimeError("Popen stdout pipe was not opened")
 
-    if verbose:
-        for line in proc.stdout:
-            captured.append(line)
-            click.echo(line, nl=False)
-    else:
-        is_tty = sys.stderr.isatty()
-        status = "Starting"
-        stop_event = threading.Event()
-        frames = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+    stop_event = threading.Event()
+    spinner: threading.Thread | None = None
 
-        def _spin() -> None:
-            while not stop_event.is_set():
-                if is_tty:
-                    click.echo(f"\r  {next(frames)} {status}...\033[K", nl=False, err=True)
-                stop_event.wait(0.08)
-            if is_tty:
-                click.echo(f"\r  {status}\033[K", err=True)
-
-        spinner = threading.Thread(target=_spin, daemon=True)
-        spinner.start()
-
-        for line in proc.stdout:
-            captured.append(line)
-            m = _STEP_RE.match(line)
-            if m:
-                status = m.group(1).strip()
-
+    def _stop_spinner() -> None:
         stop_event.set()
-        spinner.join()
+        if spinner is not None:
+            spinner.join()
+
+    try:
+        with _signal_handlers(_raise_build_terminated, (signal.SIGTERM, signal.SIGHUP)):
+            if verbose:
+                for line in proc.stdout:
+                    captured.append(line)
+                    click.echo(line, nl=False)
+            else:
+                is_tty = sys.stderr.isatty()
+                status = "Starting"
+                frames = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+
+                def _spin() -> None:
+                    while not stop_event.is_set():
+                        if is_tty:
+                            click.echo(f"\r  {next(frames)} {status}...\033[K", nl=False, err=True)
+                        stop_event.wait(0.08)
+                    if is_tty:
+                        click.echo(f"\r  {status}\033[K", err=True)
+
+                spinner = threading.Thread(target=_spin, daemon=True)
+                spinner.start()
+
+                for line in proc.stdout:
+                    captured.append(line)
+                    m = _STEP_RE.match(line)
+                    if m:
+                        status = m.group(1).strip()
+    except _BuildTerminated as terminated:
+        _stop_spinner()
+        _cancel_build(proc)
+        raise SystemExit(128 + terminated.signum)
+    except BaseException:
+        _stop_spinner()
+        _cancel_build(proc)
+        raise
+    finally:
+        _stop_spinner()
 
     returncode = proc.wait()
 
@@ -338,6 +422,20 @@ def _run_with_param_retry(
         dropped = match.group(1)
         click.echo(click.style(f"Template doesn't accept '{dropped}', retrying without it.", fg="yellow"))
         del remaining[dropped]
+
+
+# AWS error code when an availability zone has no free capacity for the requested instance type.
+_CAPACITY_ERROR = "InsufficientInstanceCapacity"
+
+
+class CapacityShortage(SystemExit):
+    """A build failed because AWS had no capacity for the box's instance type in its zone."""
+
+
+def _exit_for_failed_build(returncode: int, output: str) -> NoReturn:
+    if _CAPACITY_ERROR in output:
+        raise CapacityShortage(returncode or 1)
+    raise SystemExit(returncode or 1)
 
 
 def _resolve_tailscale() -> str | None:
@@ -802,6 +900,7 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
+    args += ["--disable-autostart"]
     args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
         args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
@@ -899,6 +998,49 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
         _fail(f"Coder CLI install reported success but {managed} is missing.\nTry manually: {cmd}")
 
 
+_USER_BIN_DIRS = (Path.home() / ".local" / "bin", Path.home() / "bin")
+
+
+def _display_path(path: Path) -> str:
+    home = Path.home()
+    return f"~/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
+
+
+def coder_command_hint() -> str:
+    """Return how the user can run the Coder CLI from their own shell."""
+    if shutil.which("coder"):
+        return "coder"
+    return _display_path(_MANAGED_CODER_DIR / "coder")
+
+
+def ensure_coder_on_path() -> None:
+    """Link the managed Coder CLI into a user bin directory on PATH so `coder` runs in the user's shell.
+
+    hogli runs the binary from ~/.hogli/bin by full path, which isn't on PATH,
+    so commands the user runs themselves (like `coder login`) aren't found.
+    """
+    managed = _MANAGED_CODER_DIR / "coder"
+    if not managed.is_file() or shutil.which("coder"):
+        return
+
+    path_entries = {Path(entry).expanduser() for entry in os.environ.get("PATH", "").split(os.pathsep) if entry}
+    for bin_dir in _USER_BIN_DIRS:
+        link = bin_dir / "coder"
+        if bin_dir not in path_entries or not bin_dir.is_dir() or link.is_symlink() or link.exists():
+            continue
+        try:
+            link.symlink_to(managed)
+        except OSError:
+            continue
+        click.echo(f"  Linked `coder` into {_display_path(bin_dir)} so you can run it yourself.")
+        return
+
+    click.echo(
+        f"  To run `coder` yourself, add {_display_path(_MANAGED_CODER_DIR)} to your PATH:\n"
+        '    export PATH="$HOME/.hogli/bin:$PATH"'
+    )
+
+
 def ensure_coder_installed(*, verbose: bool = False) -> None:
     """Install the Coder CLI at the expected version, or reinstall on mismatch."""
     if not coder_installed():
@@ -937,16 +1079,92 @@ def coder_authenticated() -> bool:
     return _coder_whoami().returncode == 0
 
 
+def _env_login_hint(coder_url: str) -> str:
+    return (
+        f"  Without a terminal, set CODER_SESSION_TOKEN to a token from {coder_url}/cli-auth"
+        f" and CODER_URL to {coder_url}."
+    )
+
+
+def _coder_error(whoami: subprocess.CompletedProcess[str]) -> str:
+    if whoami.returncode == 0:
+        return "`coder whoami` returned no user."
+    errors = [line.strip() for line in whoami.stderr.splitlines() if line.strip().startswith("error:")]
+    return errors[0] if errors else f"`coder whoami` exited with status {whoami.returncode}."
+
+
+def _fail_env_token_login(coder_url: str, whoami: subprocess.CompletedProcess[str]) -> NoReturn:
+    lines = [f"Coder login with the CODER_SESSION_TOKEN set in this shell failed for {coder_url}:"]
+    if not os.environ.get("CODER_URL"):
+        lines.append(f"  Set CODER_URL to {coder_url}. The Coder CLI needs it next to CODER_SESSION_TOKEN.")
+    lines.append(f"  {_coder_error(whoami)}")
+    lines.append(f"  If the token expired, get a new one at {coder_url}/cli-auth,")
+    lines.append("  or unset CODER_SESSION_TOKEN to use the login stored on disk.")
+    _fail("\n".join(lines), cause="coder_env_token_login_failed")
+
+
+def _stored_login_works() -> bool:
+    env = {key: value for key, value in os.environ.items() if key not in (_SESSION_TOKEN_ENV, "CODER_URL")}
+    try:
+        result = _run(["coder", "whoami", "--output", "json"], capture_output=True, env=env, timeout=10)
+    except subprocess.TimeoutExpired:
+        return False
+    if result.returncode != 0:
+        return False
+    try:
+        stored_url = json.loads(result.stdout)[0]["url"]
+    except (json.JSONDecodeError, LookupError, TypeError):
+        return False
+    return stored_url.rstrip("/") == get_coder_url().rstrip("/")
+
+
+def _note_login_only_in_env() -> None:
+    if not os.environ.get(_SESSION_TOKEN_ENV) or _stored_login_works():
+        return
+    click.echo(
+        click.style(
+            "Coder login comes only from CODER_SESSION_TOKEN, and no working login is stored on disk.\n"
+            "  SSH to a devbox fails from programs that don't inherit that variable, such as an editor"
+            " or a mutagen daemon started elsewhere.\n"
+            f"  To store it, run `{coder_command_hint()} login --use-token-as-session {get_coder_url()}` in this shell."
+            " Run it again when the token changes.",
+            fg="yellow",
+        )
+    )
+
+
+def _fail_login_not_ready(
+    message: str, whoami: subprocess.CompletedProcess[str], *, cause: str = "coder_login_not_ready"
+) -> NoReturn:
+    coder_url = get_coder_url()
+    if os.environ.get(_SESSION_TOKEN_ENV):
+        _fail_env_token_login(coder_url, whoami)
+    if not sys.stdin.isatty():
+        message += f"\n{_env_login_hint(coder_url)}"
+    _fail(message, cause=cause)
+
+
 def ensure_coder_authenticated() -> None:
     """Run interactive login when needed."""
-    if coder_authenticated():
-        click.echo("Coder login is ready.")
-        return
-
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
+    whoami = _coder_whoami()
+    if whoami.returncode == 0:
+        click.echo("Coder login is ready.")
+        _note_login_only_in_env()
+        return
+
     coder_url = get_coder_url()
+    # `coder login` refuses to run while CODER_SESSION_TOKEN is set, and asks for a token pasted
+    # from the browser, failing with "paste token prompt: EOF" when stdin isn't a terminal.
+    if os.environ.get(_SESSION_TOKEN_ENV) or not sys.stdin.isatty():
+        _fail_login_not_ready(
+            "Coder login needs you to paste a token, and this shell can't take input.\n"
+            f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.",
+            whoami,
+            cause="coder_login_needs_terminal",
+        )
     click.echo(f"Logging in to {coder_url}...")
     result = _run(["coder", "login", coder_url])
     if result.returncode != 0:
@@ -960,8 +1178,9 @@ def ensure_runtime_ready() -> None:
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
-    if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
+    whoami = _coder_whoami()
+    if whoami.returncode != 0:
+        _fail_login_not_ready(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", whoami)
 
     _warn_version_mismatch()
 
@@ -1050,16 +1269,23 @@ def _parse_coder_user_info(payload: str) -> CoderUserInfo:
     return user_info
 
 
-def get_coder_user_info() -> CoderUserInfo:
-    """Return normalized user info for the authenticated Coder user when available."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _CoderUserLookup:
+    user_info: CoderUserInfo
+    first_failure_or_last_result: subprocess.CompletedProcess[str]
+
+
+def _lookup_coder_user() -> _CoderUserLookup:
+    first_failure: subprocess.CompletedProcess[str] | None = None
     for command in (_coder_user_show_me, _coder_whoami):
         result = command()
         if result.returncode != 0:
+            first_failure = first_failure or result
             continue
 
         user_info = _parse_coder_user_info(result.stdout)
         if user_info:
-            return user_info
+            return _CoderUserLookup(user_info=user_info, first_failure_or_last_result=result)
 
     result = _run(["coder", "whoami"], capture_output=True)
     if result.returncode == 0:
@@ -1068,9 +1294,16 @@ def get_coder_user_info() -> CoderUserInfo:
             if stripped_line and not stripped_line.startswith("http"):
                 username = stripped_line.split()[0].split("@")[0].lower()
                 if username:
-                    return CoderUserInfo(username=username)
+                    return _CoderUserLookup(
+                        user_info=CoderUserInfo(username=username), first_failure_or_last_result=result
+                    )
 
-    return CoderUserInfo()
+    return _CoderUserLookup(user_info=CoderUserInfo(), first_failure_or_last_result=first_failure or result)
+
+
+def get_coder_user_info() -> CoderUserInfo:
+    """Return normalized user info for the authenticated Coder user when available."""
+    return _lookup_coder_user().user_info
 
 
 def get_default_git_identity() -> tuple[str | None, str | None]:
@@ -1089,14 +1322,15 @@ def get_username() -> str:
     uncached call is a `coder` subprocess. Failures raise instead of caching,
     so an auth retry within the same process still re-probes.
     """
-    user_info = get_coder_user_info()
-    username = _first_non_empty_string(user_info.get("username"))
+    lookup = _lookup_coder_user()
+    username = _first_non_empty_string(lookup.user_info.get("username"))
     if username:
         return username.lower()
 
-    _fail(
-        "Could not determine your Coder username from `coder whoami`.\n"
-        f"  Your login may have expired. {RUNTIME_SETUP_HINT}"
+    ensure_coder_reachable()
+    _fail_login_not_ready(
+        f"Could not determine your Coder username from `coder whoami`.\n  Your login may have expired. {RUNTIME_SETUP_HINT}",
+        lookup.first_failure_or_last_result,
     )
 
 
@@ -1136,21 +1370,30 @@ def get_default_workspace_prefix() -> str:
     return f"{_WORKSPACE_PREFIX}-{get_username()}"
 
 
+def app_url(workspace_name: str) -> str:
+    host = urllib.parse.urlparse(get_coder_url()).hostname or ""
+    return f"https://app--{workspace_name}--{get_username()}.{host}"
+
+
 def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
+    return _fetch_workspaces(timeout=timeout) or []
+
+
+def _fetch_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]] | None:
     try:
         result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
 
     try:
         workspaces = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return []
+        return None
 
-    return workspaces if isinstance(workspaces, list) else []
+    return workspaces if isinstance(workspaces, list) else None
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
@@ -1193,8 +1436,16 @@ def region_from_workspace_name(workspace_name: str) -> str:
 
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
+    return fetch_user_workspaces() or []
+
+
+def fetch_user_workspaces() -> list[dict[str, Any]] | None:
+    """Like ``list_user_workspaces``, but ``None`` when Coder could not list workspaces."""
+    workspaces = _fetch_workspaces()
+    if workspaces is None:
+        return None
     prefix = get_default_workspace_prefix()
-    return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
+    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -1375,7 +1626,7 @@ def create_workspace(
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 # A metadata read over ssh is near-instant; keep the ceiling tight so a wedged
@@ -1494,7 +1745,7 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
     """Start a stopped workspace."""
     result = _run_build(["coder", "start", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 # Must exceed the longest blocking startup script timeout in the posthog-linux
@@ -1566,7 +1817,7 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
     """
     result = _run_build(["coder", "restart", name, "--use-parameter-defaults", "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 def update_workspace(name: str, *, verbose: bool = False) -> None:
@@ -1577,14 +1828,154 @@ def update_workspace(name: str, *, verbose: bool = False) -> None:
     """
     result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
     # `coder update` only streams the build logs, so it exits 0 when the build fails.
     workspace = get_workspace(name)
     if workspace is not None and get_workspace_status(workspace) == "failed":
         if not verbose:
             click.echo(click.style("Build failed. Full output:", fg="red"))
             click.echo(result.stdout, nl=False)
+        _exit_for_failed_build(1, result.stdout)
+
+
+# Mutable template parameter. A change to it changes the type of the same EC2
+# instance, so the box keeps its disk.
+INSTANCE_TYPE_PARAMETER = "instance_type"
+BUILD_WAIT_TIMEOUT = 3600
+BUILD_POLL_INTERVAL = 3
+_BUILD_DONE_JOB_STATUSES = frozenset({"succeeded", "failed", "canceled"})
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _FinishedBuild:
+    job_status: str
+    log_output: str
+
+
+class _CoderApi:
+    """The Coder REST API, called as the user and on the deployment the Coder CLI is logged into.
+
+    The Coder CLI cannot change a mutable parameter on an existing workspace,
+    because it resolves the value to the last build's after any ``--parameter``
+    flag (cli/parameterresolver.go). The build API takes a provided value
+    first, as the Coder dashboard does.
+    """
+
+    def __init__(self) -> None:
+        whoami = _run(["coder", "whoami", "-o", "json"], capture_output=True)
+        if whoami.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        self._base_url = f"{json.loads(whoami.stdout)[0]['url'].rstrip('/')}/api/v2"
+        self._headers = {"Coder-Session-Token": self._session_token()}
+
+    @staticmethod
+    def _session_token() -> str:
+        # The CLI authenticates with CODER_SESSION_TOKEN when it is set, but
+        # `coder login token` prints only the stored login (cli/login.go).
+        if token := os.environ.get(_SESSION_TOKEN_ENV):
+            return token
+        stored = _run(["coder", "login", "token"], capture_output=True)
+        if stored.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        return stored.stdout.strip()
+
+    def request(self, method: str, path: str, *, body: dict[str, Any] | None = None) -> Any:
+        try:
+            response = requests.request(method, f"{self._base_url}{path}", headers=self._headers, json=body, timeout=30)
+        except requests.RequestException as error:
+            _fail(f"Could not reach Coder: {error}", cause="coder_api_unreachable")
+        if not response.ok:
+            _fail(f"Coder rejected {method} {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
+    def poll(self, path: str) -> Any | None:
+        """GET ``path``, returning None on a network error or a 5xx so the caller polls again."""
+        try:
+            response = requests.request("GET", f"{self._base_url}{path}", headers=self._headers, json=None, timeout=30)
+        except requests.RequestException:
+            return None
+        if response.status_code >= 500:
+            return None
+        if not response.ok:
+            _fail(f"Coder rejected GET {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
+    def instance_type(self, build_id: str) -> str | None:
+        parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
+        return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
+
+    def instance_type_options(self, template_version_id: str) -> list[str]:
+        parameters = self.request("GET", f"/templateversions/{template_version_id}/rich-parameters")
+        return next(
+            ([o["value"] for o in p["options"]] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), []
+        )
+
+    def start_on_instance_type(self, workspace_id: str, instance_type: str) -> _FinishedBuild:
+        """Start the workspace on ``instance_type`` and wait for the build to finish."""
+        build = self.request(
+            "POST",
+            f"/workspaces/{workspace_id}/builds",
+            body={
+                "transition": "start",
+                "rich_parameter_values": [{"name": INSTANCE_TYPE_PARAMETER, "value": instance_type}],
+            },
+        )
+        deadline = time.monotonic() + BUILD_WAIT_TIMEOUT
+        while (status := build["job"]["status"]) not in _BUILD_DONE_JOB_STATUSES:
+            if time.monotonic() >= deadline:
+                _fail(f"The devbox build did not finish within {BUILD_WAIT_TIMEOUT}s.", cause="build_wait_timeout")
+            time.sleep(BUILD_POLL_INTERVAL)
+            build = self.poll(f"/workspacebuilds/{build['id']}") or build
+        if status == "succeeded":
+            return _FinishedBuild(job_status=status, log_output="")
+        logs = self.request("GET", f"/workspacebuilds/{build['id']}/logs")
+        # A job that fails outside Terraform, such as a lost provisioner, has its cause only in job.error.
+        output = "".join(f"{log['output']}\n" for log in logs) + (build["job"].get("error") or "")
+        return _FinishedBuild(job_status=status, log_output=output)
+
+
+def run_with_capacity_fallback(name: str, build: Callable[[], None]) -> None:
+    """Run a start build, and on a capacity shortage start the box on the template's other instance types.
+
+    EC2 capacity runs out per availability zone and instance type, so another
+    type in the same zone usually has room. The box stays on the type that
+    started, and a later shortage on it moves the box on again.
+    """
+    try:
+        build()
+        return
+    except CapacityShortage:
+        pass
+
+    workspace = get_workspace(name)
+    if workspace is None:
         raise SystemExit(1)
+    api = _CoderApi()
+    failed_build = workspace["latest_build"]
+    failed_type = api.instance_type(failed_build["id"])
+    options = api.instance_type_options(failed_build["template_version_id"])
+    if failed_type is None or not options:
+        raise SystemExit(1)
+
+    for instance_type in [option for option in options if option != failed_type]:
+        click.echo(
+            click.style(
+                f"AWS has no {failed_type} capacity in the devbox's availability zone. Starting it on {instance_type}...",
+                fg="yellow",
+            )
+        )
+        attempt = api.start_on_instance_type(workspace["id"], instance_type)
+        if attempt.job_status == "succeeded":
+            return
+        if _CAPACITY_ERROR not in attempt.log_output:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(attempt.log_output, nl=False)
+            raise SystemExit(1)
+        failed_type = instance_type
+    _fail(
+        f"AWS has no capacity in the devbox's availability zone for any of {', '.join(options)}. Try again later.",
+        cause="capacity_exhausted",
+    )
 
 
 def delete_workspace(name: str, *, verbose: bool = False) -> None:
@@ -1661,7 +2052,7 @@ def ssh_replace(name: str) -> None:
     _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
-def exec_replace(name: str, command: list[str]) -> None:
+def exec_replace(name: str, command: list[str], *, in_flox: bool = False) -> None:
     """Run a single command in the workspace over the ssh host alias, replacing the process.
 
     Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
@@ -1677,8 +2068,28 @@ def exec_replace(name: str, command: list[str]) -> None:
     ``command`` tokens are shell-quoted into one string so the remote login
     shell preserves argument boundaries -- ssh otherwise space-joins argv,
     which would split a token like ``"uname -sm"`` back into two.
+
+    ``in_flox`` runs the command from the box's checkout inside PostHog's flox
+    environment, the only place project tools such as ``pnpm`` are on ``PATH``.
     """
-    _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+    remote_command = shlex.join(command)
+    if in_flox:
+        remote_command = f"cd {REMOTE_REPO_PATH} && exec flox activate -- {remote_command}"
+    _execvp("ssh", ["ssh", _ssh_host_alias(name), remote_command])
+
+
+def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run one command in the workspace like :func:`exec_replace`, but capture its result.
+
+    For callers that must act on the remote exit code and output instead of
+    handing the terminal over to the command.
+    """
+    return subprocess.run(
+        ["ssh", _ssh_host_alias(name), shlex.join(command)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 def coder_ssh_alias_configured(name: str) -> bool:
@@ -1734,7 +2145,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    _execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
+    _execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", REMOTE_REPO_PATH])
 
 
 def open_web_ide(name: str) -> None:

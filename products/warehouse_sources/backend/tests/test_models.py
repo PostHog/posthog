@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     staged_handoff_resume_point,
     staged_handoff_resume_value,
     staged_run_last_value,
+    update_should_sync,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -130,6 +131,35 @@ class TestExternalDataSchemaSave(BaseTest):
         schema.save(update_fields=["status", "updated_at"])
         schema.refresh_from_db()
         assert schema.s3_folder_name == "orders"
+
+    @parameterized.expand(
+        [
+            ("cdc", ExternalDataSchema.SyncType.CDC, None, True, None),
+            ("cdc_schedule_sync_fails", ExternalDataSchema.SyncType.CDC, None, True, RuntimeError("temporal down")),
+            ("cdc_waiting_for_repair", ExternalDataSchema.SyncType.CDC, "slot_missing", False, None),
+            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, None, False, None),
+        ]
+    )
+    def test_re_enabling_restores_the_cdc_extraction_schedule(
+        self, _name, sync_type, broken_reason, restores, sync_error
+    ) -> None:
+        schema = self._create("orders", sync_type=sync_type, should_sync=False)
+        if broken_reason:
+            schema.sync_type_config = {**(schema.sync_type_config or {}), "cdc_broken": {"reason": broken_reason}}
+            schema.save()
+        service = "products.data_warehouse.backend.logic.data_load.service"
+
+        with (
+            patch(f"{service}.external_data_workflow_exists", return_value=True),
+            patch(f"{service}.cdc_extraction_schedule_exists", return_value=False),
+            patch(f"{service}.unpause_external_data_schedule"),
+            patch(f"{service}.sync_cdc_extraction_schedule", side_effect=sync_error) as mock_sync,
+        ):
+            update_should_sync(schema_id=str(schema.id), team_id=self.team.pk, should_sync=True)
+
+        assert mock_sync.called is restores
+        schema.refresh_from_db()
+        assert schema.should_sync is True
 
 
 class TestExternalDataSchemaActivityLogging(BaseTest):
@@ -1454,6 +1484,30 @@ class TestStagedIncrementalCursor:
 
     @parameterized.expand(
         [
+            # A run that read only above the stored watermark saw none of the older rows of the table.
+            # Its oldest row as the earliest value makes the next run read the whole table below it again.
+            ("a_forward_only_run_sets_no_earliest_value", {"incremental_field_last_value": 90}, None),
+            ("the_first_run_sets_the_earliest_value", {}, 5),
+            (
+                "a_backfill_below_the_stored_earliest_value_advances_it",
+                {"incremental_field_last_value": 90, "incremental_field_earliest_value": 40},
+                5,
+            ),
+        ]
+    )
+    def test_promote_sets_the_earliest_value_unless_the_watermark_has_none(
+        self, _name: str, stored: dict[str, Any], expected_earliest: int | None
+    ) -> None:
+        schema = self._make_schema(
+            **stored, incremental_staged={"run_uuid": "run-1", "last_value": 99, "earliest_value": 5}
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 99
+        assert schema.sync_type_config.get("incremental_field_earliest_value") == expected_earliest
+
+    @parameterized.expand(
+        [
             ("older_epoch_keeps_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00+00:00", 1767225600),
             ("older_iso_keeps_epoch", IncrementalFieldType.DateTime, 1781395200, "2026-01-01T00:00:00+00:00"),
             ("older_epoch_keeps_naive_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00", 1767225600),
@@ -2029,6 +2083,8 @@ class TestDeleteTable(BaseTest):
         self, _name: str, error: Exception, expected_reported: bool
     ) -> None:
         schema = self._schema()
+        schema.live_query_enabled = True
+        schema.save(update_fields=["live_query_enabled"])
         table_id = schema.table_id
         assert table_id is not None
         client = MagicMock()
@@ -2043,6 +2099,7 @@ class TestDeleteTable(BaseTest):
         assert capture.called is expected_reported
         schema.refresh_from_db()
         assert schema.table_id is None
+        assert schema.live_query_enabled is False
         assert schema.status is None
         assert schema.last_synced_at is None
         assert DataWarehouseTable.objects.get(id=table_id).deleted is True

@@ -39,6 +39,13 @@ impl CaptureEmitter {
 
 #[async_trait]
 impl Emitter for CaptureEmitter {
+    fn set_send_rate(&mut self, send_rate: u64) {
+        if send_rate != self.send_rate {
+            info!(old = self.send_rate, new = send_rate, "send rate changed");
+            self.send_rate = send_rate;
+        }
+    }
+
     async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
         Ok(Box::new(CaptureTransaction {
             client: &self.client,
@@ -325,6 +332,7 @@ mod tests {
                     .with_timezone(&Utc),
                 is_cookieless_mode: false,
                 historical_migration: true,
+                options: None,
             },
             team_id: 1,
         }

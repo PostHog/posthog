@@ -12,6 +12,7 @@ use std::time::Duration;
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::HandoffHandler;
+use personhog_coordination::types::{ChangelogTarget, ClusterEndpoint};
 use personhog_leader::fencing::{
     heal_fence, FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
     HealOutcome,
@@ -37,11 +38,15 @@ fn test_person(version: i64) -> Person {
 /// Count the records a `read_committed` consumer can see on partition 0
 /// — the same isolation the warming path uses.
 async fn read_committed_count(topic: &str) -> usize {
+    read_committed_count_on(KAFKA_BOOTSTRAP, topic).await
+}
+
+async fn read_committed_count_on(bootstrap: &str, topic: &str) -> usize {
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 
     let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("bootstrap.servers", bootstrap)
         .set(
             "group.id",
             format!("fence-abort-probe-{}", uuid::Uuid::new_v4()),
@@ -59,11 +64,16 @@ async fn read_committed_count(topic: &str) -> usize {
     let mut seen = 0;
     // Anything committed is available immediately; the quiet period only
     // has to outlast delivery, not a transaction timeout.
-    while let Ok(Ok(message)) =
-        tokio::time::timeout(Duration::from_millis(750), consumer.recv()).await
-    {
-        if message.payload().is_some() {
-            seen += 1;
+    loop {
+        match tokio::time::timeout(Duration::from_millis(750), consumer.recv()).await {
+            Ok(Ok(message)) => {
+                if message.payload().is_some() {
+                    seen += 1;
+                }
+            }
+            Ok(Err(error)) if common::is_transient_broker_error(&error) => {}
+            Ok(Err(error)) => panic!("kafka error reading {topic}: {error}"),
+            Err(_quiet) => break,
         }
     }
     seen
@@ -141,16 +151,31 @@ async fn acquiring_on_another_topic_produces_there_and_discards_a_stale_preconne
 }
 
 /// Sealing claims every lane's id on the old topic, so a holder still producing
-/// there is fenced and nothing more lands, on the cold and the prepared path.
+/// there is fenced and nothing more lands, on the cold and the prepared path,
+/// and on the old topic's own cluster when it is not the default one.
 #[tokio::test]
 async fn a_seal_fences_the_holder_on_the_old_topic() {
-    for prepared in [false, true] {
+    let secondary = common::secondary_kafka_bootstrap();
+    let mut cases = vec![(false, None), (true, None)];
+    if let Some(hosts) = &secondary {
+        let old_cluster = ClusterEndpoint {
+            name: "old-cluster".to_string(),
+            hosts: hosts.clone(),
+            tls: false,
+        };
+        cases.extend([
+            (false, Some(old_cluster.clone())),
+            (true, Some(old_cluster)),
+        ]);
+    }
+    for (prepared, cluster) in cases {
         let topic = format!("fence_seal_{}", uuid::Uuid::new_v4().simple());
+        let old = ChangelogTarget {
+            cluster: cluster.clone(),
+            ..target(&topic)
+        };
         let holder = fenced_producers(2);
-        holder
-            .acquire(0, &target(&topic))
-            .await
-            .expect("holder acquires");
+        holder.acquire(0, &old).await.expect("holder acquires");
         holder
             .produce(0, &test_person(1))
             .await
@@ -158,22 +183,27 @@ async fn a_seal_fences_the_holder_on_the_old_topic() {
 
         let sealer = fenced_producers(2);
         if prepared {
-            sealer.preconnect(0, &target(&topic)).await;
+            sealer.preconnect(0, &old).await;
         }
         let path = sealer
-            .seal(0, &target(&topic))
+            .seal(0, &old)
             .await
             .expect("the seal claims every lane");
         assert_eq!(path, if prepared { "prepared" } else { "cold" });
 
         match holder.produce(0, &test_person(2)).await {
             Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
-            other => panic!("prepared={prepared}: the holder must be fenced, got {other:?}"),
+            other => panic!(
+                "prepared={prepared} cluster={cluster:?}: the holder must be fenced, got {other:?}"
+            ),
         }
+        let bootstrap = cluster
+            .as_ref()
+            .map_or(KAFKA_BOOTSTRAP, |c| c.hosts.as_str());
         assert_eq!(
-            read_committed_count(&topic).await,
+            read_committed_count_on(bootstrap, &topic).await,
             1,
-            "prepared={prepared}: nothing lands after the seal"
+            "prepared={prepared} cluster={cluster:?}: nothing lands after the seal"
         );
     }
 }
@@ -284,6 +314,104 @@ async fn concurrent_preconnects_collapse_to_one_dial() {
     assert!(
         producers.has_prepared(3),
         "the one dial parks its connection"
+    );
+}
+
+async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// An acquire during a preconnect's dial must reuse it, not open a second connection.
+#[tokio::test]
+async fn an_acquire_during_a_dial_reuses_its_connection() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(1));
+    producers.hold_dials_for_test();
+
+    let dial = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.preconnect(4, &t).await })
+    };
+    wait_until("the preconnect to start dialing", || {
+        producers.connect_attempts_for_test() == 1
+    })
+    .await;
+    let acquire = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.acquire(4, &t).await })
+    };
+    // Either the acquire waits for the held dial, or it dials its own.
+    wait_until("the acquire to wait or dial", || {
+        producers.dial_waits_for_test() == 1 || producers.connect_attempts_for_test() == 2
+    })
+    .await;
+    producers.release_dials_for_test();
+
+    dial.await.unwrap();
+    acquire.await.unwrap().expect("the acquire succeeds");
+    assert_eq!(
+        producers.connect_attempts_for_test(),
+        1,
+        "the acquire must reuse the dial in flight, not open a second connection"
+    );
+}
+
+/// The wait ends at the dial's own bound, not a full timeout from the acquire.
+#[tokio::test]
+async fn an_acquire_waits_only_for_what_the_dial_has_left() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    // The helper's 10s init timeout bounds the dial.
+    let producers = fenced_producers(1);
+    producers.stage_connecting_for_test(2, Duration::from_millis(9_500));
+
+    let start = std::time::Instant::now();
+    producers
+        .acquire(2, &target(&topic))
+        .await
+        .expect("the acquire goes cold once the dial's bound passes");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "waited {:?}; the wait must end at the dial's bound, not a full timeout",
+        start.elapsed()
+    );
+}
+
+/// The wait follows only the first dial, so replacement dials cannot hold the acquire.
+#[tokio::test]
+async fn an_acquire_does_not_wait_out_a_replacement_dial() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(1));
+    producers.stage_connecting_for_test(3, Duration::from_millis(9_000));
+
+    let start = std::time::Instant::now();
+    let acquire = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.acquire(3, &t).await })
+    };
+    wait_until("the acquire to wait on the first dial", || {
+        producers.dial_waits_for_test() == 1
+    })
+    .await;
+    producers.stage_connecting_for_test(3, Duration::ZERO);
+
+    acquire
+        .await
+        .unwrap()
+        .expect("the acquire goes cold once the dial it followed is gone");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "waited {:?}; the acquire must not follow the replacement dial",
+        start.elapsed()
     );
 }
 

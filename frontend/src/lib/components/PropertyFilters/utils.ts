@@ -299,6 +299,24 @@ export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, 
     [PropertyOperator.Exact]: 'exactly',
 }
 
+export const BEHAVIORAL_NEGATION_OPTIONS = [
+    { value: false, label: 'Performed' },
+    { value: true, label: 'Did not perform' },
+]
+
+export const BEHAVIORAL_COUNT_OPERATOR_OPTIONS = [
+    PropertyOperator.GreaterThanOrEqual,
+    PropertyOperator.LessThanOrEqual,
+    PropertyOperator.Exact,
+].map((value) => ({ value, label: BEHAVIORAL_COUNT_OPERATOR_LABELS[value] || 'exactly' }))
+
+export const BEHAVIORAL_TIME_INTERVAL_OPTIONS = [
+    { value: TimeUnitType.Day, label: 'days' },
+    { value: TimeUnitType.Week, label: 'weeks' },
+    { value: TimeUnitType.Month, label: 'months' },
+    { value: TimeUnitType.Year, label: 'years' },
+]
+
 /** Display name for the event or action a behavioral filter targets. An unresolved action falls back
  * to its id, which is all the filter itself stores. */
 export function behavioralEntityLabel(
@@ -367,6 +385,17 @@ export function isPropertyGroupFilterLike(
     filter?: AnyFilterLike | null
 ): filter is PropertyGroupFilter | PropertyGroupFilterValue {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
+}
+
+export function isPropertyFilterAwaitingValue(filter: PropertyFilterRow | undefined): boolean {
+    return (
+        !!filter &&
+        !isPropertyGroupFilterLike(filter) &&
+        !!filter.key &&
+        'operator' in filter &&
+        (!filter.operator || !isOperatorFlag(filter.operator)) &&
+        (filter.value === undefined || filter.value === null || filter.value === '')
+    )
 }
 
 /** Inlines a nested group into flat rows only when its operator matches the parent's — a different
@@ -744,8 +773,7 @@ export function taxonomicFilterTypeToPropertyFilterType(
  * Recover a property definition's id. Pinned/default taxonomic items are stored as
  * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
  * (keyed by name + type) instead of building a link with an `undefined` id. Returns
- * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
- * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ * `undefined` when the id can't be resolved so callers can hide the link.
  */
 export function resolvePropertyDefinitionId(
     definition: Pick<PropertyDefinition, 'id' | 'name'>,

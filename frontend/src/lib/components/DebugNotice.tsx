@@ -7,8 +7,8 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { getRegionForHost, getStoredSession, OAUTH_REGIONS } from 'lib/oauth/oauthClient'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getRegionForHost, getStoredSession, OAUTH_REGIONS } from 'lib/utils/oauthClient'
 
 export interface DebugNoticeProps {
     isCollapsed?: boolean
