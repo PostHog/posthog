@@ -574,7 +574,7 @@ product_analytics.Insight products.pulse.backend.sources.anchored_dashboards ins
 product_analytics.Insight products.pulse.backend.sources.anchored_dashboards instance-many(none) 1
 product_analytics.Insight products.pulse.backend.sources.anchored_insights instance-many(distinct) 1
 product_analytics.Insight products.pulse.backend.sources.anchored_insights instance-many(none) 1
-product_analytics.Insight products.pulse.backend.sources.resource_health instance-many(filter) 2
+product_analytics.Insight products.pulse.backend.sources.resource_health instance-many(filter) 1
 product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
 product_analytics.Insight products.subscriptions.backend.logic.subscription_writes instance-many(filter) 2

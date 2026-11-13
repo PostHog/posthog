@@ -19,6 +19,7 @@ import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { DashboardTemplateStatusTag } from './DashboardTemplateStatusTag'
 import { GenerationChecks } from './GenerationChecks'
+import { InternalTag } from './InternalTag'
 import { metricsDashboardReviewSceneLogic } from './metricsDashboardReviewSceneLogic'
 import { QuillDashboardTemplateDetailActions } from './QuillDashboardTemplateDetailActions'
 
@@ -69,6 +70,7 @@ export function DashboardTemplateDetail(): JSX.Element {
         <>
             <SceneTitleSection
                 name={template.name}
+                nameSuffix={<InternalTag />}
                 description={template.description}
                 resourceType={{ type: 'metrics' }}
                 actions={

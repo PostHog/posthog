@@ -1128,6 +1128,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1256,6 +1258,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1435,6 +1439,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -4347,6 +4353,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4475,6 +4483,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -5317,6 +5327,22 @@ export interface VitallyConversationSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
+    created_at: string | null
+}
+
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
@@ -5818,6 +5844,8 @@ export type SignalExtraApi =
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -6025,6 +6053,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics

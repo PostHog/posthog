@@ -1,5 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
@@ -33,6 +34,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
+import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -1597,6 +1599,39 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a deadline', { wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
+            ['no request', undefined, 200, undefined],
+            ['an unreadable deadline', { wait_until: 'soon' }, 400, undefined],
+        ])(
+            'resolves the audience up front only on a valid deadline: %s',
+            async (_desc, audienceSnapshot, status, waitUntil) => {
+                const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+                api['batchResolverProducer'] = fakeJobProducer({ createJob: createJobMock })
+
+                try {
+                    const res = await supertest(app)
+                        .post(
+                            `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-794`
+                        )
+                        .send({ audience_snapshot: audienceSnapshot })
+
+                    expect(res.status).toEqual(status)
+                    if (status !== 200) {
+                        expect(createJobMock).not.toHaveBeenCalled()
+                        return
+                    }
+                    const arg = createJobMock.mock.calls[0][0]
+                    // The resolver asks Django for the snapshot on its first dequeue, so the job starts now.
+                    expect(arg.scheduled).toBeUndefined()
+                    const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                    expect(state.audienceSnapshot).toEqual(waitUntil ? { waitUntil } : undefined)
+                } finally {
+                    api['batchResolverProducer'] = null
+                }
+            }
+        )
+
+        it.each([
             ['a deadline', { id: 7, team_id: 1, wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
             ['no deadline', { id: 7, team_id: 1 }, 200, undefined],
             ['an unreadable deadline', { id: 7, team_id: 1, wait_until: 'tomorrow-ish' }, 400, undefined],
@@ -2011,6 +2046,58 @@ describe('CDP API', () => {
             } finally {
                 hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
                 produceSpy.mockRestore()
+            }
+        })
+
+        it('refuses to queue a run over the workflow quota without waiting on metrics Kafka', async () => {
+            const billableHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                billable_action_types: ['function'],
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+            mockProducerObserver.resetKafkaProducer()
+            const kafka = mockProducer['producer'] as unknown as { produce: jest.Mock }
+            const stalledMetricAcks: (() => void)[] = []
+            kafka.produce.mockImplementation((topic: string, ...rest: any[]) => {
+                const ack = rest[rest.length - 1]
+                if (topic === 'clickhouse_app_metrics2_test') {
+                    stalledMetricAcks.push(() => ack?.())
+                } else {
+                    ack?.()
+                }
+            })
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${billableHogFlow.team_id}/hog_flows/${billableHogFlow.id}/scheduled_invocations`
+                    )
+                    .timeout(3000)
+                    .send({})
+
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                expect(hogflowQueue.queued).toEqual([])
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .map((message) => message.value)
+                    expect(metrics).toContainEqual(
+                        expect.objectContaining({
+                            app_source_id: billableHogFlow.id,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            count: 1,
+                        })
+                    )
+                })
+            } finally {
+                kafka.produce.mockImplementation((...args: any[]) => args[args.length - 1]?.())
+                stalledMetricAcks.forEach((ack) => ack())
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
             }
         })
 

@@ -521,7 +521,9 @@ class PromptSuggestion:
     reason: str
 
 
-class PromptSuggestionStatus(LabeledStrEnum):
+class SuggestionJobStatus(LabeledStrEnum):
+    """The state of a prompt or keyword suggestion job."""
+
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -530,7 +532,7 @@ class PromptSuggestionStatus(LabeledStrEnum):
 @frozen
 class PromptSuggestionJob:
     id: str
-    status: PromptSuggestionStatus
+    status: SuggestionJobStatus
     suggestions: tuple[PromptSuggestion, ...] = ()
     error: str = ""
 
@@ -625,6 +627,44 @@ class KeywordNotFoundError(Exception):
 
 class KeywordLimitError(Exception):
     """The request would take the project past its keyword cap. The message is safe to show the user."""
+
+
+MAX_SUGGESTED_KEYWORDS = 50
+# Suggestions count engine searches over the most recent checks of this window, which bounds the read.
+KEYWORD_SUGGESTION_SEARCH_DAYS = 30
+KEYWORD_SUGGESTION_SEARCH_CHECKS = 2000
+
+
+class KeywordSuggestionError(Exception):
+    """Keyword suggestions could not be produced. The message is safe to show the user."""
+
+
+@frozen
+class KeywordSuggestionRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    count: int = 20
+
+
+@frozen
+class KeywordSuggestion:
+    keyword: str
+    reason: str
+    # Recent answers whose web searches contain the keyword, counted by PostHog rather than the model.
+    searched_checks: int
+
+
+@frozen
+class KeywordSuggestionJob:
+    id: str
+    status: SuggestionJobStatus
+    suggestions: tuple[KeywordSuggestion, ...] = ()
+    error: str = ""
+
+
+class KeywordSuggestionJobNotFoundError(Exception):
+    pass
 
 
 @frozen

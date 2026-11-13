@@ -224,7 +224,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                        Add the questions your buyers ask AI assistants. Claude can suggest them from your site, or you
+                        Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you
                         can write your own. You can also import prompts with the API (
                         <code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
                     </p>

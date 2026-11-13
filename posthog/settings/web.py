@@ -680,6 +680,8 @@ SPECTACULAR_SETTINGS = {
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+            # The AEO prompt and keyword suggestion jobs share this status class, and another class has the same pairs.
+            "AEOSuggestionJobStatusEnum": "products.aeo.backend.facade.contracts.SuggestionJobStatus.choices",
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
