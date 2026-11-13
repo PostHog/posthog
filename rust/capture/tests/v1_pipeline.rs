@@ -154,8 +154,7 @@ async fn events_quota_keeps_events_under_their_own_quota() {
         .with_quota_limited_resources(&[QuotaResource::Events])
         .build();
 
-    // The wildcard "*" token matches only api_token "*"; poll until the
-    // background task populates the limiter cache (avoids a fixed sleep).
+    // Poll until the limiter cache loads the wildcard "*" token instead of sleeping.
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     let response = loop {
         let batch: Batch = serde_json::from_slice(&payload).expect("payload must parse as Batch");

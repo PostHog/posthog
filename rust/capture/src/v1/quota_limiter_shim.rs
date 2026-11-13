@@ -18,11 +18,10 @@ const SCOPED_CHECKS: &[ScopedCheck] = &[
 
 /// Apply billing quota limits to a batch of events in-place.
 ///
-/// Exception, survey and `$ai_` events answer only to their own quota, as in
-/// legacy capture (`CaptureQuotaLimiter::check_and_filter`): the events quota
-/// drops every other event one by one. Returns `Error::BillingLimitExceeded`
-/// when no event is left `Ok`. Expects at least one `Ok` event — all-dropped
-/// batches should short-circuit in `process_batch` before reaching here.
+/// As in legacy `check_and_filter`, scoped events answer only to their own quota.
+/// Returns `Error::BillingLimitExceeded` when no event is left `Ok`.
+/// Expects at least one `Ok` event — all-dropped batches should
+/// short-circuit in `process_batch` before reaching here.
 pub async fn apply_quota_limits(
     limiter: &CaptureQuotaLimiter,
     token: &str,
@@ -79,8 +78,6 @@ fn slot_resource(slot: usize) -> &'static QuotaResource {
         .map_or(EVENTS, |(resource, _)| resource)
 }
 
-/// Which quota drops this event, if any, as an index into `SCOPED_CHECKS`
-/// or `EVENTS_SLOT`.
 fn quota_drop_slot(
     ev: &WrappedEvent,
     events_limited: bool,
@@ -96,9 +93,7 @@ fn quota_drop_slot(
     else {
         return events_limited.then_some(EVENTS_SLOT);
     };
-    // Gateway-verified events are wallet-billed, so the llm_events quota never
-    // drops them. They still answer to the events quota, as on the legacy AI
-    // and OTel endpoints.
+    // Wallet-billed: skip llm_events but not the events quota, like the legacy AI and OTel paths.
     if SCOPED_CHECKS[slot].0 == QuotaResource::LLMEvents && ev.is_gateway_verified {
         return events_limited.then_some(EVENTS_SLOT);
     }
@@ -715,7 +710,7 @@ mod tests {
 
     #[tokio::test]
     async fn global_limit_drops_product_tour_survey_events() {
-        // A product tour event is not a survey response, so only the events quota applies
+        // Product tours are not survey responses, so only the events quota applies.
         let limiter = build_limiter("tok", true, &[]).await;
         let tour = make_event("survey sent", Some("tour-123"));
         let tour_uuid = tour.uuid;
@@ -810,7 +805,7 @@ mod tests {
                 }
             })
             .collect();
-        // Two events and one exception dropped; the pre-dropped event and the kept survey are not counted
+        // The pre-dropped event and the kept survey are not counted.
         assert_eq!(
             counts,
             std::collections::HashMap::from([
