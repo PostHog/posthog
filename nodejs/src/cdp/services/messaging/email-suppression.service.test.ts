@@ -243,13 +243,56 @@ describe('EmailSuppressionService', () => {
             })
         })
 
-        it('suppresses the other addresses of a bounce that names one Postgres cannot store', async () => {
+        const unstorable = ['nul\u0000@example.com', `${'x'.repeat(520)}@example.com`]
+
+        it.each<
+            [string, (svc: EmailSuppressionService, email: string) => Promise<void>, (email: string) => Promise<void>]
+        >([
+            [
+                'a hard bounce',
+                (svc, email) => svc.recordHardBounces(team.id, [email, ...unstorable]),
+                async (email) => expect(await readRow(email)).toMatchObject({ suppressed: true }),
+            ],
+            [
+                'a soft bounce',
+                (svc, email) => svc.recordTransientBounces(team.id, [email, ...unstorable], 'temp'),
+                async (email) => expect(await readRow(email)).toMatchObject({ transient_bounce_count: 1 }),
+            ],
+            [
+                'a complaint',
+                (svc, email) => svc.recordComplaints(team.id, [email, ...unstorable], 'abuse'),
+                async (email) => expect(await readRow(email)).toMatchObject({ source: 'COMPLAINT', suppressed: true }),
+            ],
+            [
+                'a delivery',
+                async (svc, email) => {
+                    await svc.recordTransientBounces(team.id, [email], 'temp')
+                    await svc.recordDeliveries(
+                        team.id,
+                        [email, ...unstorable],
+                        new Date(Date.now() + 60_000).toISOString()
+                    )
+                },
+                async (email) => expect(await readRow(email)).toMatchObject({ transient_bounce_count: 0 }),
+            ],
+            [
+                'a global hard bounce',
+                (svc, email) => svc.recordGlobalHardBounces([email, ...unstorable]),
+                async (email) => {
+                    const enforcing = new EmailSuppressionService(hub.postgres, {
+                        ...emailSuppressionConfigFromEnv(),
+                        globalHardBounceEnforce: true,
+                    })
+                    expect(await enforcing.isSuppressed(team.id, email, { transactional: true })).toBe(true)
+                },
+            ],
+        ])('records the other addresses of %s that names one Postgres cannot store', async (_label, record, check) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = 'deliverable-sibling@example.com'
+            const email = `deliverable-sibling-${team.id}@example.com`
 
-            await svc.recordHardBounces(team.id, [email, 'nul\u0000@example.com', `${'x'.repeat(520)}@example.com`])
+            await record(svc, email)
 
-            expect(await readRow(email)).toMatchObject({ suppressed: true })
+            await check(email)
         })
 
         it.each<[string, (svc: EmailSuppressionService, email: string) => Promise<void>, boolean]>([

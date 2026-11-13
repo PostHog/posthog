@@ -228,8 +228,6 @@ export class EmailSuppressionService {
         const diag = toStorableText(diagnostic, DIAGNOSTIC_MAX_LENGTH)
         const reason = `Auto-suppressed after ${this.threshold} consecutive soft bounces`
 
-        // Build a single multi-row upsert. Params: teamId, reason, threshold, diag, legacy reasons,
-        // global-copy diagnostic, bounce time, event id, event ids kept, then one identifier per row.
         const valueClauses: string[] = []
         const params: (number | string | string[] | null)[] = [
             teamId,
