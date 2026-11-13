@@ -343,6 +343,17 @@ describe('customBotRulesUtils', () => {
                 { pattern: undefined, patterns: ['192.0.2.7'] },
             ],
             [
+                'keeps a saved range when the range list is empty',
+                condition({
+                    key: CustomBotField.IP,
+                    matcher: CustomBotMatcher.Cidr,
+                    pattern: '192.0.2.0/24',
+                    patterns: [],
+                }),
+                CustomBotMatcher.Cidr,
+                { pattern: undefined, patterns: ['192.0.2.0/24'] },
+            ],
+            [
                 'moves the first range back into a value',
                 ipCondition('192.0.2.0/24', '198.51.100.0/24'),
                 CustomBotMatcher.Exact,
