@@ -2605,7 +2605,7 @@
               },
               "warehouse_table_ids": {
                   "chain": null,
-                  "description": null,
+                  "description": "Ids of the warehouse tables the query read. Empty when it read none, and for queries run before this column was filled.",
                   "fields": null,
                   "hogql_value": "warehouse_table_ids",
                   "id": null,
@@ -19426,7 +19426,7 @@
               },
               "warehouse_table_ids": {
                   "chain": null,
-                  "description": null,
+                  "description": "Ids of the warehouse tables the query read. Empty when it read none, and for queries run before this column was filled.",
                   "fields": null,
                   "hogql_value": "warehouse_table_ids",
                   "id": null,
