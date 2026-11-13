@@ -253,7 +253,6 @@ rules:
       owners: team-ai-observability
     - match:
           - '/frontend/src/lib/monaco/languages/*.test.*'
-          - '/frontend/src/lib/utils/networkMetricName.test.ts'
       owners: team-apm
     - match:
           - '/frontend/src/queries/nodes/HogQLX/*.test.*'
