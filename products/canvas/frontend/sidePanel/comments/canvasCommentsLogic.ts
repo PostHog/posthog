@@ -14,7 +14,7 @@ import type { CanvasApi, CanvasVersionApi } from '../../generated/api.schemas'
 import { canvasHistoryLogic } from '../../history/canvasHistoryLogic'
 import type { CanvasCommentHighlight, CanvasRect, CanvasTextSelection } from '../../host/canvasProtocol'
 import { canvasSceneLogic } from '../../scene/canvasSceneLogic'
-import { canvasCommentTaskId } from '../chat/canvasChatTask'
+import { canvasCommentTaskId } from './canvasCommentThreads'
 import {
     CANVAS_COMMENT_SCOPE,
     CanvasCommentThread,

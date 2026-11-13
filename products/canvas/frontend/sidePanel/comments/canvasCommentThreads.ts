@@ -162,3 +162,11 @@ export function canvasTextAnchor(selection: CanvasTextSelection): CanvasTextAnch
         end: selection.quote.length,
     }
 }
+
+/** The task comments belong to: the canvas's generation task, else the newest version an agent published. */
+export function canvasCommentTaskId(
+    generationTaskId: string | null | undefined,
+    versions: readonly { taskId: string | null }[]
+): string | null {
+    return generationTaskId ?? versions.find((version) => version.taskId)?.taskId ?? null
+}

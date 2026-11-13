@@ -23,7 +23,6 @@ describe('CanvasDataBridge query routing', () => {
             }),
             {
                 confirmAction: jest.fn(),
-                confirmAgentRequest: jest.fn(),
                 requestConnectorPermission: jest.fn(),
                 hasUserActivation: () => true,
             }
@@ -108,7 +107,6 @@ describe('CanvasDataBridge action confirmation', () => {
             }),
             {
                 confirmAction,
-                confirmAgentRequest: jest.fn(),
                 requestConnectorPermission: jest.fn(),
                 hasUserActivation: () => true,
             }
@@ -156,7 +154,6 @@ describe('CanvasDataBridge action confirmation', () => {
             }),
             {
                 confirmAction,
-                confirmAgentRequest: jest.fn(),
                 requestConnectorPermission: jest.fn(),
                 hasUserActivation: () => true,
             }
@@ -218,7 +215,6 @@ describe('CanvasDataBridge connector consent', () => {
             }),
             {
                 confirmAction: jest.fn(),
-                confirmAgentRequest: jest.fn(),
                 requestConnectorPermission,
                 hasUserActivation: () => false,
             }

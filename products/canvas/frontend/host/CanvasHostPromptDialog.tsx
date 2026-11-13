@@ -38,13 +38,6 @@ function promptCopy(prompt: CanvasHostPrompt): PromptCopy {
                           'This canvas wants to read data with your connection. Only allow canvases you trust.',
                       confirm: 'Allow access',
                   }
-        case 'agent-request':
-            return {
-                title: 'Ask the canvas agent to make this change?',
-                description:
-                    'Review the exact request. Accepting starts an agent run that uses compute. The result arrives as a draft for review.',
-                confirm: 'Accept and run',
-            }
         case 'action':
             return {
                 title: 'Let this canvas make this change?',
@@ -93,12 +86,6 @@ function PromptDetails({ prompt }: { prompt: CanvasHostPrompt }): JSX.Element {
                     </Text>
                 </div>
             )
-        case 'agent-request':
-            return (
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-border p-3 text-sm">
-                    {prompt.prompt}
-                </pre>
-            )
         case 'action':
             return (
                 <div className="flex flex-col gap-2">
@@ -121,7 +108,7 @@ function PromptDetails({ prompt }: { prompt: CanvasHostPrompt }): JSX.Element {
 }
 
 /**
- * Asks the viewer before a canvas uses a connection, starts an agent run, runs a
+ * Asks the viewer before a canvas uses a connection, runs an
  * action, or opens a link. Render it under a `BindLogic` for `canvasHostLogic`.
  */
 export function CanvasHostPromptDialog(): JSX.Element {

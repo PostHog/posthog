@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconRedo, IconUndo } from '@posthog/icons'
 import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { canvasEditLogic } from '../editing/canvasEditLogic'
 import { canvasSceneLogic } from '../scene/canvasSceneLogic'
 import { canvasSidePanelLogic } from '../sidePanel/canvasSidePanelLogic'
 import { canvasHistoryLogic } from './canvasHistoryLogic'
@@ -43,44 +42,14 @@ function StepButton({
     )
 }
 
-/** Undo and redo through versions, and buttons that open the timeline tab, in the canvas header. Undo and redo through local edits while editing. */
+/** Undo and redo through versions, and buttons that open the timeline tab, in the canvas header. */
 export function CanvasVersionControls(): JSX.Element | null {
     const { versions, drafts, displayedVersionId, liveBuild, canUndo, canRedo, browsedDraft, isGenerating } =
         useValues(canvasHistoryLogic)
     const { undo, redo } = useActions(canvasHistoryLogic)
     const { canvas } = useValues(canvasSceneLogic)
     const { openTab } = useActions(canvasSidePanelLogic)
-    const { sourceEditing, canUndoEdit, canRedoEdit } = useValues(canvasEditLogic)
-    const { undoEdit, redoEdit } = useActions(canvasEditLogic)
 
-    // While editing, undo and redo step through local edits instead of published versions, like PostHog Desktop.
-    if (sourceEditing) {
-        return (
-            <div
-                role="group"
-                aria-label="Edits"
-                className="flex items-center gap-0.5"
-                data-attr="canvas-version-controls"
-            >
-                <StepButton
-                    label="Undo"
-                    disabledReason={canUndoEdit ? null : 'There is nothing to undo.'}
-                    onClick={undoEdit}
-                    dataAttr="canvas-edit-undo"
-                >
-                    <IconUndo />
-                </StepButton>
-                <StepButton
-                    label="Redo"
-                    disabledReason={canRedoEdit ? null : 'There is nothing to redo.'}
-                    onClick={redoEdit}
-                    dataAttr="canvas-edit-redo"
-                >
-                    <IconRedo />
-                </StepButton>
-            </div>
-        )
-    }
     if (versions.length === 0 && drafts.length === 0) {
         return null
     }

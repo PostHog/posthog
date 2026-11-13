@@ -33,8 +33,8 @@ const TABS_REQUIRING_A_TEAM = [
  */
 export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks]
 
-/** The tabs a canvas scene shows instead of the general ones, in order. */
-export const CANVAS_SIDE_PANEL_TABS = [SidePanelTab.CanvasChat, SidePanelTab.CanvasBlocks, SidePanelTab.CanvasTimeline]
+/** The tabs a canvas scene shows instead of the general ones. */
+export const CANVAS_SIDE_PANEL_TABS = [SidePanelTab.CanvasTimeline]
 
 /**
  * Closes the panel when the context it described goes away — a tab like activity logs or access

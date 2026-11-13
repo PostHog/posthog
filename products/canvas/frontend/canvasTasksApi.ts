@@ -2,12 +2,9 @@ import {
     taskChannelsList,
     taskChannelsProvisionDefaultsCreate,
     taskChannelsRetrieve,
-    tasksCreate,
     tasksList,
     tasksPartialUpdate,
     tasksRetrieve,
-    tasksRunCreate,
-    tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
 import type {
     ChannelDTOApi,
@@ -74,28 +71,6 @@ export async function loadCanvasSpace(projectId: string, spaceId: string): Promi
 /** The label a person sees for a space. It matches the Spaces sidebar, which shows the personal space as "Me". */
 export function canvasSpaceLabel(space: Pick<CanvasSpace, 'name' | 'system_role'>): string {
     return space.system_role === 'personal' ? 'Me' : space.name
-}
-
-/**
- * Starts the cloud task that builds a canvas. The run is unattended, so it bypasses
- * permission prompts the same way PostHog Desktop's canvas generation does. The model
- * is left to the server default. The server titles the task synchronously.
- */
-export async function createCanvasGenerationTask(
-    projectId: string,
-    input: { description: string; namingSource: string; spaceId: string; startRun?: boolean }
-): Promise<CanvasGenerationTask> {
-    return toCanvasTask(
-        await tasksCreate(projectId, {
-            description: input.description,
-            // The server titles the task from this, so the title reflects the request, not the injected instructions.
-            naming_source: input.namingSource,
-            origin_product: 'user_created',
-            channel: input.spaceId,
-            start_run: input.startRun ?? true,
-            initial_permission_mode: 'bypassPermissions',
-        })
-    )
 }
 
 export async function loadCanvasGenerationTask(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
@@ -189,49 +164,4 @@ export async function moveCanvasTasks(
         throw new Error(partialMoveMessage(await restoreCanvasTasks(projectId, moved)))
     }
     return moved
-}
-
-export async function startCanvasGenerationRun(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
-    return toCanvasTask(
-        await tasksRunCreate(projectId, taskId, {
-            mode: 'background',
-            run_source: 'manual',
-            initial_permission_mode: 'bypassPermissions',
-        })
-    )
-}
-
-/** Sends a follow-up message to a run that is still live. The agent reads it on its next turn. */
-export async function sendCanvasRunMessage(
-    projectId: string,
-    taskId: string,
-    runId: string,
-    content: string
-): Promise<void> {
-    const response = await tasksRunsCommandCreate(projectId, taskId, runId, {
-        jsonrpc: '2.0',
-        method: 'user_message',
-        params: { content },
-    })
-    const result = response.result
-    if (!result || typeof result !== 'object' || !('queued' in result) || result.queued !== true) {
-        throw new Error("The agent didn't confirm the message.")
-    }
-}
-
-/**
- * Starts a new run of a task with a follow-up message. Chained from the last run, the new run
- * continues that conversation. The server answers with the task, the new run as `latest_run`.
- */
-export async function resumeCanvasTask(
-    projectId: string,
-    taskId: string,
-    input: { resumeFromRunId: string | null; message: string }
-): Promise<CanvasGenerationTask> {
-    return toCanvasTask(
-        await tasksRunCreate(projectId, taskId, {
-            ...(input.resumeFromRunId ? { resume_from_run_id: input.resumeFromRunId } : {}),
-            pending_user_message: input.message,
-        })
-    )
 }

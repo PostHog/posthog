@@ -63,7 +63,6 @@ export interface CanvasActionConfirmation {
 
 export interface CanvasDataBridgePrompts {
     confirmAction: (request: CanvasActionConfirmation) => Promise<boolean>
-    confirmAgentRequest: (prompt: string) => Promise<boolean>
     requestConnectorPermission: (request: CanvasConnectorPermissionRequest) => Promise<boolean>
     hasUserActivation: () => boolean
 }

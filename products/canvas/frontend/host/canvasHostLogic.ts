@@ -40,7 +40,6 @@ export interface CanvasHostLogicProps {
 
 export type CanvasHostPrompt =
     | { kind: 'connector'; id: string; request: CanvasConnectorPermissionRequest }
-    | { kind: 'agent-request'; id: string; prompt: string }
     | { kind: 'action'; id: string; request: CanvasActionConfirmation }
     | { kind: 'external-link'; id: string; url: string }
 
@@ -266,7 +265,6 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
             }),
             {
                 confirmAction: (request) => cache.requestPrompt({ kind: 'action', request }),
-                confirmAgentRequest: (prompt) => cache.requestPrompt({ kind: 'agent-request', prompt }),
                 requestConnectorPermission: (request) => cache.requestPrompt({ kind: 'connector', request }),
                 hasUserActivation: canvasHasUserActivation,
             }

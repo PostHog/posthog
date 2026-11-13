@@ -6,7 +6,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
 import { canvasSceneLogic } from '../scene/canvasSceneLogic'
 import { canvasPanelTab } from './canvasPanelTabs'
-import { CanvasSidePanelTabBody } from './CanvasSidePanelTabBody'
+import { CanvasTimelineTab } from './timeline/CanvasTimelineTab'
 
 /** The canvas's tab in the app side panel: the version timeline. */
 export function CanvasSidePanel(): JSX.Element | null {
@@ -15,8 +15,7 @@ export function CanvasSidePanel(): JSX.Element | null {
     const canvasId = sceneSidePanelContext.canvas_id
     const tab = canvasPanelTab(selectedTab)
 
-    // The web app only views canvases, so a chat or blocks tab left selected shows nothing.
-    if (!canvasId || tab !== 'timeline') {
+    if (!canvasId || !tab) {
         return null
     }
     return (
@@ -27,7 +26,7 @@ export function CanvasSidePanel(): JSX.Element | null {
                     className="flex h-full min-h-0 flex-col bg-background"
                     data-attr={`canvas-side-panel-${tab}`}
                 >
-                    <CanvasSidePanelTabBody tab={tab} canvasId={canvasId} />
+                    <CanvasTimelineTab />
                 </div>
             </BindLogic>
         </BindLogic>

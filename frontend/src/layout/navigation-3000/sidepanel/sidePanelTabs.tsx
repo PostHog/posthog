@@ -1,4 +1,4 @@
-import { IconApps, IconChat, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
+import { IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -83,16 +83,6 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
-    },
-    [SidePanelTab.CanvasChat]: {
-        label: 'Chat',
-        Icon: IconChat,
-        Content: CanvasSidePanel,
-    },
-    [SidePanelTab.CanvasBlocks]: {
-        label: 'Blocks',
-        Icon: IconApps,
-        Content: CanvasSidePanel,
     },
     [SidePanelTab.CanvasTimeline]: {
         label: 'Timeline',

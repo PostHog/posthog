@@ -19,7 +19,6 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { canvasSpaceLabel } from '../canvasTasksApi'
-import { CanvasEditSaveStatus } from '../editing/CanvasEditSaveStatus'
 import { CanvasVersionControls } from '../history/CanvasVersionControls'
 import { CanvasCommentsMenu } from '../sidePanel/comments/CanvasCommentsMenu'
 import { CanvasBuildStatus } from './CanvasBuildStatus'
@@ -34,7 +33,7 @@ import { CanvasVisibilityControl } from './CanvasVisibilityControl'
 
 /**
  * The bar across the top of the canvas, laid out like PostHog Desktop's: the name and version history
- * at the start, then the canvas's status, editing, the side panel, and the canvas menu at the end.
+ * at the start, then the canvas's status, the side panel, and the canvas menu at the end.
  */
 export function CanvasSceneHeader(): JSX.Element {
     const { canvas, space } = useValues(canvasSceneLogic)
@@ -55,7 +54,6 @@ export function CanvasSceneHeader(): JSX.Element {
                     <CanvasGenerationIndicator />
                     <CanvasBuildStatus />
                     <CanvasRuntimeErrorNotice />
-                    <CanvasEditSaveStatus />
                     <CanvasCommentsMenu />
                     <CanvasFullscreenToggle />
                     <CanvasSidePanelToggle />

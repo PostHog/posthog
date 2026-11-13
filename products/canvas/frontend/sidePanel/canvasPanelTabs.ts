@@ -1,12 +1,10 @@
 import { SidePanelTab } from '~/types'
 
 // pinned: panel tab keys, sent as the `tab` property of the panel_tab_change action
-export type CanvasPanelTab = 'chat' | 'blocks' | 'timeline'
+export type CanvasPanelTab = 'timeline'
 
-/** The app side panel tab each canvas panel tab shows in. A new tab adds a row here and a case in CanvasSidePanelTabBody. */
+/** The app side panel tab each canvas panel tab shows in. */
 export const CANVAS_PANEL_SIDE_PANEL_TABS: Record<CanvasPanelTab, SidePanelTab> = {
-    chat: SidePanelTab.CanvasChat,
-    blocks: SidePanelTab.CanvasBlocks,
     timeline: SidePanelTab.CanvasTimeline,
 }
 
