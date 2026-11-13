@@ -72,22 +72,24 @@ describe('dataCatalogSceneLogic', () => {
         expect(router.values.searchParams).toEqual({ tab: 'tables' })
     })
 
+    const RESTRUCTURE = [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]
+
     it.each([
-        [true, 'usage'],
-        [false, 'metrics'],
+        ['usage', [FEATURE_FLAGS.DATA_CATALOG_USAGE], 'usage'],
+        ['usage', [], 'metrics'],
+        ['governance', [...RESTRUCTURE, FEATURE_FLAGS.DATA_CATALOG_USAGE], 'governance'],
+        ['governance', RESTRUCTURE, 'overview'],
     ])(
-        'opens a usage link that arrives before the flags only when the flag is on (flag on: %s)',
-        async (flagOn, expectedTab) => {
+        'opens a %s link that arrives before the flags only when its flags are on (flags: %j)',
+        async (tab, flags, expectedTab) => {
             featureFlagLogic.actions.setFeatureFlags([], {})
             logic = dataCatalogSceneLogic()
             logic.mount()
-            router.actions.push(urls.dataCatalog('usage'))
+            router.actions.push(urls.dataCatalog(tab))
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.activeTab).toBe('metrics')
 
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_CATALOG_USAGE], {
-                [FEATURE_FLAGS.DATA_CATALOG_USAGE]: flagOn,
-            })
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.activeTab).toBe(expectedTab)
         }

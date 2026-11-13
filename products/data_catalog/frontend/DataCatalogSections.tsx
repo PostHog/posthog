@@ -30,6 +30,7 @@ import { CatalogUsageSection } from './CatalogUsageSection'
 import { dataCatalogAttentionLogic } from './dataCatalogAttentionLogic'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySection'
+import { CatalogGovernanceSection } from './governance/CatalogGovernanceSection'
 import { CatalogMetricsSection } from './metrics/CatalogMetricsSection'
 import { CatalogRelationshipsSection } from './relationships/CatalogRelationshipsSection'
 import { CatalogSuggestionsBinding } from './suggestions/CatalogSuggestionsBinding'
@@ -57,6 +58,7 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
     certifications: 'Certifications',
     usage: 'Usage',
     suggestions: 'Suggestions',
+    governance: 'Governance',
 }
 
 const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage', 'suggestions']
@@ -72,6 +74,7 @@ const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
     suggestions: CatalogSuggestionsSection,
+    governance: CatalogGovernanceSection,
 }
 
 function SectionCount({ tab, count }: { tab: DataCatalogTab; count: number | undefined }): JSX.Element | null {
