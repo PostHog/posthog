@@ -314,6 +314,35 @@ class TestWorkflowViewAPI(APIBaseTest):
                 response = getattr(self.client, method)(path, data, format="json")
                 self.assertEqual(response.status_code, 403, response.content)
 
+    def test_a_child_environment_hides_the_parent_projects_views_from_a_member_denied_the_parent(self) -> None:
+        view = self._create_view()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")
+        member = User.objects.create_and_join(self.organization, "child-only@example.com", None)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        self.client.force_login(member)
+        child_url = f"/api/environments/{child.pk}/workflow_views/"
+        child_detail_url = f"{child_url}{view['id']}/"
+
+        self.assertEqual(self.client.get(f"/api/environments/{child.pk}/hog_flows/").status_code, 200)
+        for method, path, data in [
+            ("get", child_url, {}),
+            ("get", child_detail_url, {}),
+            ("post", f"{child_url}initialize/", {}),
+            ("post", child_url, {"name": "From the child", "state": view["state"]}),
+            ("patch", child_detail_url, {"name": "Changed from the child", "version": view["version"]}),
+            ("delete", f"{child_detail_url}?version={view['version']}", {}),
+            ("post", f"{child_url}restore_default/", {}),
+        ]:
+            with self.subTest(method=method, path=path):
+                response = getattr(self.client, method)(path, data, format="json")
+                self.assertEqual(response.status_code, 403, response.content)
+
     def test_views_follow_the_url_project_and_canonical_environment_without_crossing_tenants(self) -> None:
         view = self._create_view()
         other_team = Team.objects.create(organization=self.organization, name="Other project")

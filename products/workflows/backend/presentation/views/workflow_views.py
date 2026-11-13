@@ -188,12 +188,25 @@ class WorkflowViewsFeatureFlagPermission(BasePermission):
             return False
 
 
+class ParentProjectAccessPermission(BasePermission):
+    # The membership check runs on the URL environment only. A child environment serves the parent's views,
+    # and the parent's workflow rules alone fall back to the default level for a member the parent project
+    # denies, so the caller also needs project access to the parent.
+    message = "You don't have access to the project that holds these saved views."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        workflow_views = cast(WorkflowViewViewSet, view)
+        if workflow_views.team.parent_team_id is None:
+            return True
+        return workflow_views.user_access_control.has_project_access
+
+
 class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "initialize"]
     scope_object_write_actions = ["create", "partial_update", "destroy", "restore_default"]
     serializer_class = WorkflowViewSerializer
-    permission_classes = [WorkflowViewsFeatureFlagPermission]
+    permission_classes = [WorkflowViewsFeatureFlagPermission, ParentProjectAccessPermission]
     requires_resource_level_access = True
     path_parameters = {"id": UUID}
     pagination_class = WorkflowViewPagination
@@ -204,7 +217,8 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def user_access_control(self) -> UserAccessControl:
         # Saved views are stored on the project's main environment, so a child environment's URL reads and
         # writes the parent's views. Check the parent's workflow access rules, because the child's own
-        # rules can be looser. The URL environment's membership check still runs on the child.
+        # rules can be looser. The URL environment's membership check still runs on the child, and
+        # ParentProjectAccessPermission checks project access to the parent.
         owner = self.team.parent_team
         if owner is None:
             return super().user_access_control
