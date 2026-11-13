@@ -25,7 +25,7 @@ type Stack = {
     arn: string
     token: string
     status: string
-    pendingReads: number
+    settlesAt: number
     runTag?: string
     parameters: Record<string, string>
     template: {
@@ -36,6 +36,12 @@ type Stack = {
 }
 
 const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
+const MINUTE_MS = 60_000
+const TAKES_MS: Record<string, number> = {
+    CREATE_IN_PROGRESS: MINUTE_MS / 4,
+    UPDATE_IN_PROGRESS: 10 * MINUTE_MS,
+    DELETE_IN_PROGRESS: MINUTE_MS / 4,
+}
 
 export type FakeCloudOptions = {
     now: () => Date
@@ -108,8 +114,9 @@ export class FakeCloud implements Aws {
     readonly stacks = new Map<string, Stack>()
     readonly resources: Resource[] = []
     readonly parameterStore = new Map<string, string>()
+    readonly untyped: string[] = []
     private deleteFailures: number
-    private readonly failures = new Map<string, number>()
+    private readonly failures = new Map<string, { from: number; to: number }>()
     private readonly lostResponses = new Map<string, number>()
     private readonly calls = new Map<string, number>()
     private readonly hooks = new Map<string, () => void>()
@@ -126,8 +133,13 @@ export class FakeCloud implements Aws {
         this.parameterStore.set('/test/ubuntu/ami-id', 'ami-0000000000000000a')
     }
 
-    failOnCall(operation: string, nth: number = 1): void {
-        this.failures.set(operation, (this.calls.get(operation) ?? 0) + nth)
+    failOnCall(operation: string, nth: number = 1, times: number = 1): void {
+        const from = (this.calls.get(operation) ?? 0) + nth
+        this.failures.set(operation, { from, to: from + times })
+    }
+
+    heal(): void {
+        this.failures.clear()
     }
 
     loseResponseOf(operation: string, nth: number = 1): void {
@@ -155,6 +167,9 @@ export class FakeCloud implements Aws {
 
     tick(): void {
         const now = this.options.now().getTime()
+        for (const stack of [...this.stacks.values()].filter(({ settlesAt }) => settlesAt <= now)) {
+            this.settleStack(stack.name)
+        }
         for (const [name, schedule] of this.schedules) {
             if (atOf(schedule.expression) <= now) {
                 const { StackName } = parseJSON(schedule.target.Input) as { StackName: string }
@@ -176,7 +191,8 @@ export class FakeCloud implements Aws {
         const count = (this.calls.get(operation) ?? 0) + 1
         this.calls.set(operation, count)
         this.hooks.get(operation)?.()
-        if (this.failures.get(operation) === count) {
+        const failing = this.failures.get(operation)
+        if (failing && count >= failing.from && count < failing.to) {
             throw serviceError(operation, 'InternalFailure', 'injected by the fake cloud')
         }
         const action = actionOf(service, operation)
@@ -190,21 +206,12 @@ export class FakeCloud implements Aws {
         return answer
     }
 
-    private parametersOf(
-        flags: Map<string, string>,
-        template: Stack['template'],
-        previous: Record<string, string> = {}
-    ): Record<string, string> {
-        const listed = parseJSON(flags.get('parameters')!) as {
-            ParameterKey: string
-            ParameterValue?: string
-            UsePreviousValue?: boolean
-        }[]
+    private parametersOf(flags: Map<string, string>, template: Stack['template']): Record<string, string> {
+        const listed = parseJSON(flags.get('parameters')!) as { ParameterKey: string; ParameterValue: string }[]
         return Object.fromEntries(
-            listed.map(({ ParameterKey, ParameterValue, UsePreviousValue }) => {
-                const value = UsePreviousValue ? previous[ParameterKey] : ParameterValue!
+            listed.map(({ ParameterKey, ParameterValue }) => {
                 const fromStore = template.Parameters[ParameterKey].Type.startsWith('AWS::SSM::Parameter::Value')
-                return [ParameterKey, fromStore ? this.parameterStore.get(value)! : value]
+                return [ParameterKey, fromStore ? this.parameterStore.get(ParameterValue)! : ParameterValue]
             })
         )
     }
@@ -307,7 +314,7 @@ export class FakeCloud implements Aws {
 
     private transition(stack: Stack, status: string): void {
         stack.status = status
-        stack.pendingReads = 1
+        stack.settlesAt = this.options.now().getTime() + TAKES_MS[status]
     }
 
     private settleStack(name: string): void {
@@ -315,6 +322,7 @@ export class FakeCloud implements Aws {
         if (!stack) {
             return
         }
+        stack.settlesAt = Infinity
         if (stack.status === 'CREATE_IN_PROGRESS' && this.options.rollsBack === 'create') {
             this.removeResources(stack, () => true)
             this.stacks.delete(name)
@@ -409,13 +417,7 @@ export class FakeCloud implements Aws {
                         })),
                 }
             case 'cloudformation describe-stacks': {
-                const described = this.stackOf(operation, flags.get('stack-name')!)
-                if (described.pendingReads > 0) {
-                    described.pendingReads--
-                } else {
-                    this.settleStack(described.name)
-                }
-                const stack = this.stackOf(operation, described.name)
+                const stack = this.stackOf(operation, flags.get('stack-name')!)
                 return { Stacks: [{ StackName: stack.name, StackStatus: stack.status }] }
             }
             case 'cloudformation create-stack': {
@@ -437,7 +439,7 @@ export class FakeCloud implements Aws {
                     arn: `arn:aws:cloudformation:us-east-1:${this.account}:stack/${name}/${randomUUID()}`,
                     token: flags.get('client-request-token')!,
                     status: 'CREATE_IN_PROGRESS',
-                    pendingReads: 1,
+                    settlesAt: this.options.now().getTime() + TAKES_MS.CREATE_IN_PROGRESS,
                     runTag: tags.find(({ Key }) => Key === 'scenario-run')?.Value,
                     parameters: this.parametersOf(flags, template),
                     template,
@@ -449,7 +451,7 @@ export class FakeCloud implements Aws {
             }
             case 'cloudformation update-stack': {
                 const stack = this.stackOf(operation, flags.get('stack-name')!)
-                stack.parameters = this.parametersOf(flags, stack.template, stack.parameters)
+                stack.parameters = this.parametersOf(flags, stack.template)
                 this.transition(stack, 'UPDATE_IN_PROGRESS')
                 this.provision(stack)
                 return { StackId: stack.name }
@@ -554,12 +556,12 @@ export class FakeCloud implements Aws {
             case 'resourcegroupstaggingapi get-resources': {
                 const runId = /Values=(.+)$/.exec(flags.get('tag-filters') ?? '')?.[1]
                 return {
-                    ResourceTagMappingList: [...this.stacks.values(), ...this.resources]
-                        .filter(
-                            (tagged) =>
-                                tagged.runTag === runId &&
-                                !('type' in tagged ? this.creating(tagged) : tagged.status === 'CREATE_IN_PROGRESS')
-                        )
+                    ResourceTagMappingList: [
+                        ...[...this.stacks.values()].filter(({ status }) => status !== 'CREATE_IN_PROGRESS'),
+                        ...this.resources.filter((resource) => !this.creating(resource)),
+                        ...(this.stacks.size > 0 ? this.untyped.map((arn) => ({ arn, runTag: runId })) : []),
+                    ]
+                        .filter((tagged) => tagged.runTag === runId)
                         .map(({ arn }) => ({ ResourceARN: arn })),
                 }
             }

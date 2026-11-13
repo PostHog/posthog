@@ -53,8 +53,8 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
     })
     let outcome: number = EXIT_CODE.passed
     try {
-        await createRunStack(controller, profile, manifest, interruption.signal)
-        await addReader(controller, profile, manifest, interruption.signal)
+        const parameters = await createRunStack(controller, profile, manifest, interruption.signal)
+        await addReader(controller, profile, manifest, parameters, interruption.signal)
     } catch (error) {
         controller.warn(`Run ${manifest.runId} is invalid: ${(error as Error).message}`)
         outcome = EXIT_CODE.invalid

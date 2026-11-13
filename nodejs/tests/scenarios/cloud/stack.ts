@@ -68,6 +68,9 @@ function parametersOf(profile: CloudProfile, manifest: Manifest, image: string):
     }
 }
 
+const parametersArg = (values: Record<string, string>): string =>
+    JSON.stringify(Object.entries(values).map(([ParameterKey, ParameterValue]) => ({ ParameterKey, ParameterValue })))
+
 async function imageOf({ aws }: Controller, profile: CloudProfile): Promise<string> {
     const { Parameter } = (await aws.call(['ssm', 'get-parameter', '--name', profile.host.imageParameter])) as {
         Parameter: { Value: string }
@@ -118,9 +121,9 @@ export async function createRunStack(
     profile: CloudProfile,
     manifest: Manifest,
     signal: AbortSignal
-): Promise<void> {
+): Promise<Record<string, string>> {
+    const parameters = parametersOf(profile, manifest, await imageOf(controller, profile))
     refuseCreationNearExpiry(controller, profile, manifest, 'create the stack')
-    const image = await imageOf(controller, profile)
     signal.throwIfAborted()
     await controller.aws.call([
         'cloudformation',
@@ -130,12 +133,7 @@ export async function createRunStack(
         '--template-body',
         `file://${TEMPLATE}`,
         '--parameters',
-        JSON.stringify(
-            Object.entries(parametersOf(profile, manifest, image)).map(([ParameterKey, ParameterValue]) => ({
-                ParameterKey,
-                ParameterValue,
-            }))
-        ),
+        parametersArg(parameters),
         '--role-arn',
         profile.baseline.stackServiceRole,
         '--on-failure',
@@ -150,12 +148,14 @@ export async function createRunStack(
         throw new Error(`Stack ${manifest.stackName} ended ${status ?? 'deleted'}, not CREATE_COMPLETE.`)
     }
     await waitForHost(controller, profile, manifest, signal)
+    return parameters
 }
 
 export async function addReader(
     controller: Controller,
     profile: CloudProfile,
     manifest: Manifest,
+    parameters: Record<string, string>,
     signal: AbortSignal
 ): Promise<void> {
     refuseCreationNearExpiry(controller, profile, manifest, 'add the reader')
@@ -167,13 +167,7 @@ export async function addReader(
         manifest.stackName,
         '--use-previous-template',
         '--parameters',
-        JSON.stringify(
-            Object.keys(parametersOf(profile, manifest, '')).map((ParameterKey) =>
-                ParameterKey === 'ReaderEnabled'
-                    ? { ParameterKey, ParameterValue: 'true' }
-                    : { ParameterKey, UsePreviousValue: true }
-            )
-        ),
+        parametersArg({ ...parameters, ReaderEnabled: 'true' }),
         '--role-arn',
         profile.baseline.stackServiceRole,
     ])
