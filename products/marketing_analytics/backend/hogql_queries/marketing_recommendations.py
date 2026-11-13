@@ -26,6 +26,7 @@ from products.marketing_analytics.backend.hogql_queries.recommendation_identity 
     recommendation_identity,
 )
 
+RECOMMENDATION_SOURCE_TYPES = ("GoogleAds", "GoogleSearchConsole")
 PER_RULE_LIMIT = 10
 # Bounds the cached results. Resolutions apply after the cache, so a rule keeps spare candidates to fill the slots of
 # the ones someone resolved.
