@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertReceiverEdit,
     AlertRouteEdit,
     ControlChangeKind,
+    DeletedSourceDestinations,
     DestinationSend,
     DestinationType,
     EnabledNativeConfiguration,
@@ -775,8 +776,8 @@ def list_source_destinations(
 
 def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
-) -> frozenset[UUID]:
-    """Deletes the alert's rows named or copying `hog_function_ids`, and returns the HogFunctions they copied."""
+) -> DeletedSourceDestinations:
+    """Deletes the alert's rows named or copying `hog_function_ids`, and returns what went."""
     return alert_destinations.delete_source_destination_rows(
         team_id=team_id, public_id=public_id, destination_ids=destination_ids, hog_function_ids=hog_function_ids
     )
@@ -825,6 +826,16 @@ def destination_types_by_configuration(
     """The types of each named configuration's enabled destinations, for an alert list. A configuration
     with none is left out."""
     return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
+
+
+def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
+    """Deletes the `AlertDestination` rows that copy any of these HogFunctions, and returns how many."""
+    return alert_destinations.delete_rows_copying(team_id=team_id, hog_function_ids=hog_function_ids)
+
+
+def validate_destination_data(data: AlertDestinationData) -> None:
+    """Raises `AlertDestinationValidationError` when the platform would refuse to send to this destination."""
+    alert_destinations.validate_destination_data(data)
 
 
 def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
