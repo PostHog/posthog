@@ -103,6 +103,13 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
+    # Matches the flag key limit, because an experiment variant key is the longest label a scope gives.
+    group_key = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="The label the scanner's scope gave this session, such as an experiment variant. Null when the scope gives none.",
+    )
     # Ranks live in `ReplayObservationRank`.
     watch_rank = deprecate_field(
         models.JSONField(
@@ -184,6 +191,12 @@ class ReplayObservation(UUIDModel):
                 fields=["backfill"],
                 name="rlo_backfill_idx",
                 condition=models.Q(backfill__isnull=False),
+            ),
+            # Serves the per-group readout and filter; partial since scopes that give no label leave it null.
+            models.Index(
+                fields=["scanner", "group_key"],
+                name="rlo_scanner_group_idx",
+                condition=models.Q(group_key__isnull=False),
             ),
         ]
 
