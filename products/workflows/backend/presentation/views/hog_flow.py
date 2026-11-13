@@ -3834,11 +3834,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # resent {"secret": true} marker. Includes legacy plaintext still inside the stored actions
         # (rows written before encryption shipped) as the base, then the encrypted live and draft
         # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
+        # Status-only activation revalidates live actions and must exclude draft values.
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
             # A server-side rewrite of the live actions sets live_secrets_only, so a staged credential
             # rotation stays in the draft until someone publishes it.
-            secret_map = live_secret_map if self.context.get("live_secrets_only") else existing_secret_map
+            status_only_activation = (
+                status == HogFlowState.ACTIVE and instance.status != HogFlowState.ACTIVE and "actions" not in data
+            )
+            use_live_secrets = self.context.get("live_secrets_only") or status_only_activation
+            secret_map = live_secret_map if use_live_secrets else existing_secret_map
             self.context["existing_encrypted_inputs"] = secret_map(
                 instance, template_cache=self.context.setdefault("_hogflow_template_cache", {})
             )
@@ -5970,9 +5975,11 @@ class HogFlowViewSet(
                     "changes steps by id and leaves the rest of the graph untouched."
                 )
 
-            # Content edits on an active workflow stage a draft rather than landing live. Status-only
-            # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
-            if serializer.instance.status == HogFlowState.ACTIVE and has_non_status:
+            # Content edits on active workflows, and workflows disabled from active, stage a draft.
+            # Status-only lifecycle PATCHes and metadata-only edits apply straight to the live row.
+            if (
+                serializer.instance.status == HogFlowState.ACTIVE or serializer.instance.disabled_from_active
+            ) and has_non_status:
                 route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
         elif serializer.instance.status == HogFlowState.ACTIVE and self.request.data.get("stage_draft"):
             # The web builder opts into the same draft routing per request ("stage_draft" rides the
@@ -5992,6 +5999,7 @@ class HogFlowViewSet(
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
+                validated_disabled_from_active=serializer.instance.disabled_from_active,
                 requested_exit_condition=serializer.initial_data.get("exit_condition"),
                 before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
             )
@@ -6132,7 +6140,7 @@ class HogFlowViewSet(
                 team_id=self.team_id,
                 user_id=self._actor_id(),
                 hog_flow_id=workflow_ref.id,
-                stage_if_active=self._is_mcp_request(request),
+                stage_if_protected=self._is_mcp_request(request),
                 base_updated_at=request.data.get("base_updated_at"),
                 edit=edit,
                 changes_graph=True,
@@ -6199,7 +6207,9 @@ class HogFlowViewSet(
         # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
-            predicts_draft = self._is_mcp_request(request) and unlocked.status == HogFlowState.ACTIVE
+            predicts_draft = self._is_mcp_request(request) and (
+                unlocked.status == HogFlowState.ACTIVE or unlocked.disabled_from_active
+            )
             if predicts_draft and unlocked.draft:
                 render_base = list(unlocked.draft.get("actions") or [])
             else:
@@ -6226,7 +6236,7 @@ class HogFlowViewSet(
                 team_id=self.team_id,
                 user_id=self._actor_id(),
                 hog_flow_id=unlocked.id,
-                stage_if_active=self._is_mcp_request(request),
+                stage_if_protected=self._is_mcp_request(request),
                 base_updated_at=request.data.get("base_updated_at"),
                 edit=edit,
                 changes_graph=False,
