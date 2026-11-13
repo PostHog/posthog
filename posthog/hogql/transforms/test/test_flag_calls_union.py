@@ -233,7 +233,6 @@ def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
 
 @contextmanager
 def _enabled_flags(union: bool, union_flag: bool | None = None):
-    # Mode 2 reads the union without the flag. Turning the union off therefore turns on the kill switch.
     enabled = {"hogql-flag-calls-union"} if (union if union_flag is None else union_flag) else set()
     with (
         patch(

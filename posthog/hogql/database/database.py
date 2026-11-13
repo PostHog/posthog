@@ -260,8 +260,7 @@ class HogQLDatabaseSources:
     read_flag_calls_from_flag_evaluations: bool
     # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
     flag_calls_only_in_flag_evaluations: bool
-    # The catalog has the union table, because the organization can read flag_evaluations and
-    # FLAG_EVALUATIONS_UNION_DISABLED is off. HogQLContext.reads_flag_calls_with_union decides whether a query reads it.
+    # The catalog has the union table. HogQLContext.reads_flag_calls_with_union decides whether a query reads it.
     flag_calls_union_enabled: bool
     flag_calls_union_opted_in: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
