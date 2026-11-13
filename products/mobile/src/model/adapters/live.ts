@@ -22,6 +22,7 @@ const BREAKDOWN_TOP_ROWS = 6
 export const DIRECT_REFERRER = '$direct'
 const OTHER = 'Other'
 const BREAKDOWN_PLACEHOLDER = '$$_posthog_breakdown_'
+const COUNTRY_CODE = /^[A-Z]{2}$/
 
 function rowsOf(response: unknown): unknown[][] {
     const results = isRecord(response) ? (response as HogQLResponseApi).results : undefined
@@ -173,7 +174,7 @@ export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveB
 
 /** Every country of the `geo` job, with no "Other" row, so the map colors each one. */
 export function liveWorld(response: unknown): LiveWorld {
-    const counted = breakdownCounts(response)
+    const counted = breakdownCounts(response).filter(({ key }) => COUNTRY_CODE.test(key))
     const total = counted.reduce((sum, entry) => sum + entry.count, 0)
     return {
         total,

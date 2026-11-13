@@ -139,11 +139,11 @@ describe('live adapters', () => {
             ['XX', '🇽🇽', 20],
         ])
 
-        const eight = {
-            results: [[['US', 'GB', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE'].map((code, index) => [code, 9 - index])]],
-        }
-        expect(liveBreakdown(eight, 'countries').rows.at(-1)).toMatchObject({ key: 'Other', count: 5 })
-        const world = liveWorld(eight)
+        const pairs = ['US', 'GB', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE'].map((code, index) => [code, 9 - index])
+        expect(liveBreakdown({ results: [[pairs]] }, 'countries').rows.at(-1)).toMatchObject({ key: 'Other', count: 5 })
+        const world = liveWorld({
+            results: [[[...pairs, ['Narnia', 4], ['usa', 3]]]],
+        })
         expect(world.total).toBe(44)
         expect(world.countries.map((row) => row.key)).toEqual(['US', 'GB', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE'])
         expect(world.countries.at(-1)).toMatchObject({ label: 'Sweden', flag: '🇸🇪', count: 2 })
