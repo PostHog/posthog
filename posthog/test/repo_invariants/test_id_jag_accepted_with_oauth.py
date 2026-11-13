@@ -18,15 +18,19 @@ from rest_framework.schemas.generators import EndpointEnumerator
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication
 
-OAUTH_ONLY_VIEWS = {
-    # Claude's partner-side setup registers an issuer with the client app's own OAuth token.
-    "posthog.api.oauth.ema_issuer.EmaTrustedIssuerView",
-    # INTERNAL scope, which an ID-JAG token cannot carry.
-    "posthog.api.query_performance_proxy.QueryPerformanceProxyViewSet",
-    # Desktop gateway tokens are issued only to the desktop app's OAuth client.
-    "products.tasks.backend.presentation.views.api.LegacyDesktopAccessViewSet",
-    # Lists teams across every organization of the user, and an ID-JAG token is confined to one.
-    "posthog.api.user_integration.UserIntegrationViewSet",
+OAUTH_ONLY_VIEWS: dict[str, str] = {
+    "posthog.api.oauth.ema_issuer.EmaTrustedIssuerView": (
+        "Claude's partner-side setup registers an issuer with the client app's own OAuth token."
+    ),
+    "posthog.api.query_performance_proxy.QueryPerformanceProxyViewSet": (
+        "INTERNAL scope, which an ID-JAG token cannot carry."
+    ),
+    "products.tasks.backend.presentation.views.api.LegacyDesktopAccessViewSet": (
+        "Desktop gateway tokens are issued only to the desktop app's OAuth client."
+    ),
+    "posthog.api.user_integration.UserIntegrationViewSet": (
+        "Lists teams across every organization of the user, and an ID-JAG token is confined to one."
+    ),
 }
 
 
