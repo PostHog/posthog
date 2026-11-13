@@ -222,7 +222,7 @@ export const tracePageLogic = kea<tracePageLogicType>([
             actions.setTraceId(traceId)
             // An eval link with no event comes from a trace-level run, and only the root shows that run.
             actions.requestStep(event || (tab === 'evals' ? traceId : null), traceId)
-            actions.setOpeningMode(tab === 'summary' ? 'summary' : null)
+            actions.setOpeningMode(tab === 'summary' || tab === 'thread' ? tab : null)
             actions.setSeedQuery(searchParamFromUrl())
             const timestampHint = toTimestampHint(timestamp, exception_ts)
             if (timestampHint || isNewTrace) {

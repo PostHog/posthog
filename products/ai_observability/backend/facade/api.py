@@ -3,7 +3,7 @@ from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
-from typing import IO, Final
+from typing import IO, Any, Final
 from uuid import UUID
 
 from django.utils.timezone import now
@@ -928,16 +928,22 @@ def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
     return save_team_recipe(team.pk, user, name=name, source=source)
 
 
-def request_first_clustering_runs(team_id: int, retry_job_id: UUID | None = None) -> None:
+def request_first_clustering_runs(team_id: int, user: User, retry_job_id: UUID | None = None) -> None:
     from ..logic.clustering.runs import request_first_runs
 
-    request_first_runs(team_id, retry_job_id)
+    request_first_runs(team_id, user, retry_job_id)
 
 
-def clustering_job_progress(team_id: int) -> list[ClusteringJobProgress]:
+def clustering_job_progress(team_id: int, user: User) -> list[ClusteringJobProgress]:
     from ..logic.clustering.run_queries import load_job_progress
 
-    return load_job_progress(team_id)
+    return load_job_progress(team_id, user)
+
+
+def validate_clustering_filters(team_id: int, user: User, filters: list[dict[str, Any]]) -> None:
+    from ..logic.clustering.permissions import validate_clustering_filters as validate
+
+    validate(team_id, user, filters)
 
 
 def clustering_run_context(ref: ClusteringRunRef) -> ClusteringRunContext | None:

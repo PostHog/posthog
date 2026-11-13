@@ -100,11 +100,27 @@ export const clusteringProgressLogic = kea<clusteringProgressLogicType>([
         },
         [clusteringConfigLogic.actionTypes.saveEnabledSuccess]: () => actions.loadProgress(),
         [clusteringJobsLogic.actionTypes.loadJobsSuccess]: () => actions.loadProgress(),
+        [clusteringJobsLogic.actionTypes.createJobSuccess]: () => actions.loadProgress(),
+        [clusteringJobsLogic.actionTypes.updateJobSuccess]: () => actions.loadProgress(),
+        retryJobSuccess: () => actions.loadProgress(),
     })),
     afterMount(({ actions, values, cache }) => {
         actions.loadProgress()
         cache.disposables.add(() => {
             const timer = window.setInterval(() => {
+                if (clustersLogic.isMounted() && !clustersLogic.values.clusteringRunsLoading) {
+                    const { clusteringLevel, clusteringRuns } = clustersLogic.values
+                    const awaitingResults = values.progress.some(
+                        (job) =>
+                            job.status === 'completed' &&
+                            job.analysis_level === clusteringLevel &&
+                            job.result_run_id &&
+                            !clusteringRuns.some((run) => run.runId === job.result_run_id)
+                    )
+                    if (awaitingResults) {
+                        clustersLogic.actions.loadClusteringRuns()
+                    }
+                }
                 if (
                     values.config.enabled &&
                     !values.progressLoading &&

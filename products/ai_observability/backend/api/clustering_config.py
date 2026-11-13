@@ -13,6 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 
+from ..facade.api import validate_clustering_filters
 from ..models.clustering_config import ClusteringConfig
 from ..models.clustering_job import DEFAULT_LEVEL_SPECS, ClusteringAnalysisLevel, ClusteringJob
 from ..models.clustering_run import ClusteringRunStatus
@@ -75,6 +76,7 @@ class ClusteringJobProgressSerializer(serializers.Serializer):
     )
     failure_reason = serializers.CharField(help_text="Stable failure code, without internal error details.")
     updated_at = serializers.DateTimeField(allow_null=True, help_text="When the worker last updated this run.")
+    result_run_id = serializers.CharField(help_text="The completed result to wait for in clustering queries.")
 
 
 class ClusteringRetrySerializer(serializers.Serializer):
@@ -111,13 +113,19 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
                 ClusteringJob.objects.bulk_create(
                     [
-                        ClusteringJob(team_id=self.team_id, name=name, analysis_level=level, enabled=True)
+                        ClusteringJob(
+                            team_id=self.team_id,
+                            name=name,
+                            analysis_level=level,
+                            enabled=True,
+                            event_filters=config.event_filters,
+                        )
                         for name, level in DEFAULT_LEVEL_SPECS
                         if level not in existing_levels
                     ],
                     ignore_conflicts=True,
                 )
-                request_first_clustering_runs(self.team_id)
+                request_first_clustering_runs(self.team_id, request.user)
         report_user_action(
             request.user,
             "llma clustering enabled changed",
@@ -132,7 +140,9 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def progress(self, request: Request, **kwargs) -> Response:
         from ..facade.api import clustering_job_progress
 
-        return Response(ClusteringJobProgressSerializer(clustering_job_progress(self.team_id), many=True).data)
+        return Response(
+            ClusteringJobProgressSerializer(clustering_job_progress(self.team_id, request.user), many=True).data
+        )
 
     @extend_schema(request=ClusteringRetrySerializer, responses={200: ClusteringJobProgressSerializer(many=True)})
     @action(detail=False, methods=["post"], required_scopes=["ai_observability_clusters:write"])
@@ -145,7 +155,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(
                 {"detail": "Accept AI data processing before retrying clustering."}, status=status.HTTP_400_BAD_REQUEST
             )
-        request_first_clustering_runs(self.team_id, serializer.validated_data["job_id"])
+        request_first_clustering_runs(self.team_id, request.user, serializer.validated_data["job_id"])
         report_user_action(
             request.user,
             "llma clustering first run retried",
@@ -153,7 +163,9 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team=self.team,
             request=request,
         )
-        return Response(ClusteringJobProgressSerializer(clustering_job_progress(self.team_id), many=True).data)
+        return Response(
+            ClusteringJobProgressSerializer(clustering_job_progress(self.team_id, request.user), many=True).data
+        )
 
     @extend_schema(responses={200: ClusteringConfigSerializer})
     @llma_track_latency("llma_clustering_config_list")
@@ -182,6 +194,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        validate_clustering_filters(self.team_id, request.user, event_filters)
         config, _ = ClusteringConfig.objects.get_or_create(team_id=self.team_id)
         config.event_filters = event_filters
         config.save(update_fields=["event_filters", "updated_at"])

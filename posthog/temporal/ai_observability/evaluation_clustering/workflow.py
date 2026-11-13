@@ -309,4 +309,5 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
             embedded=emit_result.metrics.num_clusters,
             window_start=window_start,
             window_end=window_end,
+            clustering_run_id=emit_result.clustering_run_id,
         )

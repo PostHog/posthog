@@ -98,8 +98,9 @@ class TestClusteringJobViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, expected_status)
 
-    def test_create_job_with_filters(self):
-        filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact", "type": "event"}]
+    @parameterized.expand([("model", "gpt-4"), ("null_value", None)])
+    def test_create_job_with_filters(self, _name, value):
+        filters = [{"key": "$ai_model", "value": value, "label": None, "operator": "exact", "type": "event"}]
         response = self.client.post(
             self._url(),
             {"name": "GPT-4 Only", "analysis_level": "generation", "event_filters": filters, "enabled": True},
@@ -350,16 +351,6 @@ class TestClusteringJobSerializerValidation(SimpleTestCase):
         serializer = ClusteringJobSerializer(data={"event_filters": value}, partial=True)
         assert not serializer.is_valid()
         assert "event_filters" in serializer.errors
-
-    def test_accepts_event_filter_with_null_value_and_label(self) -> None:
-        # A non-cohort filter never dereferences the team, so a stub get_team keeps
-        # this DB-free while still reaching field validation of the null values.
-        filters = [{"key": "$ai_model", "operator": "exact", "type": "event", "value": None, "label": None}]
-        serializer = ClusteringJobSerializer(
-            data={"event_filters": filters}, partial=True, context={"get_team": lambda: None}
-        )
-        assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["event_filters"] == filters
 
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):

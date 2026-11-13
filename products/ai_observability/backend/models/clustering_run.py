@@ -24,7 +24,13 @@ ACTIVE_CLUSTERING_RUN_STATUSES = (
 
 class ClusteringRun(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    job = models.ForeignKey("ai_observability.ClusteringJob", on_delete=models.CASCADE, related_name="first_runs")
+    job = models.ForeignKey(
+        "ai_observability.ClusteringJob", on_delete=models.SET_NULL, null=True, related_name="first_runs"
+    )
+    requested_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, db_constraint=False)
+    event_filters = models.JSONField(default=list)
+    last_dispatch_at = models.DateTimeField(null=True)
+    result_run_id = models.CharField(max_length=255, default="", blank=True)
     workflow_id = models.CharField(max_length=200, unique=True)
     status = models.CharField(max_length=20, choices=ClusteringRunStatus.choices, default=ClusteringRunStatus.QUEUED)
     eligible_count = models.PositiveIntegerField(null=True)

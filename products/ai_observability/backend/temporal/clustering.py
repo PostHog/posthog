@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -151,9 +152,14 @@ class ClusteringFirstRunWorkflow(PostHogWorkflow):
                     await self.update(ref, "failed", failure_reason="preparation_incomplete")
                     return
                 count = result["embedded"] if is_evaluation else result["metrics"]["num_clusters"]
-                await self.update(ref, "completed", cluster_count=count)
+                await self.update(
+                    ref, "completed", cluster_count=count, result_run_id=result.get("clustering_run_id", "")
+                )
                 return
             workflow.continue_as_new(ref)
+        except asyncio.CancelledError:
+            await asyncio.shield(self.update(ref, "canceled"))
+            raise
         except Exception as error:
             await self.update(ref, "failed", failure_reason="processing_failed")
             raise ApplicationError("Clustering first run failed", non_retryable=True) from error

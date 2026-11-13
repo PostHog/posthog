@@ -48,6 +48,7 @@ describe('tracePageLogic', () => {
     it.each([
         ['event', '?event=gen-1', { requestedStepId: 'gen-1', openingMode: null }],
         ['tab=summary', '?tab=summary', { requestedStepId: null, openingMode: 'summary', detailTab: 'messages' }],
+        ['tab=thread', '?tab=thread', { requestedStepId: null, openingMode: 'thread', detailTab: 'messages' }],
         [
             'tab=evals with no event',
             '?tab=evals',

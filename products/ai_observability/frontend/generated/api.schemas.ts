@@ -4456,6 +4456,8 @@ export interface ClusteringJobProgressApi {
      * @nullable
      */
     updated_at: string | null
+    /** The completed result to wait for in clustering queries. */
+    result_run_id: string
 }
 
 export interface ClusteringRetryApi {

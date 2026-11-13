@@ -26,6 +26,7 @@ const traceJob: ClusteringJobProgressApi = {
     cluster_count: null,
     failure_reason: '',
     updated_at: '2026-11-13T12:00:00Z',
+    result_run_id: '',
 }
 
 describe('first clustering run progress', () => {

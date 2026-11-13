@@ -7,14 +7,18 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.team import Team
+from posthog.models.user import User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ...facade.clustering_contracts import ClusteringJobProgress, ClusteringRunContext
 from ...models.clustering_job import ClusteringJob
 from ...models.clustering_run import ClusteringRun
 from .constants import FIRST_RUN_SAMPLE_LIMIT, MIN_CLUSTERING_ITEMS, clustering_lookback_days
+from .permissions import can_access_clustering_filters
 
 
-def load_job_progress(team_id: int) -> list[ClusteringJobProgress]:
+def load_job_progress(team_id: int, user: User) -> list[ClusteringJobProgress]:
     runs = {
         str(run.job_id): run
         for run in ClusteringRun.objects.for_team(team_id).order_by("job_id", "-created_at").distinct("job_id")
@@ -22,6 +26,8 @@ def load_job_progress(team_id: int) -> list[ClusteringJobProgress]:
     progress = []
     for job in ClusteringJob.objects.filter(team_id=team_id, enabled=True).order_by("created_at"):
         run = runs.get(str(job.id))
+        if not can_access_clustering_filters(team_id, user, run.event_filters if run else job.event_filters):
+            continue
         progress.append(
             ClusteringJobProgress(
                 job_id=str(job.id),
@@ -36,6 +42,7 @@ def load_job_progress(team_id: int) -> list[ClusteringJobProgress]:
                 cluster_count=run.cluster_count if run else None,
                 failure_reason=run.failure_reason if run else "",
                 updated_at=run.updated_at if run else None,
+                result_run_id=run.result_run_id if run else "",
             )
         )
     return progress
@@ -75,6 +82,7 @@ def count_ready_items(team_id: int, context: ClusteringRunContext, start: dateti
 
 def count_eligible_evaluations(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
     team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=context.user_id, is_active=True)
     filters = [property_to_expr(f, team) for f in context.event_filters]
     result = execute_hogql_query(
         query_type="ClusteringFirstRunEligibleEvaluations",
@@ -95,6 +103,8 @@ def count_eligible_evaluations(team_id: int, context: ClusteringRunContext, star
             "limit": ast.Constant(value=context.minimum),
         },
         team=team,
+        user=user,
+        user_access_control=UserAccessControl(user, team),
         workload=Workload.OFFLINE,
     )
     return len(result.results or [])

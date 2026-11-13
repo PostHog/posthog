@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from dataclasses import asdict
 from datetime import timedelta
@@ -54,17 +55,17 @@ class ClusterTraces:
         count = await workflow.execute_activity(
             "record_first_clustering", asdict(value), start_to_close_timeout=timedelta(seconds=10)
         )
-        return {"metrics": {"num_clusters": count, "total_items_analyzed": 10}}
+        return {"clustering_run_id": "result-run", "metrics": {"num_clusters": count, "total_items_analyzed": 10}}
 
 
 @workflow.defn(name="llma-evaluation-clustering")
 class ClusterEvaluations:
     @workflow.run
-    async def run(self, value: SamplerWorkflowInputs) -> dict[str, int]:
+    async def run(self, value: SamplerWorkflowInputs) -> dict[str, Any]:
         count = await workflow.execute_activity(
             "record_first_clustering", asdict(value), start_to_close_timeout=timedelta(seconds=10)
         )
-        return {"embedded": count, "sampled": 10}
+        return {"clustering_run_id": "result-run", "embedded": count, "sampled": 10}
 
 
 @pytest.mark.parametrize("level,initial_count,groups", [("trace", 0, 2), ("generation", 9, 2), ("evaluation", 9, 0)])
@@ -155,7 +156,56 @@ async def test_first_run_waits_for_enough_data_then_prepares_before_clustering(
         "completed",
     ]
     assert updates[-1].cluster_count == groups
+    assert updates[-1].result_run_id == "result-run"
     assert len(preparations) == 1
+
+
+async def test_temporal_cancellation_persists_a_terminal_status():
+    updates: list[str] = []
+    waiting = asyncio.Event()
+
+    @activity.defn(name="clustering_run_context_activity")
+    async def context(_: ClusteringRunRef) -> ClusteringRunContext:
+        return ClusteringRunContext(
+            active=True,
+            job_id="job",
+            job_name="Traces",
+            analysis_level="trace",
+            event_filters=[],
+            minimum=10,
+            lookback_days=7,
+        )
+
+    @activity.defn(name="update_clustering_run_activity")
+    async def update(value: ClusteringRunUpdate) -> None:
+        updates.append(value.status)
+        if value.status == "waiting":
+            waiting.set()
+
+    @activity.defn(name="sample_items_in_window_activity")
+    async def sample(_: BatchSummarizationInputs) -> list:
+        return []
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="canceled-clustering-test",
+            workflows=[ClusteringFirstRunWorkflow],
+            activities=[context, update, sample],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                ClusteringFirstRunWorkflow.run,
+                ClusteringRunRef(team_id=1, run_id="canceled"),
+                id="canceled",
+                task_queue="canceled-clustering-test",
+                execution_timeout=timedelta(hours=1),
+            )
+            await asyncio.wait_for(waiting.wait(), timeout=30)
+            await handle.cancel()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+    assert updates == ["waiting", "canceled"]
 
 
 @pytest.mark.parametrize("enabled", [False, True])

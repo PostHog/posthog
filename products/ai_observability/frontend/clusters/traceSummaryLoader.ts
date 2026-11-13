@@ -126,7 +126,7 @@ async function loadEvaluationSummaries(
         const name = r[1] || 'Evaluation'
         summaries[evalId] = {
             traceId: r[7] || '',
-            generationId: r[6] || undefined, // link target is the linked generation, not the eval
+            generationId: canonicalGenerationId(r[6]),
             // Title is just the evaluator name — the display components render
             // the verdict separately as a LemonTag and don't need it duplicated
             // in the title.
@@ -142,6 +142,20 @@ async function loadEvaluationSummaries(
         }
     }
     return summaries
+}
+
+function canonicalGenerationId(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined
+    }
+    const compact = value
+        .trim()
+        .replace(/^urn:uuid:/i, '')
+        .replace(/^\{(.*)\}$/, '$1')
+        .replaceAll('-', '')
+    return /^[0-9a-f]{32}$/i.test(compact)
+        ? compact.toLowerCase().replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
+        : undefined
 }
 
 export type EvaluationVerdict = 'pass' | 'fail' | 'n/a' | 'unknown'

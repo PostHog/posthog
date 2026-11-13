@@ -3,6 +3,26 @@ import api from 'lib/api'
 import { deriveVerdict, loadTraceSummaries } from './traceSummaryLoader'
 
 describe('loadTraceSummaries', () => {
+    it.each([
+        ['not-a-uuid', undefined],
+        ['', undefined],
+        [null, undefined],
+        ['0192F200000070008000000000000001', '0192f200-0000-7000-8000-000000000001'],
+        ['{0192F200-0000-7000-8000-000000000001}', '0192f200-0000-7000-8000-000000000001'],
+        ['urn:uuid:0192f200-0000-7000-8000-000000000001', '0192f200-0000-7000-8000-000000000001'],
+    ])('normalizes evaluation target %s before metrics and navigation use it', async (target, expected) => {
+        const query = jest.spyOn(api, 'queryHogQL').mockResolvedValue({
+            results: [['evaluation', 'Helpfulness', true, true, '', '', target, 'trace', '', 'evaluator']],
+        })
+        try {
+            const summaries = await loadTraceSummaries(['evaluation'], {}, '2026-01-01', '2026-01-07', 'evaluation', [])
+            expect(summaries.evaluation.generationId).toBe(expected)
+            expect(summaries.evaluation.evaluationVerdict).toBe('pass')
+        } finally {
+            query.mockRestore()
+        }
+    })
+
     it('loads verdicts for every evaluation beyond the default query page', async () => {
         const ids = Array.from({ length: 360 }, (_, i) => `evaluation-${i}`)
         const query = jest.spyOn(api, 'queryHogQL').mockImplementation(async (sql) => {

@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 
 @dataclass
 class SamplerActivityInputs:
@@ -51,7 +53,7 @@ class SamplerWorkflowInputs:
         return {"team_id": self.team_id, "job_id": self.job_id, "job_name": self.job_name}
 
 
-@dataclass
+@frozen
 class SamplerWorkflowResult:
     """Result from a single per-job sampler workflow run."""
 
@@ -61,6 +63,7 @@ class SamplerWorkflowResult:
     embedded: int
     window_start: str
     window_end: str
+    clustering_run_id: str = ""
 
 
 @dataclass

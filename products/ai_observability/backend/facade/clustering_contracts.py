@@ -19,6 +19,7 @@ class ClusteringRunContext:
     event_filters: list[dict[str, Any]]
     minimum: int
     lookback_days: int
+    user_id: int | None = None
 
 
 @frozen
@@ -29,6 +30,7 @@ class ClusteringRunUpdate:
     prepared_count: int | None = None
     cluster_count: int | None = None
     failure_reason: str = ""
+    result_run_id: str = ""
 
 
 @frozen
@@ -45,3 +47,4 @@ class ClusteringJobProgress:
     cluster_count: int | None
     failure_reason: str
     updated_at: datetime | None
+    result_run_id: str = ""

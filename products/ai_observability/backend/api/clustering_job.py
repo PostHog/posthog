@@ -15,6 +15,7 @@ from posthog.permissions import AccessControlPermission
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
 
+from ..facade.api import validate_clustering_filters
 from ..models.clustering_job import ClusteringJob
 from .metrics import llma_track_latency
 
@@ -71,6 +72,7 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
         handled defensively in the sampling activity itself.
         """
         team = self.context["get_team"]()
+        validate_clustering_filters(team.id, self.context["request"].user, value)
         referenced_ids: list[int] = []
         for f in value:
             if f.get("type") not in _COHORT_FILTER_TYPES:
@@ -151,7 +153,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .exclude(id=instance.id)
             .update(enabled=False)
         )
-        request_first_clustering_runs(self.team_id)
+        request_first_clustering_runs(self.team_id, self.request.user)
 
         report_user_action(
             self.request.user,
@@ -180,8 +182,9 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def perform_update(self, serializer):
         from ..facade.api import request_first_clustering_runs
 
-        instance = serializer.save()
-        request_first_clustering_runs(self.team_id)
+        with transaction.atomic():
+            instance = serializer.save()
+            request_first_clustering_runs(self.team_id, self.request.user)
         report_user_action(
             self.request.user,
             "llma clustering job updated",
