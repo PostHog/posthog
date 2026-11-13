@@ -15,6 +15,7 @@ use capture_logs::service::Service;
 use capture_logs::service::{
     export_logs_http, export_metrics_http, export_traces_http, options_handler,
 };
+use capture_logs::unknown_tokens::{UnknownTokenMode, UnknownTokens};
 use common_metrics::setup_metrics_routes;
 use std::future::ready;
 use std::net::SocketAddr;
@@ -57,6 +58,60 @@ fn setup_tracing() {
                 .add_directive("pyroscope=warn".parse().unwrap()),
         );
     tracing_subscriber::registry().with(log_layer).init();
+}
+
+const REDIS_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Off unless a mode and a Redis URL are both set. The refresh task connects lazily, so Redis being
+/// down at startup (or later) never blocks or fails the service.
+fn setup_unknown_tokens(config: &Config) -> UnknownTokens {
+    let mode = UnknownTokenMode::parse(&config.unknown_token_mode).unwrap_or_else(|| {
+        error!(
+            "Unrecognised UNKNOWN_TOKEN_MODE {:?}, using off",
+            config.unknown_token_mode
+        );
+        UnknownTokenMode::Off
+    });
+    let Some(redis_url) = config
+        .unknown_token_redis_url
+        .clone()
+        .filter(|u| !u.is_empty())
+    else {
+        if mode != UnknownTokenMode::Off {
+            error!(
+                "UNKNOWN_TOKEN_MODE is {mode:?} but UNKNOWN_TOKEN_REDIS_URL is not set, using off"
+            );
+        }
+        return UnknownTokens::disabled();
+    };
+    if mode == UnknownTokenMode::Off {
+        return UnknownTokens::disabled();
+    }
+
+    let unknown_tokens = UnknownTokens::new(
+        mode,
+        Duration::from_secs(config.unknown_token_fail_open_after_secs),
+    );
+    unknown_tokens.spawn_refresher(
+        move || {
+            let url = redis_url.clone();
+            async move {
+                let client = common_redis::RedisClient::with_config(
+                    url,
+                    common_redis::CompressionConfig::disabled(),
+                    common_redis::RedisValueFormat::Utf8,
+                    Some(REDIS_TIMEOUT),
+                    Some(REDIS_TIMEOUT),
+                )
+                .await?;
+                let client: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(client);
+                Ok(client)
+            }
+        },
+        Duration::from_secs(config.unknown_token_refresh_interval_secs.max(1)),
+    );
+    info!("Unknown project token handling: {mode:?}");
+    unknown_tokens
 }
 
 pub async fn index() -> &'static str {
@@ -120,10 +175,11 @@ async fn main() {
         .await
         .expect("could not bind management port");
 
+    let unknown_tokens = setup_unknown_tokens(&config);
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
     let vercel_drain_gate =
         vercel::VercelDrainGate::new(&config.vercel_drain_enabled_tokens.unwrap_or_default());
-    let authorizer = Authorizer::new(Arc::new(token_dropper));
+    let authorizer = Authorizer::new(Arc::new(token_dropper)).with_unknown_tokens(unknown_tokens);
     let logs_service = match Service::new(
         kafka_sink,
         authorizer,
