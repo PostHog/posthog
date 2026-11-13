@@ -6,7 +6,7 @@ import { Card } from '@posthog/quill'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export type DashboardTileShellProps = React.HTMLAttributes<HTMLDivElement> & {
-    transparent?: boolean
+    transparent?: boolean | null
     showResizeHandles?: boolean
 }
 
