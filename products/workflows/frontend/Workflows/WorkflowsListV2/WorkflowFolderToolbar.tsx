@@ -35,6 +35,8 @@ export function WorkflowFolderToolbar(): JSX.Element {
         hasActiveQuery,
         browserReady,
     } = useValues(workflowFoldersLogic)
+    // Counts come from the loaded workflows, so before the list arrives every folder would read 0.
+    const { listLoaded } = useValues(workflowsListV2Logic)
     const { openFolder, setFolderJumpSearch } = useActions(workflowFoldersLogic)
     const { templateTypeFilter } = useValues(workflowsListV2Logic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
@@ -69,10 +71,9 @@ export function WorkflowFolderToolbar(): JSX.Element {
                                         style={{ paddingLeft: Math.max(0, splitPath(path).length - 1) * 12 }}
                                     >
                                         <span className="truncate">{splitPath(path).at(-1) || 'Project files'}</span>
-                                        <span
-                                            className="text-secondary text-xs tabular-nums"
-                                            translate="no"
-                                        >{`(${folderCounts[path] ?? 0})`}</span>
+                                        <span className="text-secondary text-xs tabular-nums" translate="no">
+                                            {listLoaded ? `(${folderCounts[path] ?? 0})` : '…'}
+                                        </span>
                                     </span>
                                 ),
                                 active: path === (currentFolder ?? ''),
@@ -122,7 +123,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
                         </TreeNodeDroppable>
                     </span>
                 ))}
-                {browserReady && (
+                {browserReady && listLoaded && (
                     <span className="text-secondary text-xs ml-1" translate="no">
                         {!hasActiveQuery && count === 0 && childFolders.length > 0
                             ? pluralize(childFolders.length, 'folder')
