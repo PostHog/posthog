@@ -19,7 +19,7 @@ import {
     RecommendationTotal,
     groupRecommendations,
     sectionRecommendations,
-    sumImpact,
+    summarizeImpact,
 } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationsModal } from './RecommendationsModal'
@@ -187,7 +187,7 @@ export function RecommendationsSection(): JSX.Element {
                             >
                                 Recommendations
                             </LemonButton>
-                            <ImpactSummary totals={sumImpact(results)} />
+                            <ImpactSummary totals={summarizeImpact(results)} />
                             {dataGaps.length > 0 && (
                                 <RecommendationDataGapButton
                                     gaps={dataGaps}
@@ -237,7 +237,7 @@ export function RecommendationsSection(): JSX.Element {
                 isOpen={selectedRule !== null}
                 onClose={closeRecommendations}
                 total={results.length}
-                totals={sumImpact(results)}
+                totals={summarizeImpact(results)}
                 sections={sections}
                 selectedGroup={selectedGroup}
                 onSelect={(group) =>
