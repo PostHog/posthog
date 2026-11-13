@@ -157,6 +157,15 @@ const SAFE_CONTENT_TYPES = new Set([
     'image/webp',
 ])
 
+// A test invocation's error message can quote the sample event, so log the stack frames without the header that repeats it
+function stackFramesWithoutMessage(e: unknown): string | undefined {
+    if (!(e instanceof Error) || typeof e.stack !== 'string') {
+        return undefined
+    }
+    const header = String(e)
+    return e.stack.startsWith(header) ? e.stack.slice(header.length + 1) : undefined
+}
+
 function sanitizeContentType(contentType: string | undefined, fallback: string): string {
     if (!contentType) {
         return fallback
@@ -995,7 +1004,12 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
         } catch (e) {
-            console.error(e)
+            logger.error('⚡️', 'Test invocation failed', {
+                id: req.params.id,
+                team_id: req.params.team_id,
+                error: e.name,
+                stack: stackFramesWithoutMessage(e),
+            })
             res.status(500).json({ errors: [e.message], request_origins: [...requestOrigins].sort() })
         } finally {
             await this.invocationResultsService.flush()
@@ -1016,7 +1030,6 @@ export class CdpApi {
                 return
             }
 
-            // Allowlist: the body carries secrets in inputs and customer data in the sample event
             logger.info('⚡️', 'Received hogflow invocation', {
                 id,
                 team_id,
@@ -1155,7 +1168,12 @@ export class CdpApi {
                 request_origins: [...requestOrigins].sort(),
             })
         } catch (e) {
-            console.error(e)
+            logger.error('⚡️', 'Test invocation failed', {
+                id: req.params.id,
+                team_id: req.params.team_id,
+                error: e.name,
+                stack: stackFramesWithoutMessage(e),
+            })
             res.status(500).json({ error: [e.message], request_origins: [...requestOrigins].sort() })
         }
     }
