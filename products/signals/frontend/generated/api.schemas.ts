@@ -1151,6 +1151,10 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `vitally_nps` - Vitally NPS
  * * `woocommerce` - WooCommerce
  * * `yotpo` - Yotpo
+ * * `airbrake` - Airbrake
+ * * `amazon_cloudwatch` - Amazon CloudWatch
+ * * `logicmonitor` - LogicMonitor
+ * * `mux` - Mux
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1285,6 +1289,10 @@ export const SignalSourceProductEnumApi = {
     VitallyNps: 'vitally_nps',
     Woocommerce: 'woocommerce',
     Yotpo: 'yotpo',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
 } as const
 
 /**
@@ -1469,7 +1477,11 @@ export interface InboxOnboardingSourceApi {
      * * `uservoice_nps` - UserVoice NPS
      * * `vitally_nps` - Vitally NPS
      * * `woocommerce` - WooCommerce
-     * * `yotpo` - Yotpo */
+     * * `yotpo` - Yotpo
+     * * `airbrake` - Airbrake
+     * * `amazon_cloudwatch` - Amazon CloudWatch
+     * * `logicmonitor` - LogicMonitor
+     * * `mux` - Mux */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4388,6 +4400,10 @@ export interface SignalReportLeaveReviewersApi {
  * * `vitally_nps` - vitally_nps
  * * `woocommerce` - woocommerce
  * * `yotpo` - yotpo
+ * * `airbrake` - airbrake
+ * * `amazon_cloudwatch` - amazon_cloudwatch
+ * * `logicmonitor` - logicmonitor
+ * * `mux` - mux
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4522,6 +4538,10 @@ export const SignalSourceProductApi = {
     VitallyNps: 'vitally_nps',
     Woocommerce: 'woocommerce',
     Yotpo: 'yotpo',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
 } as const
 
 /**
@@ -5559,6 +5579,15 @@ export interface AzureApplicationInsightsIssueSignalExtraApi {
     last_seen: string | null
 }
 
+export type AppsignalIssueSignalExtraApiKind =
+    | (typeof AppsignalIssueSignalExtraApiKind)[keyof typeof AppsignalIssueSignalExtraApiKind]
+    | null
+
+export const AppsignalIssueSignalExtraApiKind = {
+    PerformanceIncident: 'performance_incident',
+    AnomalyIncident: 'anomaly_incident',
+} as const
+
 export interface AppsignalIssueSignalExtraApi {
     state: string | null
     severity: string | null
@@ -5566,6 +5595,10 @@ export interface AppsignalIssueSignalExtraApi {
     occurrence_count: string | null
     created_at: string | null
     last_occurred_at: string | null
+    kind?: AppsignalIssueSignalExtraApiKind
+    mean_duration_ms?: string | null
+    alert_state?: string | null
+    metric_name?: string | null
 }
 
 export interface CursorIssueSignalExtraApi {
@@ -5817,6 +5850,62 @@ export interface GithubSecretScanningScannerFindingSignalExtraApi {
     repository: string | null
 }
 
+export type NewrelicIssueSignalExtraKindEnumApi =
+    (typeof NewrelicIssueSignalExtraKindEnumApi)[keyof typeof NewrelicIssueSignalExtraKindEnumApi]
+
+export const NewrelicIssueSignalExtraKindEnumApi = {
+    AlertIssue: 'alert_issue',
+    JavascriptError: 'javascript_error',
+    TransactionError: 'transaction_error',
+} as const
+
+export interface NewrelicIssueSignalExtraApi {
+    kind: NewrelicIssueSignalExtraKindEnumApi
+    issue_id?: string | null
+    priority?: string | null
+    activated_at?: string | null
+    app_name?: string | null
+    error_class?: string | null
+    sample_transaction?: string | null
+    occurrences?: string | null
+    first_seen?: string | null
+    last_seen?: string | null
+}
+
+export interface AmazonCloudwatchIncidentSignalExtraApi {
+    alarm_name: string | null
+    alarm_kind: string | null
+    transitions: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface LogicmonitorIncidentSignalExtraApi {
+    severity: string | null
+    acked: string | null
+    monitor_object_name: string | null
+    datasource: string | null
+    instance_name: string | null
+    data_point_name: string | null
+    start_epoch: string | null
+}
+
+export interface AirbrakeIssueSignalExtraApi {
+    project_id: string | null
+    environment: string | null
+    notice_total_count: string | null
+    created_at: string | null
+    last_notice_at: string | null
+}
+
+export interface MuxIssueSignalExtraApi {
+    error_id: string | null
+    error_code: string | null
+    view_count: string | null
+    view_share: string | null
+    last_seen_at: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -5951,6 +6040,11 @@ export type SignalExtraApi =
     | GithubDependabotScannerFindingSignalExtraApi
     | GithubCodeScanningScannerFindingSignalExtraApi
     | GithubSecretScanningScannerFindingSignalExtraApi
+    | NewrelicIssueSignalExtraApi
+    | AmazonCloudwatchIncidentSignalExtraApi
+    | LogicmonitorIncidentSignalExtraApi
+    | AirbrakeIssueSignalExtraApi
+    | MuxIssueSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -6126,7 +6220,11 @@ export interface SignalNodeApi {
      * * `uservoice_nps` - uservoice_nps
      * * `vitally_nps` - vitally_nps
      * * `woocommerce` - woocommerce
-     * * `yotpo` - yotpo */
+     * * `yotpo` - yotpo
+     * * `airbrake` - airbrake
+     * * `amazon_cloudwatch` - amazon_cloudwatch
+     * * `logicmonitor` - logicmonitor
+     * * `mux` - mux */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
