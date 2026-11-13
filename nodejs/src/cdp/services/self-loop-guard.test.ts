@@ -3,6 +3,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { Team } from '../../types'
 import {
     SELF_LOOP_DEPTH_PROPERTY,
+    canCarrySelfLoopDepth,
     extractRequestApiKey,
     getSelfLoopDepth,
     injectSelfLoopDepth,
@@ -229,6 +230,28 @@ describe('self-loop-guard', () => {
                 expected: true,
             },
             {
+                case: 'single event with an api_token, which capture ignores, beside the project own properties.token',
+                args: {
+                    body: JSON.stringify({
+                        api_token: OTHER_TOKEN,
+                        event: 'alpha',
+                        properties: { token: OWN_TOKEN },
+                    }),
+                },
+                expected: true,
+            },
+            {
+                case: 'array body with the project own token on one event and an api_token on another',
+                args: {
+                    url: 'https://us.i.posthog.com/e/',
+                    body: JSON.stringify([
+                        { token: OWN_TOKEN, event: 'e0', distinct_id: 'synthetic_user_1', properties: {} },
+                        { api_token: OTHER_TOKEN, event: 'e1', distinct_id: 'synthetic_user_1', properties: {} },
+                    ]),
+                },
+                expected: true,
+            },
+            {
                 case: 'v1 batch with the project own token as a Bearer header',
                 args: { url: V1_URL, body: v1Body(['e1', 'e2']), headers: bearer(OWN_TOKEN) },
                 expected: true,
@@ -270,6 +293,42 @@ describe('self-loop-guard', () => {
             },
         ])('returns $expected for: $case', ({ args, expected }) => {
             expect(detect(args)).toBe(expected)
+        })
+    })
+
+    describe('canCarrySelfLoopDepth', () => {
+        const positionalEvent = [
+            'e',
+            '0190f3a2-0000-7000-8000-000000000000',
+            'synthetic_user_1',
+            't',
+            null,
+            null,
+            {},
+            {},
+        ]
+
+        it.each([
+            { case: 'v1 batch of event objects', url: V1_URL, body: v1Body(['e1', 'e2']), expected: true },
+            { case: 'v1 empty batch', url: V1_AI_URL, body: v1Body([]), expected: true },
+            {
+                case: 'v1 batch holding an event as a positional array',
+                url: V1_URL,
+                body: JSON.stringify({ created_at: 't', batch: [positionalEvent] }),
+                expected: false,
+            },
+            {
+                case: 'v1 batch written as a positional array',
+                url: V1_URL,
+                body: JSON.stringify(['t', false, null, parseJSON(v1Body(['e1'])).batch]),
+                expected: false,
+            },
+            { case: 'v1 body that is not JSON', url: V1_URL, body: 'not json', expected: false },
+            { case: 'v1 request with no body', url: V1_URL, body: null, expected: false },
+            { case: 'legacy posthog-js array body', url: INGEST_URL, body: arrayBody([OWN_TOKEN]), expected: true },
+            { case: 'legacy body that is not JSON', url: INGEST_URL, body: 'not json', expected: true },
+        ])('$case -> $expected', ({ url, body, expected }) => {
+            expect(canCarrySelfLoopDepth(url, body)).toBe(expected)
         })
     })
 

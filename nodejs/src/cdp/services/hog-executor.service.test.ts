@@ -2848,6 +2848,40 @@ describe('Hog Executor', () => {
                 }
             )
 
+            it('enforce: refuses a v1 self-post whose events cannot carry the depth', async () => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    ...SELF_POSTS.v1.request(),
+                    body: JSON.stringify({
+                        created_at: '2026-01-01T00:00:00Z',
+                        batch: [
+                            [
+                                'replicated',
+                                '0190f3a2-0000-7000-8000-000000000001',
+                                'u1',
+                                '2026-01-01T00:00:00Z',
+                                null,
+                                null,
+                                {},
+                                {},
+                            ],
+                        ],
+                    }),
+                })
+                mockRequest.mockClear()
+                const refusedBefore = await readActionCount('enforce', 'blocked_uncountable')
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.finished).toBe(true)
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(await readActionCount('enforce', 'blocked_uncountable')).toBe(refusedBefore + 1)
+                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop cannot be counted')])
+                )
+            })
+
             it('enforce: leaves a normal external fetch untouched', async () => {
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({

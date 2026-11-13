@@ -41,6 +41,7 @@ import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
+    canCarrySelfLoopDepth,
     getSelfLoopDepth,
     injectSelfLoopDepth,
     isPostHogIngestUrl,
@@ -461,6 +462,18 @@ export class HogExecutorAsyncService {
                             `Refusing to fetch a PostHog ingestion endpoint using this project's own API key - this destination's event-forwarding loop has already repeated ${SELF_LOOP_MAX_DEPTH} times. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
                         )
                         result.error = new Error('Self-referential event-forwarding loop blocked at max depth')
+                        result.finished = true
+                        return result
+                    }
+                    if (!canCarrySelfLoopDepth(params.url, params.body)) {
+                        selfLoopGuardCounter.inc({ mode: 'enforce', action: 'blocked_uncountable' })
+                        addLog(
+                            'error',
+                            `Refusing to fetch a PostHog ingestion endpoint using this project's own API key, because the request body is not a batch of JSON event objects and this destination's event-forwarding loop cannot be counted. Send every event in 'batch' as a JSON object, or use the 'postHogCapture' helper to capture an event back into this project.`
+                        )
+                        result.error = new Error(
+                            'Self-referential ingest fetch blocked because its loop cannot be counted'
+                        )
                         result.finished = true
                         return result
                     }

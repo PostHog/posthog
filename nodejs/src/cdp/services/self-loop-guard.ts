@@ -31,8 +31,11 @@ const V1_INGEST_PATHS = new Set(['/i/v1/analytics/events', '/i/v1/ai/events'])
 // them - even with the project's own token - cannot form an event-forwarding loop.
 const INGEST_PATHS = new Set(['/capture', '/batch', '/e', '/track', '/i/v0/e', ...V1_INGEST_PATHS])
 
-// Top-level body fields that carry the credential a capture request authenticates with.
-const API_KEY_FIELDS = ['api_key', 'token', '$token', 'api_token'] as const
+// Body fields capture reads the project token from, on a request or on one of its events.
+const API_KEY_FIELDS = ['api_key', 'token', '$token'] as const
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value)
 
 export const selfLoopGuardCounter = new Counter({
     name: 'cdp_self_loop_guard_total',
@@ -97,8 +100,9 @@ export const extractRequestApiKey = (body: string | null | undefined, urlString:
                     return [...tokens][0]
                 }
             } else {
-                const token = eventToken(parsed)
-                if (token !== null) {
+                // Capture ignores `api_token`, so it counts only when the body has no token capture reads.
+                const token = eventToken(parsed) ?? (isPlainObject(parsed) ? parsed.api_token : null)
+                if (typeof token === 'string') {
                     return token
                 }
             }
@@ -149,6 +153,21 @@ export const isSelfReferentialIngestFetch = (input: {
         ? extractBearerToken(input.headers)
         : extractRequestApiKey(input.body, input.url)
     return requestToken !== null && ownsToken(input.team, requestToken)
+}
+
+// Capture v1 also reads an event, or the whole batch, written as a positional array. The depth
+// cannot be stamped onto those, so such a request would loop without ever reaching the cap.
+export const canCarrySelfLoopDepth = (urlString: string, body: string | null | undefined): boolean => {
+    const path = ingestPath(urlString)
+    if (path === null || !V1_INGEST_PATHS.has(path)) {
+        return true
+    }
+    try {
+        const parsed = parseJSON(body ?? '')
+        return isPlainObject(parsed) && Array.isArray(parsed.batch) && parsed.batch.every(isPlainObject)
+    } catch {
+        return false
+    }
 }
 
 // How many times the given hog function has already re-fed the pipeline on this chain,
