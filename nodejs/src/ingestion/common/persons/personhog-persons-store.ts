@@ -202,6 +202,15 @@ const HELD_RESOLVE_INTERVAL_MS = 5_000
  */
 export const HELD_LANES_LIMIT = 10_000
 
+function pruneMarks(marks: Map<string, number>, oldestRead: number): void {
+    for (const [key, seq] of marks) {
+        if (seq > oldestRead) {
+            return
+        }
+        marks.delete(key)
+    }
+}
+
 /**
  * The personhog person store: resolution and creation through the identity
  * service, person state through the leader's strong reads, and property
@@ -255,13 +264,12 @@ export class PersonhogPersonsStore implements PersonsStore {
     private batchDistinctKeys: Map<number, Set<string>> = new Map()
     /** ↔ distinctKeyRefCount. Batches per distinct key; zero at release evicts the key. */
     private distinctKeyRefCount: Map<string, number> = new Map()
-    /**
-     * The single staleness guard, with no Postgres counterpart: bumped on
-     * every purge. A read stamps it before its first await and declines to
-     * record on mismatch, so a response from before the purge cannot
-     * refill what the purge dropped.
-     */
-    private teamGeneration: Map<number, number> = new Map()
+    private purgeSeq = 0
+    private nextRead = 0
+    private readsInFlight: Map<number, number> = new Map()
+    private purgedDistinctKeys: Map<string, number> = new Map()
+    private purgedPersonKeys: Map<string, number> = new Map()
+    private purgedTeams: Map<string, number> = new Map()
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
@@ -309,12 +317,63 @@ export class PersonhogPersonsStore implements PersonsStore {
         return new BatchBoundPersonsStore(this, batchId)
     }
 
-    private generationOf(teamId: number): number {
-        return this.teamGeneration.get(teamId) ?? 0
+    private beginRead(): number {
+        const read = this.nextRead++
+        this.readsInFlight.set(read, this.purgeSeq)
+        return read
     }
 
-    private bumpGeneration(teamId: number): void {
-        this.teamGeneration.set(teamId, this.generationOf(teamId) + 1)
+    private endRead(read: number): void {
+        this.readsInFlight.delete(read)
+        const oldest = this.readsInFlight.values().next()
+        if (oldest.done) {
+            this.purgedDistinctKeys.clear()
+            this.purgedPersonKeys.clear()
+            this.purgedTeams.clear()
+            return
+        }
+        pruneMarks(this.purgedDistinctKeys, oldest.value)
+        pruneMarks(this.purgedPersonKeys, oldest.value)
+        pruneMarks(this.purgedTeams, oldest.value)
+    }
+
+    private fencePurge(distinctKeys: Iterable<string>, personKeys: Iterable<string>): void {
+        if (this.readsInFlight.size === 0) {
+            return
+        }
+        const seq = ++this.purgeSeq
+        for (const key of distinctKeys) {
+            this.purgedDistinctKeys.delete(key)
+            this.purgedDistinctKeys.set(key, seq)
+        }
+        for (const key of personKeys) {
+            this.purgedPersonKeys.delete(key)
+            this.purgedPersonKeys.set(key, seq)
+        }
+    }
+
+    /** A merge without a full verdict can have destroyed a person the store cannot name, so it marks the team. */
+    private fenceTeam(teamId: number): void {
+        if (this.readsInFlight.size === 0) {
+            return
+        }
+        const team = String(teamId)
+        this.purgedTeams.delete(team)
+        this.purgedTeams.set(team, ++this.purgeSeq)
+    }
+
+    private purgedSince(read: number, distinctKey: string, personKey: string | null): boolean {
+        const began = this.readsInFlight.get(read)
+        // The marks a read needs are pruned when the read ends, so an ended read cannot prove that its answer is fresh.
+        if (began === undefined) {
+            return true
+        }
+        const team = distinctKey.slice(0, distinctKey.indexOf(':'))
+        return (
+            (this.purgedTeams.get(team) ?? -1) > began ||
+            (this.purgedDistinctKeys.get(distinctKey) ?? -1) > began ||
+            (personKey !== null && (this.purgedPersonKeys.get(personKey) ?? -1) > began)
+        )
     }
 
     /** Shallow: callers may replace fields, but never edit properties in place. */
@@ -436,23 +495,21 @@ export class PersonhogPersonsStore implements PersonsStore {
      * not — one pass over the resolutions however many persons the merge
      * touched.
      */
-    private clearAllCachesForPersonIds(personKeys: Set<string>, reason: string): void {
+    private clearAllCachesForPersonIds(personKeys: Set<string>, reason: string): string[] {
+        const siblings: string[] = []
         for (const [distinctKey, mapped] of this.resolutions) {
             if (mapped !== null && personKeys.has(mapped)) {
                 this.resolutions.delete(distinctKey)
+                siblings.push(distinctKey)
                 personhogStoreCachePurgeCounter.inc({ reason })
             }
         }
         for (const personKey of personKeys) {
             this.clearPersonCacheForPersonId(personKey, reason)
         }
+        return siblings
     }
 
-    /**
-     * Caches a fetch result and returns the view callers should see. A
-     * generation moved by a purge means the answer predates it: served,
-     * never cached.
-     */
     private cacheFetchedPerson(
         teamId: number,
         distinctId: string,
@@ -460,13 +517,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number,
         options: {
             grade: 'check' | 'update'
-            generation: number
+            read: number
             fillOnly?: boolean
             onOutcome?: (outcome: CacheFillOutcome) => void
         }
     ): InternalPerson | null {
         const distinctKey = `${teamId}:${distinctId}`
-        if (options.generation !== this.generationOf(teamId)) {
+        if (this.purgedSince(options.read, distinctKey, fetched === null ? null : `${teamId}:${fetched.id}`)) {
             options.onOutcome?.('stale_generation')
             // A cached absence this answer contradicts is wrong even when the answer is not installed.
             if (fetched !== null && this.resolutions.get(distinctKey) === null) {
@@ -552,13 +609,14 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return prefetched
             }
         }
-        const generation = this.generationOf(teamId)
-        const [resolved] = await this.resolveDistinctIds('fetch_for_checking', [{ teamId, distinctId }])
-        const document = resolved?.person ? this.identityDocument(resolved.person) : null
-        return this.cacheFetchedPerson(teamId, distinctId, document, batchId, {
-            grade: 'check',
-            generation,
-        })
+        const read = this.beginRead()
+        try {
+            const [resolved] = await this.resolveDistinctIds('fetch_for_checking', [{ teamId, distinctId }])
+            const document = resolved?.person ? this.identityDocument(resolved.person) : null
+            return this.cacheFetchedPerson(teamId, distinctId, document, batchId, { grade: 'check', read })
+        } finally {
+            this.endRead(read)
+        }
     }
 
     /** Identity resolves the distinct id, then the leader supplies the freshest document. */
@@ -576,50 +634,55 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return prefetched
             }
         }
-        const generation = this.generationOf(teamId)
-        const distinctKey = `${teamId}:${distinctId}`
-        const edge = this.resolutions.get(distinctKey)
-        if (edge != null) {
-            // The edge is trusted but only a checking read backs it, which
-            // lags the leader; the update path pays one leader read.
-            const person = await this.repository.fetchPersonById(teamId, edge.slice(edge.indexOf(':') + 1), CALLER_TAG)
-            if (person !== null) {
-                return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
+        const read = this.beginRead()
+        try {
+            const distinctKey = `${teamId}:${distinctId}`
+            const edge = this.resolutions.get(distinctKey)
+            if (edge != null) {
+                // The edge is trusted but only a checking read backs it, which
+                // lags the leader; the update path pays one leader read.
+                const person = await this.repository.fetchPersonById(
+                    teamId,
+                    edge.slice(edge.indexOf(':') + 1),
+                    CALLER_TAG
+                )
+                if (person !== null) {
+                    return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', read })
+                }
+                // The leader no longer holds this person; identity decides where the id lives now. A purge or a newer
+                // read during the leader read owns the entry, so only the edge this read found is removed.
+                if (!this.purgedSince(read, distinctKey, edge) && this.resolutions.get(distinctKey) === edge) {
+                    this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
+                    this.resolutions.delete(distinctKey)
+                }
             }
-            // The leader no longer holds this person; identity decides where the id lives now. A purge or a newer
-            // read during the leader read owns the entry, so only the edge this read found is removed.
-            if (this.generationOf(teamId) === generation && this.resolutions.get(distinctKey) === edge) {
-                this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
-                this.resolutions.delete(distinctKey)
+            const [resolved] = await this.resolveDistinctIds('fetch_for_update', [{ teamId, distinctId }])
+            if (!resolved?.person) {
+                return this.cacheFetchedPerson(teamId, distinctId, null, batchId, { grade: 'update', read })
             }
+            const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
+            if (person === null) {
+                // The person died mid-call; serve identity's answer rather than cache an absence.
+                this.clearPersonCacheForPersonId(`${teamId}:${resolved.person.id}`, 'stale_write_answer')
+                return this.identityDocument(resolved.person)
+            }
+            return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', read })
+        } finally {
+            this.endRead(read)
         }
-        const [resolved] = await this.resolveDistinctIds('fetch_for_update', [{ teamId, distinctId }])
-        if (!resolved?.person) {
-            return this.cacheFetchedPerson(teamId, distinctId, null, batchId, { grade: 'update', generation })
-        }
-        const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
-        if (person === null) {
-            // The person died mid-call; serve identity's answer rather than cache an absence.
-            this.clearPersonCacheForPersonId(`${teamId}:${resolved.person.id}`, 'stale_write_answer')
-            return this.identityDocument(resolved.person)
-        }
-        return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
     }
 
-    private purgeExtraDistinctIds(
-        teamId: number,
-        extraDistinctIds: { distinctId: string }[] | undefined,
-        generation: number
-    ): number {
+    private purgeExtraDistinctIds(teamId: number, extraDistinctIds: { distinctId: string }[] | undefined): void {
         if (!extraDistinctIds?.length) {
-            return generation
+            return
         }
         for (const { distinctId } of extraDistinctIds) {
             this.removeDistinctIdFromCache(teamId, distinctId, 'extra_distinct_id')
         }
-        const unpurged = generation === this.generationOf(teamId)
-        this.bumpGeneration(teamId)
-        return unpurged ? this.generationOf(teamId) : generation
+        this.fencePurge(
+            extraDistinctIds.map(({ distinctId }) => `${teamId}:${distinctId}`),
+            []
+        )
     }
 
     async createPerson(
@@ -636,41 +699,45 @@ export class PersonhogPersonsStore implements PersonsStore {
         _tx: PersonRepositoryTransaction | undefined,
         batchId: number
     ): Promise<CreatePersonResult> {
-        const generation = this.generationOf(teamId)
-        const createResult = await this.repository.getOrCreatePersonByDistinctId(
-            {
-                teamId,
-                distinctId: primaryDistinctId.distinctId,
-                extraDistinctIds: extraDistinctIds?.map(({ distinctId }) => distinctId),
-                eventName: CREATE_EVENT_NAME,
-                setProperties: properties,
-                createdAtMs: createdAt.toMillis(),
-                isIdentified,
-            },
-            CALLER_TAG
-        )
-        const { created } = createResult
-        const recordGeneration = this.purgeExtraDistinctIds(teamId, extraDistinctIds, generation)
-        let person: InternalPerson
-        if (createResult.created) {
-            person = createResult.person
-        } else {
-            // A null means the person died mid-call, and the redirect heals
-            // any ops folded onto identity's answer.
-            const identity = createResult.person
-            const leaderDoc = await this.repository.fetchPersonById(teamId, identity.id, CALLER_TAG)
-            if (leaderDoc === null) {
-                this.clearPersonCacheForPersonId(`${teamId}:${identity.id}`, 'stale_write_answer')
-                return { success: true, person: this.identityDocument(identity), messages: [], created }
+        const read = this.beginRead()
+        try {
+            const createResult = await this.repository.getOrCreatePersonByDistinctId(
+                {
+                    teamId,
+                    distinctId: primaryDistinctId.distinctId,
+                    extraDistinctIds: extraDistinctIds?.map(({ distinctId }) => distinctId),
+                    eventName: CREATE_EVENT_NAME,
+                    setProperties: properties,
+                    createdAtMs: createdAt.toMillis(),
+                    isIdentified,
+                },
+                CALLER_TAG
+            )
+            const { created } = createResult
+            this.purgeExtraDistinctIds(teamId, extraDistinctIds)
+            let person: InternalPerson
+            if (createResult.created) {
+                person = createResult.person
+            } else {
+                // A null means the person died mid-call, and the redirect heals
+                // any ops folded onto identity's answer.
+                const identity = createResult.person
+                const leaderDoc = await this.repository.fetchPersonById(teamId, identity.id, CALLER_TAG)
+                if (leaderDoc === null) {
+                    this.clearPersonCacheForPersonId(`${teamId}:${identity.id}`, 'stale_write_answer')
+                    return { success: true, person: this.identityDocument(identity), messages: [], created }
+                }
+                person = leaderDoc
             }
-            person = leaderDoc
+            const recorded = this.cacheFetchedPerson(teamId, primaryDistinctId.distinctId, person, batchId, {
+                grade: 'update',
+                read,
+            })
+            // No messages: the identity service publishes its own on creation.
+            return { success: true, person: recorded ?? this.snapshot(person), messages: [], created }
+        } finally {
+            this.endRead(read)
         }
-        const recorded = this.cacheFetchedPerson(teamId, primaryDistinctId.distinctId, person, batchId, {
-            grade: 'update',
-            generation: recordGeneration,
-        })
-        // No messages: the identity service publishes its own on creation.
-        return { success: true, person: recorded ?? this.snapshot(person), messages: [], created }
     }
 
     async applyEventOps(
@@ -684,9 +751,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined) {
             return [person, []]
         }
-        const generation = this.generationOf(person.team_id)
-        const target = await this.personNow(person, distinctId, batchId)
-        return this.foldEventOps(target, ops, distinctId, batchId, generation)
+        const read = this.beginRead()
+        try {
+            const target = await this.personNow(person, distinctId, batchId)
+            return this.foldEventOps(target, ops, distinctId, batchId, read)
+        } finally {
+            this.endRead(read)
+        }
     }
 
     /** The person this id belongs to now: a merge may have destroyed the caller's copy. */
@@ -710,7 +781,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         ops: EventOps,
         distinctId: string,
         batchId: number,
-        generation: number
+        read: number
     ): [InternalPerson, PersonMessage[]] {
         // The caller's view, matching what Postgres would apply; the
         // leader's application at flush is the authoritative one.
@@ -735,7 +806,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Replaces the projection outright. A purge during personNow's read
         // outdates the view; the install declines and the next touch
         // re-resolves, while the lane keeps the ops.
-        if (generation === this.generationOf(person.team_id)) {
+        if (!this.purgedSince(read, `${person.team_id}:${distinctId}`, personKey)) {
             this.projections.set(personKey, projected)
             this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
             this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
@@ -880,7 +951,16 @@ export class PersonhogPersonsStore implements PersonsStore {
                 error instanceof ConnectError &&
                 (error.code === Code.InvalidArgument ||
                     error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED)
-            this.purgeAfterMerge(teamId, namedIds, affected, refused ? 'merge_refused' : 'merge_no_verdict')
+            // Keyed on the header: a hop in between may remap the status code.
+            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
+            // Only a refusal or a not-applied answer proves the saga did not run against persons the store never saw.
+            this.purgeAfterMerge(
+                teamId,
+                namedIds,
+                affected,
+                refused ? 'merge_refused' : 'merge_no_verdict',
+                refused || notApplied !== null
+            )
             // A verdict: redelivery meets the same validation forever, so
             // it propagates raw rather than wedging the partition.
             if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
@@ -898,8 +978,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
                 throw error
             }
-            // Keyed on the header: a hop in between may remap the status code.
-            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
             if (notApplied !== null) {
                 const reason = /^[a-z0-9_-]{1,64}$/i.test(notApplied) ? notApplied : 'unknown'
                 personhogStoreMergeCallFailedCounter.inc({ error: `not_applied_${reason}` })
@@ -936,7 +1014,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (result.survivor) {
             purgedPersons.add(`${teamId}:${result.survivor.id}`)
         }
-        this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict')
+        // The saga names a destroyed person only on a merged source that carries a person id.
+        const namesEveryPerson = result.results.every((source) =>
+            source.outcome === 'merged'
+                ? source.sourcePersonId != null && result.survivor != null
+                : source.outcome !== 'error' && source.outcome !== 'unknown'
+        )
+        this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict', namesEveryPerson)
         // A fold that skipped or failed to settle any source aborts to the
         // sequential path, where each event gets its own durability
         // decision. The trigger id marks a fold request, so a single-pair
@@ -1055,17 +1139,21 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /**
-     * Every named id, affected person, and sibling id leaves the cache
-     * under one generation bump. Lanes are kept: a destroyed person's ops
-     * reach the survivor through the redirect, as they do under Postgres.
-     */
-    private purgeAfterMerge(teamId: number, distinctIds: string[], personKeys: Set<string>, reason: string): void {
-        this.clearAllCachesForPersonIds(personKeys, reason)
+    private purgeAfterMerge(
+        teamId: number,
+        distinctIds: string[],
+        personKeys: Set<string>,
+        reason: string,
+        namesEveryPerson: boolean
+    ): void {
+        const siblings = this.clearAllCachesForPersonIds(personKeys, reason)
         for (const distinctId of distinctIds) {
             this.removeDistinctIdFromCache(teamId, distinctId, reason)
         }
-        this.bumpGeneration(teamId)
+        this.fencePurge([...siblings, ...distinctIds.map((distinctId) => `${teamId}:${distinctId}`)], personKeys)
+        if (!namesEveryPerson) {
+            this.fenceTeam(teamId)
+        }
     }
 
     /** The leader enforces the size ceiling at admission; there is nothing to measure here. */
@@ -1105,62 +1193,63 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             throw new PersonhogUnsupportedFieldError(unsupported)
         }
-        const generation = this.generationOf(person.team_id)
-        const { person: updated, updated: applied } = await this.repository.updatePersonProperties(
-            {
-                teamId: person.team_id,
-                personId: person.id,
-                eventName: DIRECT_UPDATE_EVENT_NAME,
-                setProperties: propertiesToSet,
-                setOnceProperties: {},
-                unsetProperties: propertiesToUnset,
-                isIdentified: otherUpdates.is_identified === true ? true : undefined,
-                lastSeenAtMs: otherUpdates.last_seen_at?.toMillis(),
-                forceUpdate: forceUpdate ?? false,
-            },
-            CALLER_TAG
-        )
-        const personKey = `${person.team_id}:${person.id}`
-        if (!updated) {
-            // A null document with the write applied means the leader moved
-            // past what we held; without an applied write it is a no-op.
-            if (applied) {
-                this.clearPersonCacheForPersonId(personKey, 'stale_write_answer')
+        const read = this.beginRead()
+        try {
+            const { person: updated, updated: applied } = await this.repository.updatePersonProperties(
+                {
+                    teamId: person.team_id,
+                    personId: person.id,
+                    eventName: DIRECT_UPDATE_EVENT_NAME,
+                    setProperties: propertiesToSet,
+                    setOnceProperties: {},
+                    unsetProperties: propertiesToUnset,
+                    isIdentified: otherUpdates.is_identified === true ? true : undefined,
+                    lastSeenAtMs: otherUpdates.last_seen_at?.toMillis(),
+                    forceUpdate: forceUpdate ?? false,
+                },
+                CALLER_TAG
+            )
+            const personKey = `${person.team_id}:${person.id}`
+            const distinctKey = `${person.team_id}:${distinctId}`
+            if (!updated) {
+                // A null document with the write applied means the leader moved
+                // past what we held; without an applied write it is a no-op.
+                if (applied) {
+                    this.clearPersonCacheForPersonId(personKey, 'stale_write_answer')
+                }
+                return [person, [], false]
             }
-            return [person, [], false]
+            if (!this.purgedSince(read, distinctKey, personKey)) {
+                this.setDistinctIdToPersonId(distinctKey, personKey)
+                this.trackBatchEntry(batchId, distinctKey)
+                this.setCachedPersonForUpdate(personKey, updated)
+            }
+            // No ClickHouse message: the leader's changelog is the person feed.
+            return [this.snapshot(updated), [], false]
+        } finally {
+            this.endRead(read)
         }
-        // A generation moved by a purge means this answer predates it.
-        if (generation === this.generationOf(person.team_id)) {
-            this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
-            this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
-            this.setCachedPersonForUpdate(personKey, updated)
-        }
-        // No ClickHouse message: the leader's changelog is the person feed.
-        return [this.snapshot(updated), [], false]
     }
 
     /** Resolves and reads the batch's unresolved ids, caching what it finds. Never rejects. */
     private async prefetchUnresolved(
         unresolved: { teamId: number; distinctId: string; batchId: number }[]
     ): Promise<void> {
-        const generations = new Map<number, number>()
         for (const entry of unresolved) {
             this.prefetchingBatches.add(entry.batchId)
-            if (!generations.has(entry.teamId)) {
-                generations.set(entry.teamId, this.generationOf(entry.teamId))
-            }
         }
+        const read = this.beginRead()
         try {
             const resolved = await this.resolvePersonIds(
                 'prefetch',
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
             const limit = pLimit(this.options.maxConcurrentUpdates)
-            await Promise.all(
+            // The read must outlive every task, because an answer that lands after it ends is never recorded.
+            const settled = await Promise.allSettled(
                 resolved.map((entry, i) =>
                     limit(async () => {
                         const { batchId } = unresolved[i]
-                        const generation = generations.get(entry.teamId) ?? 0
                         // Caching for a released batch recreates its key
                         // set, and nothing ever releases it again.
                         if (!this.prefetchingBatches.has(batchId)) {
@@ -1170,7 +1259,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                         if (entry.personId === null) {
                             this.cacheFetchedPerson(entry.teamId, entry.distinctId, null, batchId, {
                                 grade: 'check',
-                                generation,
+                                read,
                                 onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                             })
                             return
@@ -1187,17 +1276,23 @@ export class PersonhogPersonsStore implements PersonsStore {
                         // batch did since the request went out.
                         this.cacheFetchedPerson(entry.teamId, entry.distinctId, person, batchId, {
                             grade: 'update',
-                            generation,
+                            read,
                             fillOnly: true,
                             onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                         })
                     })
                 )
             )
+            const failed = settled.find((task): task is PromiseRejectedResult => task.status === 'rejected')
+            if (failed) {
+                throw failed.reason
+            }
         } catch (error) {
             // Counted because the degradation reads as latency.
             personhogStorePrefetchFailedCounter.inc()
             logger.warn('personhog prefetch failed; resolution falls back to first touch', { error })
+        } finally {
+            this.endRead(read)
         }
     }
 
@@ -1511,11 +1606,23 @@ export class PersonhogPersonsStore implements PersonsStore {
      * ops were written; a delete drops them.
      */
     private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<boolean> {
-        const generation = this.generationOf(entry.teamId)
-        const [resolved] = await this.resolveDistinctIds('redirect_survivor', [
-            { teamId: entry.teamId, distinctId: entry.distinctId },
-        ])
-        const survivorId = resolved?.person?.id
+        const distinctKey = `${entry.teamId}:${entry.distinctId}`
+        const read = this.beginRead()
+        let survivorId: string | undefined
+        let purged: boolean
+        try {
+            const [resolved] = await this.resolveDistinctIds('redirect_survivor', [
+                { teamId: entry.teamId, distinctId: entry.distinctId },
+            ])
+            survivorId = resolved?.person?.id
+            purged = this.purgedSince(
+                read,
+                distinctKey,
+                survivorId === undefined ? null : `${entry.teamId}:${survivorId}`
+            )
+        } finally {
+            this.endRead(read)
+        }
         if (survivorId === undefined || survivorId === entry.personId) {
             // Released, so later events re-resolve rather than folding onto
             // the corpse again.
@@ -1544,12 +1651,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     `the same person; failing the flush to redeliver`
             )
         }
-        // The resolve proved where the id belongs, so heal the edge, the
-        // repoint the Postgres cache performs too. Skipped when a purge
-        // moved the generation (this answer predates it), and for a key no
-        // batch recorded (a mapping nothing would ever release).
-        if (generation === this.generationOf(entry.teamId)) {
-            const distinctKey = `${entry.teamId}:${entry.distinctId}`
+        if (!purged) {
             if (this.resolutions.has(distinctKey)) {
                 this.setDistinctIdToPersonId(distinctKey, `${entry.teamId}:${survivorId}`)
             }
