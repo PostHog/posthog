@@ -19,6 +19,9 @@ LABELS = ["negative", "neutral", "positive"]
 ONNX_CACHE_DIR = Path(os.environ.get("POSTHOG_SENTIMENT_MODEL_CACHE", "/tmp/posthog-sentiment-onnx-cache"))
 ONNX_INTRA_OP_NUM_THREADS = _positive_int_env("POSTHOG_SENTIMENT_ONNX_INTRA_OP_NUM_THREADS", 1)
 ONNX_INTER_OP_NUM_THREADS = _positive_int_env("POSTHOG_SENTIMENT_ONNX_INTER_OP_NUM_THREADS", 1)
+# Inferences that run at the same time in one worker process. Each one uses about one core, so
+# keep this at or below the pod's CPU request, or the node runs out of CPU.
+INFERENCE_THREADS = _positive_int_env("POSTHOG_SENTIMENT_INFERENCE_THREADS", 1)
 
 # Extraction bounds
 MAX_USER_MESSAGES = 50

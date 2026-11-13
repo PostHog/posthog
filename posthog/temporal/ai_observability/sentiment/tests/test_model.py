@@ -21,27 +21,6 @@ def _make_pipeline_output(label: str, score: float) -> list[dict[str, object]]:
     return [{"label": name, "score": s} for name, s in labels_scores.items()]
 
 
-class _SignallingLock:
-    """Wraps a real lock and signals when a second thread tries to take it."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._attempts = 0
-        self._attempts_lock = threading.Lock()
-        self.second_acquire_attempted = threading.Event()
-
-    def __enter__(self) -> "_SignallingLock":
-        with self._attempts_lock:
-            self._attempts += 1
-            if self._attempts == 2:
-                self.second_acquire_attempted.set()
-        assert self._lock.acquire(timeout=5)
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self._lock.release()
-
-
 class TestClassifyBatch:
     @parameterized.expand(
         [
@@ -69,7 +48,7 @@ class TestClassifyBatch:
             ),
         ]
     )
-    @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
+    @patch("posthog.temporal.ai_observability.sentiment.model._thread_pipeline")
     def test_classify(self, _name: str, texts: list[str], expected: list[SentimentResult], mock_load: MagicMock):
         if not texts:
             result = classify(texts)
@@ -96,7 +75,7 @@ class TestClassifyBatch:
             assert r.label == e.label
             assert r.score == e.score
 
-    @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
+    @patch("posthog.temporal.ai_observability.sentiment.model._thread_pipeline")
     def test_low_confidence_polar_score_resolves_to_neutral(self, mock_load: MagicMock):
         # A near-tie that argmaxes to negative must come back neutral — guards the wiring
         # of the neutral-margin gate into the model's result parsing.
@@ -114,7 +93,7 @@ class TestClassifyBatch:
 
         assert result[0].label == "neutral"
 
-    @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
+    @patch("posthog.temporal.ai_observability.sentiment.model._thread_pipeline")
     def test_missing_labels_filled_with_zero(self, mock_load: MagicMock):
         mock_pipe = MagicMock()
         mock_pipe.return_value = [[{"label": "positive", "score": 0.95}]]
@@ -126,34 +105,35 @@ class TestClassifyBatch:
         assert result[0].scores["negative"] == 0.0
         assert result[0].scores["positive"] == 0.95
 
-    @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
-    def test_concurrent_calls_never_run_pipeline_in_parallel(self, mock_load: MagicMock):
+    def test_concurrent_calls_run_in_parallel_with_one_pipeline_per_thread(self):
         first_call_entered = threading.Event()
         release_first_call = threading.Event()
-        signalling_lock = _SignallingLock()
-        pipe_calls = 0
+        built_for_threads: list[int] = []
 
-        def fake_pipe(texts: list[str], batch_size: int) -> list[list[dict[str, object]]]:
-            nonlocal pipe_calls
-            pipe_calls += 1
-            if pipe_calls == 1:
-                first_call_entered.set()
-                assert release_first_call.wait(timeout=5)
-            return [_make_pipeline_output("positive", 0.9) for _ in texts]
+        def build_pipeline(_model: object):
+            built_for_threads.append(threading.get_ident())
+            is_first = len(built_for_threads) == 1
 
-        mock_load.return_value = fake_pipe
+            def fake_pipe(texts: list[str], batch_size: int) -> list[list[dict[str, object]]]:
+                if is_first:
+                    first_call_entered.set()
+                    assert release_first_call.wait(timeout=5)
+                return [_make_pipeline_output("positive", 0.9) for _ in texts]
+
+            return fake_pipe
 
         with (
-            patch.object(model, "_inference_lock", signalling_lock),
+            patch.object(model, "_thread_state", threading.local()),
+            patch.object(model, "_load_model", return_value=object()),
+            patch.object(model, "_build_pipeline", side_effect=build_pipeline),
             ThreadPoolExecutor(max_workers=2) as executor,
         ):
             first = executor.submit(classify, ["first"])
             assert first_call_entered.wait(timeout=5)
             second = executor.submit(classify, ["second"])
-            assert signalling_lock.second_acquire_attempted.wait(timeout=5)
-            assert pipe_calls == 1
+            assert second.result(timeout=5)[0].label == "positive"
+            assert not first.done()
             release_first_call.set()
-            results = [first.result(timeout=5), second.result(timeout=5)]
+            assert first.result(timeout=5)[0].label == "positive"
 
-        assert pipe_calls == 2
-        assert all(r[0].label == "positive" for r in results)
+        assert len(set(built_for_threads)) == 2
