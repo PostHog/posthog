@@ -164,6 +164,12 @@ func UpdateEnvValue(key, value string) error {
 }
 
 func UpdateEnvForUpgrade(version string) error {
+	// bin/deploy-hobby wrote .env world-readable before it restricted the file itself, and
+	// os.WriteFile keeps the mode of a file that exists. Restrict it before adding secrets.
+	if err := os.Chmod(".env", 0600); err != nil {
+		return fmt.Errorf("failed to restrict .env to its owner: %w", err)
+	}
+
 	existing := LoadExistingEnv()
 
 	if existing["ENCRYPTION_SALT_KEYS"] == "" {

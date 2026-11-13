@@ -61,6 +61,29 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 	}
 }
 
+func TestUpgradeRestrictsEnvToOwner(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(".env", []byte("POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile applies the umask, so set the mode of an older install explicitly.
+	if err := os.Chmod(".env", 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdateEnvForUpgrade(""); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0600 {
+		t.Fatalf(".env mode = %o, want 600", mode)
+	}
+}
+
 func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 	tests := []struct {
 		name    string
