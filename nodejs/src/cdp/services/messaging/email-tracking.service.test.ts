@@ -1211,6 +1211,13 @@ describe('EmailTrackingService', () => {
                     await consumer.processBatch(queuedSesNotifications())
 
                     expect(recordedMetrics()).toEqual(bounceMetrics)
+                    const suppressions = await hub.postgres.query(
+                        PostgresUse.COMMON_READ,
+                        `SELECT identifier, suppressed FROM posthog_messagesuppression WHERE team_id = $1`,
+                        [team.id],
+                        'test-read-suppression'
+                    )
+                    expect(suppressions.rows).toEqual([{ identifier: 'user@example.com', suppressed: true }])
                 }
             )
 
