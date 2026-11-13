@@ -167,7 +167,7 @@ Billit,,,,,,billit
 Billomat,billomat_id api_key registered_app,,,,,billomat
 BingAds,,bing_ads_integration_id,account_id,,,bing-ads
 BingWebmasterTools,api_key site_urls,,,,,bing-webmaster-tools
-Bird,,,,,,bird
+Bird,api_key,,,,,bird
 Bitbucket,workspace auth_method,,,,,bitbucket
 Bitly,,,,,,bitly
 Bitrise,api_token,,,,,bitrise
@@ -601,7 +601,7 @@ Height,api_key,,,,,height
 Helicone,api_key region,,,,,helicone
 Hellobaton,company api_key,,,,,hellobaton
 HelpScout,,helpscout_integration_id,,,,helpscout
-Helpin,,,,,,helpin
+Helpin,api_token api_host,,,,,helpin
 Heroku,api_key,,,,,heroku
 Hetzner,api_token,,,,,hetzner
 Hex,api_key workspace_url,,,,,hex
@@ -1302,7 +1302,7 @@ TwelveLabs,api_key,,,,,twelve-labs
 Twenty,api_key base_url,,,,,twenty
 Twilio,account_sid auth_method,,,,,twilio
 Twitch,,,,,,twitch
-Twitter,bearer_token username,,,,,twitter
+Twitter,bearer_token username,,,search_query,,twitter
 TwitterAds,,twitter_ads_integration_id,account_id,,,twitter-ads
 TwoC2p,,,,,,two-c2p
 TyntecSMS,api_key,,,request_ids,,tyntec-sms

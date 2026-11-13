@@ -33,7 +33,7 @@ class EmailDomainStatusRecordSerializer(serializers.Serializer):
         choices=EmailDomainSetupRecordKind.choices,
         help_text="What the record does: verification proves domain ownership, dkim signs email, spf and "
         "mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for "
-        "unauthenticated mail.",
+        "unauthenticated mail, organization proves this organization owns a domain another organization also added.",
     )
     hostname = serializers.CharField(help_text="Full DNS name to create the record at, including the domain.")
     type = serializers.ChoiceField(choices=EmailDomainSetupRecordType.choices, help_text="DNS record type.")

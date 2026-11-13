@@ -10,6 +10,7 @@ import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { sleep } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { createPromise } from '~/tests/helpers/promises'
 
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -21,7 +22,7 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../monitoring/hog-invocation-results.service'
-import { FAIR_DEQUEUE_CANDIDATE_CAP } from './due-rows-sql'
+import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -311,6 +312,17 @@ async function churnCountForQueue(queue: string): Promise<number> {
     const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_high_transition_dequeues')
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
     return line ? Number(line.trim().split(' ').pop()) : 0
+}
+
+async function counterValue(name: string, labels: Record<string, string> = {}): Promise<number> {
+    const samples = (await register.getSingleMetric(name)?.get())?.values ?? []
+    return samples
+        .filter((sample) => Object.entries(labels).every(([key, value]) => sample.labels[key] === value))
+        .reduce((sum, sample) => sum + sample.value, 0)
+}
+
+function staleCommitCount(operation: string): Promise<number> {
+    return counterValue('cdp_cyclotron_v2_stale_commits_total', { queue: QUEUE, operation })
 }
 
 const ENQUEUE_PHASE_METRIC = 'cdp_cyclotron_v2_enqueue_phase_duration_seconds'
@@ -787,6 +799,239 @@ describe('Cyclotron V2', () => {
             } finally {
                 await smallManager.disconnect()
             }
+        })
+
+        it.each([false, true])(
+            'a fresh manager refuses its first enqueue when the queue is already at its limit (background depth check %s)',
+            async (backgroundDepthCheck) => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const fresh = createManager({ depthLimit: 2, depthCheckIntervalMs: 10_000, backgroundDepthCheck })
+                await fresh.connect()
+                try {
+                    await expect(fresh.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+                    const stored = await assertPool.query<{ count: number }>(
+                        'SELECT COUNT(*)::int AS count FROM cyclotron_jobs WHERE queue_name = $1',
+                        [QUEUE]
+                    )
+                    expect(stored.rows[0].count).toBe(2)
+                } finally {
+                    await fresh.disconnect()
+                }
+            }
+        )
+
+        describe('depth check under a slow depth query', () => {
+            const storedJobs = async (): Promise<number> =>
+                (
+                    await assertPool.query<{ count: number }>(
+                        'SELECT COUNT(*)::int AS count FROM cyclotron_jobs WHERE queue_name = $1',
+                        [QUEUE]
+                    )
+                ).rows[0].count
+
+            const stillPendingAfter = (pending: Promise<unknown>, ms: number): Promise<boolean> =>
+                Promise.race([pending.then(() => false), sleep(ms).then(() => true)])
+
+            function holdDepthQueries(
+                target: CyclotronV2Manager,
+                depthSql: string
+            ): {
+                entered: () => Promise<void>
+                release: () => Promise<void>
+            } {
+                const pool = (target as unknown as { pool: Pool }).pool
+                const passThrough = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
+                let gate = createPromise()
+                let entered = createPromise()
+                let held: Promise<unknown>[] = []
+                pool.query = ((text: unknown, ...rest: unknown[]) => {
+                    if (typeof text !== 'string' || !text.endsWith(depthSql)) {
+                        return passThrough(text, ...rest)
+                    }
+                    entered.resolve()
+                    const run = gate.promise.then(() => passThrough(text, ...rest))
+                    held.push(run)
+                    return run
+                }) as Pool['query']
+                return {
+                    entered: () => entered.promise,
+                    release: async () => {
+                        const runs = held
+                        held = []
+                        gate.resolve()
+                        gate = createPromise()
+                        entered = createPromise()
+                        await Promise.all(runs)
+                        await new Promise((resolve) => setImmediate(resolve))
+                    },
+                }
+            }
+
+            let cleanups: (() => Promise<void>)[] = []
+
+            afterEach(async () => {
+                const pending = cleanups
+                cleanups = []
+                for (const cleanup of pending.reverse()) {
+                    await cleanup()
+                }
+            })
+
+            async function withHeldDepthQueries(
+                overrides: Record<string, unknown>,
+                body: (
+                    m: CyclotronV2Manager,
+                    depth: ReturnType<typeof holdDepthQueries>,
+                    expireInterval: () => void
+                ) => Promise<void>
+            ): Promise<void> {
+                const intervalMs = 10_000
+                let now = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+                cleanups.push(() => Promise.resolve(clock.mockRestore()))
+                const m = createManager({ depthCheckIntervalMs: intervalMs, ...overrides })
+                await m.connect()
+                cleanups.push(() => m.disconnect())
+                const backgroundDepthSql = cappedQueueDepthSql(
+                    (overrides.depthLimit as number | undefined) ?? 1_000_000
+                )
+                const depth = holdDepthQueries(m, overrides.backgroundDepthCheck ? backgroundDepthSql : QUEUE_DEPTH_SQL)
+                cleanups.push(() => depth.release())
+                const first = m.createJob({ teamId: 1, queueName: QUEUE })
+                await depth.entered()
+                await depth.release()
+                await first
+                await body(m, depth, () => (now += intervalMs + 1))
+            }
+
+            it('with the background depth check, stores a job while the depth refresh is still running', async () => {
+                await withHeldDepthQueries({ backgroundDepthCheck: true }, async (m, depth, expireInterval) => {
+                    expireInterval()
+                    const second = m.createJob({ teamId: 1, queueName: QUEUE })
+                    await depth.entered()
+
+                    await second
+                    expect(await storedJobs()).toBe(2)
+                })
+            })
+
+            it('with the background depth check, refuses an enqueue once a refresh finds the queue full, and recounts after an idle spell', async () => {
+                await withHeldDepthQueries(
+                    { backgroundDepthCheck: true, depthLimit: 2 },
+                    async (m, depth, expireInterval) => {
+                        expireInterval()
+                        await m.createJob({ teamId: 1, queueName: QUEUE })
+                        await depth.entered()
+                        await depth.release()
+
+                        await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+                        expect(await storedJobs()).toBe(2)
+
+                        await assertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [QUEUE])
+                        expireInterval()
+                        expireInterval()
+                        const afterIdle = m.createJob({ teamId: 1, queueName: QUEUE })
+                        await depth.entered()
+                        const duringRecount = m.createJob({ teamId: 1, queueName: QUEUE })
+                        expect(await stillPendingAfter(afterIdle, 200)).toBe(true)
+                        expect(await stillPendingAfter(duringRecount, 0)).toBe(true)
+
+                        await depth.release()
+                        await afterIdle
+                        await duringRecount
+                        expect(await storedJobs()).toBe(2)
+                    }
+                )
+            })
+
+            it('with the background depth check, a depth query stalled past its interval stops pinning a stale full result', async () => {
+                const intervalMs = 300
+                let now = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+                cleanups.push(() => Promise.resolve(clock.mockRestore()))
+                const m = createManager({ backgroundDepthCheck: true, depthLimit: 1, depthCheckIntervalMs: intervalMs })
+                await m.connect()
+                cleanups.push(() => m.disconnect())
+                const enqueueNotRefusedAsFull = async (): Promise<{ enqueue: Promise<unknown> } | null> => {
+                    for (let attempt = 0; attempt < 36; attempt++) {
+                        const enqueue = m.createJob({ teamId: 1, queueName: QUEUE })
+                        const refusedAsFull = await Promise.race([
+                            enqueue.then(
+                                () => false,
+                                (e: Error) => /queue is full/i.test(e.message)
+                            ),
+                            sleep(100).then(() => false),
+                        ])
+                        if (!refusedAsFull) {
+                            return { enqueue }
+                        }
+                        await sleep(50)
+                    }
+                    return null
+                }
+
+                await m.createJob({ teamId: 1, queueName: QUEUE })
+                now += 2 * intervalMs + 1
+                await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [QUEUE])
+                const locker = await assertPool.connect()
+                await locker.query('BEGIN')
+                await locker.query('LOCK TABLE cyclotron_jobs IN ACCESS EXCLUSIVE MODE')
+                let lockHeld = true
+                const releaseLock = async (): Promise<void> => {
+                    if (lockHeld) {
+                        lockHeld = false
+                        await locker.query('ROLLBACK')
+                        locker.release()
+                    }
+                }
+                cleanups.push(releaseLock)
+
+                now += intervalMs + intervalMs / 2
+                await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+
+                const notRefused = await enqueueNotRefusedAsFull()
+                expect(notRefused).not.toBeNull()
+                const afterStall = notRefused!.enqueue
+                expect(await stillPendingAfter(afterStall, 200)).toBe(true)
+
+                await releaseLock()
+                await afterStall
+                expect(await storedJobs()).toBe(1)
+            })
+
+            it('the background depth count stops at the depth limit in each queue class', async () => {
+                const insertDue = (queueName: string, priority: number, count: number): Promise<unknown> =>
+                    assertPool.query(
+                        `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                         SELECT gen_random_uuid(), 1, $1, 'available', $2, NOW() - interval '1 minute', NOW(), NOW()
+                         FROM generate_series(1, $3)`,
+                        [queueName, priority, count]
+                    )
+                await insertDue(QUEUE, 0, 5)
+                await insertDue(QUEUE, 1, 1)
+
+                const result = await assertPool.query<{ count: string }>(cappedQueueDepthSql(3))
+
+                expect(Number(result.rows[0].count)).toBe(4)
+            })
+
+            it('without the background depth check, holds an enqueue until its expired depth check returns', async () => {
+                await withHeldDepthQueries({}, async (m, depth, expireInterval) => {
+                    expireInterval()
+                    const second = m.createJob({ teamId: 1, queueName: QUEUE })
+                    await depth.entered()
+
+                    expect(await stillPendingAfter(second, 200)).toBe(true)
+                    expect(await storedJobs()).toBe(1)
+
+                    await depth.release()
+                    await second
+                    expect(await storedJobs()).toBe(2)
+                })
+            })
         })
 
         it('createJob accepts a non-UUID personId (column is TEXT)', async () => {
@@ -2758,6 +3003,7 @@ describe('Cyclotron V2', () => {
         it('heartbeat() skips without waiting while another client holds the job row, then renews once it is free', async () => {
             const { id, job } = await seedAndDequeue()
             await makeHeartbeatStale(id)
+            const staleHeartbeatsBefore = await staleCommitCount('heartbeat')
 
             const rowHolder = await assertPool.connect()
             try {
@@ -2776,7 +3022,78 @@ describe('Cyclotron V2', () => {
             await job.heartbeat()
             expect(await heartbeatIsFresh(id)).toBe(true)
             expect((await queryJob(id)).status).toBe('running')
+            expect(await staleCommitCount('heartbeat')).toBe(staleHeartbeatsBefore)
+            await expect(job.stillOwned()).resolves.toBe(true)
         }, 10_000)
+
+        it('heartbeat() that overlaps the worker releasing its own job counts no stale commit', async () => {
+            const { id, job } = await seedAndDequeue()
+            const staleHeartbeatsBefore = await staleCommitCount('heartbeat')
+            let ownershipReadStarted!: () => void
+            const ownershipRead = new Promise<void>((resolve) => (ownershipReadStarted = resolve))
+            let answerOwnershipRead!: () => void
+            const ownershipReadAnswered = new Promise<void>((resolve) => (answerOwnershipRead = resolve))
+            const realQuery = Pool.prototype.query
+            const queries = jest.spyOn(Pool.prototype, 'query').mockImplementation(function (
+                this: Pool,
+                ...args: unknown[]
+            ) {
+                const run = (): unknown => (realQuery as (...a: unknown[]) => unknown).apply(this, args)
+                const sql = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: string }).text
+                if (sql?.startsWith('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')) {
+                    ownershipReadStarted()
+                    return ownershipReadAnswered.then(run)
+                }
+                return run()
+            } as typeof Pool.prototype.query)
+
+            const rowHolder = await assertPool.connect()
+            try {
+                await rowHolder.query('BEGIN')
+                await rowHolder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                const heartbeat = job.heartbeat()
+                await ownershipRead
+                await rowHolder.query('COMMIT')
+                await job.ack()
+                answerOwnershipRead()
+                await heartbeat
+            } finally {
+                queries.mockRestore()
+                await rowHolder.query('ROLLBACK')
+                rowHolder.release()
+            }
+
+            expect((await queryJob(id)).status).toBe('completed')
+            expect(await staleCommitCount('heartbeat')).toBe(staleHeartbeatsBefore)
+        }, 10_000)
+
+        it.each([
+            ['ack', (job: CyclotronV2DequeuedJob) => job.ack()],
+            ['fail', (job: CyclotronV2DequeuedJob) => job.fail()],
+            ['cancel', (job: CyclotronV2DequeuedJob) => job.cancel()],
+            ['reschedule', (job: CyclotronV2DequeuedJob) => job.reschedule({ scheduledAt: new Date() })],
+            ['defer', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+            ['heartbeat', (job: CyclotronV2DequeuedJob) => job.heartbeat()],
+        ])(
+            'a worker whose job the janitor re-queued to another worker cannot %s it, and counts a stale commit',
+            async (operation, write) => {
+                const { id, job: firstClaim } = await seedAndDequeue()
+                const janitor = createJanitor({ stallTimeoutMs: 0 })
+                await janitor.runOnce()
+                await janitor.stop()
+                const [secondClaim] = await dequeueOneBatch(createWorker())
+                const secondLock = (await queryJob(id)).lock_id
+                const staleBefore = await staleCommitCount(operation)
+
+                await write(firstClaim)
+
+                const row = await queryJob(id)
+                expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status: 'running', lock_id: secondLock })
+                expect(await staleCommitCount(operation)).toBe(staleBefore + 1)
+                await expect(firstClaim.stillOwned()).resolves.toBe(false)
+                await expect(secondClaim.stillOwned()).resolves.toBe(true)
+            }
+        )
 
         it('double-release throws on second ack method call', async () => {
             const { job } = await seedAndDequeue()

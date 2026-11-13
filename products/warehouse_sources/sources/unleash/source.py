@@ -130,9 +130,9 @@ class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
             label="Unleash",
             releaseStatus=ReleaseStatus.GA,
             keywords=["feature flags", "feature toggles", "getunleash"],
-            caption="""Enter your Unleash instance URL and an Admin API token to sync your feature flags, projects, environments, strategies, segments, and other configuration data into the PostHog Data warehouse.
+            caption="""Enter your Unleash instance URL and an Admin API token to sync your feature flags, flag strategies and usage metrics, the event log, projects, environments, segments, and other configuration data into the PostHog Data warehouse.
 
-The instance URL is where you open the Unleash UI — for Unleash cloud it includes your instance name (e.g. `https://us.app.unleash-hosted.com/your-instance`); for self-hosted it's your server's URL. The token is a [personal access token](https://docs.getunleash.io/how-to/how-to-create-personal-access-tokens) or, on Enterprise, a [service account token](https://docs.getunleash.io/reference/service-accounts); it inherits the owner's permissions, and the `users` table additionally requires the Admin root role. The `features` table uses the flag search API, which requires Unleash 5.12 or newer.
+The instance URL is where you open the Unleash UI — for Unleash cloud it includes your instance name (e.g. `https://us.app.unleash-hosted.com/your-instance`); for self-hosted it's your server's URL. The token is a [personal access token](https://docs.getunleash.io/how-to/how-to-create-personal-access-tokens) or, on Enterprise, a [service account token](https://docs.getunleash.io/reference/service-accounts); it inherits the owner's permissions, and the `users` table additionally requires the Admin root role. The `features`, `feature_strategies`, and `feature_metrics` tables use the flag search API, which requires Unleash 5.12 or newer. The `feature_metrics` table holds hourly evaluation counts. Unleash keeps them for 48 hours, so sync it incrementally at least every 48 hours to keep the full history.
 """,
             iconPath="/static/services/unleash.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/unleash",
@@ -182,15 +182,15 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — the Admin API exposes no server-side
-        # updated_after/created_after filter, so there is no timestamp cursor to advance an
-        # incremental sync (see settings.py).
+        # Only events and feature metrics sync incrementally; the configuration tables are full
+        # refresh only (see settings.py). Append is off: both reads overlap the previous sync, so
+        # only a merge on the primary key drops the repeated rows.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(UNLEASH_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=UNLEASH_ENDPOINTS[endpoint].incremental_fields,
             )
             for endpoint in ENDPOINTS
         ]
@@ -234,4 +234,6 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

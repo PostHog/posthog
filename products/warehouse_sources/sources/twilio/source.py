@@ -26,6 +26,7 @@ from products.warehouse_sources.sources.twilio.settings import (
     INCREMENTAL_FIELDS,
     SHOULD_SYNC_DEFAULT,
     TWILIO_API_HOST,
+    TWILIO_MONITOR_HOST,
     TWILIO_VERIFY_HOST,
 )
 from products.warehouse_sources.sources.twilio.twilio import (
@@ -239,7 +240,7 @@ Create the key in the same Twilio account as the Account SID above, in Twilio's 
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Each pattern is scoped to a Twilio host so an unrelated 401 elsewhere in the same job can't
-        # false-match. The catalog spans two hosts, so both need covering.
+        # false-match. The catalog spans three hosts, so each needs covering.
         unauthorized = (
             # Twilio returns 401 both for a bad secret and for a valid credential that isn't allowed to
             # read the resource (error 20003), and the two are indistinguishable from the status alone,
@@ -254,7 +255,7 @@ Create the key in the same Twilio account as the Account SID above, in Twilio's 
             "permissions and try again."
         )
         errors: dict[str, str | None] = {}
-        for host in (TWILIO_API_HOST, TWILIO_VERIFY_HOST):
+        for host in (TWILIO_API_HOST, TWILIO_VERIFY_HOST, TWILIO_MONITOR_HOST):
             errors[f"401 Client Error: Unauthorized for url: {host}"] = unauthorized
             errors[f"403 Client Error: Forbidden for url: {host}"] = forbidden
         return errors

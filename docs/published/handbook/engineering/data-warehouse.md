@@ -66,6 +66,8 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
+**Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
+
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
 Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.
