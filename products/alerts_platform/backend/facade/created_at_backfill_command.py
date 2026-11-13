@@ -20,6 +20,14 @@ from products.alerts_platform.backend.facade.contracts import SourceKind
 logger = structlog.get_logger(__name__)
 
 
+def add_copy_backfill_arguments(parser: Any) -> None:
+    """`--team-id` and `--apply`, shared by the commands that match copies to their source rows."""
+    parser.add_argument(
+        "--team-id", type=int, action="append", dest="team_ids", help="Only this team. Repeat for more."
+    )
+    parser.add_argument("--apply", action="store_true", help="Write the changes. Without it, only count them.")
+
+
 class PlatformCreatedAtBackfillCommand(BaseCommand):
     source_kind: SourceKind
     source_model: type[Model]
@@ -29,10 +37,7 @@ class PlatformCreatedAtBackfillCommand(BaseCommand):
         return dict(rows.values_list("id", "created_at"))
 
     def add_arguments(self, parser: Any) -> None:
-        parser.add_argument(
-            "--team-id", type=int, action="append", dest="team_ids", help="Only this team. Repeat for more."
-        )
-        parser.add_argument("--apply", action="store_true", help="Write the changes. Without it, only count them.")
+        add_copy_backfill_arguments(parser)
 
     def handle(self, *args: Any, **options: Any) -> None:
         dry_run = not options["apply"]
