@@ -46,6 +46,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_RATE_LIMITER_REFILL_RATE: number
     CDP_RATE_LIMITER_TTL: number
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    // 'true' requires the MMDB, 'false' disables it, empty uses the default of the CDP mode.
+    CDP_MMDB_ENABLED: string
     DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -366,6 +368,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 100,
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        CDP_MMDB_ENABLED: '',
         DISABLE_OPENTELEMETRY_TRACING: false,
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',

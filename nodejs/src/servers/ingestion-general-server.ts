@@ -24,7 +24,7 @@ import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPServiceComponent, geoipServerDefaultMode, resolveMmdbMode } from '~/common/utils/geoip'
+import { GeoIPServiceComponent, geoipServerDefaultMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -99,7 +99,6 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
-        | 'MMDB_ENABLED'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
@@ -205,7 +204,7 @@ export class IngestionGeneralServer implements NodeServer {
                     'geoipService',
                     new GeoIPServiceComponent(
                         this.config.MMDB_FILE_LOCATION,
-                        resolveMmdbMode(this.config.MMDB_ENABLED, geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT))
+                        geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT)
                     )
                 )
         )

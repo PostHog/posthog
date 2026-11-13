@@ -13,7 +13,7 @@ import {
     MmdbLoadTimeoutError,
     MmdbMode,
     geoipServerDefaultMode,
-    resolveMmdbMode,
+    resolveCdpMmdbMode,
 } from './geoip'
 import { logger } from './logger'
 
@@ -96,7 +96,7 @@ describe('GeoIp', () => {
 
         it('fails to start if the MMDB is required and missing', async () => {
             await expect(new GeoIPServiceComponent('non-existent-file.mmdb', 'required').start()).rejects.toThrow(
-                'GeoIP is required (MMDB_ENABLED), but the MMDB could not be loaded from non-existent-file.mmdb'
+                'GeoIP is required, but the MMDB could not be loaded from non-existent-file.mmdb'
             )
         })
 
@@ -118,23 +118,24 @@ describe('GeoIp', () => {
     })
 
     describe('mode', () => {
-        it.each<{ mmdbEnabled: string; serverDefault: MmdbMode; expected: MmdbMode }>([
-            { mmdbEnabled: '', serverDefault: 'required', expected: 'required' },
-            { mmdbEnabled: ' ', serverDefault: 'disabled', expected: 'disabled' },
-            { mmdbEnabled: 'true', serverDefault: 'disabled', expected: 'required' },
-            { mmdbEnabled: '1', serverDefault: 'optional', expected: 'required' },
-            { mmdbEnabled: 'false', serverDefault: 'required', expected: 'disabled' },
-            { mmdbEnabled: 'off', serverDefault: 'optional', expected: 'disabled' },
+        it.each<{ cdpMmdbEnabled: string; cdpDefault: MmdbMode; expected: MmdbMode }>([
+            { cdpMmdbEnabled: '', cdpDefault: 'optional', expected: 'optional' },
+            { cdpMmdbEnabled: ' ', cdpDefault: 'disabled', expected: 'disabled' },
+            { cdpMmdbEnabled: 'true', cdpDefault: 'disabled', expected: 'required' },
+            { cdpMmdbEnabled: ' true', cdpDefault: 'disabled', expected: 'required' },
+            { cdpMmdbEnabled: '1', cdpDefault: 'optional', expected: 'required' },
+            { cdpMmdbEnabled: 'false', cdpDefault: 'optional', expected: 'disabled' },
+            { cdpMmdbEnabled: 'off ', cdpDefault: 'optional', expected: 'disabled' },
         ])(
-            'resolves MMDB_ENABLED="$mmdbEnabled" with default $serverDefault to $expected',
-            ({ mmdbEnabled, serverDefault, expected }) => {
-                expect(resolveMmdbMode(mmdbEnabled, serverDefault)).toBe(expected)
+            'resolves CDP_MMDB_ENABLED="$cdpMmdbEnabled" with default $cdpDefault to $expected',
+            ({ cdpMmdbEnabled, cdpDefault, expected }) => {
+                expect(resolveCdpMmdbMode(cdpMmdbEnabled, cdpDefault)).toBe(expected)
             }
         )
 
-        it('rejects an MMDB_ENABLED value that is not a boolean', () => {
-            expect(() => resolveMmdbMode('ture', 'optional')).toThrow(
-                "MMDB_ENABLED must be true, false or empty, got 'ture'"
+        it('rejects a CDP_MMDB_ENABLED value that is not a boolean', () => {
+            expect(() => resolveCdpMmdbMode('ture', 'optional')).toThrow(
+                "CDP_MMDB_ENABLED must be true, false or empty, got 'ture'"
             )
         })
 

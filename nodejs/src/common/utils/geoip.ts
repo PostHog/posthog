@@ -61,13 +61,14 @@ type MmdbMetadata = {
 // A failed load throws in `required` mode and logs a warning in `optional` mode. `disabled` never reads the MMDB.
 export type MmdbMode = 'required' | 'optional' | 'disabled'
 
-export function resolveMmdbMode(mmdbEnabled: string, serverDefault: MmdbMode): MmdbMode {
-    if (mmdbEnabled.trim() === '') {
-        return serverDefault
+export function resolveCdpMmdbMode(cdpMmdbEnabled: string, cdpDefault: MmdbMode): MmdbMode {
+    const value = cdpMmdbEnabled.trim()
+    if (value === '') {
+        return cdpDefault
     }
-    const enabled = stringToBoolean(mmdbEnabled, true)
+    const enabled = stringToBoolean(value, true)
     if (enabled === null) {
-        throw new Error(`MMDB_ENABLED must be true, false or empty, got '${mmdbEnabled}'`)
+        throw new Error(`CDP_MMDB_ENABLED must be true, false or empty, got '${cdpMmdbEnabled}'`)
     }
     return enabled ? 'required' : 'disabled'
 }
@@ -131,9 +132,7 @@ export class GeoIPService {
     private async loadInitialMmdb(): Promise<ReaderModel | undefined> {
         const mmdb = await this.loadMmdb('initial')
         if (!mmdb && this.mode === 'required') {
-            throw new Error(
-                `GeoIP is required (MMDB_ENABLED), but the MMDB could not be loaded from ${this.mmdbFileLocation}`
-            )
+            throw new Error(`GeoIP is required, but the MMDB could not be loaded from ${this.mmdbFileLocation}`)
         }
         return mmdb
     }

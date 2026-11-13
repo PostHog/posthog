@@ -15,7 +15,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { GeoIPService, GeoIPServiceComponent, MmdbMode, resolveMmdbMode } from '~/common/utils/geoip'
+import { GeoIPService, GeoIPServiceComponent, MmdbMode, resolveCdpMmdbMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -145,8 +145,11 @@ export class PluginServer implements NodeServer {
         if (needsCdp) {
             // Only cdp-api looks up GeoIP: its test invocations run transformations, such as the GeoIP
             // transformation. Destinations get no `geoipLookup`, and no destination plugin reads `meta.geoip`.
-            // Some cdp-api deployments have no MMDB, so the deployments that mount one set MMDB_ENABLED=true.
-            const geoipMode = resolveMmdbMode(this.config.MMDB_ENABLED, capabilities.cdpApi ? 'optional' : 'disabled')
+            // Some cdp-api deployments have no MMDB, so the deployments that mount one set CDP_MMDB_ENABLED=true.
+            const geoipMode = resolveCdpMmdbMode(
+                this.config.CDP_MMDB_ENABLED,
+                capabilities.cdpApi ? 'optional' : 'disabled'
+            )
             cdpServices = await this.createCdpSharedServices({ geoipMode })
         }
 

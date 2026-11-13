@@ -4,7 +4,7 @@ import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
-import { GeoIPServiceComponent, resolveMmdbMode } from '~/common/utils/geoip'
+import { GeoIPServiceComponent } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { capIdleConnections } from '~/messaging/push-subscriptions/idle-connections'
 import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'
@@ -51,12 +51,7 @@ export type PushApiServerConfig = BaseServerConfig &
     PushApiConfig &
     Pick<
         CommonConfig,
-        | 'LOG_LEVEL'
-        | 'PLUGIN_SERVER_MODE'
-        | 'ENCRYPTION_SALT_KEYS'
-        | 'CAPTURE_INTERNAL_URL'
-        | 'MMDB_FILE_LOCATION'
-        | 'MMDB_ENABLED'
+        'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL' | 'MMDB_FILE_LOCATION'
     >
 
 /** Serves `/api/push_subscriptions/`, the endpoint every mobile SDK calls on app open.
@@ -161,11 +156,11 @@ export class PushApiServer implements NodeServer {
         }
         const { value: geoipService, stop } = await new GeoIPServiceComponent(
             this.config.MMDB_FILE_LOCATION,
-            resolveMmdbMode(this.config.MMDB_ENABLED, isProdEnv() ? 'required' : 'optional')
+            isProdEnv() ? 'required' : 'optional'
         ).start()
         this.stopGeoIPService = stop
         const geoip = await geoipService.get()
-        // A database that places no address, or MMDB_ENABLED=false, would let every blocked region through.
+        // A database that places no address would let every blocked region through.
         if (!geoip.city('8.8.8.8')) {
             const message = 'push-api could not load the GeoIP database, so blocked regions are not enforced'
             if (isProdEnv()) {
