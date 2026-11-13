@@ -22,6 +22,7 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
         cancelInvocations: jest.fn().mockResolvedValue(undefined),
         heartbeatInvocations: jest.fn().mockResolvedValue(undefined),
         deferInvocations: jest.fn().mockResolvedValue(undefined),
+        stillOwns: jest.fn().mockResolvedValue(true),
         // Inserts through `this`, so a queue that spreads this one and replaces queueInvocations stores keyed runs too.
         queueInvocationsIdempotently: jest.fn(async function (
             this: JobQueue,
