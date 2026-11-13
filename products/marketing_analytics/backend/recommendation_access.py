@@ -26,6 +26,9 @@ def can_resolve(team_id: int, user_access_control: "UserAccessControl") -> bool:
             for schema in list_schemas_for_source(source.id, environment_id)
             if schema.table_id is not None
         }
-        if table_ids and not table_ids.isdisjoint(denied_table_ids(environment_id, access)):
+        if not table_ids:
+            continue
+        # Table rules fall back to their defaults in an environment the user was denied, so check that first.
+        if not access.has_project_access or not table_ids.isdisjoint(denied_table_ids(environment_id, access)):
             return False
     return True
