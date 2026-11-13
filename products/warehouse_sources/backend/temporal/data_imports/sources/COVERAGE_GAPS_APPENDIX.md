@@ -12829,11 +12829,13 @@ Today (6): `device_groups`, `device_types`, `devices`, `events`, `values`, `vari
 
 Diffed against: <https://docs.ubidots.com/sitemap.xml>
 
-- [ ] `event logs (Get all event logs / log object)` — the firing history of events/alerts — without it the synced events table is only rule config, with no occurrences to analyze (high)
-- [ ] `organizations (Get all organizations)` — lookup table resolving the organization that owns devices and users already synced; also the multi-tenant grouping key (high)
-- [ ] `users (Get all users)` — end users of the Ubidots app, needed to attribute devices and organization membership (medium)
+- [x] `event logs (Get all event logs / log object)` — the firing history of events/alerts — without it the synced events table is only rule config, with no occurrences to analyze (high)
+- [x] `organizations (Get all organizations)` — lookup table resolving the organization that owns devices and users already synced; also the multi-tenant grouping key (high)
+- [x] `users (Get all users)` — end users of the Ubidots app, needed to attribute devices and organization membership (medium)
 - [ ] `devices of an organization (Get all devices of organization)` — device-to-organization membership join, since devices do not carry an org list (medium)
 - [ ] `roles (Get all roles)` — lookup resolving the role ids on users (low)
+
+Note: `devices of an organization` is skipped. The device object already carries its single `organization` (id, label, name), so the synced `devices` table holds this join.
 
 Note: docs.ubidots.com is a ReadMe site that renders endpoints client-side, so I diffed the sitemap's /reference/\* page list (each 'Get all X' page = a list endpoint) rather than the JS-rendered bodies. Verified individual pages return 200 with GET (e.g. https://docs.ubidots.com/reference/get-event-logs, title 'Get Event Logs').
 
