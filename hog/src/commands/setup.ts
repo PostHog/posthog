@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { SIGN_UP_NOTE } from '@/core/approval'
 import { defineCommand, type OptionSpec } from '@/core/command'
-import { EXIT_NEEDS_PERSON, EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
 import { plural } from '@/core/text'
@@ -214,7 +214,8 @@ export default defineCommand({
     },
 
     // The agent does `run` and `read` itself, so only a question or an approval waits on the person.
-    exitCode: (result) => (result.next.kind === 'ask_user' || result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : 0),
+    exitCode: (result) =>
+        result.next.kind === 'ask_user' || result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS,
 
     telemetry: ({ args, result }) => ({
         setup_action: args.action ?? 'status',

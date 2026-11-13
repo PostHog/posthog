@@ -18,7 +18,7 @@ import {
 } from '@/core/command'
 import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
-import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING, EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
 import { parseJsonOrUndefined } from '@/core/json'
 import { EXIT_CODES } from '@/core/manifest'
@@ -258,7 +258,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             } else if (result !== undefined) {
                 out.json(globals.raw && node.raw ? node.raw(result) : result)
             }
-            state.exitCode = node.exitCode?.(result) ?? 0
+            state.exitCode = node.exitCode?.(result) ?? EXIT_SUCCESS
             state.properties = {
                 dry_run: options.dryRun === true,
                 ...node.telemetry?.({ result, args, options } as never),
@@ -566,7 +566,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
     const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
     const mode = resolveMode(runtime.env, terminal, format ?? envFormat)
-    const state: RunState = { exitCode: 0 }
+    const state: RunState = { exitCode: EXIT_SUCCESS }
     const telemetry = new Telemetry(
         runtime,
         mode,
@@ -579,7 +579,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     const program = createProgram(runtime, mode, state, telemetry)
     if (argv.length === 0) {
         program.outputHelp()
-        return 0
+        return EXIT_SUCCESS
     }
     const started = runtime.now()
     const commandIndex = tokens.find((token) => token.kind === 'positional')?.index
@@ -597,10 +597,10 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         }
         await program.parseAsync(args, { from: 'user' })
         // --no-fail also covers a result that reports a problem, like a failed push or a stale SDK.
-        exitCode = state.noFail && UNFINISHED_CODES.has(state.exitCode) ? 0 : state.exitCode
+        exitCode = state.noFail && UNFINISHED_CODES.has(state.exitCode) ? EXIT_SUCCESS : state.exitCode
     } catch (caught) {
-        if (caught instanceof CommanderError && caught.exitCode === 0) {
-            return 0
+        if (caught instanceof CommanderError && caught.exitCode === EXIT_SUCCESS) {
+            return EXIT_SUCCESS
         }
         failure = toHogError(caught)
         new Output(runtime, mode).error(failure, feedbackCommand(state.command ?? namedCommand(routeTokens), failure))
@@ -608,7 +608,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
             captureFailure(telemetry, state.command, failure, caught)
         }
         const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
-        exitCode = ignore && UNFINISHED_CODES.has(failure.exitCode) ? 0 : failure.exitCode
+        exitCode = ignore && UNFINISHED_CODES.has(failure.exitCode) ? EXIT_SUCCESS : failure.exitCode
     }
 
     // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.

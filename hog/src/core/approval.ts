@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ApiError } from '@/posthog/api'
 
 import type { Context } from './context'
-import { EXIT_NEEDS_PERSON, HogError } from './errors'
+import { EXIT_NEEDS_PERSON, EXIT_SUCCESS, HogError } from './errors'
 import { parseJsonOrUndefined } from './json'
 import { escapeControls, type Output } from './output'
 import { hogFile } from './paths'
@@ -351,7 +351,7 @@ export function refuseInCi(ctx: Context, command: string, hint: string): void {
 export type PendingResult = Extract<ApprovalResult<never>, { status: 'pending' }>
 
 export function approvalExitCode(result: { status: string }): number {
-    return result.status === 'pending' ? EXIT_NEEDS_PERSON : 0
+    return result.status === 'pending' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS
 }
 
 // Starts a command that waits for a person. At a terminal it shows the link, opens the browser when it

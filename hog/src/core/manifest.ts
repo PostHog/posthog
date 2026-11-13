@@ -1,5 +1,5 @@
 import { optionFlags, type CommandTree, type OptionSpec } from './command'
-import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING, EXIT_USAGE } from './errors'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE } from './errors'
 import { GLOBAL_OPTIONS } from './globals'
 import { kebabCase } from './text'
 
@@ -33,7 +33,7 @@ export interface ExitCodeEntry {
 }
 
 export const EXIT_CODES: readonly ExitCodeEntry[] = [
-    { code: 0, meaning: 'The command worked' },
+    { code: EXIT_SUCCESS, meaning: 'The command worked' },
     {
         code: EXIT_FAILURE,
         meaning: 'The command failed, or a check found problems, such as drift in `hog endpoints diff`',
