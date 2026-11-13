@@ -3,6 +3,7 @@ import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
 import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
+import feedback from '@/commands/feedback'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
 import { inCIWithoutAPerson } from '@/core/approval'
 import {
@@ -18,18 +19,29 @@ import {
 } from '@/core/command'
 import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
-import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
+import {
+    EXIT_CANCELLED,
+    EXIT_CODES,
+    EXIT_FAILURE,
+    EXIT_NEEDS_PERSON,
+    EXIT_PENDING,
+    EXIT_SUCCESS,
+    EXIT_USAGE,
+    HogError,
+    NO_FAIL_CODES,
+} from '@/core/errors'
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
 import { parseJsonOrUndefined } from '@/core/json'
-import { EXIT_CODES } from '@/core/manifest'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
-import { kebabCase } from '@/core/text'
+import { joinList, kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { VERSION } from '@/version'
+
+const CODE_WIDTH = Math.max(...EXIT_CODES.map(({ code }) => String(code).length))
 
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
@@ -37,12 +49,10 @@ Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every com
 HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.
 
 Exit codes:
-${EXIT_CODES.map(({ code, meaning }) => `  ${code}  ${meaning}`).join('\n')}
---no-fail turns 1, 3 and 4 into 0.`
+${EXIT_CODES.map(({ code, meaning }) => `  ${String(code).padEnd(CODE_WIDTH)}  ${meaning}`).join('\n')}
+--no-fail turns ${joinList(NO_FAIL_CODES.map(String), 'and')} into ${EXIT_SUCCESS}.`
 
-// --no-fail turns these codes into 0, so a build never breaks on hog. A usage error and Ctrl-C keep
-// their codes, because the command never ran as written.
-const UNFINISHED_CODES: ReadonlySet<number> = new Set([EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING])
+const UNFINISHED_CODES: ReadonlySet<number> = new Set(NO_FAIL_CODES)
 
 // A result that waits says so in `status`, so every such command exits the same way.
 const EXIT_CODE_BY_STATUS: Readonly<Record<string, number>> = {
@@ -369,29 +379,45 @@ function preParse(argv: readonly string[]): PreParsed {
     }
 }
 
-function findLegacy(tokens: Token[]): LegacyRoute | undefined {
+interface ResolvedRoute {
+    // Names from the tree only, so arguments never reach the feedback hint.
+    names: string[]
+    indices: number[]
+    node: Command | Group | Legacy | undefined
+}
+
+// Follows the positional tokens down the command tree, group aliases included, and stops at the
+// first token that isn't a name there or at the first node that isn't a group.
+function resolveRoute(tokens: Token[]): ResolvedRoute {
     let tree: CommandTree = COMMANDS
-    const names: string[] = []
-    const pathIndices: number[] = []
+    const route: ResolvedRoute = { names: [], indices: [], node: undefined }
     for (const token of tokens) {
         if (token.kind !== 'positional') {
             continue
         }
-        const node: CommandTree[string] | undefined = Object.hasOwn(tree, token.value) ? tree[token.value] : undefined
-        if (!node) {
-            return undefined
+        const entry = Object.entries(tree).find(
+            ([name, node]) => name === token.value || (node.kind === 'group' && node.aliases?.includes(token.value))
+        )
+        if (!entry) {
+            break
         }
-        names.push(token.value)
-        pathIndices.push(token.index)
-        if (node.kind === 'legacy') {
-            return { legacy: node, path: names.join(' '), pathIndices, tokens }
-        }
-        if (node.kind === 'command') {
-            return undefined
+
+        const [name, node] = entry
+        route.names.push(name)
+        route.indices.push(token.index)
+        route.node = node
+        if (node.kind !== 'group') {
+            break
         }
         tree = node.commands
     }
-    return undefined
+    return route
+}
+
+function findLegacy(route: ResolvedRoute, tokens: Token[]): LegacyRoute | undefined {
+    return route.node?.kind === 'legacy'
+        ? { legacy: route.node, path: route.names.join(' '), pathIndices: route.indices, tokens }
+        : undefined
 }
 
 // Full names of commands in groups whose last word is `name`, so `hog login` can point to `hog auth login`.
@@ -405,35 +431,11 @@ function nestedMatches(tree: CommandTree, name: string, prefix = ''): string[] {
     })
 }
 
-// The command path from names in the tree only, so arguments never reach the feedback hint. A usage
-// error stops commander before the command runs, so `state.command` is unset for it.
-function namedCommand(tokens: Token[]): string | undefined {
-    let tree: CommandTree = COMMANDS
-    const names: string[] = []
-    for (const token of tokens) {
-        if (token.kind !== 'positional') {
-            continue
-        }
-        const entry = Object.entries(tree).find(
-            ([name, node]) => name === token.value || (node.kind === 'group' && node.aliases?.includes(token.value))
-        )
-        if (!entry) {
-            break
-        }
-        names.push(entry[0])
-        if (entry[1].kind !== 'group') {
-            break
-        }
-        tree = entry[1].commands
-    }
-    return names.length > 0 ? names.join(' ') : undefined
-}
-
-function feedbackCommand(path: string | undefined, failure: HogError): string | undefined {
-    if (path?.split(' ')[0] === 'feedback' || failure.code === 'cancelled') {
+function feedbackCommand(route: ResolvedRoute, failure: HogError): string | undefined {
+    if (route.node === feedback || failure.exitCode === EXIT_CANCELLED) {
         return undefined
     }
-    const area = path === undefined ? '' : `--area "hog ${path}" `
+    const area = route.names.length > 0 ? `--area "hog ${route.names.join(' ')}" ` : ''
     return `hog feedback ${area}"<what happened>"`
 }
 
@@ -599,10 +601,11 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     const args = isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : [...argv]
 
     const routeTokens = isHelp ? preParse(args).tokens : tokens
+    const route = resolveRoute(routeTokens)
     let exitCode: number
     let failure: HogError | undefined
     try {
-        const legacy = findLegacy(routeTokens)
+        const legacy = findLegacy(route, routeTokens)
         if (legacy) {
             state.command = legacy.path
             throw notPorted(args, legacy)
@@ -615,7 +618,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
             return EXIT_SUCCESS
         }
         failure = toHogError(caught)
-        new Output(runtime, mode).error(failure, feedbackCommand(state.command ?? namedCommand(routeTokens), failure))
+        new Output(runtime, mode).error(failure, feedbackCommand(route, failure))
         if (UNFINISHED_CODES.has(failure.exitCode) && failure.code !== 'not_ported') {
             captureFailure(telemetry, state.command, failure, caught)
         }

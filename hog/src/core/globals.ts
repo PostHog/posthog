@@ -4,9 +4,10 @@ import { parseHost } from '@/posthog/host'
 
 import { longFlag, parseOption, type OptionSpec, type OptionValues } from './command'
 import type { PostHogConfig } from './config'
-import { EXIT_USAGE, HogError } from './errors'
+import { EXIT_SUCCESS, EXIT_USAGE, HogError, KEPT_ON_NO_FAIL_CODES, NO_FAIL_CODES } from './errors'
 import type { Env, Runtime, RuntimeFetch } from './runtime'
 import { parseOrThrow, type ParseFailure } from './schema'
+import { joinList } from './text'
 
 // Options every command takes. Each one also reads the env vars in `env`, in order, and some read
 // the posthog.json key at the `config` path. A flag beats an env var, which beats posthog.json.
@@ -59,8 +60,7 @@ export const GLOBAL_OPTIONS = {
         type: 'boolean',
         env: ['HOG_NO_FAIL'],
         config: 'cli.noFail',
-        description:
-            'Exit with code 0 when the command fails, reports a problem, needs a person or is still running, for builds that must not break. Usage errors still exit with code 2',
+        description: `Exit with code ${EXIT_SUCCESS} instead of ${joinList(NO_FAIL_CODES.map(String), 'or')}, for builds that must not break. Codes ${joinList(KEPT_ON_NO_FAIL_CODES.map(String), 'and')} stay`,
     },
     skipSslVerification: {
         type: 'boolean',

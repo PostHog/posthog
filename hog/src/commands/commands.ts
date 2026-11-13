@@ -1,5 +1,6 @@
 import { defineCommand } from '@/core/command'
-import { describeAliases, describeCommands, describeGlobalOptions, EXIT_CODES } from '@/core/manifest'
+import { EXIT_CODES } from '@/core/errors'
+import { describeAliases, describeCommands, describeGlobalOptions } from '@/core/manifest'
 import { VERSION } from '@/version'
 
 export default defineCommand({
