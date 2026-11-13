@@ -1,5 +1,6 @@
 import time
-from typing import ClassVar
+from enum import StrEnum
+from typing import ClassVar, Self
 
 from prometheus_client import Counter, Histogram
 
@@ -7,11 +8,16 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
-from posthog.hogql.errors import BoundedResolverError, ResolutionDepthExceededError, ResolutionError
+from posthog.hogql.database.models import (
+    SavedQuery as HogQLSavedQuery,
+    Table,
+)
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.errors import BoundedResolverError, QueryError, ResolutionDepthExceededError
 from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 # Migrations of this product name the field by this module path.
@@ -308,29 +314,67 @@ def _subqueries_outside_from(query: ast.SelectQuery) -> list[ast.SelectQuery | a
     return collector.selects
 
 
-def _name_that_reads_view(database: Database, view_name: str) -> str:
-    """The name a view is recorded under as a parent: `models.<stored name>` when that path reads it.
+class ParentKind(StrEnum):
+    VIEW = "view"
+    MANAGED_VIEW = "managed_view"
+    WAREHOUSE_TABLE = "warehouse_table"
+    POSTHOG_TABLE = "posthog_table"
+    UNKNOWN = "unknown"
 
-    A warehouse table can take a model's bare name, and then only the `models.` path still reads the
-    model. A view with no such path, like a managed view or an endpoint, keeps its stored name.
+
+@frozen
+class ParentReference:
+    """One thing a model reads, as lineage identifies it.
+
+    `name` is a label: the stored name of a view, or the name the query gave a table. A view and a
+    warehouse table can share a label, so the ids are what tell two parents apart.
     """
-    qualified_name = f"models.{view_name}"
-    try:
-        table = database.get_table_node(qualified_name).table
-    except ResolutionError:
-        return view_name
-    if isinstance(table, HogQLSavedQuery) and table.name == view_name:
-        return qualified_name
-    return view_name
+
+    name: str
+    kind: ParentKind
+    # The saved query this reads: a view, or the table that backs a materialized view.
+    saved_query_id: str | None = None
+    warehouse_table_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == ParentKind.VIEW and self.saved_query_id is None:
+            raise ValueError("A view parent needs the id of its saved query")
+
+    @classmethod
+    def for_table(cls, name: str, table: Table) -> Self:
+        """Identify a table that HogQL resolved. A stored view keeps its own name, and `name` labels the rest."""
+        if type(table) is HogQLSavedQuery:
+            return cls(name=table.name, kind=ParentKind.VIEW, saved_query_id=table.id)
+        if isinstance(table, HogQLSavedQuery):
+            # A product builds this view in memory, so its id names no saved query row.
+            return cls(name=name, kind=ParentKind.MANAGED_VIEW)
+        if isinstance(table, HogQLDataWarehouseTable):
+            return cls(
+                name=name,
+                kind=ParentKind.WAREHOUSE_TABLE,
+                saved_query_id=table.saved_query_id,
+                warehouse_table_id=table.table_id,
+            )
+        return cls(name=name, kind=ParentKind.POSTHOG_TABLE)
+
+    @classmethod
+    def for_name(cls, name: str, database: Database) -> Self:
+        """Identify what `name` reads in `database`. A name that reads nothing stays as an unknown parent."""
+        try:
+            table = database.get_table(name)
+        except QueryError:
+            return cls(name=name, kind=ParentKind.UNKNOWN)
+        return cls.for_table(name, table)
 
 
-def get_parents_from_model_query(
+def get_parent_references(
     team: Team, model_name: str, model_query: str, database: Database | None = None
-) -> set[str]:
-    """Get parents from a given query.
+) -> set[ParentReference]:
+    """Get the parents of a given query.
 
-    The parents of a query are every name it reads: the `FROM` clause, and any subquery
+    The parents of a query are everything it reads: the `FROM` clause, and any subquery
     that sits elsewhere — a `WHERE`, a `HAVING`, the select list, a join's `ON`.
+    Each parent is identified from the table that the resolver read, not from its name.
     Uses BoundedResolver to detect circular dependencies, cap nested view
     depth, and enforce a wall-clock deadline on view references. Resolver-level
     metrics (`DAG_RESOLUTION_*`) are emitted from the resolver itself, so this
@@ -374,7 +418,7 @@ def get_parents_from_model_query(
     # one query's WITH never resolves a reference in an unrelated one
     queries: list[tuple[ast.SelectQuery, CteScope]] = _select_queries_with_scope(prepared_ast, ())
 
-    parents: set[str] = set()
+    parents: set[ParentReference] = set()
 
     # track by object id so that a recursive CTE (same object) is only
     # expanded once, while an inner CTE that shadows an outer name (different
@@ -383,19 +427,14 @@ def get_parents_from_model_query(
     expanded_ctes: set[int] = set()
 
     def record_or_queue(select: ast.SelectQuery | ast.SelectSetQuery, scope: CteScope) -> None:
-        """Record a view by name, or queue an anonymous query to be walked.
+        """Record a view, or queue an anonymous query to be walked.
 
         A saved-query view is itself the parent, so descending past it would report its
-        sources instead of it. A SelectQuery view carries its name; a union body doesn't,
-        so recover that one from the resolver's id map.
+        sources instead of it. The resolver knows which view a body came from.
         """
-        if isinstance(select, ast.SelectQuery):
-            view_name = select.view_name
-        else:
-            view_name = resolver.union_view_name_by_id.get(id(select))
-
-        if view_name is not None:
-            parents.add(_name_that_reads_view(lineage_database, view_name))
+        view = resolver.saved_view_of(select)
+        if view is not None:
+            parents.add(ParentReference.for_table(view.name, view))
         else:
             queries.extend(_select_queries_with_scope(select, scope))
 
@@ -448,12 +487,16 @@ def get_parents_from_model_query(
                 elif isinstance(table, ast.Field):
                     parent_name = ".".join(str(s) for s in table.chain)
                 else:
-                    raise ValueError(f"No handler for {table.__class__.__name__} in get_parents_from_model_query")
+                    raise ValueError(f"No handler for {table.__class__.__name__} in get_parent_references")
 
                 if isinstance(parent_name, str):
                     cte = _lookup_cte(parent_name, scope)
                     if cte is None:
-                        parents.add(parent_name)
+                        table_type = table.type
+                        if isinstance(table_type, ast.TableType | ast.LazyTableType):
+                            parents.add(ParentReference.for_table(parent_name, table_type.table))
+                        else:
+                            parents.add(ParentReference.for_name(parent_name, lineage_database))
                     elif id(cte) not in expanded_ctes:
                         expanded_ctes.add(id(cte))
                         if isinstance(cte.expr, ast.SelectQuery | ast.SelectSetQuery):
@@ -462,6 +505,13 @@ def get_parents_from_model_query(
                 join = join.next_join
 
     return parents
+
+
+def get_parents_from_model_query(
+    team: Team, model_name: str, model_query: str, database: Database | None = None
+) -> set[str]:
+    """The names of a query's parents. A view and a table can share one, so lineage uses `get_parent_references`."""
+    return {parent.name for parent in get_parent_references(team, model_name, model_query, database=database)}
 
 
 class UnknownParentError(Exception):

@@ -9,9 +9,6 @@ from django.utils import timezone
 import structlog
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.facade.contracts import Dependent, HasDependentsError, _nameless_refusal
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
@@ -20,7 +17,12 @@ from products.data_modeling.backend.logic.saved_query_reads import saved_query_n
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
+from products.data_modeling.backend.models.modeling import (
+    ParentKind,
+    ParentReference,
+    UnknownParentError,
+    get_parent_references,
+)
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -79,57 +81,49 @@ def _saved_query_node(team: "Team", dag: DAG, dependency_name: str, saved_query:
     return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
 
 
-def resolve_dependency_to_node(
-    dependency_name: str,
-    team: "Team",
-    database: Database,
-    dag: DAG,
-) -> Node:
+def resolve_parent_to_node(parent: ParentReference, team: "Team", dag: DAG) -> Node:
     """
-    Resolve a dependency name to a Node following HogQL's resolution priority.
+    Resolve a parent that HogQL identified to a Node.
 
     Creates TABLE nodes as needed for warehouse and PostHog system tables.
     For SavedQuery views and matviews, we only find existing nodes or error.
 
-    Resolution order:
-    1. PostHog system table (events, persons, etc.)
-    2. SavedQuery view or matview, or a TABLE node for a product's in-memory view
-    3. DataWarehouse table (postgres, stripe, etc.)
-
-    Raises UnknownParentError if the dependency cannot be resolved.
+    Raises UnknownParentError if the parent cannot be resolved.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-    # get hogql's understanding of this table
-    try:
-        table = database.get_table(dependency_name)
-    except QueryError:
+    dependency_name = parent.name
+    if parent.kind == ParentKind.UNKNOWN:
         raise UnknownParentError(dependency_name, "")
     # ephemeral view
-    if isinstance(table, HogQLSavedQuery):
-        # `database` can outlive the row it was built from, and a caller reusing one schema across a
+    if parent.kind in (ParentKind.VIEW, ParentKind.MANAGED_VIEW):
+        # The schema can outlive the row it was built from, and a caller reusing one schema across a
         # batch widens that window. A view renamed or deleted since then is an unresolvable name,
         # which `on_unresolved` gets to rule on, not a failure that costs every other dependency.
-        # `table.name` is the stored name. The dependency can spell the same view as `models.<name>`.
-        saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=table.name, deleted=False).first()
+        saved_queries = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False)
+        if parent.saved_query_id is not None:
+            saved_queries = saved_queries.filter(id=parent.saved_query_id)
+        saved_query = saved_queries.first()
         if saved_query is not None:
             return _saved_query_node(team, dag, dependency_name, saved_query)
-        if not _is_in_memory_view(table):
+        if parent.kind == ParentKind.VIEW:
             raise UnknownParentError(dependency_name, "")
         return _source_table_node(team, dag, dependency_name, MANAGED_VIEW_ORIGIN)
 
     # table in s3
-    if isinstance(table, HogQLDataWarehouseTable):
-        if table.table_id:
+    if parent.kind == ParentKind.WAREHOUSE_TABLE:
+        if parent.warehouse_table_id:
             matview_saved_query = (
-                DataWarehouseSavedQuery.objects.filter(team=team, table_id=table.table_id).exclude(deleted=True).first()
+                DataWarehouseSavedQuery.objects.filter(team=team, table_id=parent.warehouse_table_id)
+                .exclude(deleted=True)
+                .first()
             )
             # matview
             if matview_saved_query is not None:
                 return _saved_query_node(team, dag, dependency_name, matview_saved_query)
             # warehouse table
             warehouse_table = (
-                DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
+                DataWarehouseTable.objects.filter(team=team, id=parent.warehouse_table_id).exclude(deleted=True).first()
             )
         else:
             warehouse_table = (
@@ -157,10 +151,6 @@ def resolve_dependency_to_node(
         return node
     # system table
     return _source_table_node(team, dag, dependency_name, SYSTEM_TABLE_ORIGIN)
-
-
-def _is_in_memory_view(table: HogQLSavedQuery) -> bool:
-    return type(table) is not HogQLSavedQuery
 
 
 def _source_table_node(team: "Team", dag: DAG, name: str, origin: str) -> Node:
@@ -243,42 +233,41 @@ def delete_deleted_saved_query_nodes_for_teams(team_ids: Iterable[int]) -> list[
 
 def replace_incoming_edges(
     target: Node,
-    dependency_names: Iterable[str],
+    parents: Iterable[ParentReference],
     *,
     team: "Team",
     dag: DAG,
-    database: Database,
     on_unresolved: Literal["raise", "skip"],
     extra_properties: dict | None = None,
 ) -> list[str]:
-    """Sync the incoming edges of `target` with `dependency_names`, and report what did not resolve.
+    """Sync the incoming edges of `target` with `parents`, and report the names that did not resolve.
 
     The whole sync runs in one transaction behind the advisory lock `Edge.save` already takes,
     so two concurrent syncs of the same node run one after the other instead of leaving the union of
     both edge sets, and a failure part-way through leaves the previous edges in place rather than an
     edge-less node.
 
-    With `on_unresolved="skip"` a name that matches no node is collected and returned; with "raise"
-    it propagates.
+    With `on_unresolved="skip"` the name of a parent that matches no node is collected and returned;
+    with "raise" it propagates.
     """
     unresolved: list[str] = []
     with transaction.atomic():
         lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
         resolved_sources: dict[UUID, Node] = {}
-        for dependency_name in dependency_names:
+        for parent in parents:
             try:
-                source = resolve_dependency_to_node(dependency_name, team, database, dag)
+                source = resolve_parent_to_node(parent, team, dag)
             except (UnknownParentError, Node.DoesNotExist):
                 if on_unresolved == "raise":
                     raise
                 logger.warning(
                     "Skipped an unresolvable lineage dependency",
-                    dependency_name=dependency_name,
+                    dependency_name=parent.name,
                     node_id=str(target.pk),
                     team_id=team.pk,
                 )
-                unresolved.append(dependency_name)
+                unresolved.append(parent.name)
                 continue
             resolved_sources[source.pk] = source
 
@@ -351,7 +340,7 @@ def sync_saved_query_to_dag(
         database = lineage_database(team)
     # parsed before the node exists, so a query that cannot be parsed leaves nothing to undo
     model_name = saved_query.name
-    dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
+    dependencies = get_parent_references(team, model_name, model_query, database=database)
 
     # The node is created in the same transaction that rebuilds its edges, so a failure part-way
     # through leaves no node rather than an edge-less one. A concurrent sync of the same query
@@ -371,7 +360,6 @@ def sync_saved_query_to_dag(
             dependencies,
             team=team,
             dag=dag,
-            database=database,
             on_unresolved="raise",
             extra_properties=extra_properties,
         )

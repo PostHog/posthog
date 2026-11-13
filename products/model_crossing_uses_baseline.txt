@@ -932,7 +932,6 @@ warehouse_sources.SyncNewSchemasActivityInputs products.warehouse_sources.backen
 warehouse_sources.TemporaryHostResolutionError products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.WarehouseBinding products.warehouse_sources.backend.facade.hooks facade-wiring 1
 warehouse_sources.WarehouseBindingMissingError products.warehouse_sources.backend.facade.temporal facade-wiring 1
-warehouse_sources.WarehouseColumnAnnotation products.data_modeling.backend.logic.enrich_view_semantics instance-many(filter) 1
 warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.presentation.views.column_annotation drf-model-serializer 1
 warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.presentation.views.column_annotation instance-many(unscoped) 1
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder construct 2

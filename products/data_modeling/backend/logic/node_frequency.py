@@ -60,7 +60,7 @@ _TARGET_SECONDS_KEY = "target_seconds"
 _ANCHOR_MINUTES_KEY = "anchor_minutes"
 _PINNED_KEY = "pinned"
 
-# `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
+# `resolve_parent_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
 _WAREHOUSE_TABLE_ID_KEY = "warehouse_table_id"
 _ORIGIN_POSTHOG = "posthog"

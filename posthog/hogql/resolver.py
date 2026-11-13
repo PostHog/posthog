@@ -497,9 +497,9 @@ class Resolver(CloningVisitor):
         # Seed unsaved queries so a body that reads its own name is a cycle.
         self.initial_view_name = initial_view_name
         self._resolving_saved_views: set[str] = {initial_view_name} if initial_view_name else set()
-        # SelectSetQuery has no `view_name`, so track the source view by object identity.
-        self.union_view_name_by_id: dict[int, str] = {}
-        self._pending_saved_view: str | None = None
+        # Each resolved view body with its view, by object id. Keeping the body stops its id from being reused.
+        self._expanded_views: dict[int, tuple[ast.SelectQuery | ast.SelectSetQuery, SavedQuery]] = {}
+        self._pending_saved_view: SavedQuery | None = None
         self.swap_flag_calls_in_views = False
         # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
         # CTE's body can change the swap's decision, so the key holds each CTE's text. The text stays the same when
@@ -1469,6 +1469,11 @@ class Resolver(CloningVisitor):
             self.join_sources.record_copied_tree(copy, node)
         return copy
 
+    def saved_view_of(self, body: ast.SelectQuery | ast.SelectSetQuery) -> SavedQuery | None:
+        """The saved view that `body` is the resolved definition of, or None for a query the user wrote."""
+        expanded = self._expanded_views.get(id(body))
+        return expanded[1] if expanded is not None else None
+
     def _check_saved_view_expansion(self, view_name: str) -> None:
         """Refuses to expand a view that is already being resolved, or one nested past the hard depth limit."""
         if view_name in self._resolving_saved_views:
@@ -1639,7 +1644,7 @@ class Resolver(CloningVisitor):
                     self.join_sources.record_added(node.table)
                 node.alias = table_alias or database_table.name
                 previous_pending = self._pending_saved_view
-                self._pending_saved_view = database_table.name
+                self._pending_saved_view = database_table
                 try:
                     return self.visit(node)
                 finally:
@@ -1781,8 +1786,9 @@ class Resolver(CloningVisitor):
             return node
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectSetQuery):
-            view_name = self._pending_saved_view
+            view = self._pending_saved_view
             self._pending_saved_view = None
+            view_name = view.name if view is not None else None
             node = self._copy(node)
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
@@ -1803,8 +1809,8 @@ class Resolver(CloningVisitor):
                 if view_name is not None:
                     self.current_view_depth -= 1
                     self._resolving_saved_views.remove(view_name)
-            if view_name is not None and isinstance(node.table, ast.SelectSetQuery):
-                self.union_view_name_by_id[id(node.table)] = view_name
+            if view is not None:
+                self._expanded_views[id(node.table)] = (node.table, view)
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:

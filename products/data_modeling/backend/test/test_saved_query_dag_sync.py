@@ -320,7 +320,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         }
         saved_query.save()
         with mock.patch(
-            "products.data_modeling.backend.logic.saved_query_dag_sync.resolve_dependency_to_node",
+            "products.data_modeling.backend.logic.saved_query_dag_sync.resolve_parent_to_node",
             side_effect=RuntimeError("postgres went away"),
         ):
             with self.assertRaises(RuntimeError):
@@ -363,11 +363,14 @@ class TestSyncSavedQueryToDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("read_under_models_root", "models.revenue", True),
-            ("the_bare_name_still_reads_the_table", "revenue", False),
+            ("read_under_models_root", "models.revenue", ["model"]),
+            ("the_bare_name_still_reads_the_table", "revenue", ["table"]),
+            ("both_read_in_one_query", "models.revenue AS model CROSS JOIN revenue AS synced", ["model", "table"]),
         ]
     )
-    def test_a_model_parent_survives_a_same_named_warehouse_table(self, _name: str, reference: str, reads_model: bool):
+    def test_a_model_parent_survives_a_same_named_warehouse_table(
+        self, _name: str, from_clause: str, parents: list[str]
+    ):
         model = DataWarehouseSavedQuery.objects.create(
             name="revenue",
             team=self.team,
@@ -380,14 +383,14 @@ class TestSyncSavedQueryToDag(BaseTest):
         child = DataWarehouseSavedQuery.objects.create(
             name="revenue_by_event",
             team=self.team,
-            query={"query": f"SELECT * FROM {reference}", "kind": "HogQLQuery"},
+            query={"query": f"SELECT 1 FROM {from_clause}", "kind": "HogQLQuery"},
         )
 
         child_node = sync_saved_query_to_dag(child)
 
-        sources = [(edge.source.type, edge.source.saved_query_id) for edge in Edge.objects.filter(target=child_node)]
-        expected_source = (NodeType.VIEW, model.id) if reads_model else (NodeType.TABLE, None)
-        self.assertEqual(sources, [expected_source])
+        sources = {(edge.source.type, edge.source.saved_query_id) for edge in Edge.objects.filter(target=child_node)}
+        source_of = {"model": (NodeType.VIEW, model.id), "table": (NodeType.TABLE, None)}
+        self.assertEqual(sources, {source_of[parent] for parent in parents})
 
     @parameterized.expand(
         [
