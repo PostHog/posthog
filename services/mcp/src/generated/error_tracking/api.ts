@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4927,33 +4927,6 @@ export const ErrorTrackingExternalReferencesLinkIssueCreateBody = () => zod.obje
         .record(zod.string(), zod.unknown())
         .describe(
             "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue."
-        ),
-})
-
-/**
- * Search a connected provider for existing issues to link an error to.
- */
-export const ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const errorTrackingExternalReferencesSearchIssuesRetrieveQuerySearchDefault = ``
-
-export const ErrorTrackingExternalReferencesSearchIssuesRetrieveQueryParams = () => zod.object({
-    integration_id: zod.number().describe('ID of the connected integration to search issues in.'),
-    repository: zod
-        .string()
-        .optional()
-        .describe('Repository to search within. Required for GitHub, ignored by other providers.'),
-    search: zod
-        .string()
-        .default(errorTrackingExternalReferencesSearchIssuesRetrieveQuerySearchDefault)
-        .describe(
-            'Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.'
         ),
 })
 

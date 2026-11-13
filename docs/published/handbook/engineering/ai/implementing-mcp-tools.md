@@ -68,6 +68,10 @@ all edits, rather than after every tool call. The tool can save the artifact, bu
 The reasoning: agents are better at composing simple tools than navigating complex ones,
 and simple tools are reusable across many workflows.
 
+For Error tracking, use `error-tracking-external-references-link` to link an existing provider issue or GitHub pull request.
+Find the item with the provider's MCP tools, or ask the user for its identifier. PostHog's MCP does not expose provider issue search.
+Use `integrations-list` to select the connected PostHog integration, and read `external_issues` from `query-error-tracking-issue` to check existing links.
+
 For lookup tools, return an explicit normal result when absence is an expected answer (for example,
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.

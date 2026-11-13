@@ -5686,21 +5686,6 @@
             "readOnlyHint": false
         }
     },
-    "error-tracking-external-issues-search": {
-        "description": "Search a connected GitHub, GitLab, Linear, or Jira integration for existing issues that you can link to a PostHog error tracking issue. Provide `integration_id` and optional `search` text that matches issue titles or identifiers. Leave `search` blank to get recent issues. GitHub also requires `repository`, the bare repository name without the owner, and returns issues only, not pull requests. Each result has an `external_context` object. Send it unchanged to error-tracking-external-references-link. Use integrations-list first to find the `integration_id` and kind, and integrations-github-repos-retrieve to find GitHub repository names.",
-        "category": "Error tracking",
-        "feature": "error_tracking",
-        "summary": "Search external issues to link",
-        "title": "Search external issues to link",
-        "required_scopes": ["error_tracking:read", "integration:read"],
-        "api_operations": ["GET /api/projects/{project_id}/error_tracking/external_references/search_issues/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "error-tracking-external-references-create": {
         "description": "Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking issue as an external reference. To link an issue or pull request that already exists, use error-tracking-external-references-link instead. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples: Jira config {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; Linear config {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; GitHub config {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}; GitLab config {\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Every kind also accepts an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. Use integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific IDs.",
         "category": "Error tracking",
@@ -5717,7 +5702,7 @@
         }
     },
     "error-tracking-external-references-link": {
-        "description": "Link an existing GitHub issue or pull request, GitLab issue, Linear issue, or Jira issue to a PostHog error tracking issue as an external reference. This tool does not create a provider issue. To create one, use error-tracking-external-references-create. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and an `external_context` object that identifies the existing item. Required `external_context` keys by integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}, the issue key such as ENG-123; jira -> {key}. For GitHub, `repository` is the bare repository name without the owner. To link a GitHub pull request, add \"resource_type\":\"pull_request\", for example {\"repository\":\"posthog\",\"number\":123,\"resource_type\":\"pull_request\"}. Every kind also accepts an optional `title` to show for the link. To find an issue, call error-tracking-external-issues-search and send the `external_context` of the result unchanged. Call query-error-tracking-issue first and read `external_issues` to see the work that is already linked. Linking the same item again returns the existing link. A link cannot be removed after you create it, so confirm the item with the user when it is not clear. For Linear, linking also attaches a link to the PostHog issue to the Linear issue.",
+        "description": "Link an existing GitHub issue or pull request, GitLab issue, Linear issue, or Jira issue to a PostHog error tracking issue as an external reference. This tool does not create a provider issue. To create one, use error-tracking-external-references-create. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and an `external_context` object that identifies the existing item. Required `external_context` keys by integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}, the issue key such as ENG-123; jira -> {key}. For GitHub, `repository` is the bare repository name without the owner. To link a GitHub pull request, add \"resource_type\":\"pull_request\", for example {\"repository\":\"posthog\",\"number\":123,\"resource_type\":\"pull_request\"}. Every kind also accepts an optional `title` to show for the link. Use the provider's MCP tools to find an existing issue or pull request, or ask the user for its identifier. Use integrations-list to find the `integration_id` and kind. Call query-error-tracking-issue first and read `external_issues` to see the work that is already linked. Linking the same item again returns the existing link. A link cannot be removed after you create it, so confirm the item with the user when it is not clear. For Linear, linking also attaches a link to the PostHog issue to the Linear issue.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Link existing external issue or pull request",
