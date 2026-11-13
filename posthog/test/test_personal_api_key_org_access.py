@@ -102,6 +102,12 @@ class TestGetOrganizationPersonalAPIKeys(BaseTest):
                 has_security_settings=False,
                 expected_listed=True,
             ),
+            param(
+                "member_flag_key_when_org_blocks_member_keys",
+                members_can_use_keys=False,
+                scopes=("feature_flag:read",),
+                expected_listed=True,
+            ),
         ]
     )
     def test_lists_only_keys_that_can_authenticate(

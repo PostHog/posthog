@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { fullName } from 'lib/utils/strings'
 import { TagList } from 'scenes/settings/user/PersonalAPIKeys'
@@ -10,6 +11,7 @@ import { ScopeGroupSummary } from 'scenes/settings/user/scopes/ScopeGroupSummary
 
 import type { OrganizationPersonalAPIKeyApi } from 'products/platform_features/frontend/generated/api.schemas'
 
+import { openRevokeKeyDialog, openRollKeyDialog } from './organizationPersonalAPIKeyDialogs'
 import { organizationPersonalAPIKeysLogic } from './organizationPersonalAPIKeysLogic'
 
 function AccessScope({ accessScope }: { accessScope: OrganizationPersonalAPIKeyApi['access_scope'] }): JSX.Element {
@@ -27,9 +29,12 @@ function ownerLabel(owner: OrganizationPersonalAPIKeyApi['owner']): string {
 }
 
 export function OrganizationPersonalAPIKeysTable(): JSX.Element {
-    const { filteredKeys, keysLoading, search } = useValues(organizationPersonalAPIKeysLogic)
-    const { setSearch } = useActions(organizationPersonalAPIKeysLogic)
-
+    const { filteredKeys, keysLoading, search, keyActionInFlight } = useValues(organizationPersonalAPIKeysLogic)
+    const { setSearch, rollKey, revokeKey } = useActions(organizationPersonalAPIKeysLogic)
+    // A finished action clears its in-flight marker before its reload of the list ends. The loading check keeps the
+    // buttons disabled on the stale list until the reload ends.
+    const actionDisabledReason =
+        keyActionInFlight !== null ? 'Wait for the current action to finish' : keysLoading ? 'Loading keys' : null
     const columns: LemonTableColumns<OrganizationPersonalAPIKeyApi> = [
         {
             title: 'Owner',
@@ -71,24 +76,60 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
             sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
             render: (_, key) => <TZLabel time={key.created_at} />,
         },
+        {
+            key: 'actions',
+            width: 0,
+            render: (_, key) => {
+                const running = keyActionInFlight === key.id
+                return (
+                    <More
+                        loading={running}
+                        disabledReason={running ? null : actionDisabledReason}
+                        aria-label={`Actions for key ${key.mask_value}`}
+                        data-attr="organization-personal-api-key-actions"
+                        overlay={
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    onClick={() => openRollKeyDialog(key, ownerLabel(key.owner), () => rollKey(key.id))}
+                                    data-attr="organization-personal-api-key-roll"
+                                >
+                                    Roll key
+                                </LemonButton>
+                                <LemonButton
+                                    fullWidth
+                                    status="danger"
+                                    onClick={() =>
+                                        openRevokeKeyDialog(key, ownerLabel(key.owner), () => revokeKey(key.id))
+                                    }
+                                    data-attr="organization-personal-api-key-revoke"
+                                >
+                                    Revoke key
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     return (
         <>
-            <div className="mb-2">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
                 <LemonInput
                     type="search"
                     placeholder="Search by name, email, or scope"
                     value={search}
                     onChange={setSearch}
-                    className="max-w-80"
+                    className="grow min-w-60 max-w-80"
                 />
             </div>
             <LemonTable
                 dataSource={filteredKeys}
                 loading={keysLoading}
                 columns={columns}
-                rowKey={(key) => `${key.owner.email}-${key.mask_value}-${key.created_at}`}
+                rowKey="id"
                 pagination={{ pageSize: 25 }}
                 emptyState={
                     search.trim()
