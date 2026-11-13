@@ -257,7 +257,8 @@ def test_persons_write_filtered_keys_and_handle_each_leader_answer(
             fake.fail_updates(team_id, 3, grpc.StatusCode.INVALID_ARGUMENT)
             fake.fail_updates(team_id, 4, grpc.StatusCode.FAILED_PRECONDITION, grpc.StatusCode.RESOURCE_EXHAUSTED)
             # The merged person's events now belong to another person, found by the event's distinct ID.
-            fake.add_person(team_id=team_id, person_id=5, uuid=str(uuid4()), distinct_ids=["user-persons_merged"])
+            absorber_uuid = str(uuid4())
+            fake.add_person(team_id=team_id, person_id=5, uuid=absorber_uuid, distinct_ids=["user-persons_merged"])
 
             results = [
                 run_persons(cluster, staging_run_id, dry_run=False, repair_latest_geoip=True, retry_backoff_seconds=0)
@@ -270,12 +271,15 @@ def test_persons_write_filtered_keys_and_handle_each_leader_answer(
             stored = json.loads(fake.stored_person(team_id, str(events["filtered_only"].person_uuid)).properties)
             assert stored["$geoip_latitude"] == located["$geoip_latitude"]
             assert {name: first[name] for name in ("written", "skipped_not_found", "skipped_invalid", "retried")} == {
-                "written": 2,
+                "written": 3,
                 "skipped_not_found": 1,
                 "skipped_invalid": 1,
                 "retried": 2,
             }
             assert (first["merged"], first["not_found"]) == (1, 1)
+            absorber = json.loads(fake.stored_person(team_id, absorber_uuid).properties)
+            assert absorber["$initial_geoip_country_code"] == "US"
+            assert "$geoip_country_code" not in absorber
             # The forced write landed, so the second run leaves that person out. The two persons the leader
             # rejected stay in this fake, so the second run plans them again.
             assert set(written_persons(cluster, persons_run_ids[1])) == {2, 3}
@@ -341,5 +345,61 @@ def test_persons_keep_a_location_set_between_the_plan_and_the_write(
             assert stored["$geoip_country_code"] == "DE"
             assert stored["$initial_geoip_country_code"] == "US"
             assert output_metadata(result, "repair_geoip_persons")["latest_changed_before_write"] == 1
+    finally:
+        drop_tables(cluster, staging_run_id, persons_run_ids)
+
+
+@pytest.mark.django_db
+def test_persons_give_a_merged_person_the_initial_geoip_of_its_earliest_staged_event(
+    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path
+) -> None:
+    team_id = geoip_teams.with_geoip
+    # nosemgrep: test-datetime-now-without-freeze (every event time and the window are offsets from this one reading)
+    now = datetime.now(UTC).replace(microsecond=0)
+    absorber, absorbed = uuid4(), uuid4()
+    seed(
+        cluster,
+        now,
+        [
+            # The test DB has only a continent for this address.
+            SeededEvent(
+                label="persons_absorbed",
+                team_id=team_id,
+                properties={"$ip": "2a02:d500::1"},
+                written_minutes_ago=40,
+                person_properties={},
+                person_uuid=absorbed,
+            ),
+            SeededEvent(
+                label="persons_absorber",
+                team_id=team_id,
+                properties={"$ip": PUBLIC_IP},
+                written_minutes_ago=20,
+                person_properties={},
+                person_uuid=absorber,
+            ),
+        ],
+    )
+    staging_run_id = run_staging(cluster, now, tmp_path).dagster_run.run_id
+    persons_run_ids: list[str] = []
+    try:
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=team_id,
+                person_id=1,
+                uuid=str(absorber),
+                properties={"email": "a@example.com"},
+                distinct_ids=["user-persons_absorber", "user-persons_absorbed"],
+            )
+
+            result = run_persons(cluster, staging_run_id, dry_run=False, repair_latest_geoip=True)
+            persons_run_ids.append(result.dagster_run.run_id)
+
+            assert result.success
+            stored = json.loads(fake.stored_person(team_id, str(absorber)).properties)
+            assert stored["$initial_geoip_continent_code"] == "EU"
+            assert stored["$initial_geoip_country_code"] is None
+            assert "$geoip_continent_code" not in stored
+            assert output_metadata(result, "repair_geoip_persons")["merged"] == 1
     finally:
         drop_tables(cluster, staging_run_id, persons_run_ids)

@@ -13,8 +13,9 @@ again and leaves the `$set` out when its `$geoip_*` changed since the check. The
 so an event that sets `$geoip_*` between that read and the write is still overwritten.
 
 A person missing under the staged person UUID was deleted, or merged into another person since the
-event. The job looks such a person up by the event's distinct ID, counts it as merged or not found, and
-writes nothing for it.
+event. The job looks the event's distinct ID up, and gives the person that holds it now the `$set_once`
+of the earliest staged event among its own and the merged ones. It sets no `$geoip_*` on such a person,
+because the merged events no longer tell where it was last.
 
 Every run logs each person it writes, or would write in a dry run, to a table of its own: the keys, the
 values sent, and the values those keys held before. A rollback reads that table.
@@ -437,6 +438,8 @@ class PersonsRepair:
             by_team.setdefault(event.team_id, []).append(event)
         repairs: list[PersonRepair] = []
         for team_id, team_events in by_team.items():
+            # Each current person with the staged events that belong to it now.
+            current: dict[str, tuple[Any, list[StagedPersonEvents]]] = {}
             missing: list[StagedPersonEvents] = []
             for batch in _chunks(team_events, _PERSONS_PER_READ):
                 persons = self._persons_by_uuid(team_id, [event.person_uuid for event in batch])
@@ -444,14 +447,29 @@ class PersonsRepair:
                     person = persons.get(event.person_uuid)
                     if person is None:
                         missing.append(event)
-                        continue
-                    repair_latest = self.config.repair_latest_geoip and (team_id, event.person_uuid) not in later_geoip
-                    repairs.append(
-                        plan_person_repair(
-                            event, person.id, _json_object(person.properties), repair_latest=repair_latest
-                        )
+                    else:
+                        current.setdefault(person.uuid, (person, []))[1].append(event)
+            merged_into: set[str] = set()
+            for event, person in self._merged_persons(team_id, missing, totals):
+                current.setdefault(person.uuid, (person, []))[1].append(event)
+                merged_into.add(person.uuid)
+            for person_uuid, (person, person_events) in current.items():
+                earliest = min(person_events, key=lambda event: event.first_timestamp)
+                # A person that absorbed another one also holds that person's events, so the staged `$set`
+                # no longer tells where it was last.
+                repair_latest = (
+                    self.config.repair_latest_geoip
+                    and person_uuid not in merged_into
+                    and (team_id, person_uuid) not in later_geoip
+                )
+                repairs.append(
+                    plan_person_repair(
+                        dataclasses.replace(earliest, person_uuid=person_uuid),
+                        person.id,
+                        _json_object(person.properties),
+                        repair_latest=repair_latest,
                     )
-            self._count_missing(team_id, missing, totals)
+                )
         return repairs
 
     def _persons_by_uuid(self, team_id: int, uuids: Sequence[str], *, strong: bool = False) -> dict[str, Any]:
@@ -460,18 +478,25 @@ class PersonsRepair:
             request.read_options.CopyFrom(ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG))
         return {person.uuid: person for person in self.client.get_persons_by_uuids(request).persons}
 
-    def _count_missing(self, team_id: int, missing: Sequence[StagedPersonEvents], totals: Counter[str]) -> None:
-        """Count the persons gone from the staged UUID: merged when another person holds the event's distinct ID."""
+    def _merged_persons(
+        self, team_id: int, missing: Sequence[StagedPersonEvents], totals: Counter[str]
+    ) -> list[tuple[StagedPersonEvents, Any]]:
+        """The person that holds each missing person's distinct ID now. One that no person holds was deleted."""
+        merged: list[tuple[StagedPersonEvents, Any]] = []
         for batch in _chunks(missing, _PERSONS_PER_READ):
             response = self.client.get_persons_by_distinct_ids_in_team(
                 GetPersonsByDistinctIdsInTeamRequest(
                     team_id=team_id, distinct_ids=[event.distinct_id for event in batch]
                 )
             )
-            held = {result.distinct_id for result in response.results if result.HasField("person")}
-            merged = sum(event.distinct_id in held for event in batch)
-            totals["merged"] += merged
-            totals["not_found"] += len(batch) - merged
+            holders = {result.distinct_id: result.person for result in response.results if result.HasField("person")}
+            for event in batch:
+                if event.distinct_id in holders:
+                    merged.append((event, holders[event.distinct_id]))
+                else:
+                    totals["not_found"] += 1
+        totals["merged"] += len(merged)
+        return merged
 
     def _write(self, repairs: Sequence[PersonRepair], totals: Counter[str]) -> None:
         interval = 1.0 / self.config.max_writes_per_second
