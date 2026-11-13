@@ -1,7 +1,6 @@
 import {
     API_SCOPES,
     clampScopeLevel,
-    getScopeDescription,
     groupScopeRows,
     scopeRowWarning,
     type ScopeAccessLevel,
@@ -14,14 +13,10 @@ export const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
 
 export type OAuthScopeRow = ScopePickerRow & {
-    /** Full sentence description at the granted level, for the locked (checkmark) list. */
-    description: string
     /** Required floor — the grant can never go below this. 'none' when not required. */
     minLevel: ScopeAccessLevel
     /** Requested ceiling — the grant can never go above what the client asked for. */
     maxLevel: Exclude<ScopeAccessLevel, 'none'>
-    /** True when minLevel === maxLevel: nothing to choose, rendered as a locked checkmark row. */
-    locked: boolean
     /** True when the floor comes from an earlier grant to this app rather than the app's required scopes. */
     alreadyGranted: boolean
 }
@@ -55,10 +50,11 @@ const oauthDisabledReasons = (
 })
 
 const WILDCARD_LABEL = 'All PostHog data'
+const WILDCARD_GROUP_LABEL = 'Full access'
 
-// A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
-// headers only help when the list is long.
-export const SCOPE_GROUPING_MIN_ROWS = 10
+// A request with this many rows or fewer opens every group, so the whole list shows at once.
+// A longer one starts with every group closed, so each header reads as a summary.
+export const SCOPE_GROUPS_OPEN_MAX_ROWS = 8
 
 // Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
 // behind) — derive a readable label from the raw key.
@@ -86,11 +82,12 @@ export const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, 
     return levels
 }
 
-export type ScopeAccessSelections = { bulk: ScopeAccessLevel | null; overrides: Record<string, ScopeAccessLevel> }
+// The level the user picked per scope object. An object with no pick sits at its requested ceiling.
+export type ScopeAccessSelections = Record<string, ScopeAccessLevel>
 
 // One row per scope object. The requested set caps the ceiling, the required set
 // sets the floor, and the user's selection is clamped between the two, so no pick
-// (including bulk actions) can grant more than requested or less than required.
+// (including a group or list-wide pick) can grant more than requested or less than required.
 export function buildOAuthScopeRows(
     consentResourceScopes: string[],
     scopeAccessSelections: ScopeAccessSelections,
@@ -106,14 +103,12 @@ export function buildOAuthScopeRows(
         const alreadyGranted = grantedLevel !== undefined && (grantedLevel === 'write' || requiredLevel !== 'write')
         const minLevel: ScopeAccessLevel = (alreadyGranted ? grantedLevel : requiredLevel) ?? 'none'
         const disabledReasons = oauthDisabledReasons(minLevel, maxLevel, appName, alreadyGranted)
-        const selected = scopeAccessSelections.overrides[key] ?? scopeAccessSelections.bulk ?? maxLevel
+        const selected = scopeAccessSelections[key] ?? maxLevel
         const value = clampScopeLevel({ key, label: key, value: selected, disabledReasons }, selected)
         const apiScope = key === '*' ? undefined : API_SCOPES.find((s) => s.key === key)
-        const grantedScope = scope === '*' && value === 'write' ? '*' : `${key}:${value}`
         return {
             key,
             label: key === '*' ? WILDCARD_LABEL : (apiScope?.objectName ?? humanizeScopeKey(key)),
-            description: getScopeDescription(grantedScope) ?? grantedScope,
             info: apiScope?.info,
             warning: key === '*' ? undefined : scopeRowWarning(apiScope, key, value),
             muted: value === 'none',
@@ -121,7 +116,6 @@ export function buildOAuthScopeRows(
             minLevel,
             maxLevel,
             value,
-            locked: minLevel === maxLevel,
             alreadyGranted,
         }
     })
@@ -153,15 +147,32 @@ export function grantedResourceScopes(
     })
 }
 
-// What the consent list shows for the identity scopes a client asked for, such as `openid`.
-export function identityScopeDescriptions(scopes: string[]): string[] {
-    return scopes
-        .filter((scope) => IDENTITY_SCOPES.includes(scope))
-        .map(getScopeDescription)
-        .filter((description): description is string => !!description)
+const IDENTITY_SCOPE_NOUNS: Record<string, string> = {
+    openid: 'user ID',
+    email: 'email address',
+    profile: 'basic account information',
 }
 
-// The adjustable rows in groups, or null when the list is short enough to show flat.
-export function scopeGroupsToShow(adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] | null {
-    return adjustableScopeRows.length > SCOPE_GROUPING_MIN_ROWS ? groupScopeRows(adjustableScopeRows) : null
+// One sentence for the identity scopes a client asked for, such as `openid`. They have no levels to
+// pick, so the consent list states them instead of giving them a row.
+export function identityScopeSummary(scopes: string[], appName: string): string | null {
+    const nouns = scopes.flatMap((scope) => (IDENTITY_SCOPE_NOUNS[scope] ? [IDENTITY_SCOPE_NOUNS[scope]] : []))
+    if (nouns.length === 0) {
+        return null
+    }
+    const list = nouns.length === 1 ? nouns[0] : `${nouns.slice(0, -1).join(', ')} and ${nouns[nouns.length - 1]}`
+    return `${appName} can also see your ${list}.`
+}
+
+// The rows in product-area groups. `*` is not in any product area, so it gets a group of its own.
+export function oauthScopeGroups(rows: OAuthScopeRow[]): OAuthScopeGroup[] {
+    const wildcardRows = rows.filter((row) => row.key === '*')
+    return [
+        ...(wildcardRows.length > 0 ? [{ label: WILDCARD_GROUP_LABEL, rows: wildcardRows }] : []),
+        ...groupScopeRows(rows.filter((row) => row.key !== '*')),
+    ]
+}
+
+export function scopeGroupsStartOpen(groups: OAuthScopeGroup[]): boolean {
+    return groups.reduce((count, group) => count + group.rows.length, 0) <= SCOPE_GROUPS_OPEN_MAX_ROWS
 }
