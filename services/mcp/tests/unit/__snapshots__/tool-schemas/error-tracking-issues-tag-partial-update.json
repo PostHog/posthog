@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "applied": {
+            "description": "True applies the tag. False removes it and stops automatic taggers from applying it again.",
+            "type": "boolean"
+        },
+        "id": {
+            "type": "string"
+        },
+        "key": {
+            "description": "Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["id", "key", "applied"],
+    "type": "object"
+}

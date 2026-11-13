@@ -132,6 +132,17 @@ export function statusOf({ admissions, minOffered, units, down, convergence, inv
     if (crashes.length === 0 && failures.length === 0 && unobserved.length > 0) {
         return { status: 'invalid', statusReason: unobserved.join('; ') }
     }
+    const unreleased = timeline.filter(
+        ({ appliedAt, releasedAt }) => appliedAt !== undefined && releasedAt === undefined
+    )
+    if (unreleased.length > 0) {
+        return {
+            status: 'invalid',
+            statusReason: unreleased
+                .map(({ valve, target, error }) => `${valve} on ${target} was not released: ${error ?? 'no record'}`)
+                .join('; '),
+        }
+    }
     const reasons = [...crashes, ...unobserved, ...failures]
     return reasons.length > 0
         ? { status: 'failed', statusReason: reasons.join('; ') }

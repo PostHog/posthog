@@ -29,6 +29,7 @@ import {
     deleteUnfinishedJobs,
     downServices,
     forgetSesBucket,
+    groupLag,
     groupMembers,
     missingTemplates,
     postgresServersOf,
@@ -51,6 +52,7 @@ export interface Environment {
     actuate(action: Action): Promise<Actuation>
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
+    groupLag(group: string): Promise<number>
     down(): Promise<void>
 }
 
@@ -190,6 +192,8 @@ export function createEnvironment({
 
         exits: (): RoleExit[] => supervisor.exits(),
 
+        groupLag: (group) => groupLag(group, docker),
+
         down: stop,
     }
 
@@ -304,6 +308,7 @@ export function createEnvironment({
             port: EDGE_PORT,
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),
+            feedbackUrl: `http://127.0.0.1:${portOf({ role: 'cdp-api', replica: 0 })}/public/m/ses_webhook`,
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs

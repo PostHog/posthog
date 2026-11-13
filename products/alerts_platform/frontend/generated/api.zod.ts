@@ -136,6 +136,15 @@ export const PlatformAlertRoutesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * List the routes, and their receivers, that an alert with these labels sends through, in the order delivery reads them. Changes nothing.
+ */
+export const PlatformAlertRoutesMatchingCreateBody = /* @__PURE__ */ zod.object({
+    labels: zod
+        .record(zod.string(), zod.string())
+        .describe('The alert\'s labels, by name, such as {\"team\": \"checkout\"}. Unsaved labels work too.'),
+})
+
+/**
  * Create an alert on the platform. The request body depends on source_kind, which picks the source product and the shape of source_config. The alert notifies nobody until a destination is added.
  * @summary Create an alert
  */

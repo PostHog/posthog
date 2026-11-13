@@ -126,6 +126,17 @@ describe('statusOf', () => {
             `role.kill on ${EMAIL_WORKER} was not observed: never applied; at_least_once failed: run-1 email: lost`,
         ],
         [
+            'a valve was observed but not released',
+            {
+                timeline: [
+                    { ...killed(EMAIL_WORKER, 10), valve: 'ses.throttle', target: 'ses', error: 'edge answered 500' },
+                ],
+                invariants: [BROKEN],
+            },
+            'invalid',
+            'ses.throttle on ses was not released: edge answered 500',
+        ],
+        [
             'a role crashed on its own, so the valve on it found nothing running',
             {
                 timeline: [
