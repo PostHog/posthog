@@ -72,7 +72,7 @@ export interface DateFilterProps {
     onOpenChange?: (open: boolean) => void
 }
 
-interface RawDateFilterProps extends DateFilterProps {
+export interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
     dateTo?: string | null | dayjs.Dayjs
     max?: number | null
