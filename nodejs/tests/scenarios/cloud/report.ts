@@ -35,7 +35,13 @@ const EXCLUDED = ['data transfer', 'S3 requests', 'Enhanced Monitoring log inges
 
 const HostScorecard = z.object({
     timeline: z.array(z.object({ valve: z.string(), requestedAt: z.string() }).passthrough()),
-    event: z.object({ status: z.enum(['passed', 'failed', 'invalid']) }).catchall(z.unknown()),
+    event: z
+        .object({
+            status: z.enum(['passed', 'failed', 'invalid']),
+            started_at: z.iso.datetime(),
+            ended_at: z.iso.datetime(),
+        })
+        .catchall(z.unknown()),
 })
 
 const MetricData = z.object({
@@ -96,7 +102,7 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
         })
     }
     const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
-    const ends = [...minutes.map(({ at }) => at), ...expected.filter(Number.isFinite).map(minuteOf)]
+    const ends = [...minutes.map(({ at }) => at), ...expected.map(minuteOf)]
     const gaps: number[] = []
     for (let at = Math.min(...ends); at <= Math.max(...ends); at += MINUTE_MS) {
         const minute = byMinute.get(at)
@@ -166,7 +172,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<str
         return { scalars, reason: 'no reader capacity before T0' }
     }
     if (after.length === 0) {
-        return { scalars, reason: 'no reader capacity from T0 on' }
+        return { scalars, reason: 'no measured reader maximum from T0 on' }
     }
     const above = before.filter(({ max }) => max > MIN_ACU)
     return above.length === 0
@@ -237,7 +243,7 @@ export async function report(
             `scn-${runId}-reader`,
             from,
             to,
-            [t0, host?.event.ended_at].map((at) => Date.parse(String(at)))
+            host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
         )
     )
     const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0)) : undefined

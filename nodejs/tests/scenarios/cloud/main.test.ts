@@ -128,6 +128,14 @@ describe('cloud controller', () => {
         return api.captured[0].properties
     }
 
+    const cardOf = (runId: string): { startedAt: number; endedAt: number } => {
+        const key = [...cloud.objects.keys()].find(
+            (key) => key.startsWith(`runs/${runId}/evidence/run/`) && key.endsWith('/scorecard.json')
+        )!
+        const { event } = parseJSON(cloud.objects.get(key)!) as { event: { started_at: string; ended_at: string } }
+        return { startedAt: Date.parse(event.started_at), endedAt: Date.parse(event.ended_at) }
+    }
+
     beforeAll(async () => {
         api = await startFakeProjectApi()
     })
@@ -1295,7 +1303,7 @@ describe('cloud controller', () => {
             { readerAcu: minutes(-3, -1, 1, 1) },
             () => undefined,
             'invalid',
-            'no reader capacity from T0 on',
+            'no measured reader maximum from T0 on',
         ],
         [
             'no capacity before T0',
@@ -1360,13 +1368,7 @@ describe('cloud controller', () => {
         const hours = (Date.parse(String(properties.ended_at)) - Date.parse(createdAt)) / HOUR_MS
         const t0 = Date.parse(String(properties.t0_at))
         const minuteAt = (offset: number): string => new Date(t0 - (t0 % 60_000) + offset * 60_000).toISOString()
-        const runnerKey = [...cloud.objects.keys()].find(
-            (key) => key.startsWith(`runs/${runId}/evidence/run/`) && key.endsWith('/scorecard.json')
-        )!
-        const cardEnd = Date.parse(
-            (parseJSON(cloud.objects.get(runnerKey)!) as { event: { ended_at: string } }).event.ended_at
-        )
-        const cardEndOffset = Math.floor((cardEnd - (t0 - (t0 % 60_000))) / 60_000)
+        const cardEndOffset = Math.floor((cardOf(runId).endedAt - (t0 - (t0 % 60_000))) / 60_000)
         const gapOffsets = [10, 11, ...Array.from({ length: cardEndOffset - 29 }, (_, i) => 30 + i)]
         expect(properties).toMatchObject({
             run_id: runId,
@@ -1409,15 +1411,16 @@ describe('cloud controller', () => {
         expect(kept.sort()).toEqual([...Array(3).fill(`scn-${runId}-reader`), ...Array(3).fill(`scn-${runId}-writer`)])
     })
 
-    it('counts every minute from T0 on as missing when CloudWatch returns no reader capacity', async () => {
+    it('counts every minute of the card as missing when CloudWatch returns no reader capacity', async () => {
         const { controller } = prepare({ cloud: { readerAcu: [] }, env: api.credentials })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
-        const t0 = Date.parse(String(published().t0_at))
+        const { startedAt, endedAt } = cardOf(leasedRunId())
+        const minuteIso = (at: number): string => new Date(at - (at % 60_000)).toISOString()
         const gaps = published().acu_gaps as string[]
-        expect(published().status_reason).toContain('no reader capacity before T0')
-        expect(gaps[0]).toBe(new Date(t0 - (t0 % 60_000)).toISOString())
+        expect(gaps[0]).toBe(minuteIso(startedAt))
+        expect(gaps.at(-1)).toBe(minuteIso(endedAt))
         expect(published().cost_estimate_items).toContainEqual(
             expect.stringContaining(`reader, 0.00 ACU-hours, ${gaps.length} minutes missing`)
         )
