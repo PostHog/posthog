@@ -322,14 +322,14 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         rows = self._rows(self._run([MCPDashboardSection.TOOL_ROWS]), MCPDashboardSection.TOOL_ROWS)
 
         ranked: dict[str, list[str]] = {}
-        for ranking, tool, *_ in rows:
+        for tool, *_, ranking in rows:
             ranked.setdefault(ranking, []).append(tool)
         assert ranked == {
             "calls": ["busy_tool", "wrapped_tool", "flaky_tool", "slow_tool", "rare_tool"],
             "error_rate": ["flaky_tool", "busy_tool", "slow_tool", "wrapped_tool"],
             "p95": ["slow_tool", "wrapped_tool", "flaky_tool", "busy_tool"],
         }
-        assert ["flaky_tool", 20, 10, 50.0, 100.0] in [row[1:] for row in rows]
+        assert ["flaky_tool", 20, 10, 50.0, 100.0] in [row[:5] for row in rows]
 
     @parameterized.expand([(section.value, section, node, bucketed) for section, node, bucketed in BROWSER_TYPED])
     def test_typed_section_matches_the_browser_query(
@@ -619,7 +619,7 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         cached = self._run(sections, execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         forced = self._run(sections, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        assert self._rows(forced, tools)[0][2] == self._rows(cached, tools)[0][2] + 1
+        assert self._rows(forced, tools)[0][1] == self._rows(cached, tools)[0][1] + 1
 
     def test_a_batch_serves_a_cached_section_only_while_that_section_is_fresh(self) -> None:
         self._seed()
@@ -636,7 +636,7 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
             after_expiry = self._run(sections)
 
         assert before_expiry.last_refresh == first.last_refresh
-        assert self._rows(after_expiry, tools)[0][2] == self._rows(before_expiry, tools)[0][2] + 1
+        assert self._rows(after_expiry, tools)[0][1] == self._rows(before_expiry, tools)[0][1] + 1
 
     @parameterized.expand(
         [

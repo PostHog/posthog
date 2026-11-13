@@ -377,21 +377,19 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
 // The toolRows query applies the same minimum (MIN_CALLS_TO_RANK_TOOLS in dashboard_query.py) before it ranks.
 export const MIN_CALLS_TO_RANK_TOOLS = 20
 
-// The toolRows section returns the top tools of each ranking (by calls, error rate and p95) as
-// [ranking, tool, total_calls, errors, error_rate_pct, p95_duration_ms]. A tool can top several
-// rankings, so keep one row per tool and let each card rank the union. The calls ranking arrives
-// first and the first row per tool wins, so the busiest tool stays first for the first-look banner.
+// Rows are [tool, total_calls, errors, error_rate_pct, p95_duration_ms, ranking], calls ranking first. A tool can
+// top several rankings, so the first row per tool wins, which keeps the busiest tool first for the first-look banner.
 export function toolRowsFromRankings(rows: unknown[][]): ToolRow[] {
     const byTool = new Map<string, ToolRow>()
     for (const r of rows) {
-        const tool = String(r[1] ?? '')
+        const tool = String(r[0] ?? '')
         if (!byTool.has(tool)) {
             byTool.set(tool, {
                 tool,
-                total_calls: Number(r[2] ?? 0),
-                errors: Number(r[3] ?? 0),
-                error_rate_pct: Number(r[4] ?? 0),
-                p95_duration_ms: Number(r[5] ?? 0),
+                total_calls: Number(r[1] ?? 0),
+                errors: Number(r[2] ?? 0),
+                error_rate_pct: Number(r[3] ?? 0),
+                p95_duration_ms: Number(r[4] ?? 0),
             })
         }
     }

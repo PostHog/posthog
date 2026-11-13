@@ -130,9 +130,10 @@ TOOLS_PER_RANKING = 8
 
 # Each card reads its own top tools: by calls, by error rate, and by p95. Ranking all three from one
 # aggregate reads the events once. A cap by call volume before ranking would drop a slow or flaky tool
-# that is not among the busiest.
+# that is not among the busiest. The ranking goes last so the first five columns keep their meaning for
+# cached rows from before it and for browsers still running the previous parser.
 TOOL_ROWS_SQL = f"""
-SELECT ranking, tool, total_calls, errors, error_rate_pct, p95_duration_ms
+SELECT tool, total_calls, errors, error_rate_pct, p95_duration_ms, ranking
 FROM (
     SELECT
         {EFFECTIVE_TOOL_SQL} AS tool,

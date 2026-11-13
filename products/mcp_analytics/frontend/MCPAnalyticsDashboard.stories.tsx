@@ -771,7 +771,7 @@ const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
 const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
     kpis: KPI_RESULTS,
     periodTotals: [[1840, 1655, 2050, 2180]],
-    toolRows: TOOL_RESULTS.map((row) => ['calls', ...row]),
+    toolRows: TOOL_RESULTS.map((row) => [...row, 'calls']),
     sessionRows: SESSION_RESULTS,
     harnessRows: HARNESS_RESULTS,
     modelRows: MODEL_BREAKDOWN_RESULTS,
