@@ -75,6 +75,22 @@ describe('healthCheckValues', () => {
             ],
         },
         {
+            name: "a compile count reads as n of m, and names the metrics it couldn't check",
+            values: { metric_count: 4, invalid_metric_count: 1, unchecked_metric_count: 2 },
+            expected: [
+                { label: "Metrics whose query doesn't compile", text: '1 of 4' },
+                { label: "Metrics it couldn't check", text: '2' },
+            ],
+        },
+        {
+            name: 'an exposure event without a record reads as unknown',
+            values: { event: 'purchase', event_received: null },
+            expected: [
+                { label: 'Exposure event', text: 'purchase' },
+                { label: 'Received by this project', text: 'Unknown' },
+            ],
+        },
+        {
             name: 'a deleted flag reads as deleted, whatever else it serves',
             values: { flag_active: true, flag_deleted: true, flag_rolled_out: true, shipped_variant: 'test' },
             expected: [{ label: 'Feature flag', text: 'Deleted' }],

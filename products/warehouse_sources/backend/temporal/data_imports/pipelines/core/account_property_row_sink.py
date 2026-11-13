@@ -25,6 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
     job_staged_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_write,
+)
 
 # A sibling job prefix whose newest file is older than this is considered abandoned (its consumer
 # never ran, or gave up retrying) and is swept. Anything younger may belong to a consumer that is
@@ -154,13 +157,18 @@ class AccountPropertyRowSink:
         await self.logger.adebug(
             f"Staging account-property chunk {chunk} ({len(columns)} cols) to {self._get_path_prefix()}"
         )
-        await asyncio.to_thread(
-            write_table,
-            projected,
-            f"{self._get_path_prefix()}/chunk_{chunk:06d}.parquet",
-            filesystem=self._get_fs(),
-            compression="zstd",
-            use_dictionary=True,
+        path = f"{self._get_path_prefix()}/chunk_{chunk:06d}.parquet"
+        await aretry_staged_write(
+            lambda: asyncio.to_thread(
+                write_table,
+                projected,
+                path,
+                filesystem=self._get_fs(),
+                compression="zstd",
+                use_dictionary=True,
+            ),
+            path=path,
+            logger=self.logger,
         )
 
     async def stage_delta_snapshot(self, table_uri: str, delta_version: int) -> bool:

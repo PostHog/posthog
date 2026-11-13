@@ -106,9 +106,13 @@ class TestRequestShape:
         assert result.session_options[0]["redact_values"] == ("secret-key",)
 
     def test_advertiser_report_requests_only_columns_the_api_accepts(self) -> None:
+        refused_columns = ["application", "app_id_external"]
+
         def respond(request: RecordedRequest) -> ScriptedResponse:
-            if "application" in (request.param("columns") or "").split(","):
-                return ScriptedResponse(status=400, body=b"Invalid Column: application")
+            requested = (request.param("columns") or "").split(",")
+            for column in refused_columns:
+                if column in requested:
+                    return ScriptedResponse(status=400, body=f"Invalid Column: {column}".encode())
             return _page([])
 
         result = _driver().run("advertiser_report", respond)
