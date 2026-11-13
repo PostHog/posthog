@@ -23,6 +23,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import saved_query_node, table_node
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestSavedQueryReads(BaseTest):
@@ -207,3 +208,29 @@ class TestSavedQueryReads(BaseTest):
         assert api.unbuilt_upstream_saved_query_ids(
             self.team.id, target.saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE
         ) == frozenset({built_elsewhere.saved_query_id, failed.saved_query_id})
+
+    def test_renaming_a_materialized_view_keeps_its_table_location(self) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            is_materialized=True,
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=saved_query.name,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern=saved_query.url_pattern,
+            created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
+        )
+        saved_query.save(update_fields=["table"])
+        uri_before = api.get_materialized_table_uri(self.team.id, saved_query.id)
+        url_pattern_before = saved_query.url_pattern
+
+        saved_query.name = "marts_revenue"
+        saved_query.save(update_fields=["name"])
+        renamed = DataWarehouseSavedQuery.objects.get(id=saved_query.id, team=self.team)
+
+        assert uri_before is not None and uri_before.endswith("/modeling/revenue")
+        assert api.get_materialized_table_uri(self.team.id, renamed.id) == uri_before
+        assert renamed.url_pattern == url_pattern_before

@@ -419,6 +419,29 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert task.runs.count() == 2
         m_workflow.assert_not_called()
 
+    def test_terminal_resume_on_a_done_task_conflicts(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        Task.objects.filter(pk=task.pk).update(
+            profile="posthog_ai", status=Task.Status.DONE, status_reason=Task.StatusReason.CLOSED
+        )
+        self._attach_task(task)
+
+        with (
+            patch(
+                "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+                return_value={"posthog_ai": "enforce"},
+            ),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value=SYS_PROMPT),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().open({"content": "resume please"})
+
+        assert task.runs.count() == 1
+        m_workflow.assert_not_called()
+
     def test_terminal_resume_uses_freshest_terminal_run_after_lock(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED

@@ -145,7 +145,7 @@ export function createEnvironment({
     async function resetRoles(edge: ProviderEdge, settings: Profile['settings']): Promise<void> {
         const exitsBefore = supervisor.exits().length
         await supervisor.stop()
-        const specs = roleSpecs(env, edge.url, secrets, stateDir, settings, sesRateLimiterValkey)
+        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey)
         const groups = consumerGroupsOf(specs)
         await waitForExpect(
             async () => {
@@ -218,9 +218,16 @@ export function createEnvironment({
         }
         await terminate(plan, STOP_GRACE_MS)
         await startStack(hogli, stateDir, env)
-        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, stateDir, {}, sesRateLimiterValkey)
-        await refuseHeldPorts([...portsOf(specs), EDGE])
-        const groups = consumerGroupsOf(specs)
+        const planned = roleSpecs(
+            env,
+            { url: `http://127.0.0.1:${EDGE_PORT}` },
+            secrets,
+            stateDir,
+            {},
+            sesRateLimiterValkey
+        )
+        await refuseHeldPorts([...portsOf(planned), EDGE])
+        const groups = consumerGroupsOf(planned)
         await waitForExpect(
             async () => {
                 const busy = await groupsWithMembers(groups, docker)
@@ -233,7 +240,12 @@ export function createEnvironment({
             GROUP_DRAINS_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
+        edge = await startProviderEdge({
+            port: EDGE_PORT,
+            trackingKeys: secrets.encryptionSaltKeys,
+            caDir: path.join(stateDir, 'edge-ca'),
+        })
+        const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         const api = specs.filter((spec) => spec.role === 'cdp-api')
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         await supervisor.start(api)
