@@ -18,6 +18,7 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EventsScan,
     ScanVisitor,
     filter_conjuncts,
+    names_flag_called,
     select_aliases,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -117,7 +118,7 @@ def _is_event_field_of(expr: ast.Expr, table_class: type[Table]) -> bool:
 
 def _flag_called_constants(expr: ast.Expr) -> list[ast.Constant]:
     if isinstance(expr, ast.Constant):
-        return [expr] if expr.value == FLAG_CALLED_EVENT else []
+        return [expr] if names_flag_called(expr.value) else []
     if isinstance(expr, (ast.Tuple, ast.Array)):
         return [constant for sub in expr.exprs for constant in _flag_called_constants(sub)]
     return []
