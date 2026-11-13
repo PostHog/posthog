@@ -230,6 +230,7 @@ describe('broadcast previews', () => {
             expect(await screen.findByText(text)).toBeInTheDocument()
         }
         expect(iframeHtml()).toBeUndefined()
+        expect(document.querySelector('[data-attr="broadcast-preview-person"]')).toHaveTextContent('Ada')
         expect(screen.getByText('Preview and test before this reaches the audience.')).toBeInTheDocument()
 
         click('broadcast-open-test-email')
