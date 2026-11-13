@@ -445,6 +445,8 @@ export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
 export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
 
+export const metricsQueryCreateBodyQueryOneLimitMax = 100
+
 export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
@@ -712,6 +714,39 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .optional()
                 .describe(
                     'Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.'
+                ),
+            dropEmptySeries: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    "Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsQueryCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe(
+                    "Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries."
+                ),
+            instant: zod
+                .boolean()
+                .optional()
+                .describe(
+                    "Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'."
+                ),
+            time: zod
+                .string()
+                .optional()
+                .describe(
+                    'Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant.'
+                ),
+            output: zod
+                .enum(['points', 'summary'])
+                .describe('\* `points` - points\n\* `summary` - summary')
+                .optional()
+                .describe(
+                    "'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.\n\n\* `points` - points\n\* `summary` - summary"
                 ),
         })
         .describe('The metric query to execute.'),

@@ -22,7 +22,10 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     UNSCORED_SURFACING_SCORE,
     SessionRecordingListFromQuery,
 )
-from posthog.session_recordings.queries.sub_queries.group_key_resolver import GROUP_KEY_RESOLUTION_QUERY_TYPE
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    GROUP_KEY_RESOLUTION_MAX_SECONDS,
+    GROUP_KEY_RESOLUTION_QUERY_TYPE,
+)
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.session_limits import (
@@ -71,6 +74,8 @@ DEFAULT_CANDIDATE_LIMIT = 5_000
 # replay table and costs a few MiB, so a page that turns out not to prune is nearly free.
 CANDIDATE_SCAN_LIMIT = 2_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
+# A timed-out key lookup falls back to the groups join, which reads about ten times more than the lookup.
+SWEEP_GROUP_KEY_RESOLUTION_SECONDS = 30
 
 # Emitted by `emit_observation_event_activity` once an observation succeeds.
 OBSERVATION_EVENT_NAME = "$recording_observed"
@@ -252,6 +257,7 @@ class ScannerCandidateQuery:
             events_timestamp_floor=events_timestamp_floor,
             skip_negative_blocklists=skip_negative_blocklists,
             resolve_group_properties=ClickHouseUser.REPLAY_VISION,
+            group_key_resolution_seconds=SWEEP_GROUP_KEY_RESOLUTION_SECONDS,
             project_exposure_variant=variant_sampling_rates is not None,
         )
 
@@ -599,6 +605,7 @@ class WindowedCandidateQuery:
         # Balanced sampling for experiment scanners: one rate per watched variant, replacing the
         # single `sampling_rate` threshold (see `variant_sampling_predicate`).
         variant_sampling_rates: dict[str, float] | None = None,
+        group_key_resolution_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS,
     ) -> None:
         for name, value in (("window_start", window_start), ("window_end", window_end)):
             if not isinstance(value, dt.datetime):
@@ -651,6 +658,7 @@ class WindowedCandidateQuery:
             session_ids_to_exclude=exclude_session_ids,
             skip_negative_blocklists=skip_negative_blocklists,
             resolve_group_properties=ClickHouseUser.REPLAY_VISION,
+            group_key_resolution_seconds=group_key_resolution_seconds,
             project_exposure_variant=variant_sampling_rates is not None,
         )
 

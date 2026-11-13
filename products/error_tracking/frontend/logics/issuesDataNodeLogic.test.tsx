@@ -38,6 +38,7 @@ const issue = {
         users: 3,
         volume_buckets: [],
     },
+    tags: null,
 } satisfies ErrorTrackingIssue
 
 describe('issuesDataNodeLogic', () => {

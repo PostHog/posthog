@@ -7,7 +7,6 @@ import {
     LemonCard,
     LemonSegmentedButton,
     LemonSelect,
-    LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTag,
@@ -20,8 +19,9 @@ import { urls } from 'scenes/urls'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
@@ -33,13 +33,13 @@ import { draftableOpportunity, engineLabel, isNoSearchEngine, promptSearches } f
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
     if (!check) {
-        return <span className="text-muted whitespace-nowrap">Not checked</span>
+        return <span className="text-muted whitespace-nowrap">-</span>
     }
     if (check.mode === 'no_search') {
         return <ContentAutopilotMentionResultTag mentioned={check.mentioned} checkFailed={check.check_failed} />
     }
     return (
-        <ContentAutopilotCheckResultTag
+        <ContentAutopilotCheckResult
             cited={check.cited}
             checkFailed={check.check_failed}
             position={check.target_best_position}
@@ -78,6 +78,8 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
     )
 }
 
+const LOADING_ROWS = 6
+
 export const ContentAutopilotPrompts = (): JSX.Element => {
     const {
         prompts,
@@ -103,7 +105,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         setPromptsBranded,
         setShowArchived,
     } = useActions(contentAutopilotPromptsLogic)
-    const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
 
     if (promptsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -211,11 +213,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonBanner>
             ) : null}
 
-            {prompts === null ? (
-                promptsError ? null : (
-                    <LemonSkeleton className="h-40 w-full" />
-                )
-            ) : count === 0 &&
+            {prompts === null && promptsError ? null : prompts !== null &&
+              count === 0 &&
               promptsTopic === null &&
               promptsBranded === null &&
               !showArchived &&
@@ -223,7 +222,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                        Add the questions your buyers ask AI assistants. Claude can suggest them from your site, or you
+                        Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you
                         can write your own. You can also import prompts with the API (
                         <code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
                     </p>
@@ -233,9 +232,11 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonCard>
             ) : (
                 <LemonTable
-                    dataSource={prompts.results}
+                    dataSource={prompts?.results ?? []}
                     rowKey="id"
-                    loading={promptsLoading}
+                    // Before the first page arrives, placeholder rows hold the table's shape.
+                    loading={promptsLoading || prompts === null}
+                    loadingSkeletonRows={LOADING_ROWS}
                     emptyState={
                         needsImprovement
                             ? 'No prompts need improvement. A prompt shows here when an AI assistant answered it in the last 30 days without citing your site.'
@@ -291,7 +292,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                 ),
                         },
                         ...promptEngines.map((engine) => ({
-                            title: engineLabel(engine),
+                            title: <ContentAutopilotEngineLabel engine={engine} />,
                             tooltip: isNoSearchEngine(engine)
                                 ? `Whether ${engineLabel(engine)}'s last answer named your brand. It answers without searching the web, so it never links to your site.`
                                 : `Whether ${engineLabel(engine)}'s last answer linked to a page on your site.`,
@@ -308,17 +309,21 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     <span className="text-muted whitespace-nowrap">Never</span>
                                 ),
                         },
-                        {
-                            key: 'draft',
-                            render: (_, prompt) => {
-                                const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
-                                return opportunity ? (
-                                    <div className="whitespace-nowrap">
-                                        <ContentAutopilotDraftButton opportunity={opportunity} />
-                                    </div>
-                                ) : null
-                            },
-                        },
+                        ...(draftingEnabled
+                            ? [
+                                  {
+                                      key: 'draft',
+                                      render: (_: unknown, prompt: AEOPromptApi) => {
+                                          const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
+                                          return opportunity ? (
+                                              <div className="whitespace-nowrap">
+                                                  <ContentAutopilotDraftButton opportunity={opportunity} />
+                                              </div>
+                                          ) : null
+                                      },
+                                  },
+                              ]
+                            : []),
                         {
                             title: 'Active',
                             key: 'active',

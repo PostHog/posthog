@@ -8,7 +8,9 @@ import type {
 
 import { isNoSearchEngine } from './utils'
 
-export type PromptVisibilityMetric = 'cited' | 'mentioned'
+export type PromptVisibilityMetric = 'cited' | 'mentioned' | 'position'
+/** The metrics a single answer can only pass or fail, so the prompt page can count yes and no answers. */
+export type PromptOutcomeMetric = Exclude<PromptVisibilityMetric, 'position'>
 
 export interface PromptRateKpi {
     /** Pooled rate over the window: all answers that qualify over all answers. */

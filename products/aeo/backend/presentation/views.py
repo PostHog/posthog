@@ -544,6 +544,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
         many=True,
         help_text="The current window split per answer engine, ordered by engine. Engines that did not run are left out.",
     )
+    daily = AEOPromptDailyEngineStatsSerializer(
+        many=True,
+        help_text="Counts per day and engine over the current window. Days and engines without a check are left out.",
+    )
     topics = AEOPromptSetTopicCountsSerializer(
         many=True,
         help_text="The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks.",
@@ -939,7 +943,7 @@ class AEOPromptSuggestionJobSerializer(DataclassSerializer):
         ref_name = "AEOPromptSuggestionJob"
         extra_kwargs = {
             "id": {"help_text": "Job id. Poll GET aeo_prompts/suggest/<id>/ with it."},
-            "status": {"help_text": "pending while Claude works, then completed or failed."},
+            "status": {"help_text": "pending while PostHog works, then completed or failed."},
             "error": {"help_text": "Why the job failed. Empty unless status is failed."},
         }
 
@@ -1301,7 +1305,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         request_serializer=AEOPromptSuggestRequestSerializer,
         operation_id="aeo_prompts_suggest",
         summary="Suggest AEO prompts",
-        description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.",
+        description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.",
         responses={202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
         tags=["web_analytics"],
     )
@@ -1333,7 +1337,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_suggestion_retrieve",
         summary="Get AEO prompt suggestions",
-        description="Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.",
+        description="Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while PostHog works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.",
         responses={200: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
         tags=["web_analytics"],
     )

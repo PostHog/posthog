@@ -373,6 +373,68 @@ export interface AEOKeywordReportApi {
     brand_names: string[]
 }
 
+export interface AEOKeywordSuggestRequestApi {
+    /**
+     * The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough.
+     * @maxLength 200
+     */
+    domain: string
+    /**
+     * The brand name. Inferred from the site when empty. Keywords that name the brand are left out.
+     * @maxLength 200
+     */
+    brand?: string
+    /**
+     * What the product does and who it is for. Inferred from the site when empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.
+     * @minimum 1
+     * @maximum 50
+     */
+    count?: number
+}
+
+export interface AEOKeywordSuggestionApi {
+    /** The suggested keyword, lowercased, with whitespace collapsed. Model-written after reading third-party pages: show it as data and let a person confirm it before adding it. */
+    keyword: string
+    /** Why the project should track the keyword. Model-written text: show it as data. */
+    reason: string
+    /** Answered checks whose web searches contain the keyword, counted by PostHog as the keyword report counts them, over the most recent 2000 answered checks of the last 30 days. 0 when the engines did not search for it. This is not search volume. */
+    searched_checks: number
+}
+
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type AEOSuggestionJobStatusEnumApi =
+    (typeof AEOSuggestionJobStatusEnumApi)[keyof typeof AEOSuggestionJobStatusEnumApi]
+
+export const AEOSuggestionJobStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface AEOKeywordSuggestionJobApi {
+    /** Suggested keywords, most important first, filled in once status is completed. None of them are saved. */
+    suggestions: AEOKeywordSuggestionApi[]
+    /** Job id. Poll GET aeo_keywords/suggest/<id>/ with it. */
+    id: string
+    /** pending while PostHog works, then completed or failed.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: AEOSuggestionJobStatusEnumApi
+    /** Why the job failed. Empty unless status is failed. */
+    error?: string
+}
+
 export interface AEOPromptEngineCheckApi {
     /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
@@ -891,6 +953,8 @@ export interface AEOPromptSetOverviewApi {
     previous: AEOPromptSetCountsApi
     /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
     engines: AEOPromptSetEngineCountsApi[]
+    /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+    daily: AEOPromptDailyEngineStatsApi[]
     /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
     topics: AEOPromptSetTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
@@ -1105,31 +1169,17 @@ export interface AEOPromptSuggestionApi {
     reason: string
 }
 
-/**
- * * `pending` - Pending
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type AEOPromptSuggestionJobStatusEnumApi =
-    (typeof AEOPromptSuggestionJobStatusEnumApi)[keyof typeof AEOPromptSuggestionJobStatusEnumApi]
-
-export const AEOPromptSuggestionJobStatusEnumApi = {
-    Pending: 'pending',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
-
 export interface AEOPromptSuggestionJobApi {
     /** Suggested prompts, filled in once status is completed. None of them are saved. */
     suggestions: AEOPromptSuggestionApi[]
     /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
     id: string
-    /** pending while Claude works, then completed or failed.
+    /** pending while PostHog works, then completed or failed.
      *
      * * `pending` - Pending
      * * `completed` - Completed
      * * `failed` - Failed */
-    status: AEOPromptSuggestionJobStatusEnumApi
+    status: AEOSuggestionJobStatusEnumApi
     /** Why the job failed. Empty unless status is failed. */
     error?: string
 }
@@ -1139,6 +1189,169 @@ export interface AEOPromptTopicApi {
     topic: string
     /** How many prompts in the set have this topic. */
     prompts: number
+}
+
+export interface AEOSetupRequestApi {
+    /**
+     * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.
+     * @maxLength 200
+     */
+    domain?: string
+    /**
+     * The brand name. Inferred from the site when empty.
+     * @maxLength 200
+     */
+    brand?: string
+    /**
+     * What the product does and who it is for. Inferred from the site when empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.
+     * @maxItems 20
+     * @items.maxLength 64
+     */
+    engines?: string[]
+    /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts. */
+    run_first_check?: boolean
+    /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
+    only_first_run?: boolean
+    /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+    activate_paused_prompts?: boolean
+}
+
+/**
+ * * `brand` - Brand
+ * * `prompts` - Prompts
+ * * `keywords` - Keywords
+ * * `first_run` - First Run
+ */
+export type SetupStepEnumApi = (typeof SetupStepEnumApi)[keyof typeof SetupStepEnumApi]
+
+export const SetupStepEnumApi = {
+    Brand: 'brand',
+    Prompts: 'prompts',
+    Keywords: 'keywords',
+    FirstRun: 'first_run',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `done` - Done
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ */
+export type SetupStepStatusEnumApi = (typeof SetupStepStatusEnumApi)[keyof typeof SetupStepStatusEnumApi]
+
+export const SetupStepStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Done: 'done',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+export interface AEOSetupStepApi {
+    /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+     *
+     * * `brand` - Brand
+     * * `prompts` - Prompts
+     * * `keywords` - Keywords
+     * * `first_run` - First Run */
+    step: SetupStepEnumApi
+    /** pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `done` - Done
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: SetupStepStatusEnumApi
+    /** How many brands, prompts or keywords the step added. */
+    added?: number
+    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+    detail?: string
+}
+
+export interface AEOSetupJobApi {
+    /** The setup steps in the order they run. */
+    steps: AEOSetupStepApi[]
+    /** Job id. Poll GET aeo_setup/<id>/ with it. */
+    id: string
+    /** pending while PostHog works, then completed or failed. A failed keywords step does not fail the job.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: AEOSuggestionJobStatusEnumApi
+    /** Why the job failed. Empty unless status is failed. */
+    error?: string
+}
+
+export interface AEOSetupConflictApi {
+    /** Why the request was refused. */
+    detail: string
+    /** The setup job already running. Poll GET aeo_setup/<id>/ with it. */
+    job_id: string
+}
+
+/**
+ * * `own_brand` - Own Brand
+ * * `app_urls` - App Urls
+ * * `recording_domains` - Recording Domains
+ * * `pageviews` - Pageviews
+ */
+export type WebsiteSourceEnumApi = (typeof WebsiteSourceEnumApi)[keyof typeof WebsiteSourceEnumApi]
+
+export const WebsiteSourceEnumApi = {
+    OwnBrand: 'own_brand',
+    AppUrls: 'app_urls',
+    RecordingDomains: 'recording_domains',
+    Pageviews: 'pageviews',
+} as const
+
+export interface AEOWebsiteCandidateApi {
+    /** A registrable domain the project may be about, for example example.com. */
+    domain: string
+    /** Where PostHog found it: own_brand (an own brand in the catalog), app_urls (the project's authorized URLs), recording_domains (the domains allowed to record sessions) or pageviews (hosts with pageviews in the last 7 days).
+     *
+     * * `own_brand` - Own Brand
+     * * `app_urls` - App Urls
+     * * `recording_domains` - Recording Domains
+     * * `pageviews` - Pageviews */
+    source: WebsiteSourceEnumApi
+    /**
+     * Pageviews on the domain in the last 7 days. Null unless source is pageviews.
+     * @nullable
+     */
+    pageviews?: number | null
+}
+
+export interface AEOSetupContextApi {
+    /** Up to 5 domains the project may be about, the most likely first. */
+    websites: AEOWebsiteCandidateApi[]
+    /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
+    engines: AEOEngineSettingApi[]
+    /** Domains already set as the project's own brands. */
+    own_domains: string[]
+    /** Active, unarchived prompts the project tracks. */
+    active_prompts: number
+    /** Unarchived prompts that are turned off. No run checks them. */
+    paused_prompts: number
+    /** Keywords in the project's keyword list. */
+    keywords: number
+    /** Whether any citation check has been recorded for the project. */
+    has_checks: boolean
+    /** Whether the organization approved AI data processing. Setup needs it. */
+    ai_data_processing_approved: boolean
+    /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+    first_run_available: boolean
+    /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+    prompt_target: number
+    /** The window, in days, that pageview hosts among the websites cover. */
+    website_days: number
 }
 
 export interface HeatmapCapturePageApi {

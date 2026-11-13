@@ -527,8 +527,9 @@ class TestGithubSource:
         [
             lambda source, config, url, team_id: source.delete_webhook(config, url, team_id),
             lambda source, config, url, team_id: source.get_external_webhook_info(config, url, team_id),
+            lambda source, config, url, team_id: source.create_webhook(config, url, team_id),
         ],
-        ids=["delete_webhook", "get_external_webhook_info"],
+        ids=["delete_webhook", "get_external_webhook_info", "create_webhook"],
     )
     def test_webhook_calls_skip_gracefully_when_integration_deleted(self, call):
         # The OAuth integration can be deleted while the source still references it (on source deletion,

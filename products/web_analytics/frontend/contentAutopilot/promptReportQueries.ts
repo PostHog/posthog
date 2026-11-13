@@ -5,7 +5,7 @@ import { ChartDisplayType } from '~/types'
 
 import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import type { PromptVisibilityMetric } from './promptReport'
+import type { PromptOutcomeMetric, PromptVisibilityMetric } from './promptReport'
 import { ENGINE_LABELS } from './utils'
 
 export interface PromptReportWindow {
@@ -53,9 +53,7 @@ const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
     query,
     values: {
         window_start: `${window.from} 00:00:00`,
-        ...(window.branded !== 'all' && window.brandNames.length
-            ? { brand_pattern: brandMentionPattern(window.brandNames) }
-            : {}),
+        ...(window.brandNames.length ? { brand_pattern: brandMentionPattern(window.brandNames) } : {}),
     },
 })
 
@@ -74,40 +72,62 @@ const ENGINE_NAME = `multiIf(${Object.entries(ENGINE_LABELS)
     .join(', ')}, engine)`
 
 // The label gets its own alias: naming it `engine` too would make the alias refer to itself.
-const dailyRateSql = (where: string, counted: string): string =>
-    `SELECT toDate(created_at) AS day, ${ENGINE_NAME} AS engine_name, round(countIf(${counted}) / count(), 3) AS rate
+const dailyValueSql = (where: string, value: string): string =>
+    `SELECT toDate(created_at) AS day, ${ENGINE_NAME} AS engine_name, ${value} AS rate
 FROM system.aeo_citation_checks
 WHERE ${where}
 GROUP BY day, engine_name
 ORDER BY day, engine_name`
 
-const dailyRateChart = (source: HogQLQuery): DataVisualizationNode => ({
+// Position is the mean rank of your first link over the answers that cite you, so other answers are left out.
+const metricValue = (metric: PromptVisibilityMetric, brandNames: string[]): string =>
+    metric === 'position'
+        ? 'round(avgIf(target_best_position, cited), 1)'
+        : `round(countIf(${metric === 'mentioned' ? mentionedExpr(brandNames) : 'cited'}) / count(), 3)`
+
+const dailyMetricChart = (source: HogQLQuery, metric: PromptVisibilityMetric): DataVisualizationNode => ({
     kind: NodeKind.DataVisualizationNode,
     source,
     display: ChartDisplayType.ActionsLineGraph,
     chartSettings: {
         xAxis: { column: 'day' },
-        yAxis: [{ column: 'rate', settings: { formatting: { style: 'percent', decimalPlaces: 0 } } }],
+        yAxis: [
+            {
+                column: 'rate',
+                settings: {
+                    formatting: metric === 'position' ? { decimalPlaces: 1 } : { style: 'percent', decimalPlaces: 0 },
+                },
+            },
+        ],
         seriesBreakdownColumn: 'engine_name',
         showLegend: true,
     },
 })
 
-/** Daily citation (or brand mention) rate per engine. Days an engine did not run are gaps, not zeros. */
-export const promptVisibilityQuery = (
-    window: PromptReportWindow,
-    metric: PromptVisibilityMetric
-): DataVisualizationNode => {
-    const counted = metric === 'mentioned' ? mentionedExpr(window.brandNames) : 'cited'
-    return dailyRateChart(
-        hogql(
-            dailyRateSql(WHERE, counted),
+/** Answers per day that cite you or mention you, stacked on the ones that don't, across every engine. */
+export const promptOutcomeQuery = (window: PromptReportWindow, metric: PromptOutcomeMetric): DataVisualizationNode => {
+    const met = metric === 'mentioned' ? mentionedExpr(window.brandNames) : 'cited'
+    const [yes, no] = metric === 'mentioned' ? ['mentioned', 'not_mentioned'] : ['cited', 'not_cited']
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: hogql(
+            `SELECT toDate(created_at) AS day, countIf(${met}) AS ${yes}, countIf(NOT (${met})) AS ${no}
+FROM system.aeo_citation_checks
+WHERE ${WHERE}
+GROUP BY day
+ORDER BY day`,
             window,
             metric === 'mentioned' && window.brandNames.length
                 ? { brand_pattern: brandMentionPattern(window.brandNames) }
                 : {}
-        )
-    )
+        ),
+        display: ChartDisplayType.ActionsStackedBar,
+        chartSettings: {
+            xAxis: { column: 'day' },
+            yAxis: [{ column: yes }, { column: no }],
+            showLegend: true,
+        },
+    }
 }
 
 /** The set's checks on one side of the branded split, matching the API's `branded` filter. Without brand names no
@@ -123,9 +143,12 @@ const setWhere = ({ branded, brandNames }: PromptSetWindow): string => {
     return `${SET_WHERE} AND ${branded === 'branded' ? namesBrand : `NOT ${namesBrand}`}`
 }
 
-/** Daily citation rate per engine across every prompt in the set. */
-export const promptSetCitationQuery = (window: PromptSetWindow): DataVisualizationNode =>
-    dailyRateChart(setHogql(dailyRateSql(setWhere(window), 'cited'), window))
+/** The same daily metric per engine across every prompt in the set. */
+export const promptSetVisibilityQuery = (
+    window: PromptSetWindow,
+    metric: PromptVisibilityMetric
+): DataVisualizationNode =>
+    dailyMetricChart(setHogql(dailyValueSql(setWhere(window), metricValue(metric, window.brandNames)), window), metric)
 
 const citedUrls = (where: string): string =>
     `SELECT id, engine, arrayJoin(JSONExtract(cited_urls, 'Array(String)')) AS url, target_urls

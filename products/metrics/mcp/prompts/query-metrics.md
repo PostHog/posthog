@@ -1,4 +1,4 @@
-Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.
+Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series, a summary per series, or one value per series. The default response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.
 
 All parameters go inside `query` — top-level fields are rejected:
 
@@ -12,6 +12,14 @@ Three request forms:
 - **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `"(a - b) / a"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.
 - **PromQL:** set `promql` to a PromQL expression, e.g. `{ "query": { "promql": "sum by (job) (rate(http_requests_total[5m]))", "dateFrom": "-3h" } }`. It runs as a range query on the same time grid. Put selectors, grouping and functions in the expression; `filters`, `groupBy`, `formula` and `metricType` are rejected with it. Unreported buckets are `null`, not zero. If the response says PromQL is not enabled for this project, use the builder forms.
 
+# Pick the response shape — the smallest one that answers the question
+
+- **The value now** ("what is the lag", "which 5 groups are highest", "is it above X"): `"instant": true`, optionally with `time` (ISO 8601 or relative like `-1h`; default now). Each series comes back as `{labels, value, time}` with no `points`. PromQL runs as an instant query at `time`, so put the window in the expression (`rate(x[5m])`, `max_over_time(x[1h])`); a bare range selector like `x[5m]` is rejected. The builder returns the last complete bucket before `time`, 5 minutes wide unless you set `interval`. Do not combine with `dateFrom`/`dateTo`.
+- **How a window went, per series** ("peak over the last day", "did it recover"): keep the range and pass `"output": "summary"`. Each series comes back as `{labels, last, time, min, max, avg}` over its non-null points. With `dateTo` at now, the builder's last bucket is still filling.
+- **The shape over time** (onset, trend, comparing windows): the default range response with every point. Use it only when you need the curve; it is the largest response.
+
+Every response has `url_params`; the MCP tool turns it into `_posthogUrl`, which opens the same query in the metrics viewer. Share that link with the user.
+
 When you already have a PromQL expression (an alert rule, a runbook, a Grafana panel), send it as `promql` as written. Do not translate it into builder fields.
 
 # Workflow — follow this order every time
@@ -21,7 +29,7 @@ When you already have a PromQL expression (an alert rule, a runbook, a Grafana p
    - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.
    - `gauge`: `avg` (typical), `p95`, `sum`.
    - Every aggregation combines across series, never across raw samples, so a result never scales with the scrape rate: `sum`/`avg`/`p95` reduce each series to its latest value in the bucket and combine those, and `count` is the number of series that reported.
-   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.
+   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). Series with different bucket layouts merge by bucket width, and `histogram_bounds` lists the edges the result is precise to. When layouts differ, `histogram_layout_count` is above 1 and `hint` says so. A PromQL `histogram_quantile` over `sum by (le)` of the `_bucket` series adds those layouts by `le` and can overstate high quantiles, up to the top finite edge, so the builder and PromQL can disagree there. Group by a label that separates the layouts to compare them.
 3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.
 4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.
 5. **Control the grid with `interval`.** One of `second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.
@@ -33,5 +41,7 @@ When you already have a PromQL expression (an alert rule, a runbook, a Grafana p
 3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).
 4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.
 5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.
+
+Series whose every point is zero or null are left out, and `omitted_empty_series` counts them. Pass `"dropEmptySeries": false` to get them back. A grouped query can still return up to 100 series per clause: pass `limit` (e.g. 10) to keep only the largest, and `omitted_by_limit` counts the rest.
 
 CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` and `dateTo` take ISO 8601 or a relative offset back from now (`-30M`, `-1h`, `-24h`, `-7d`, `-2w`). Capital `M` is minutes and lowercase `m` is months, so the last 30 minutes is `-30M`; `-30m` is 30 months and fails the 31-day limit. `dateTo` defaults to now and `dateFrom` to 24 hours before `dateTo`. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.

@@ -7,10 +7,41 @@ import {
     pagerDutyPendingDetail,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import {
+    platformAlertsDestinationsCreate,
+    platformAlertsDestinationsDeleteCreate,
+    platformAlertsDestinationsList,
+} from 'products/alerts_platform/frontend/generated/api'
+import {
     PlatformAlertCreateDestinationApi,
     PlatformAlertDestinationApi,
     PlatformAlertDestinationTypeEnumApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
+
+/** One destination as an alert's page lists it. A product that keeps HogFunctions for its alerts adds theirs. */
+export type AlertDestinationEntry = Omit<PlatformAlertDestinationApi, 'event_kinds'> & {
+    hog_function_ids?: string[]
+    message_customized?: boolean
+}
+
+// Mirrors the API's cap, so a new alert's pending destinations never exceed what its create can save.
+export const MAX_DESTINATIONS_PER_ALERT = 5
+
+/** The routes an alert's destinations are read and written through. */
+export interface AlertDestinationsApi {
+    /** The most destinations the routes accept on one alert, or undefined for no cap. */
+    maxDestinations?: number
+    list: (projectId: string, alertId: string) => Promise<AlertDestinationEntry[]>
+    create: (projectId: string, alertId: string, destination: PlatformAlertCreateDestinationApi) => Promise<unknown>
+    remove: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<unknown>
+}
+
+export const PLATFORM_DESTINATIONS_API: AlertDestinationsApi = {
+    maxDestinations: MAX_DESTINATIONS_PER_ALERT,
+    list: (projectId, alertId) => platformAlertsDestinationsList(projectId, alertId),
+    create: (projectId, alertId, destination) => platformAlertsDestinationsCreate(projectId, alertId, destination),
+    remove: (projectId, alertId, destination) =>
+        platformAlertsDestinationsDeleteCreate(projectId, alertId, { destination_ids: [destination.id] }),
+}
 
 export const DESTINATION_TYPE_OPTIONS: { label: string; value: PlatformAlertDestinationTypeEnumApi }[] = [
     { label: 'Slack', value: PlatformAlertDestinationTypeEnumApi.Slack },
@@ -37,8 +68,9 @@ const URL_INPUTS: Partial<Record<PlatformAlertDestinationTypeEnumApi, AlertNotif
     [PlatformAlertDestinationTypeEnumApi.Webhook]: { placeholder: 'https://example.com/webhook' },
 }
 
-// Mirrors the API's cap, so a new alert's pending destinations never exceed what its create can save.
-export const MAX_DESTINATIONS_PER_ALERT = 5
+export function destinationTypeLabel(type: PlatformAlertDestinationTypeEnumApi): string {
+    return TYPE_LABELS[type] ?? type
+}
 
 // The URL shapes the API accepts for each provider, so a URL it would refuse is caught before the alert is
 // saved rather than failing when its destinations are added afterwards.
@@ -124,7 +156,7 @@ export interface DestinationDescription {
     detail?: string
 }
 
-export function describeDestination(destination: PlatformAlertDestinationApi): DestinationDescription {
+export function describeDestination(destination: AlertDestinationEntry): DestinationDescription {
     const title = TYPE_LABELS[destination.type] ?? destination.type
     switch (destination.type) {
         case PlatformAlertDestinationTypeEnumApi.Slack:

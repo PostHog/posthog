@@ -94,6 +94,13 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
             "403 Client Error: Forbidden for url: https://api.awin.com": "Your Awin API token does not have access to this data. Check the token's account permissions, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` already retries a 429 or 5xx in-line with backoff tuned to Awin's documented
+        # 20 calls/minute throttle; if that budget is exhausted and it re-raises, the limit
+        # clears on Awin's side and the resumable source picks up from the last saved work item
+        # on the next Temporal retry, so don't page this self-recovering failure as a bug.
+        return {"(retryable)"}
+
     def get_schemas(
         self,
         config: AwinSourceConfig,

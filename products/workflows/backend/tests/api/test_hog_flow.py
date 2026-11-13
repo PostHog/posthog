@@ -63,14 +63,15 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.blast_radius import INCOMPLETE_AUDIENCE_CONDITION
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.presentation.views.hog_flow import (
-    INCOMPLETE_AUDIENCE_CONDITION,
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
@@ -356,6 +357,81 @@ class TestHogFlowAPI(APIBaseTest):
             {"email_sending_rate_limit": value},
         )
         assert response.status_code == 400, response.json()
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    @patch("products.workflows.backend.services.batch_jobs.get_hog_flow_in_flight_count")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_email_sending_rate_limit_is_locked_while_a_raised_batch_may_be_sending(
+        self, _mock_dispatch, mock_in_flight_count
+    ):
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 3})
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(id=flow_id)
+        actions_without_email = flow.actions
+        flow.actions = [*flow.actions, {**flow.actions[-1], "id": "email", "type": "function_email"}]
+        flow.email_sending_rate_limit = {"count": 60, "period": "hour"}
+        flow.save()
+
+        def update_after_concurrent_launch(**kwargs):
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow)
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_launch,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+            )
+        assert response.status_code == 409, response.json()
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+
+        for value in (None, {"count": 500, "period": "hour"}, {"count": 30, "period": "hour"}):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": value}, format="json"
+            )
+            assert response.status_code == 400, response.json()
+            assert response.json()["attr"] == "email_sending_rate_limit"
+
+        # Removing the email step first must not unlock the rate in a second edit.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": actions_without_email}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # A tier demotion makes the stored rate stop qualifying, but the dispatched cap still needs it.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_tier=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # Sends parked behind a long delay keep the lock past any fixed window.
+        HogFlowBatchJob.objects.filter(id=batch_job.id).update(created_at=batch_job.created_at - timedelta(days=30))
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 0})
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [
@@ -5252,6 +5328,32 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["limit"] == 5000
 
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_hog_flow_user_blast_radius_raises_the_limit_for_a_qualifying_rate_limit(self):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "email_sending_rate_limit": {"count": 60, "period": "hour"}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 60 * 24 * 7
+        assert response.json()["rate_limited"] == {"max_emails_per_hour": 62, "max_days": 7, "limit": 62 * 24 * 7}
+
     def test_hog_flow_user_blast_radius_returns_elevated_limit_for_listed_team(self):
         with (
             override_settings(
@@ -5477,6 +5579,54 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert message in response.json().get("error", "")
+
+    @parameterized.expand(
+        [
+            ("starts_resolving", {"dedupe_key": "email", "max_audience_size": 500}, 200, "resolving"),
+            ("bad_dedupe_key", {"dedupe_key": "phone", "max_audience_size": 500}, 400, None),
+            ("missing_cap", {"dedupe_key": None}, 400, None),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_batch_job_audience_snapshot_validates_and_starts_the_resolution(
+        self, _name, body, expected_status, expected_snapshot_status
+    ):
+        hog_flow = HogFlow.objects.create(
+            team=self.team, name="Batch", trigger={"type": "batch", "filters": {"properties": []}}, actions=[]
+        )
+        with patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow)
+
+        with (
+            patch("products.workflows.backend.tasks.batch_jobs.resolve_batch_job_audience_snapshot.delay") as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{job.id}/audience_snapshot",
+                body,
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_snapshot_status:
+            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
+        else:
+            mock_task.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_batch_job_audience_page_rejects_a_cursor_that_is_not_a_uuid(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{uuid4()}/audience_page",
+            {"cursor": "person-1"},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
 
     @parameterized.expand(
         [
@@ -6022,7 +6172,13 @@ class TestHogFlowAPI(APIBaseTest):
         assert update.status_code == 200, update.json()
         assert HogFlow.objects.get(pk=flow_id).exit_condition == expected
 
-    def test_draft_content_save_that_races_an_activation_is_rejected(self):
+    @parameterized.expand(
+        [
+            ("activation", {"status": HogFlow.State.ACTIVE}),
+            ("disable_from_active", {"disabled_from_active": True}),
+        ]
+    )
+    def test_draft_content_save_that_races_a_protection_change_is_rejected(self, _name, concurrent_change):
         event_trigger = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -6039,14 +6195,14 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
 
-        def update_after_concurrent_activation(**kwargs):
-            HogFlow.objects.filter(pk=flow_id).update(status=HogFlow.State.ACTIVE)
+        def update_after_concurrent_change(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(**concurrent_change)
             return update_workflow(**kwargs)
 
         # A Slack trigger with no channel passes draft validation but must never run live.
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.update_workflow",
-            side_effect=update_after_concurrent_activation,
+            side_effect=update_after_concurrent_change,
         ):
             update = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
@@ -6055,9 +6211,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert update.status_code == 409, update.json()
         assert update.json()["code"] == "stale_update"
-        flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.status == HogFlow.State.ACTIVE
-        assert flow.actions[0]["config"]["type"] == "event"
+        assert HogFlow.objects.get(pk=flow_id).actions[0]["config"]["type"] == "event"
 
     @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
@@ -7781,6 +7935,35 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
 
+    def test_reenable_disabled_flow_does_not_publish_staged_secret(self):
+        flow_id = self._create(api_key="LIVE-SECRET")
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        for target_status in ("active", "draft"):
+            response = self.client.patch(url, {"status": target_status}, HTTP_X_POSTHOG_CLIENT="mcp")
+            assert response.status_code == 200, response.json()
+
+        stage = self.client.patch(
+            f"{url}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"value": "DRAFT-SECRET"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
+
+        enable = self.client.patch(url, {"status": "active"}, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert enable.status_code == 200, enable.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "LIVE-SECRET"
+        assert flow.draft_encrypted_inputs["action_1"]["api_key"]["value"] == "DRAFT-SECRET"
+
     def test_publish_promotes_draft_secret_to_live_without_wiping(self):
         flow_id = self._create()
         assert (
@@ -9358,7 +9541,7 @@ class TestRunScoutActionValidation(APIBaseTest):
             assert live_inputs["note"]["value"] == "PR #{event.properties.pr_number}"
         else:
             assert publish.status_code == status.HTTP_400_BAD_REQUEST, publish.json()
-            assert publish.json()["attr"] == "actions__1__inputs__note"
+            assert "requires editor access to skills" in publish.json()["detail"], publish.json()
             assert "note" not in live_inputs
 
 
