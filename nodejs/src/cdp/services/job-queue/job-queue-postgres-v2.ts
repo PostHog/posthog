@@ -10,7 +10,13 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
-import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
+import {
+    CyclotronV2DequeuedJob,
+    CyclotronV2JobInit,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+    countStaleCommit,
+} from '../cyclotron-v2'
 import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
@@ -68,6 +74,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+    private consumerQueue?: string
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
@@ -130,6 +137,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
         await this.startAsProducer()
 
+        this.consumerQueue = queue
         this.worker = this.createWorker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
@@ -196,6 +204,11 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         while (this.resultWrites.promises.size > 0) {
             await this.resultWrites.waitForAllSettled()
         }
+    }
+
+    private pendingJobOf(invocation: CyclotronJobInvocation): CyclotronV2DequeuedJob | undefined {
+        const job = this.pendingJobs.get(invocation.id)
+        return !invocation.queueLockId || job?.lockId === invocation.queueLockId ? job : undefined
     }
 
     private forgetPendingJob(job: CyclotronV2DequeuedJob): void {
@@ -305,7 +318,14 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
         await settleAllThenThrowFirst(
             sanitizedResults.map(async (result) => {
-                const job = this.pendingJobs.get(result.invocation.id)
+                const job = this.pendingJobOf(result.invocation)
+                if (!job && result.invocation.queueLockId) {
+                    countStaleCommit(this.consumerQueue ?? result.invocation.queue, releaseOperationOf(result))
+                    logger.warn('Dropped a V2 result because this worker no longer holds its claim', {
+                        id: result.invocation.id,
+                    })
+                    return
+                }
                 if (!job) {
                     logger.warn('No pending V2 job found for result, creating new job', {
                         id: result.invocation.id,
@@ -326,12 +346,9 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     }
 
     private async writeResult(job: CyclotronV2DequeuedJob, result: CyclotronJobInvocationResult): Promise<void> {
-        if (result.error) {
-            await job.fail()
-        } else if (result.canceled) {
-            await job.cancel()
-        } else if (result.finished) {
-            await job.ack()
+        const operation = releaseOperationOf(result)
+        if (operation !== 'reschedule') {
+            await job[operation]()
         } else {
             await job.reschedule({
                 ...encodeStateColumns(result.invocation),
@@ -345,7 +362,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
+                const job = this.pendingJobOf(inv)
                 if (job) {
                     try {
                         await this.resultWrites.schedule(job.fail())
@@ -360,7 +377,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     public async releaseInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
+                const job = this.pendingJobOf(inv)
                 if (job) {
                     try {
                         await this.resultWrites.schedule(job.ack())
@@ -377,7 +394,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     ): Promise<void> {
         await settleAllThenThrowFirst(
             deferrals.map(async ({ invocation, scheduledAt }) => {
-                const job = this.pendingJobs.get(invocation.id)
+                const job = this.pendingJobOf(invocation)
                 if (job) {
                     try {
                         await this.resultWrites.schedule(
@@ -391,10 +408,15 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         )
     }
 
+    public async stillOwns(invocation: CyclotronJobInvocation): Promise<boolean> {
+        const job = this.pendingJobOf(invocation)
+        return job ? await job.stillOwned() : !invocation.queueLockId
+    }
+
     public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
+                const job = this.pendingJobOf(inv)
                 if (!job) {
                     return
                 }
@@ -438,4 +460,14 @@ export function invocationToV2JobInit(invocation: CyclotronJobInvocation): Cyclo
     cdpJobSizeKb.labels('postgres-v2').observe(sizeKb)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(sizeKb)
     return { ...init, id: invocation.id }
+}
+
+function releaseOperationOf(result: CyclotronJobInvocationResult): 'fail' | 'cancel' | 'ack' | 'reschedule' {
+    if (result.error) {
+        return 'fail'
+    }
+    if (result.canceled) {
+        return 'cancel'
+    }
+    return result.finished ? 'ack' : 'reschedule'
 }
