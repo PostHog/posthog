@@ -39,6 +39,7 @@ from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.build_budget import DAILY_BUILD_COST, spend_shared_build
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates, stored_candidates
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig, list_limit, read_config
+from products.signals.backend.personal_ranking.inbox_activity import read_inbox_activity
 from products.signals.backend.personal_ranking.logic import (
     RETRYABLE_FALLBACK_REASONS,
     input_hash,
@@ -399,7 +400,14 @@ def serve_personal_ranking(
         # The limit the list was built with, so a read with another limit does not mark it stale.
         built_limit = list_limit(config, (row.result or {}).get("limit"))
         stale = (
-            input_hash(stored, config=config, limit=built_limit, activity_summary_version=summary_version, focus=None)
+            input_hash(
+                stored,
+                config=config,
+                limit=built_limit,
+                activity_summary_version=summary_version,
+                focus=None,
+                inbox_activity=inbox_activity,
+            )
             != row.input_hash
         )
         return _serve_row(row, stored, limit=limit, cached=cached, stale=stale, building=False)
@@ -407,6 +415,7 @@ def serve_personal_ranking(
     now = timezone.now()
     started_with = latest_row(team, user)
     summary_version = ready_summary_version(team, user)
+    inbox_activity = read_inbox_activity(team, user, config, now=now)
     if (
         started_with is not None
         and not refresh
@@ -444,7 +453,12 @@ def serve_personal_ranking(
     gather_started = time.monotonic()
     candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     current_hash = input_hash(
-        candidates, config=config, limit=limit, activity_summary_version=summary_version, focus=focus
+        candidates,
+        config=config,
+        limit=limit,
+        activity_summary_version=summary_version,
+        focus=focus,
+        inbox_activity=inbox_activity,
     )
     # Read again, because a build can store a row while the candidates are gathered.
     latest = latest_row(team, user)

@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -73,6 +74,7 @@ class TestEmailReputationAPI(APIBaseTest):
         assert allowance["tier"] == 0
         assert allowance["enforced"] is False
         assert allowance["emails_sent_last_day"] == 0
+        assert allowance["rate_limited_max_batch_audience"] is None
         assert data == {
             "aws": None,
             "reputation": None,
@@ -84,6 +86,20 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
         }
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_reputation_endpoint_reports_the_rate_limited_batch_ceiling(self):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        allowance = self._get_reputation({})["sending_allowance"]
+        assert allowance["max_batch_audience"] == 3000
+        assert allowance["rate_limited_max_batch_audience"] == 62 * 24 * 7
 
     @parameterized.expand(
         [

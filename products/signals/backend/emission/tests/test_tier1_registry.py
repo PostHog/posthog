@@ -92,6 +92,8 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
     (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
     (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
+    (ExternalDataSourceType.INTERCOM, "tickets", "intercom_tickets", "ticket"),
+    (ExternalDataSourceType.PYLON, "issues", "pylon", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -116,6 +118,19 @@ TIER1_SOURCES = [
     # Business and product reviews
     (ExternalDataSourceType.TRUSTPILOT, "service_reviews", "trustpilot", "review"),
     (ExternalDataSourceType.OKENDO, "reviews", "okendo", "review"),
+    # Feedback, NPS and review tools
+    (ExternalDataSourceType.BEAMER, "feature_requests", "beamer", "feedback"),
+    (ExternalDataSourceType.BEAMER, "nps", "beamer_nps", "feedback"),
+    (ExternalDataSourceType.CHAMELEON, "responses", "chameleon", "feedback"),
+    (ExternalDataSourceType.FEATUREBASE, "survey_responses", "featurebase_surveys", "feedback"),
+    (ExternalDataSourceType.USERVOICE, "nps_ratings", "uservoice_nps", "feedback"),
+    (ExternalDataSourceType.VITALLY, "NPS_Responses", "vitally_nps", "feedback"),
+    (ExternalDataSourceType.ETSY, "reviews", "etsy", "review"),
+    (ExternalDataSourceType.G2, "reviews", "g2", "review"),
+    (ExternalDataSourceType.GUMROAD, "product_reviews", "gumroad", "review"),
+    (ExternalDataSourceType.TRUSTPILOT, "product_reviews", "trustpilot_product_reviews", "review"),
+    (ExternalDataSourceType.WOOCOMMERCE, "product_reviews", "woocommerce", "review"),
+    (ExternalDataSourceType.YOTPO, "reviews", "yotpo", "review"),
     # Cloud security
     (ExternalDataSourceType.AWSSECURITYHUB, "findings", "aws_security_hub", "scanner_finding"),
     (ExternalDataSourceType.AWSGUARDDUTY, "findings", "aws_guardduty", "scanner_finding"),
@@ -130,6 +145,16 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
+    # Monitoring alerts and error tracking
+    (ExternalDataSourceType.NEWRELIC, "alert_issues", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "javascript_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "transaction_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "performance_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "anomaly_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.AMAZONCLOUDWATCH, "alarm_history", "amazon_cloudwatch", "incident"),
+    (ExternalDataSourceType.LOGICMONITOR, "alerts", "logicmonitor", "incident"),
+    (ExternalDataSourceType.AIRBRAKE, "groups", "airbrake", "issue"),
+    (ExternalDataSourceType.MUX, "errors", "mux", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -137,7 +162,7 @@ IDS = [product for _, _, product, _ in TIER1_SOURCES]
 
 _LONG_TEXT = "The export button crashes whenever a board has more than fifty cards"
 
-# Survey tools keep their answers in a JSON column, so a full record needs real answer JSON.
+# Survey and review tools that keep their text in a JSON column need real JSON in a full record.
 _SURVEY_ANSWERS = {
     "usersnap": ("ordered_inputs", json.dumps([{"label": "Comment", "text_value": _LONG_TEXT}])),
     "typeform": ("answers", json.dumps([{"type": "text", "text": _LONG_TEXT, "field": {"type": "long_text"}}])),
@@ -146,6 +171,9 @@ _SURVEY_ANSWERS = {
     "formbricks": ("data", json.dumps({"q1": "yes", "q2": _LONG_TEXT})),
     "survicate": ("answers", json.dumps([{"type": "text", "answer": _LONG_TEXT}])),
     "surveysparrow": ("answers", json.dumps([{"question_type": "TextInput", "answer": _LONG_TEXT}])),
+    "featurebase_surveys": ("responses", json.dumps([{"type": "text", "value": _LONG_TEXT}])),
+    "g2": ("answers", json.dumps({"hate": {"text": "What do you dislike?", "value": _LONG_TEXT}})),
+    "beamer": ("translations", json.dumps([{"title": _LONG_TEXT, "content": "", "language": "EN"}])),
 }
 
 
@@ -162,6 +190,10 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name == "messages":
             record[name] = '[{"role": "USER", "text": "hello", "body": "hello"}]'
+        elif name == "action_names":
+            record[name] = '["UsersController#show"]'
+        elif name == "trigger":
+            record[name] = '{"name": "High error rate", "metricName": "transaction_exception_rate"}'
         elif name == "bugs_found":
             record[name] = 2
         elif name == "dry_run":

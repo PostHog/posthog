@@ -21,7 +21,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { canvasEditLogic } from '../editing/canvasEditLogic'
 import { CanvasEditorRenderer } from '../editing/CanvasEditorRenderer'
 import { CanvasBrowsedCanvas } from '../history/CanvasBrowsedCanvas'
-import { CanvasHistoryConfirmDialog } from '../history/CanvasHistoryConfirmDialog'
 import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
 import { canvasCommentsLogic } from '../sidePanel/comments/canvasCommentsLogic'
 import { CanvasCommentThreadPopover } from '../sidePanel/comments/CanvasCommentThreadPopover'
@@ -136,7 +135,7 @@ function CanvasBody(): JSX.Element {
             return <CanvasEmptyBody />
         case 'generation-ended':
             return (
-                <CanvasEmptyBody notice="The last run finished without a canvas to show. Describe it again to start a new run." />
+                <CanvasEmptyBody notice="The last run finished without a canvas to show. Ask your agent to try again with the PostHog MCP server." />
             )
         case 'generating':
             return <CanvasGeneratingState />
@@ -199,7 +198,6 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
                                 <CanvasSceneHeader />
                                 <CanvasMain />
                                 <CanvasSelectionCommentAction />
-                                <CanvasHistoryConfirmDialog />
                             </div>
                         </BindLogic>
                     </BindLogic>

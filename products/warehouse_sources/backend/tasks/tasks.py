@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import timedelta
+from typing import cast
 
 from django.db.models import Q
 from django.utils import timezone
@@ -8,6 +9,7 @@ import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
+from posthog.models.team import Team
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -18,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.types import IncrementalField
 
 logger = structlog.get_logger(__name__)
 
@@ -219,3 +222,19 @@ def sweep_stalled_schema_schedules() -> None:
         worst_teams=sorted(per_team.items(), key=lambda item: -item[1])[:STALLED_SCHEDULE_LOG_TEAMS],
         longest_stall_hours=round(max(schema.stalled_for for schema in stalled).total_seconds() / 3600, 1),
     )
+
+
+@shared_task(ignore_result=True)
+def compute_incremental_field_suggestion(team_id: int, schema_id: str, table: str, fields: list[dict]) -> None:
+    from products.warehouse_sources.backend.logic.incremental_field_model import (  # noqa: PLC0415 — keeps the LLM client stack off the Celery import path
+        store_incremental_field_suggestion,
+    )
+
+    # The team or the schema can be deleted while the task waits, and then there is nothing to store.
+    team = Team.objects.select_related("organization").filter(pk=team_id).first()
+    if team is None:
+        return
+    try:
+        store_incremental_field_suggestion(team, schema_id, table, cast(list[IncrementalField], fields))
+    except ExternalDataSchema.DoesNotExist:
+        return

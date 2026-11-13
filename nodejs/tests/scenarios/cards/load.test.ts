@@ -7,12 +7,7 @@ import { z } from 'zod'
 
 const definitions: Definitions = {
     ...DEFINITIONS,
-    valves: [
-        { name: 'role.kill', params: z.object({}).strict() },
-        { name: 'pg.drop_connections', params: z.object({ share: z.number() }).strict() },
-        { name: 'ses.reject', params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict() },
-    ],
-    invariants: [...DEFINITIONS.invariants, { name: 'bounced_suppressed', params: z.object({}).strict() }],
+    valves: [...DEFINITIONS.valves],
     measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
 }
 
@@ -29,6 +24,25 @@ const card = {
 }
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
+
+const bounceCard = {
+    ...card,
+    drive: { for: '30s', traffic: [{ name: 'bounce_followup' }] },
+    valves: [{ valve: 'ses.reject', target: 'ses', dose: { type: 'bounce' }, at: '0s', for: '2m' }],
+    invariants: [
+        { name: 'at_least_once' },
+        { name: 'duplicate_sends' },
+        { name: 'refused_at_intake' },
+        { name: 'bounced_suppressed' },
+    ],
+}
+
+const bounceProfile = { ...profile, traffic: { bounce_followup: { ratePerSecond: 0.5 } } }
+
+const bounceFor = (dose: object, at: string, holdFor: string): object => ({
+    ...bounceCard,
+    valves: [{ valve: 'ses.reject', target: 'ses', dose, at, for: holdFor }],
+})
 
 const emailWorkerKill = {
     valve: 'role.kill',
@@ -107,9 +121,47 @@ describe('load', () => {
         ],
         [
             'a dose its valve refuses',
-            { ...card, valves: [{ ...emailWorkerKill, valve: 'pg.drop_connections', dose: { share: 'all' } }] },
+            {
+                ...card,
+                valves: [
+                    { ...emailWorkerKill, valve: 'pg.drop_connections', target: 'postgres', dose: { share: 'all' } },
+                ],
+            },
             undefined,
             'valves.0.dose.share: ',
+        ],
+        [
+            'a kill aimed at something that is not a role',
+            { ...card, valves: [{ ...emailWorkerKill, target: 'postgres' }] },
+            undefined,
+            'valves.0.target: ',
+        ],
+        [
+            'a destination status aimed at a host the edge does not answer for',
+            {
+                ...card,
+                valves: [
+                    {
+                        ...emailWorkerKill,
+                        valve: 'dest.status',
+                        target: 'api.example.com',
+                        dose: { code: 503, share: 1 },
+                    },
+                ],
+            },
+            undefined,
+            'valves.0.target: ',
+        ],
+        [
+            'running_on_queue on a queue the probe does not count',
+            {
+                ...card,
+                valves: [
+                    { ...emailWorkerKill, when: { name: 'running_on_queue', params: { queue: 'hog', atLeast: 1 } } },
+                ],
+            },
+            undefined,
+            'valves.0.when.params.queue: ',
         ],
         [
             'both at and when',
@@ -142,16 +194,10 @@ describe('load', () => {
             'convergeWithin: 60s must exceed 77s',
         ],
         [
-            'a stall timeout the janitor would read as no number',
+            'an empty stall timeout, which the janitor replaces with its default',
             { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
             { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds at or above zero',
-        ],
-        [
-            'a stall timeout with a leading point, which the service reads as no number',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '.5' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds at or above zero',
+            'convergeWithin: 18s must exceed 47s',
         ],
         [
             'a negative sweep interval',
@@ -198,11 +244,46 @@ describe('load', () => {
             'bounced_suppressed without a bounce',
             {
                 ...card,
-                valves: [{ ...emailWorkerKill, valve: 'ses.reject', dose: { type: 'rejected', share: 0.3 } }],
+                valves: [
+                    { ...emailWorkerKill, valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 0.3 } },
+                ],
                 invariants: [{ name: 'at_least_once' }, { name: 'bounced_suppressed' }],
             },
             undefined,
             'invariants.1.name: bounced_suppressed needs a ses.reject entry with type bounce',
+        ],
+        [
+            'bounced_suppressed with a bounce that bounces only some sends',
+            bounceFor({ type: 'bounce', share: 0.5 }, '0s', '2m'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with a bounce that starts after the drive does',
+            bounceFor({ type: 'bounce' }, '10s', '2m'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with a bounce that ends before the drive does',
+            bounceFor({ type: 'bounce' }, '0s', '10s'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with bounced traffic that sends no follow-up',
+            {
+                ...bounceCard,
+                drive: { ...bounceCard.drive, traffic: [{ name: 'bounce_followup' }, { name: 'event_email' }] },
+            },
+            { ...bounceProfile, traffic: { ...bounceProfile.traffic, event_email: { ratePerSecond: 2 } } },
+            'invariants.3.name: bounced_suppressed needs traffic that follows up every bounce, and event_email does not',
+        ],
+        [
+            'transactional traffic with no verdict on intake refusals',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'transactional_email' }] } },
+            { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
+            'invariants: transactional_email counts a unit its intake refused as offered, so the card needs refused_at_intake',
         ],
         [
             'a profile without the traffic a card drives',

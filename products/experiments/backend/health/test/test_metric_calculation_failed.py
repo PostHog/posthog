@@ -45,7 +45,10 @@ KEY = ExperimentHealthCheckKey.METRIC_CALCULATION_FAILED
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
 OUT_OF_MEMORY = "This query ran out of memory before it could finish."

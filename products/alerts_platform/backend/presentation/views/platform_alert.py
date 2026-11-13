@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from functools import cache, cached_property
@@ -1175,6 +1176,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
+        self._log_destination_activity(configuration, "created", {created.id: data["type"]})
         # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
         transaction.on_commit(
             lambda: self._track_destination(
@@ -1221,10 +1223,48 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         deleted = platform_api.delete_alert_destinations(
             team_id=self._canonical_team_id(), configuration_id=configuration.id, destination_ids=destination_ids
         )
+        self._log_destination_activity(configuration, "deleted", deleted)
         transaction.on_commit(
-            lambda: self._track_destination("deleted", configuration, {"count": deleted}), robust=True
+            lambda: self._track_destination("deleted", configuration, {"count": len(deleted)}), robust=True
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _log_destination_activity(
+        self,
+        configuration: PlatformAlertConfigurationView,
+        action: Literal["created", "deleted"],
+        destination_types: Mapping[UUID, str],
+    ) -> None:
+        # The model's activity diff leaves destinations out, so their changes are logged here. The entry
+        # names each destination by id and type only, because its data holds webhook URLs and routing keys.
+        summaries = [
+            {"id": str(destination_id), "type": destination_type}
+            for destination_id, destination_type in destination_types.items()
+        ]
+        if not summaries:
+            return
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self._canonical_team_id(),
+            user=cast(User, self.request.user),
+            was_impersonated=is_impersonated(self.request),
+            item_id=configuration.id,
+            scope="PlatformAlertConfiguration",
+            activity="updated",
+            detail=Detail(
+                name=configuration.name,
+                changes=[
+                    Change(
+                        type="PlatformAlertConfiguration",
+                        action=action,
+                        field="destinations",
+                        before=summary if action == "deleted" else None,
+                        after=summary if action == "created" else None,
+                    )
+                    for summary in summaries
+                ],
+            ),
+        )
 
     def _track_destination(
         self,
