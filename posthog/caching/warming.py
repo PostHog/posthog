@@ -15,17 +15,18 @@ from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
-from posthog.caching.warming_backoff import WarmingBackoff
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_failure_handling import classify_failure
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache import clean_up_stale_insights, days_read_at_this_time, get_stale_insights
+from posthog.query_cache.failures import WarmingTaskFailureCache
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -253,6 +254,14 @@ def schedule_warming_for_teams_task():
             ).apply_async(eta=start_at)
 
 
+def _record_unhandled_warming_failure(backoff: WarmingTaskFailureCache, error: Exception, team_id: int) -> None:
+    # The query breaker owns these failures, including replays that did not execute.
+    if getattr(error, "served_from_query_failure_cache", False) or classify_failure(error, team_id):
+        backoff.clear()
+    else:
+        backoff.record_failure("warming", "")
+
+
 @shared_task(
     queue=CeleryQueue.ANALYTICS_LIMITED.value,  # Important! Prevents Clickhouse from being overwhelmed
     ignore_result=True,
@@ -274,8 +283,8 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache skipped, insight has no query: {insight_id}")
         return
 
-    backoff = WarmingBackoff(team_id=insight.team_id, insight_id=insight.pk, dashboard_id=dashboard_id)
-    if backoff.is_waiting:
+    backoff = WarmingTaskFailureCache(team_id=insight.team_id, insight_id=insight.pk, dashboard_id=dashboard_id)
+    if backoff.get_open() is not None:
         NOT_WARMED_INSIGHTS_COUNTER.labels(reason="failure_backoff").inc()
         logger.info("cache_warming_skipped_failure_backoff", insight_id=insight.pk, dashboard_id=dashboard_id)
         return
@@ -347,14 +356,14 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 )
 
         except WARMING_CAPACITY_ERRORS:
-            backoff.record_failure()
+            backoff.record_failure("warming", "")
             NOT_WARMED_INSIGHTS_COUNTER.labels(reason="at_capacity").inc()
             logger.info("cache_warming_clickhouse_at_capacity", insight_id=insight.pk, dashboard_id=dashboard_id)
         except RETRIABLE_WARMING_ERRORS:
             raise
         except Exception as e:
             if not warmed:
-                backoff.record_failure()
+                _record_unhandled_warming_failure(backoff, e, insight.team_id)
                 NOT_WARMED_INSIGHTS_COUNTER.labels(reason="error").inc()
             # A revoked creator's access error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.

@@ -18,6 +18,7 @@ from posthog.query_cache.failures import (
     FailureKind,
     QueryFailureCache,
     WarmingQueryFailureCache,
+    WarmingTaskFailureCache,
 )
 
 
@@ -178,6 +179,29 @@ class TestQueryFailureCache(SimpleTestCase):
     def test_warming_fails_open_when_cache_is_unavailable(self) -> None:
         warming_cache = WarmingQueryFailureCache("warming_unavailable")
         with mock.patch.object(caches[QUERY_CACHE_ALIAS], "get", side_effect=ConnectionError("unavailable")):
+            assert warming_cache.get_open() is None
+
+    def test_warming_task_backoff_is_isolated_and_resets(self) -> None:
+        warming_cache = WarmingTaskFailureCache(team_id=1, insight_id=2, dashboard_id=None)
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
+            for minutes in (0, 120, 240, 480, 480):
+                record = warming_cache.record_failure("warming", "")
+                assert record is not None
+                assert not record.forbids(BUDGET_INTERACTIVE)
+                assert not record.forbids(BUDGET_EXTENDED)
+                assert QueryFailureCache("1:2:").get_open() is None
+                assert WarmingTaskFailureCache(team_id=1, insight_id=2, dashboard_id=3).get_open() is None
+                if minutes:
+                    assert record.open_until == datetime.now(UTC) + timedelta(minutes=minutes)
+                    frozen.shift(timedelta(minutes=minutes) - timedelta(microseconds=1))
+                    assert warming_cache.get_open() is not None
+                    frozen.shift(timedelta(microseconds=1))
+                assert warming_cache.get_open() is None
+
+            warming_cache.clear()
+            record = warming_cache.record_failure("warming", "")
+            assert record is not None
+            assert record.consecutive_failures == 1
             assert warming_cache.get_open() is None
 
     def test_detail_is_capped(self):
