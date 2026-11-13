@@ -276,12 +276,13 @@ class _Converter:
 
     def _track_branches(self, depth: int) -> None:
         """Only one branch of an if/else renders, so after the block a value is inside a tag if any branch left one
-        open."""
+        open. A block can also render nothing, like an if with no else or an empty each, so the state before it counts
+        too."""
         if len(self.blocks) > depth:
             self.tag_branches.append(((self.in_tag, self.tag_quote), []))
         elif len(self.blocks) < depth and self.tag_branches:
-            _, ended = self.tag_branches.pop()
-            states = [*ended, (self.in_tag, self.tag_quote)]
+            opened, ended = self.tag_branches.pop()
+            states = [*ended, (self.in_tag, self.tag_quote), opened]
             self.in_tag, self.tag_quote = next((state for state in states if state[0]), states[-1])
         elif self.took_branch and self.tag_branches:
             opened, ended = self.tag_branches[-1]
