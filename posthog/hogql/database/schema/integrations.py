@@ -21,6 +21,7 @@ from posthog.hogql.database.schema.information_schema import (
     _STRING,
     _constant_rows_select,
 )
+from posthog.hogql.database.scoped_lazy_table import json_key_read
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -81,19 +82,6 @@ def load_integration_rows(context: "HogQLContext") -> list[list[Any]]:
     return rows
 
 
-def _json_read(chain: list[str | int]) -> ast.Expr:
-    """The same JSON key read that a JSON field gets: null and quotes are trimmed from the raw value."""
-    raw = ast.Call(
-        name="JSONExtractRaw",
-        args=[ast.Field(chain=[chain[0]]), *(ast.Constant(value=key) for key in chain[1:])],
-    )
-    trimmed = ast.Call(
-        name="nullIf",
-        args=[ast.Call(name="nullIf", args=[raw, ast.Constant(value="")]), ast.Constant(value="null")],
-    )
-    return ast.Call(name="replaceRegexpAll", args=[trimmed, ast.Constant(value='^"|"$'), ast.Constant(value="")])
-
-
 class IntegrationsTable(PostgresTable, LazyTable):
     """`system.integrations`.
 
@@ -116,7 +104,7 @@ class IntegrationsTable(PostgresTable, LazyTable):
         return ast.SelectQuery(
             select=[
                 *(ast.Alias(alias=name, expr=ast.Field(chain=[name])) for name, _ in _COLUMNS),
-                *(ast.Alias(alias=alias, expr=_json_read(chain)) for alias, chain in nested.items()),
+                *(ast.Alias(alias=alias, expr=json_key_read(chain)) for alias, chain in nested.items()),
             ],
             select_from=ast.JoinExpr(table=rows),
         )

@@ -374,12 +374,13 @@ def _create_alert(team: Team, label: str) -> AlertConfiguration:
 
 
 def _create_native_insight_alert(team: Team, label: str) -> uuid.UUID:
+    insight = Insight.objects.create(team=team, name=f"insight_for_native_alert_{label}")
     with team_scope(team.pk):
         return alerts_platform_testing.create_configuration(
             team_id=team.pk,
             name=f"native_alert_{label}",
             source_kind="insight",
-            source_config={"insight_id": 1},
+            source_config={"insight_id": insight.id},
             check_interval_minutes=60,
             owner="platform",
         ).id
@@ -1431,12 +1432,37 @@ class TestSystemAlertTablesReadPlatform(NonAtomicBaseTest):
             **source,
         )
 
-        rows = self._rows("SELECT id, name, insight_id, state, calculation_interval, config FROM system.alerts")
+        hidden = Insight.objects.create(team=self.team, name="denied")
+        AlertConfiguration.objects.create(team=self.team, insight=hidden, name="row on a denied insight")
+        self._platform_alert(
+            name="native on a denied insight",
+            check_interval_minutes=60,
+            owner="platform",
+            source_kind="insight",
+            source_config={"insight_id": hidden.id},
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        rows = self._rows(
+            "SELECT id, name, insight_id, state, calculation_interval, config.series_index FROM system.alerts"
+        )
 
         assert rows == {
-            str(own.id): ("row alert", insight.id, "Not firing", "daily", "{}"),
-            str(moved.id): ("copy name", insight.id, "Firing", "hourly", '{"series_index":0}'),
-            str(native): ("native alert", insight.id, "Snoozed", "weekly", '{"series_index":0}'),
+            str(own.id): ("row alert", insight.id, "Not firing", "daily", None),
+            str(moved.id): ("copy name", insight.id, "Firing", "hourly", "0"),
+            str(native): ("native alert", insight.id, "Snoozed", "weekly", "0"),
         }
 
     def test_logs_alerts_shows_each_logs_alert_once_with_platform_settings_and_state(self):
