@@ -16,12 +16,12 @@ import { StatusIcon } from '../settings/StatusIcon'
 
 export function IntegrationFilter(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { allAvailableSourcesWithStatus, integrationFilter, dataWarehouseSources, isAdPerformance } =
+    const { allAvailableSourcesWithStatus, integrationFilter, dataWarehouseSources, isPerformanceTab } =
         useValues(marketingAnalyticsLogic)
     const { setIntegrationFilter } = useActions(marketingAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
-    const includeOrganic = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+    const includeOrganic = isPerformanceTab && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
     const organicSources = includeOrganic
         ? (dataWarehouseSources?.results ?? [])
               .filter((source) => source.source_type === 'GoogleSearchConsole')
@@ -148,7 +148,7 @@ export function IntegrationFilter(): JSX.Element {
                                 ))}
                             </div>
                         ))}
-                    {!isAdPerformance && (
+                    {!isPerformanceTab && (
                         <>
                             <div className="border-t border-border my-1" />
                             <LemonButton

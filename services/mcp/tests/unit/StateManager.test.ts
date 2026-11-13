@@ -240,14 +240,58 @@ describe('StateManager', () => {
             expect(result).toBe('cached-distinct-id')
         })
 
-        it('should fetch user and cache distinct ID if not in cache', async () => {
+        it.each([
+            {
+                source: 'the key owner',
+                apiKey: { ...mockApiKey, user_distinct_id: 'owner-1' },
+                expected: 'owner-1',
+                userCalls: 0,
+            },
+            { source: '/users/@me on an older backend', apiKey: mockApiKey, expected: 'distinct-123', userCalls: 1 },
+        ])('resolves and caches the distinct ID from $source', async ({ apiKey, expected, userCalls }) => {
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(apiKey)
             const getUserSpy = vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.getDistinctId()
 
-            expect(result).toBe('distinct-123')
-            expect(await cache.get('distinctId')).toBe('distinct-123')
-            expect(getUserSpy).toHaveBeenCalledOnce()
+            expect(result).toBe(expected)
+            expect(await cache.get('distinctId')).toBe(expected)
+            expect(getUserSpy).toHaveBeenCalledTimes(userCalls)
+        })
+
+        it('refetches a cached key that predates the owner fields when /users/@me is refused', async () => {
+            const current = vi.fn(async () => ({
+                success: true,
+                data: { ...mockApiKey, scopes: ['insight:read'], user_distinct_id: 'owner-1', current_team_id: 7 },
+            }))
+            const manager = new StateManager(cache, {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({ current }),
+            } as unknown as ApiClient)
+            await cache.setMany({ apiKey: { ...mockApiKey, scopes: ['insight:read'] }, apiKeyFetchedAt: Date.now() })
+            vi.spyOn(manager, 'getUser').mockRejectedValue(new Error("Missing PostHog API scope: 'user:read'"))
+
+            expect(await manager.getDistinctId()).toBe('owner-1')
+            expect((await cache.get('apiKey'))?.current_team_id).toBe(7)
+        })
+
+        it('picks the default project from a fresh key response, not the cached one, when /users/@me is refused', async () => {
+            const owner = { user_distinct_id: 'owner-1', current_organization_id: 'org-1' }
+            const current = vi.fn(async () => ({
+                success: true,
+                data: { ...mockApiKey, scopes: ['insight:read'], ...owner, current_team_id: 8 },
+            }))
+            const manager = new StateManager(cache, {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({ current }),
+            } as unknown as ApiClient)
+            await cache.setMany({
+                apiKey: { ...mockApiKey, scopes: ['insight:read'], ...owner, current_team_id: 7 },
+                apiKeyFetchedAt: Date.now(),
+            })
+            vi.spyOn(manager, 'getUser').mockRejectedValue(new Error("Missing PostHog API scope: 'user:read'"))
+
+            expect(await manager.setDefaultOrganizationAndProject()).toEqual({ organizationId: 'org-1', projectId: 8 })
         })
     })
 
@@ -255,7 +299,12 @@ describe('StateManager', () => {
         const cacheOnlyApi = { config: { apiToken: 'phx_test' } } as unknown as ApiClient
         const cacheOnlyOauthApi = { config: { apiToken: 'pha_test' } } as unknown as ApiClient
 
-        function oauthApi(clientName: string | null, impersonated?: boolean, scope = 'insight:read'): ApiClient {
+        function oauthApi(
+            clientName: string | null,
+            impersonated?: boolean,
+            scope = 'insight:read',
+            supportsStepUp?: boolean
+        ): ApiClient {
             return {
                 config: { apiToken: 'pha_test' },
                 apiKeys: () => ({
@@ -269,6 +318,7 @@ describe('StateManager', () => {
                             scope,
                             client_name: clientName,
                             is_impersonated: impersonated,
+                            supports_step_up: supportsStepUp,
                         },
                     }),
                 }),
@@ -300,6 +350,14 @@ describe('StateManager', () => {
                 expect((await stateManager.getApiKey()).suppress_analytics).toBe(suppressed)
             }
         )
+
+        it.each([true, false, undefined])('reads supports_step_up=%s from introspection', async (supportsStepUp) => {
+            stateManager = new StateManager(cache, oauthApi(null, false, 'insight:read', supportsStepUp))
+
+            const result = await stateManager.getApiKey()
+
+            expect(result.supports_step_up === true).toBe(supportsStepUp === true)
+        })
 
         it.each([{ scopes: [] }, { scopes: ['scout_experiment_internal:read'] }])(
             'does not suppress personal-key telemetry for scopes $scopes',
@@ -980,6 +1038,27 @@ describe('StateManager', () => {
     })
 
     describe('getAiConsentGiven', () => {
+        it.each([
+            [true, true],
+            [false, false],
+            [null, false],
+        ])('reads consent from the project when the org is unreachable (flag %s)', async (flag, expected) => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-other', name: 'Other Org', is_ai_data_processing_approved: !expected },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+                is_ai_data_processing_approved: flag,
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBe(expected)
+        })
+
         it.each([
             [true, true],
             [false, false],

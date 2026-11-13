@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { BatchResolverResumeOutcome } from '~/cdp/services/hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome } from '~/cdp/services/hogflows/step-resume.service'
 
+import type { JobRow } from './job-codec'
+
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
@@ -26,6 +28,9 @@ export const CyclotronV2JobInitSchema = z.object({
     priority: z.number().int().optional(),
     scheduled: z.date().optional(),
     parentRunId: z.string().nullish(),
+    // Keep `state` small. Queue rows churn, and PostgreSQL moves large BYTEA values to TOAST,
+    // where only vacuum reclaims the space. Files and blobs go to object storage, never into
+    // this column or a new cyclotron table. See "Keep rows small" in ./README.md.
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
@@ -39,6 +44,15 @@ export const CyclotronV2JobInitSchema = z.object({
 })
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
+
+export type CyclotronV2IdempotentJobInit = {
+    job: CyclotronV2JobInit & { id: string }
+    fingerprint: string
+}
+
+export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
+
+export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
 
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
@@ -97,6 +111,7 @@ export interface CyclotronV2DequeuedJob {
     ack(): Promise<void>
     fail(): Promise<void>
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
+    defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this
@@ -115,6 +130,7 @@ export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
+    idempotencyKeyLookupTimeoutMs?: number
     // Knobs for rescheduleParkedJobs — see that method for semantics.
     rescheduleFloorSeconds?: number
     rescheduleWakeRatePerSecond?: number
@@ -175,6 +191,15 @@ export type CyclotronV2CancelJobsResult = {
     done: boolean
 }
 
+export type CyclotronV2CancelUnclaimedResult =
+    | { outcome: 'canceled'; job: JobRow }
+    | { outcome: 'already_canceled'; job: JobRow | null }
+    | { outcome: 'claimed' | 'not_found' }
+
+export type CyclotronV2RescheduleUnclaimedResult =
+    | { outcome: 'rescheduled'; job: JobRow; rescheduledAt: Date }
+    | { outcome: 'canceled' | 'claimed' | 'not_found' }
+
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
  * on the interface (testable, mockable) without pulling the full manager
@@ -195,6 +220,8 @@ export interface CyclotronV2JobProducer {
     countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
+    cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
+    rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number
@@ -217,8 +244,12 @@ export type CyclotronV2WorkerConfig = {
     queueName: string
     batchMaxSize?: number
     pollDelayMs?: number
+    pollDelayMaxMs?: number
     heartbeatTimeoutMs?: number
+    releaseWriteHeartbeatLimitMs?: number
     includeEmptyBatches?: boolean
+    boundedPolls?: boolean
+    boundedFairDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

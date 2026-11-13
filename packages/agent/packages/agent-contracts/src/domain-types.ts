@@ -395,6 +395,7 @@ const taskRunStateFields = {
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
   store_skills: optionalField(z.array(storeSkillStubSchema)),
+  store_skills_bridge: optionalField(z.boolean()),
   token_usage: optionalField(z.record(z.string(), z.unknown())),
 } satisfies z.ZodRawShape;
 
@@ -738,14 +739,11 @@ export type SignalReportActionability =
 
 /**
  * One or more `SignalReportStatus` values joined by commas, e.g. `potential` or `potential,candidate,ready`.
- * This looks horrendous but it's superb, trust me bro.
+ * Check the first status without expanding every possible combination.
  */
 export type CommaSeparatedSignalReportStatuses =
   | SignalReportStatus
-  | `${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`;
+  | `${SignalReportStatus},${string}`;
 
 export type SignalReportChartSize = "small" | "medium" | "large";
 
@@ -760,6 +758,14 @@ export interface SignalReportChart {
   query: unknown;
   caption?: string | null;
   size?: SignalReportChartSize | null;
+}
+
+export interface SignalReportClaimUser {
+  id: number;
+  uuid: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 export interface SignalReport {
@@ -798,7 +804,15 @@ export interface SignalReport {
   assignee?: {
     kind: "user" | "task" | "agent" | "system";
     task_id: string | null;
+    /** The claim being taken over. Sending it back makes the server refuse when a newer claim replaced it. */
+    claim_id?: string | null;
+    /** The person who claimed, directly or through their agent. */
+    user?: SignalReportClaimUser | null;
+    /** The person an agent's claim answers to, when the server knows one. */
+    responsible_user?: SignalReportClaimUser | null;
   } | null;
+  /** Whether an implementation run for this report is still working. A new run cannot start until it settles. */
+  implementation_in_flight?: boolean;
   /**
    * Whether that PR merged (GitHub webhook). A merged PR is history, not work
    * in flight: a report can outlive its fix when evidence keeps arriving, and

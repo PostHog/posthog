@@ -1,4 +1,4 @@
-import { isRejectedTokenChallenge, withResourceMetadata } from '@/lib/auth-errors'
+import { isInsufficientScopeChallenge, isRejectedTokenChallenge, withResourceMetadata } from '@/lib/auth-errors'
 import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
@@ -11,6 +11,9 @@ import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/l
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
+
+const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
+const MUSE_CHALLENGE_TOKEN = '5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc'
 
 const handleRequest = async (
     request: Request,
@@ -27,7 +30,14 @@ const handleRequest = async (
 
     // OpenAI ChatGPT App Directory domain verification
     if (url.pathname === '/.well-known/openai-apps-challenge') {
-        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+        return new Response(OPENAI_CHALLENGE_TOKEN, {
+            headers: { 'content-type': 'text/plain' },
+        })
+    }
+
+    // Muse domain verification
+    if (url.pathname === `/.well-known/muse-challenge/${MUSE_CHALLENGE_TOKEN}`) {
+        return new Response(`muse-challenge=${MUSE_CHALLENGE_TOKEN}`, {
             headers: { 'content-type': 'text/plain' },
         })
     }
@@ -275,8 +285,13 @@ const handleRequest = async (
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
         const response = await proxyToHono(request, region)
-        if (isRejectedTokenChallenge(response)) {
-            log.extend({ authError: 'rejected_token' })
+        const authError = isRejectedTokenChallenge(response)
+            ? 'rejected_token'
+            : isInsufficientScopeChallenge(response)
+              ? 'insufficient_scope'
+              : undefined
+        if (authError) {
+            log.extend({ authError })
             return withResourceMetadata(response, request, effectiveRegion)
         }
         return response

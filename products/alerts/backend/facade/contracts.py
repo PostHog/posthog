@@ -7,6 +7,7 @@ an insight alert means, and the hooks other sources use to reach this product's 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
@@ -15,7 +16,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 
-from products.alerts_platform.backend.facade.contracts import DeliveryPath, DestinationType, IncidentAction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    DeliveryPath,
+    DestinationType,
+    IncidentAction,
+)
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # The internal event an insight alert's destinations fire on. Do not take it from
@@ -39,6 +45,12 @@ INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
+# The types whose address is a URL the caller supplies, so their route also asks for `hog_function:write`.
+INSIGHT_ALERT_URL_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (
+    DestinationType.DISCORD,
+    DestinationType.TEAMS,
+    DestinationType.WEBHOOK,
+)
 
 
 class DestinationHoldBack(StrEnum):
@@ -92,10 +104,9 @@ class HogFunctionPathReason(StrEnum):
     # A function takes the source's alert events without being bound to one alert. Native
     # delivery reads destinations per alert, so it would never send to it.
     UNBOUND = "unbound"
-    # A stock webhook whose team receives the platform body natively. Its receiver parses the
-    # body the HogFunction sends.
-    NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+    # Native delivery cannot send this source's legacy webhook body, and the team keeps it.
+    LEGACY_WEBHOOK_BODY_NOT_NATIVE = "legacy_webhook_body_not_native"
     # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
 
@@ -137,6 +148,24 @@ class FiringAlert:
     name: str
     insight_name: str | None
     insight_short_id: str
+
+
+@frozen
+class EnabledAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+
+
+@frozen
+class ErroredAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+    # None for an alert the platform owns, whose checks it keeps in ClickHouse.
+    last_checked_at: datetime | None
 
 
 @frozen
@@ -197,6 +226,11 @@ class MovedAlertCheck:
     triggered_dates: tuple[str, ...] = ()
     interval: str | None = None
     triggered_metadata: dict[str, Any] | None = None
+    investigation_status: str | None = None
+    investigation_verdict: str | None = None
+    investigation_summary: str | None = None
+    investigation_notebook_short_id: str | None = None
+    notification_suppressed_by_agent: bool = False
 
 
 @frozen
@@ -206,5 +240,29 @@ class MovedAlertCheckPage:
     checks: tuple[MovedAlertCheck, ...]
 
 
+class MovedAlertHistoryUnavailable(Exception):
+    """The platform's check history of an alert it owns could not be read."""
+
+
+@frozen
+class MovedAlertSettings:
+    """A moved alert's settings as its platform copy holds them."""
+
+    # By the insight row field each one replaces.
+    fields: Mapping[str, Any]
+    threshold: dict[str, Any] | None
+    schedule_start_time: str | None
+
+
 class PlatformCannotOwn(ValueError):
     """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""
+
+
+@frozen
+class InvestigationRelease:
+    """What a finished investigation of a platform evaluation hands back to the agent's workflow."""
+
+    # What the workflow starts: the held firing when the verdict let it go out, or the
+    # announcement of a changed verdict on a firing that already went out.
+    deliveries: tuple[AlertDeliveryRequest, ...]
+    previous_verdict: str | None

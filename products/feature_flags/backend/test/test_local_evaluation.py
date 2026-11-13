@@ -16,12 +16,13 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.storage import object_storage
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
@@ -40,6 +41,7 @@ from products.feature_flags.backend.local_evaluation import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.test.experiment_change_fixtures import EXPERIMENT_CHANGES, seed_experiment_change
 from products.surveys.backend.models import Survey
 
 
@@ -412,26 +414,31 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
 
 
 class TestLocalEvaluationSignals(BaseTest):
-    @parameterized.expand(["create", "soft_delete", "delete"])
-    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_experiment_change(self, action, mock_task):
-        flag = FeatureFlag.objects.create(
+    def test_team_delete_clears_definitions_cache_in_redis_and_s3(self):
+        FeatureFlag.objects.create(
             team=self.team,
-            key="exp-flag",
+            key="test-flag",
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
-        if action == "create":
-            mock_task.reset_mock()
-            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-        else:
-            experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-            mock_task.reset_mock()
-            if action == "soft_delete":
-                update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
-            else:
-                delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
+        update_flag_definitions_cache(self.team)
+        cache_key = flag_definitions_hypercache.get_cache_key(self.team)
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is not None
+        assert object_storage.read(cache_key, missing_ok=True) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.delete()
+
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is None
+        assert object_storage.read(cache_key, missing_ok=True) is None
+
+    @parameterized.expand(EXPERIMENT_CHANGES)
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_experiment_change(self, action, mock_task):
+        change = seed_experiment_change(action, team=self.team, user=self.user)
+        mock_task.reset_mock()
+        change()
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
@@ -888,6 +895,29 @@ class TestLocalEvaluationBatch(BaseTest):
         else:
             assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
 
+    @parameterized.expand(
+        [
+            ("no_experiment", "none", False),
+            ("active_experiment", "active", True),
+            ("deleted_experiment", "deleted", False),
+        ]
+    )
+    def test_batch_has_experiment_value(self, _name: str, experiment_state: str, expected: bool) -> None:
+        team = self._create_team_with_project("Experiment Team")
+        flag = FeatureFlag.objects.create(team=team, key="exp-flag", filters={"groups": [{"rollout_percentage": 100}]})
+        FeatureFlag.objects.create(team=team, key="other-flag", filters={"groups": [{"rollout_percentage": 100}]})
+        if experiment_state != "none":
+            create_experiment(
+                team_id=team.id, feature_flag_id=flag.id, name="exp", deleted=experiment_state == "deleted"
+            )
+
+        results = _get_flags_response_for_local_evaluation_batch([team])
+
+        assert {f["key"]: f["has_experiment"] for f in results[team.id]["flags"]} == {
+            "exp-flag": expected,
+            "other-flag": False,
+        }
+
     def test_batch_two_teams_flags_isolated(self):
         team_a = self._create_team_with_project("Team A")
         team_b = self._create_team_with_project("Team B")
@@ -1275,8 +1305,8 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(3):
-            # Group type mappings use personhog; SQL only loads team config, surveys, and eligible flags.
+        with self.assertNumQueries(4):
+            # Group type mappings use personhog; SQL loads team config, surveys, eligible flags and their experiments.
             results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["cohorts"] == {}

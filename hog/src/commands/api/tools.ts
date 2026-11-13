@@ -27,7 +27,9 @@ export default defineCommand({
 
     human({ result, out }) {
         toolTable(out, result)
-        out.line(out.style('Run `hog api info <tool>` to see what a tool does and the input it takes.', 'dim'))
+        out.notes({
+            notes: [out.style('Run `hog api info <tool>` to see what a tool does and the input it takes.', 'dim')],
+        })
     },
 
     agent({ result, out }) {

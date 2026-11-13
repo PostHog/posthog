@@ -1,6 +1,8 @@
+import os
 import json
 import datetime as dt
 from typing import Any
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -304,6 +306,24 @@ class TestStoredPatternKeys(TestCase):
 
         assert [e["classification"] for e in entries] == ["rate_shift"]
 
+    def test_split_json_patterns_without_stored_members_match_by_fingerprint(self) -> None:
+        current = [
+            {**_pattern("upstream refused", count=100), "match_patterns": []},
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+        ]
+        baseline = [
+            {**_pattern("upstream refused", count=10), "match_patterns": []},
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+        ]
+
+        keys = stored_pattern_keys(current, baseline)
+        entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
+
+        assert {e["pattern"]["pattern"]: e["classification"] for e in entries} == {
+            "upstream refused": "rate_shift",
+            "Retry <*> timed out": "unchanged",
+        }
+
     def test_a_baseline_group_spanning_two_current_groups_matches_both(self) -> None:
         current = [
             {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
@@ -504,6 +524,35 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
         archive = by_example["Archive job <ID> queued"]
         assert archive["classification"] == "unchanged"
         assert archive["first_seen_ever"] == "2026-06-12T12:00:00Z"
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_both_windows_split_the_same_json_key_sets(self) -> None:
+        def tracing(key_set: str, message: str, day: int, count: int) -> list[dict]:
+            body = json.dumps({"fields": {"message": message}, key_set: 1})
+            return [
+                {**self._log(body, day=day, minute=i % 60, stored=f"<JSON:fields,{key_set}>"), "uuid": str(uuid4())}
+                for i in range(count)
+            ]
+
+        # Only the largest key set is split. "drained" is largest in the current window and "warm" in the
+        # baseline, so ranking each window on its own would split a different group on each side.
+        self._insert(
+            tracing("drained", "queue drained", 23, 40)
+            + tracing("warm", "cache warm", 23, 10)
+            + tracing("drained", "queue drained", 16, 40)
+            + tracing("warm", "cache warm", 16, 60)
+        )
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.dict(os.environ, {"LOGS_PATTERNS_MAX_JSON_SPLITS": "1", "LOGS_PATTERNS_SAMPLE_LIMIT": "20"}),
+        ):
+            results = run_patterns_diff(self.team, self._query(), None)
+
+        by_example = {e["masked_example"]: e for e in results["entries"]}
+        assert by_example["queue drained"]["classification"] == "unchanged"
+        assert by_example["queue drained"]["baseline_estimated_count"] == 40
+        assert results["sampled"] is True
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_the_version_check_shares_the_runner_time_budget(self) -> None:

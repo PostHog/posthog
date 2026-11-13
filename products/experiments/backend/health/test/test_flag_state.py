@@ -15,7 +15,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.checks.flag_state import flag_state
+from products.experiments.backend.health.checks.flag_state import OTHER_EXPERIMENT_DECIDES, flag_state
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
     ExperimentOnFlag,
@@ -24,6 +24,7 @@ from products.experiments.backend.health.context import (
     load_health_context,
     parse_flag_state,
 )
+from products.experiments.backend.health.skips import CheckSkip, not_applicable
 from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -57,6 +58,14 @@ ZERO_ROLLOUT_SHIPPED_VARIANT = {
         "variants": [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
     },
 }
+EMAIL_FILTER = {"key": "email", "value": "x", "type": "person"}
+FORCED_TEST_ONLY = {
+    **MULTIVARIANT,
+    "groups": [
+        {"properties": [EMAIL_FILTER], "rollout_percentage": 100, "variant": "test"},
+        {"properties": [], "rollout_percentage": 0},
+    ],
+}
 SHIPPED_TO_SOME = {
     "groups": [{"properties": [{"key": "email", "value": "x", "type": "person"}], "rollout_percentage": 100}],
     "multivariate": SHIPPED_VARIANT["multivariate"],
@@ -76,8 +85,8 @@ def _traffic(people_assigned_outside: int, *, window: timedelta = timedelta(days
     )
 
 
-def _pause_history(*, launched_at: datetime, paused_at: datetime | None) -> PauseHistory:
-    return PauseHistory(launched_at=launched_at, team_timezone="Europe/Berlin", paused_at=paused_at)
+def _pause_history(*, start_date: datetime, paused_at: datetime | None) -> PauseHistory:
+    return PauseHistory(start_date=start_date, team_timezone="Europe/Berlin", paused_at=paused_at)
 
 
 LAUNCHED_BEFORE_PAUSE_ENTRIES = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
@@ -86,11 +95,11 @@ PAUSED_AT = datetime(2026, 10, 12, 13, 4, tzinfo=UTC)
 ENDED_AT = datetime(2026, 10, 14, 8, 30, tzinfo=UTC)
 
 
-def _other(*, launched_at: datetime | None, ended_at: datetime | None = None) -> ExperimentOnFlag:
-    return ExperimentOnFlag(launched_at=launched_at, ended_at=ended_at, archived=False)
+def _other(*, start_date: datetime | None, ended_at: datetime | None = None) -> ExperimentOnFlag:
+    return ExperimentOnFlag(start_date=start_date, ended_at=ended_at, archived=False)
 
 
-DRAFT_ON_FLAG = _other(launched_at=None)
+DRAFT_ON_FLAG = _other(start_date=None)
 
 
 def _context(
@@ -187,9 +196,9 @@ class TestFlagState(TestCase):
                     active=True,
                     filters=MULTIVARIANT,
                     flag_called_after_end=True,
-                    other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
+                    other_experiments=(_other(start_date=ENDED_AT - timedelta(days=3)),),
                 ),
-                None,
+                not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
             (
                 "ended_flag_served_a_later_experiment_that_ended",
@@ -199,10 +208,10 @@ class TestFlagState(TestCase):
                     filters=MULTIVARIANT,
                     flag_called_after_end=True,
                     other_experiments=(
-                        _other(launched_at=ENDED_AT + timedelta(days=1), ended_at=ENDED_AT + timedelta(days=5)),
+                        _other(start_date=ENDED_AT + timedelta(days=1), ended_at=ENDED_AT + timedelta(days=5)),
                     ),
                 ),
-                None,
+                not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
             (
                 "ended_flag_served_an_earlier_experiment",
@@ -212,7 +221,7 @@ class TestFlagState(TestCase):
                     filters=MULTIVARIANT,
                     flag_called_after_end=True,
                     other_experiments=(
-                        _other(launched_at=ENDED_AT - timedelta(days=30), ended_at=ENDED_AT - timedelta(days=20)),
+                        _other(start_date=ENDED_AT - timedelta(days=30), ended_at=ENDED_AT - timedelta(days=20)),
                     ),
                 ),
                 (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
@@ -232,6 +241,11 @@ class TestFlagState(TestCase):
             ("ended_flag_disabled", _context(ENDED, active=False, filters=MULTIVARIANT), None),
             ("ended_single_variant_shipped", _context(ENDED, active=True, filters=SHIPPED_VARIANT), None),
             (
+                "ended_flag_forces_one_variant_on_its_only_open_set",
+                _context(ENDED, active=True, filters=FORCED_TEST_ONLY, flag_called_after_end=True),
+                None,
+            ),
+            (
                 "archived_ended_flag_distributing_variants",
                 _context(ENDED, active=True, filters=MULTIVARIANT, archived=True, flag_called_after_end=True),
                 (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
@@ -239,6 +253,30 @@ class TestFlagState(TestCase):
             (
                 "draft_flag_distributing_variants",
                 _context(DRAFT, active=True, filters=MULTIVARIANT),
+                (
+                    ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
+                    "not_started_but_multiple_variants_rolled_out",
+                    None,
+                ),
+            ),
+            (
+                "draft_flag_forces_one_variant_on_its_only_open_set",
+                _context(DRAFT, active=True, filters=FORCED_TEST_ONLY),
+                None,
+            ),
+            (
+                "draft_flag_forces_different_variants_by_set",
+                _context(
+                    DRAFT,
+                    active=True,
+                    filters={
+                        **MULTIVARIANT,
+                        "groups": [
+                            {"properties": [EMAIL_FILTER], "rollout_percentage": 100, "variant": "control"},
+                            {"properties": [], "rollout_percentage": 100, "variant": "test"},
+                        ],
+                    },
+                ),
                 (
                     ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
                     "not_started_but_multiple_variants_rolled_out",
@@ -256,9 +294,9 @@ class TestFlagState(TestCase):
                     DRAFT,
                     active=True,
                     filters=MULTIVARIANT,
-                    other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
+                    other_experiments=(_other(start_date=ENDED_AT - timedelta(days=3)),),
                 ),
-                None,
+                not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
             ("draft_zero_rollout", _context(DRAFT, active=True, filters=ZERO_ROLLOUT), None),
             ("draft_flag_disabled", _context(DRAFT, active=False, filters=MULTIVARIANT), None),
@@ -292,12 +330,15 @@ class TestFlagState(TestCase):
         ]
     )
     def test_flag_state(
-        self, _name: str, ctx: HealthContext, expected: tuple[ExperimentHealthFindingCode, str, str | None] | None
+        self,
+        _name: str,
+        ctx: HealthContext,
+        expected: tuple[ExperimentHealthFindingCode, str, str | None] | CheckSkip | None,
     ) -> None:
         finding = flag_state(ctx)
 
-        if expected is None:
-            self.assertIsNone(finding)
+        if not isinstance(expected, tuple):
+            self.assertEqual(finding, expected)
             return
         assert isinstance(finding, ExperimentHealthFinding)
         code, subcode, variant_key = expected
@@ -312,7 +353,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=PAUSED_AT),
+                    pause_history=_pause_history(start_date=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=PAUSED_AT),
                 ),
                 ("paused_from_experiment", ExperimentHealthFindingSeverity.INFO, "The experiment is paused"),
             ),
@@ -322,7 +363,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
+                    pause_history=_pause_history(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
                 ),
                 (
                     "running_but_flag_disabled",
@@ -336,8 +377,8 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
-                    other_experiments=(_other(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES),),
+                    pause_history=_pause_history(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
+                    other_experiments=(_other(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES),),
                 ),
                 (
                     "running_but_flag_disabled",
@@ -351,7 +392,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=None),
+                    pause_history=_pause_history(start_date=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=None),
                 ),
                 ("running_but_flag_disabled", ExperimentHealthFindingSeverity.WARNING, "The experiment is paused"),
             ),
@@ -456,7 +497,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=PAUSED_AT),
+                    pause_history=_pause_history(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=PAUSED_AT),
                 ),
                 "The experiment was paused on October 12, 2026 at 3:04 PM CEST, so the linked feature flag serves no "
                 "variants. Users exposed before the pause stay in the results. Their events during the pause can "
@@ -537,12 +578,13 @@ class TestFlagState(TestCase):
 class TestFlagStateOfAnEndedExperiment(BaseTest):
     @parameterized.expand(
         [
-            ("running_experiment_on_the_flag", False, None),
+            ("running_experiment_on_the_flag", False, not_applicable(OTHER_EXPERIMENT_DECIDES)),
             ("deleted_experiment_on_the_flag", True, "ended_but_multiple_variants_rolled_out"),
+            ("a_reader_who_cant_read_the_calls", True, "ended_flag_calls_unknown", False),
         ]
     )
-    def test_reads_the_other_experiments_on_the_flag(
-        self, _name: str, other_deleted: bool, expected_subcode: str | None
+    def test_reads_the_flag_and_its_other_experiments(
+        self, _name: str, other_deleted: bool, expected: str | CheckSkip, can_read_flag_calls: bool = True
     ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -570,6 +612,6 @@ class TestFlagStateOfAnEndedExperiment(BaseTest):
             override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"),
             time_machine.travel(datetime(2026, 10, 20, 12, 0, tzinfo=UTC), tick=False),
         ):
-            finding = flag_state(load_health_context(experiment))
+            finding = flag_state(load_health_context(experiment, can_read_flag_calls=can_read_flag_calls))
 
-        self.assertEqual(finding.subcode if isinstance(finding, ExperimentHealthFinding) else finding, expected_subcode)
+        self.assertEqual(finding.subcode if isinstance(finding, ExperimentHealthFinding) else finding, expected)

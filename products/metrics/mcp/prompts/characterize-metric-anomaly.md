@@ -6,7 +6,7 @@ All parameters go inside `query` — top-level fields are rejected:
 { "query": { "metricName": "m", "anomalyFrom": "2026-01-01T00:00:00Z" } }
 ```
 
-Required: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).
+Required: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). The window bounds are ISO 8601 timestamps; relative offsets such as `-30M` or `-1h` are rejected here. `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).
 
 The aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.
 
@@ -15,6 +15,6 @@ Read the report in this order:
 1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)
 2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.
 3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.
-4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.
+4. `series`: the full baseline+anomaly time series if you need to eyeball the shape. When the window ends inside a bucket (for example at now), that last bucket holds only part of its samples: `partial_bucket_time` names it, it stays in `series`, and every statistic above leaves it out, so a low last point is not a drop.
 
 Then correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius.

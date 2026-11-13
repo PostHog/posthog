@@ -82,6 +82,16 @@ Because this channel can't be enumerated, it is closed by construction rather th
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    tach cannot see that, so a model or migration change always re-runs the full suite.
    `hogli product:lint` blocks a narrowing that leaves the surface out.
+4. Keep in the inputs every module that outside suites run without an import:
+   - a module with a signal receiver on a sender of core or another product;
+   - a module that a test outside the product names by dotted path, as a patch target does;
+   - a module that core loads by name through `load_product_modules`;
+   - `backend/apps.py` and every product module it imports, because Django runs the AppConfig in every process;
+   - a module that registers into a `register_*` hook of core or another product, and the module that defines what it registers;
+   - a module that core settings name by dotted path, such as a middleware.
+
+   `hogli product:lint` finds each of them and fails until each module is in the inputs.
+   It watches the entry module, not everything that module calls: code behind it is tested in the product, like code behind the facade.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
@@ -111,9 +121,10 @@ These cross the boundary as classes — allowed only under all three rules:
    The lint reads coverage per location rather than per subtree, so it cannot hold that scope; the repo invariant `test_product_analytics_drives_only_the_watched_subtree` does, and it fails when a line names code outside the watched subtree.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
-   Registration points check `issubclass(cls, Base)` and reject anything else.
+   A registration point accepts only implementations of its base and rejects anything else.
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
-   `ee/hogai/registry.py` (MaxTool) is the reference implementation: subclass auto-registration with validation.
+   `MaxTool` is the reference implementation: a class registers itself by subclassing (`__init_subclass__` in `ee/hogai/tool.py`), so only a `MaxTool` enters the registry, and the hook rejects an unknown tool name.
+   The Temporal worker, Celery task discovery and `get_query_runner` do not validate yet: they accept whatever the wiring location holds.
 
 Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
@@ -121,9 +132,14 @@ Two core registries are keyed by model class identity and are explicit, sanction
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
 
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
-Three products hold entries.
+Four products hold entries.
 `warehouse_sources`: core HogQL reads its warehouse table/schema/source models to build queryable tables.
 `ExternalDataDestination`, `ExternalDataSourceDestination` and `ExternalDataSchemaDestination` cross for the same reason as the rest of the product's models — the destination CRUD `ModelViewSet` and the source-/schema-level link-table editors need the classes themselves for `Meta.model`, querysets, and edits to the link rows, not a read-only shape.
+`data_modeling`: `DataWarehouseSavedQuery`, `DataWarehouseSavedQueryDraft`, `DataWarehouseSavedQueryColumnAnnotation`, `DataWarehouseManagedViewSet`, `DataModelingJob`, `DAG`, `Node` and `Edge`.
+Core HogQL reads saved queries to build the views a query can name, the same reason the `warehouse_sources` table models cross.
+The saved-query, draft and column-annotation `ModelViewSet`s live in `data_warehouse` `presentation/` and need the classes for `Meta.model`, querysets and writes.
+The materialization activities in `posthog/temporal/data_modeling/` lock and update `Node` and `DataModelingJob` rows, and `endpoints` holds a ForeignKey into `DataWarehouseSavedQuery`.
+Retiring the entries means moving those viewsets and activities into the product, so that consumers keep only ids and contracts.
 `product_analytics`: `Insight` and `InsightVariable`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
 `InsightVariable` has no consumer left outside the product; its entry survives only because the SQL-variables `ModelViewSet` in `presentation/` needs the class and presentation may reach internals only through the facade, so retiring the entry means converting that viewset off `ModelSerializer` first.
@@ -450,16 +466,16 @@ If both presentation and logic need the same utility (caching, permissions, etc.
 User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
 
 A view that fetches a contract from the facade has no model instance for DRF's `get_object()` to check.
-It still checks object access through the same permission stack, with an `ObjectAccessRef` from `products/access_control/backend/facade/contracts.py` in place of the instance:
+It still checks object access through the same permission stack:
 
-- Override `safely_get_object()` to fetch the contract through the facade. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
-- Build `ObjectAccessRef(resource=..., id=..., team_id=..., created_by_id=...)` from the contract and return it. Return `None` for a missing object, which becomes a 404.
-- The mixin's `get_object()` then calls `check_object_permissions` on the reference. Every permission class on the view runs, and `AccessControlPermission` resolves the object's access from the reference.
-- `LogEntryMixin` and `AppMetricsMixin` read only `.id` from `get_object()`, so they keep working without the model.
-- An action that needs the contract itself can fetch it, build the reference, and call `self.check_object_permissions(self.request, ref)` directly.
+- Override `read_object()` to fetch the contract through the facade, filtered by team. Return `None` for a missing object, which becomes a 404. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
+- The mixin's `get_object()` calls `check_object_permissions` on the contract and returns the contract. Actions, `LogEntryMixin`, `AppMetricsMixin` and DRF's detail `OPTIONS` metadata get the contract from `get_object()`.
+- `AccessControlPermission` needs an `ObjectAccessRef` (`products/access_control/backend/facade/contracts.py`) to resolve the object's access. Override `object_access_ref(record)` to build it from the contract. Set `fallback_parent` when the resource inherits access from a parent object (`RESOURCE_FALLBACK_MAP`).
+- When no access rule can name one record, for example when `scope_object` is not an access-control resource, set `records_have_object_access_rules = False` instead.
+- A view that does neither fails closed: the object check raises.
 
 Do not call `AccessControlPermission` methods by hand, and do not pass `UserAccessControl` or a required level into the facade.
-A resource that inherits access from a parent object (`RESOURCE_FALLBACK_MAP`) needs the model instance, and a reference for it raises.
+`UserAccessControl` object methods take a model instance only. They raise on a contract.
 
 The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
 
@@ -496,6 +512,9 @@ The facade pages in SQL instead, and the view builds the standard response from 
 - Every list returns `count`, `next`, `previous` and `results`, so clients and MCP tools page every product the same way.
   Add extra fields beside them when a list needs them, and do not replace them.
 - Do not set paginator attributes by hand, build a fake queryset for a paginator, or return a whole list for the view to slice.
+  The `no-hand-set-paginator-state` semgrep rule blocks the first.
+- Every paginator extends a base in `posthog/api/pagination.py`: `BoundedLimitOffsetPagination`, `BoundedPageNumberPagination` or `StableCursorPagination`.
+  `posthog/test/repo_invariants/test_pagination_contract.py` fails for a registered view whose paginator does not.
 
 `products/visual_review/backend/presentation/views.py` shows the limit/offset form.
 

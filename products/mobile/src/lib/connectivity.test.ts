@@ -20,7 +20,7 @@ describe('connectivity', () => {
     beforeEach(() => {
         jest.useFakeTimers()
         AppState.currentState = 'active'
-        useConnectivity.setState({ status: 'unknown' })
+        useConnectivity.setState({ status: 'unknown', type: NetworkStateType.UNKNOWN })
         unsubscribe = jest.fn()
         remove = jest.fn()
         jest.mocked(addNetworkStateListener).mockImplementation((listener) => {
@@ -62,7 +62,9 @@ describe('connectivity', () => {
             expect(useConnectivity.getState().status).toBe('unknown')
             update(state(true))
             await jest.advanceTimersByTimeAsync(0)
-            expect(useConnectivity.getState()).toEqual({ status: 'connected' })
+            expect(useConnectivity.getState()).toEqual({ status: 'connected', type: NetworkStateType.WIFI })
+            update({ type: NetworkStateType.CELLULAR, isConnected: true })
+            expect(useConnectivity.getState()).toEqual({ status: 'connected', type: NetworkStateType.CELLULAR })
             stop()
             client.unmount()
             client.clear()

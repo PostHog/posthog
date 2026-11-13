@@ -55,7 +55,7 @@ import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyStat
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { toFullPageListParams } from './redesign/trace/adapter/toBackLink'
+import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
 import { withoutTraceDrawerParams } from './redesign/trace/traceDrawerRows'
 import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'

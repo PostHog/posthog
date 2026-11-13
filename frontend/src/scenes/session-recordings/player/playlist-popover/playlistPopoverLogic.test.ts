@@ -22,8 +22,22 @@ describe('playlistPopoverLogic', () => {
         })
         initKeaTests()
         jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        jest.spyOn(lemonToast, 'success').mockImplementation(() => '')
         logic = playlistPopoverLogic({ sessionRecordingId: 'rec-1', playerKey: 'test' })
         logic.mount()
+    })
+
+    it.each([
+        ['addToPlaylist', 'addRecordingToPlaylist' as const, 'Recording added to collection'],
+        ['removeFromPlaylist', 'removeRecordingFromPlaylist' as const, 'Recording removed from collection'],
+    ])('toasts once when %s succeeds', async (action, apiMethod, expectedMessage) => {
+        jest.spyOn(api.recordings, apiMethod).mockResolvedValue(collection)
+
+        logic.actions[action as 'addToPlaylist' | 'removeFromPlaylist'](collection)
+
+        await expectLogic(logic).toDispatchActions([`${action}Success`])
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+        expect(jest.mocked(lemonToast.success).mock.calls[0][0]).toBe(expectedMessage)
     })
 
     // A status-less failure is what `handleFetch` throws when the request path itself faults, and

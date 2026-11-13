@@ -542,13 +542,16 @@ export const userLogic = kea<userLogicType>([
             // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
             null as UserType | null,
             {
-                loadUser: async () => {
+                loadUser: async ({ resetOnFailure }) => {
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
                         return await api.get<UserType>('api/users/@me/')
                     } catch (error: any) {
                         console.error(error)
                         actions.loadUserFailure(error.message)
+                        if (resetOnFailure === false && (!error.status || error.status >= 500)) {
+                            return values.user
+                        }
                     }
                     return null
                 },
@@ -1070,8 +1073,8 @@ export const userLogic = kea<userLogicType>([
             },
         ],
         // True for accounts created by a partner drop flow (onboarding skipped with reason
-        // 'provisioned'). Drives the provisioned welcome experience — background-install FAB,
-        // welcome dialog, quick-start seeding, and the homepage banner.
+        // 'provisioned'). Drives the provisioned welcome experience: welcome dialog, quick-start
+        // seeding, and the homepage banner.
         isProvisionedUser: [
             (s) => [s.user],
             (user: UserType | null): boolean => user?.onboarding_skipped_reason === 'provisioned',

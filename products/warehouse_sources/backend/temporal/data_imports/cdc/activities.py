@@ -30,6 +30,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
+from products.data_warehouse.backend.facade import api as data_warehouse_api
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -67,12 +68,15 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
     mark_cdc_broken,
+    restore_missing_extraction_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
+    CDCMaskedKeyError,
+    CDCMaskingKeyError,
     CDCReservedColumnError,
     CDCSlotNotConfiguredError,
     classify_cdc_error,
@@ -96,6 +100,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
+    protected_masked_columns,
+    value_masker,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
@@ -206,6 +215,11 @@ class CDCExtractActivity:
         self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        # Folded names of the columns to mask. Missing entry = mask nothing.
+        self.masked_columns_by_table: dict[str, set[str]] = {}
+        # Whether each raw column name is masked, per table. Folding a name costs too much per event.
+        self._masked_names_by_table: dict[str, dict[str, bool]] = {}
+        self._masker: Callable[[object], str | None] | None = None
         self.history_naming_by_table: dict[str, HistoryNaming] = {}
         self.adapter: typing.Any = None
         self.reader: typing.Any = None
@@ -515,8 +529,8 @@ class CDCExtractActivity:
 
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            self.log.info("no_active_cdc_schemas_deleting_schedule")
-            self._delete_own_schedule()
+            self.log.info("no_active_cdc_schemas_syncing_schedule")
+            self._sync_own_schedule()
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
@@ -571,6 +585,15 @@ class CDCExtractActivity:
             delete_cdc_extraction_schedule(str(self.inputs.source_id))
         except Exception:
             self.log.exception("failed_to_delete_own_schedule")
+
+    def _sync_own_schedule(self) -> None:
+        # Sync, not delete: it reads the tables again, so a table enabled since this run loaded them
+        # keeps the schedule that its own update just recreated.
+        assert self.source is not None
+        try:
+            data_warehouse_api.sync_cdc_extraction_schedule(self.source)
+        except Exception:
+            self.log.exception("failed_to_sync_own_schedule")
 
     # ------------------------------------------------------------------
     # PK column loading
@@ -644,6 +667,32 @@ class CDCExtractActivity:
                     retained.add(inc)
                 self.enabled_columns_by_table[schema.name] = retained
 
+            self._load_masked_columns(schema)
+
+    def _read_masked_columns(self, schema: ExternalDataSchema) -> list[str] | None:
+        return (
+            ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)
+            .values_list("masked_columns", flat=True)
+            .first()
+        )
+
+    def _load_masked_columns(self, schema: ExternalDataSchema) -> None:
+        self._masked_names_by_table.pop(schema.name, None)
+        if not (isinstance(schema.masked_columns, list) and schema.masked_columns):
+            self.masked_columns_by_table.pop(schema.name, None)
+            return
+        # The API checks a mask against the stored key, but a table saved without one gets
+        # its key from the catalog above. Fail before any change of the table is read.
+        masked_keys = protected_masked_columns(schema.masked_columns, self.pk_columns_by_table.get(schema.name, []))
+        if masked_keys:
+            raise CDCMaskedKeyError(schema.name, masked_keys)
+        if self._masker is None:
+            try:
+                self._masker = value_masker(self.inputs.team_id)
+            except NonRetryableException as e:
+                raise CDCMaskingKeyError(str(e)) from e
+        self.masked_columns_by_table[schema.name] = {fold_column_name(column) for column in schema.masked_columns}
+
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
         """Look up primary keys in the source catalog, keyed back on `ExternalDataSchema.name`.
 
@@ -701,6 +750,30 @@ class CDCExtractActivity:
             column_types=event.column_types,
             omitted_columns=filtered_omitted,
         )
+
+    def _mask_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        masked = self.masked_columns_by_table.get(event.table_name)
+        if not masked:
+            return event
+        assert self._masker is not None
+        mask = self._masker
+        decisions = self._masked_names_by_table.setdefault(event.table_name, {})
+
+        def is_masked(name: str) -> bool:
+            decision = decisions.get(name)
+            if decision is None:
+                decision = decisions[name] = fold_column_name(name) in masked
+            return decision
+
+        columns = {name: mask(value) if is_masked(name) else value for name, value in event.columns.items()}
+        # A digest is text. Left on the source type, a flush where the column is all null would
+        # write that type and no longer merge with the flushes that hold digests.
+        column_types = event.column_types
+        if column_types is not None:
+            column_types = {
+                name: pa.string() if is_masked(name) else column_type for name, column_type in column_types.items()
+            }
+        return dataclasses.replace(event, columns=columns, column_types=column_types)
 
     def _split_key_change(self, event: ChangeEvent) -> tuple[ChangeEvent, ...]:
         """Turn an update that changes the merge key into a delete of the old key and an insert of the new one.
@@ -808,7 +881,7 @@ class CDCExtractActivity:
                     event = dataclasses.replace(event, table_name=canonical_name)
 
                 for change in self._split_key_change(event):
-                    self.batcher.add(self._project_event_columns(change))
+                    self.batcher.add(self._mask_event_columns(self._project_event_columns(change)))
 
                 # A change in position_serialized proves the previous transaction fully
                 # yielded — all of its events are now buffered or flushed. Record its end LSN
@@ -1027,6 +1100,10 @@ class CDCExtractActivity:
             mutate=_merge_pending,
             extra_model_fields={"initial_sync_complete": False},
         )
+        # Read after the locked write above. A mask change saves its reset together with the masks,
+        # so every reset that write merged and this run finishes comes with masks at least this new.
+        schema.masked_columns = self._read_masked_columns(schema)
+        self._load_masked_columns(schema)
         self._tables_awaiting_reset.discard(schema.name)
         return True
 
@@ -1689,6 +1766,25 @@ def cleanup_orphan_slots_activity() -> None:
             if retention_cap_mb is not None:
                 critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
 
+            will_auto_drop = (
+                lag_mb >= critical_threshold_mb
+                and cdc_config.management_mode == "posthog"
+                and cdc_config.auto_drop_slot
+                and retention_cap_mb is None
+            )
+            # A missing schedule shows as lag, so only a lagging source pays for the Temporal lookup. A slot
+            # this sweep drops gets no schedule, because its first run would race the drop. Repair recreates it.
+            schedule_restored = False
+            if not will_auto_drop and lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb):
+                try:
+                    schedule_restored = restore_missing_extraction_schedule(source)
+                    if schedule_restored:
+                        source_log.warning("cdc_extraction_schedule_restored", lag_mb=round(lag_mb, 1))
+                except Exception:
+                    source_log.exception("failed_to_restore_cdc_extraction_schedule")
+                    metrics.get_sweeper_source_errors_metric().add(1)
+                    sources_errored += 1
+
             if lag_mb >= critical_threshold_mb:
                 source_log.error(
                     "slot_lag_critical",
@@ -1697,7 +1793,10 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb=retention_cap_mb,
                 )
 
-                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
+                # The lag built up while nothing read the slot, so the restored capture run gets one sweep to read it.
+                if schedule_restored:
+                    source_log.info("slot_lag_critical_while_schedule_missing")
+                elif cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
                     source_log.warning("auto_dropping_slot_critical_lag")
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:

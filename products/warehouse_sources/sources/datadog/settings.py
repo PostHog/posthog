@@ -387,8 +387,11 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
         pagination="none",
         flatten_attributes=True,
         partition_key="date",
-        # Datadog only holds estimated cost for the current and previous month, so there is no
-        # history to filter into and the whole window is cheap to re-read each sync.
+        # The endpoint 400s with no params unless either start_month or start_date is sent, and
+        # rejects a start_month beyond two months back, so this must stay well under that.
+        timestamp_filter_param="start_month",
+        timestamp_filter_format="month",
+        default_lookback_days=30,
     ),
     "slo_corrections": DatadogEndpointConfig(
         name="slo_corrections",

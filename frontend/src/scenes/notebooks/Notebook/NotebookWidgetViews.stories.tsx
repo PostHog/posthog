@@ -4,9 +4,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import { HttpResponse } from 'msw'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
-import dashboardFixture from 'scenes/dashboard/__mocks__/dashboard.json'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -29,6 +27,7 @@ import {
 } from '~/types'
 
 import traceWithoutContent from 'products/ai_observability/frontend/__mocks__/traceWithoutContent.json'
+import dashboardFixture from 'products/dashboards/frontend/__mocks__/dashboard.json'
 import {
     errorTrackingEventsQueryResponse,
     errorTrackingQueryResponse,
@@ -522,7 +521,6 @@ export const CohortViews: Story = { parameters: { pageUrl: urls.notebook('cohort
 export const InsightViews: Story = {
     parameters: {
         pageUrl: urls.notebook('insight-widget-views'),
-        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
     },
     play: async ({ canvasElement }) => {
         await waitFor(() => {

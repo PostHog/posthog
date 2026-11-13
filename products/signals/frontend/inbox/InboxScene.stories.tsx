@@ -1,16 +1,15 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { useMountedLogic } from 'kea'
+import { waitFor, within } from '@testing-library/dom'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
-import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 
-import { expect } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import {
     allReports,
@@ -23,9 +22,11 @@ import {
     mockTeamConfig,
     reportTabReports,
 } from './__mocks__/inboxMocks'
-import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
+import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns, mockScoutSuggestionSet } from './__mocks__/scoutConfigs'
+import { InboxStateFilter } from './components/shell/InboxStateFilter'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
+import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
@@ -43,6 +44,7 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/signals/trial/': { enabled: false, grant_status: 'not_claimed' },
         '/api/projects/:id/integrations/github/available_installations/': {
             discovery_id: '11111111-1111-4111-8111-111111111111',
             discovered_at: '2026-06-11T00:00:00Z',
@@ -106,6 +108,53 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
+function statusAvailabilityMocks(monitoringCount: number): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:id/signals/reports': ({ request }) => [
+                200,
+                {
+                    results: [],
+                    count: new URL(request.url).searchParams.get('status') === 'monitoring' ? monitoringCount : 0,
+                    next: null,
+                    previous: null,
+                },
+            ],
+        },
+    })
+}
+
+export const MonitoringReportsExist: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [statusAvailabilityMocks(1)],
+    render: () => (
+        <div className="p-4">
+            <InboxStateFilter />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        await waitFor(() => expect(within(document.body).getByText('Monitoring', { exact: true })).toBeVisible())
+    },
+}
+
+export const NoMonitoringReports: Story = {
+    ...MonitoringReportsExist,
+    decorators: [statusAvailabilityMocks(0)],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() =>
+            expect(reportListLogic(sectionListLogicProps('outcome-monitoring')).values.hasProjectReports).toBe(false)
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        expect(within(document.body).queryByText('Monitoring', { exact: true })).not.toBeInTheDocument()
+    },
+}
+
 const valueSummaryMocks = mswDecorator({
     get: {
         '/api/projects/:team_id/signals/inbox_summary/': {
@@ -129,6 +178,22 @@ const valueSummaryMocks = mswDecorator({
         },
     },
 })
+
+export const ReportsNarrow: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.INBOX_TIME_WINDOW]: true,
+            [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+        },
+        testOptions: { viewport: { width: 390, height: 844 }, waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByLabelText('Filters'))
+        // The panel renders in a popover outside the story root, and fades in after the click.
+        await waitFor(() => expect(within(document.body).getByText('Reset to default')).toBeVisible())
+    },
+}
 
 export const WithValueSummary: Story = {
     parameters: {
@@ -177,8 +242,154 @@ export const Scouts: Story = {
     ],
 }
 
+const findingsRuns = [
+    {
+        run_id: 'findings-run-errors',
+        skill_name: 'signals-scout-error-tracking',
+        emitted_count: 2,
+        emitted_finding_ids: ['checkout-500s', 'invite-null-email'],
+        emitted_report_ids: [],
+        created_at: '2026-06-10T18:00:00Z',
+    },
+    {
+        run_id: 'findings-run-replay',
+        skill_name: 'signals-scout-session-replay',
+        emitted_count: 1,
+        emitted_finding_ids: ['rage-clicks-billing'],
+        emitted_report_ids: [reportTabReports[0].id],
+        created_at: '2026-06-10T12:00:00Z',
+    },
+].map((run) => ({
+    ...run,
+    total_spend: null,
+    skill_version: 1,
+    status: 'completed' as const,
+    started_at: run.created_at,
+    completed_at: run.created_at,
+    task_url: null,
+    summary: 'Filed what changed since the last run.',
+    edited_report_ids: [],
+    metadata: {},
+}))
+
+const findingsEmissions = [
+    {
+        id: 'emission-checkout-500s',
+        run_id: 'findings-run-errors',
+        finding_id: 'checkout-500s',
+        description: 'A new TypeError on the checkout page started at 14:00 and now affects about one in ten sessions.',
+        severity: 'P1' as const,
+        tags: ['new-error', 'checkout'],
+        source_id: 'run:findings-run-errors:finding:checkout-500s',
+        emitted_at: '2026-06-10T18:10:00Z',
+    },
+    {
+        id: 'emission-invite-null-email',
+        run_id: 'findings-run-errors',
+        finding_id: 'invite-null-email',
+        description: 'Team invites with an empty recipient row raise a 500 instead of a validation error.',
+        severity: 'P2' as const,
+        tags: ['regression'],
+        source_id: 'run:findings-run-errors:finding:invite-null-email',
+        emitted_at: '2026-06-10T18:08:00Z',
+    },
+    {
+        id: 'emission-rage-clicks-billing',
+        run_id: 'findings-run-replay',
+        finding_id: 'rage-clicks-billing',
+        description: 'People rage-click the disabled upgrade button on the billing page before they leave.',
+        severity: 'P3' as const,
+        tags: ['usability'],
+        source_id: 'run:findings-run-replay:finding:rage-clicks-billing',
+        emitted_at: '2026-06-10T12:12:00Z',
+    },
+]
+
+function findingsMocks(emissionsFail = false): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+            '/api/projects/:id/signals/scout/runs': () => [200, findingsRuns],
+            '/api/projects/:id/signals/scout/runs/findings/summary/': () => [200, null],
+            '/api/projects/:id/signals/scout/metadata/current/': () => [200, null],
+            '/api/projects/:id/signals/scout/scratchpad/': () => [200, []],
+            '/api/projects/:id/signals/scout/suggestions/': () => [200, mockScoutSuggestionSet()],
+            '/api/projects/:id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+        },
+        post: {
+            '/api/projects/:id/signals/scout/configs/sync/': () => [200, mockScoutConfigs],
+            '/api/projects/:id/signals/scout/runs/emissions/batch/': () =>
+                emissionsFail ? [500, { detail: 'Server error' }] : [200, findingsEmissions],
+            '/api/projects/:id/signals/scout/runs/emissions/reports/batch/': () => [
+                200,
+                [
+                    {
+                        finding_id: 'invite-null-email',
+                        source_id: 'run:findings-run-errors:finding:invite-null-email',
+                        report: { id: reportTabReports[0].id, title: reportTabReports[0].title, status: 'ready' },
+                    },
+                ],
+            ],
+        },
+    })
+}
+
+export const ScoutFindings: Story = {
+    decorators: [routeTo(urls.inboxFindings()), findingsMocks()],
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText(/rage-click the disabled upgrade button/)).resolves.toBeVisible()
+    },
+}
+
+export const ScoutFindingsLoadFailed: Story = {
+    decorators: [routeTo(urls.inboxFindings()), findingsMocks(true)],
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText(/Couldn't load signals/)).resolves.toBeVisible()
+    },
+}
+
 export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
+}
+
+export const SettingsWithSpendBilling: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT]: true } },
+    decorators: [
+        routeTo(urls.inbox('settings')),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/refund-summary/': {
+                    credited_refund_count: 0,
+                    credited_credits: 0,
+                    period_billable_credits: 0,
+                    quota_limited: true,
+                },
+                '/api/billing': () => [
+                    200,
+                    {
+                        ...billingJson,
+                        products: [
+                            {
+                                ...billingJson.products[0],
+                                type: 'inbox_usage',
+                                name: 'Inbox usage',
+                                usage_key: 'signals_spend_credits',
+                                current_amount_usd: '12.34',
+                                current_usage: 1234,
+                            },
+                        ],
+                        usage_summary: { signals_spend_credits: { billing_start_date: '2020-01-01' } },
+                    },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('1,234 credits')).toBeVisible()
+        await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
+        await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
+    },
 }
 
 export const Sources: Story = {
@@ -206,26 +417,6 @@ export const EmptyWithManyScouts: Story = {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
                 '/api/projects/:id/signals/scout/configs': () => [200, mockLargeScoutFleet],
-            },
-        }),
-    ],
-}
-
-export const InstallingSelfDriving: Story = {
-    decorators: [
-        (Story) => {
-            useMountedLogic(wizardActiveSessionDetectorLogic)
-            useEffect(() => {
-                wizardActiveSessionDetectorLogic.actions.markActive(SELF_DRIVING_WORKFLOW_ID)
-                return () => wizardActiveSessionDetectorLogic.actions.markInactive()
-            }, [])
-            return <Story />
-        },
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
-                '/api/projects/:id/signals/scout/configs': () => [200, []],
             },
         }),
     ],
@@ -312,4 +503,48 @@ export const SelfDrivingPaused: Story = {
             },
         }),
     ],
+}
+
+// A filter link marks the scope as chosen in local storage, and the stories in this file share it.
+// Without this cleanup, the next story keeps the For you scope instead of its own default.
+const clearPersistedInboxFilters: Decorator = (Story) => {
+    useEffect(
+        () => () =>
+            Object.keys(localStorage)
+                .filter((key) => key.startsWith('scenes.inbox.logics.inboxFiltersLogic'))
+                .forEach((key) => localStorage.removeItem(key)),
+        []
+    )
+    return <Story />
+}
+
+// The user picked Personalized, but the server has no personal ranking for them, so it answers with
+// the Recommended order.
+export const PersonalizedSortFallback: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    {
+                        results: allReports,
+                        count: allReports.length,
+                        next: null,
+                        previous: null,
+                        ranker: 'priority',
+                        ranking_id: null,
+                        ranking_pill: false,
+                    },
+                ],
+            },
+        }),
+        routeTo(urls.inbox('reports'), { sort: 'personal:asc' }),
+        clearPersistedInboxFilters,
+    ],
+    play: async ({ canvas }) => {
+        await canvas.findByText("Your personalized list isn't ready yet, so this is the Recommended order.")
+    },
 }

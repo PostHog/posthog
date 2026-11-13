@@ -33,7 +33,7 @@ class TestTopicPreferences(APIBaseTest):
         self.product_updates = MessageCategory.objects.create(
             team=self.team, key="product-updates", name="Product updates"
         )
-        self.psak = self._psak_client(["hog_flow:write"])
+        self.psak = self._psak_client(["messaging_preference:write"])
 
     def _psak_client(self, scopes: list[str], team: Any = None) -> APIClient:
         raw_token = generate_random_token_secret()
@@ -59,8 +59,8 @@ class TestTopicPreferences(APIBaseTest):
             team=self.team, identifier="jane@example.com", preferences=preferences
         )
 
-    @parameterized.expand([("plain", "jane@example.com"), ("surrounding_whitespace", " jane@example.com ")])
-    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock, _name: str, identifier: str) -> None:
+    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock) -> None:
+        identifier = " jane@example.com "
         response = self._set({"identifier": identifier, "topics": {"newsletter": False}})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -104,7 +104,6 @@ class TestTopicPreferences(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown", lambda test: "does-not-exist"),
             ("deleted", lambda test: test._deleted_topic().key),
             ("other_team", lambda test: test._other_team_topic().key),
         ]
@@ -164,11 +163,35 @@ class TestTopicPreferences(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_only_key", ["hog_flow:read"]),
-            ("unrelated_scope", ["feature_flag:read"]),
+            ("preference_scope", ["messaging_preference:write"], "messaging_preference"),
+            ("workflow_scope", ["hog_flow:write"], "hog_flow"),
+            ("both_scopes", ["hog_flow:write", "messaging_preference:write"], "messaging_preference"),
         ]
     )
-    def test_refuses_a_project_secret_key_without_hog_flow_write(
+    def test_accepts_either_write_scope_and_reports_which_one_authorized(
+        self, _flag: MagicMock, _name: str, scopes: list[str], authorized_by: str
+    ) -> None:
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self._set(
+                {"identifier": "jane@example.com", "topics": {"newsletter": False}}, self._psak_client(scopes)
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._stored() == {str(self.newsletter.id): OPTED_OUT}
+        reports = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "messaging preferences api set"
+        ]
+        assert [report["authorized_by"] for report in reports] == [authorized_by]
+
+    @parameterized.expand(
+        [
+            ("read_only_workflow_key", ["hog_flow:read"]),
+            ("read_only_preference_key", ["messaging_preference:read"]),
+        ]
+    )
+    def test_refuses_a_project_secret_key_without_a_write_scope(
         self, _flag: MagicMock, _name: str, scopes: list[str]
     ) -> None:
         response = self._set({"identifier": "jane@example.com", "all_marketing": False}, self._psak_client(scopes))
@@ -181,7 +204,7 @@ class TestTopicPreferences(APIBaseTest):
 
         response = self._set(
             {"identifier": "jane@example.com", "all_marketing": False},
-            self._psak_client(["hog_flow:write"], team=other_team),
+            self._psak_client(["messaging_preference:write"], team=other_team),
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()

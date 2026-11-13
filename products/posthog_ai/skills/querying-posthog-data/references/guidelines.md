@@ -99,7 +99,7 @@ Everything else starts with that workflow.
 Don't guess table or column names — they differ per entity and drift over time. Discover the live schema for **every** data group above (system, captured, and data-warehouse tables) by querying `system.information_schema` via `execute-sql`. Four virtual tables carry the schema itself, and each one holds a different set of fields — project a field on the surface that owns it, or the query fails:
 
 - `tables` — one row per table. Fields: table_catalog, table_schema, table_name, table_type, description, row_count, certification. table_type is one of system, data_warehouse, view, posthog (built-in analytics tables like events / persons), or information_schema. `certification` is the settled trust mark (`certified` / `deprecated`) and lives **only** here, not on `columns`.
-- `columns` — one row per column. Fields: table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, is_array, field_kind, description, null_fraction, min_value, max_value. The last three are profiling statistics and are filled in for data-warehouse columns only.
+- `columns` — one row per column. Fields: table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, is_array, field_kind, description, null_fraction, min_value, max_value, sensitivity. null_fraction, min_value and max_value are profiling statistics and are filled in for data-warehouse columns only. `sensitivity` names the kind of personal or secret data a synced data-warehouse column likely holds (`email`, `phone`, `name`, `address`, `date_of_birth`, `ip_address`, `token`, `secret`, `card_number`), or NULL. Leave flagged columns out of a query unless the question needs them.
 - `relationships` — one row per joinable relationship. Fields: source_table, source_column, target_table, target_column, relationship_kind, via, confidence, reasoning.
 - `data_types` — one row per HogQL type. Fields: type_name, description.
 
@@ -166,6 +166,17 @@ SELECT type_name, description FROM system.information_schema.data_types
 ```
 
 `information_schema` covers table and column **structure**. To verify which events, properties, and property values actually exist in captured data, use `read-data-schema` (see **Schema verification** below).
+
+#### Late materialized views
+
+A materialized view stores its result and refreshes on a schedule, so a query reads the stored result, not the view's sources. A `certified` mark says that a table or view is correct. It does not say that the data is current.
+
+When a materialized view is well behind its refresh schedule, or its latest refresh failed, the query result carries a `warehouse_sync` warning. The warning names the view and gives its last successful refresh. The rules below apply to every materialized view. A late `certified` view stays certified, so do not drop it for that reason alone:
+
+- Treat the day of the last refresh as incomplete. The refresh ran partway through that day.
+- If the question covers a period that ends before the day of the last refresh, use the view.
+- If the question needs data from the day of the last refresh or later, tell the user. Query the view's sources instead when the user needs current numbers.
+- In both cases, tell the user when the view last refreshed, for example "last refreshed 3 days ago". For a `certified` view, say that it is certified too.
 
 #### Querying guidelines
 
@@ -356,7 +367,7 @@ properties.foo['bar-baz']
 ##### Unsupported/changed functions
 
 Don't use | Use instead
-`toFloat64OrNull()`, `toFloat64()` | `toFloat()`
+`toInt32()`, `toUInt8()`, `toFloat32()` and other non-64-bit widths | `toInt()`, `toFloat()` (`toInt64()` and `toFloat64()` work as aliases)
 `toDateOrNull(timestamp)` | `toDate(timestamp)`
 `LAG()`, `LEAD()` | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`
 `count(*)` | `count()`

@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -6,17 +7,17 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtua
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.events import (
-    EVENTS_TABLE_TYPES,
-    EventsGroupSubTable,
-    EventsPersonSubTable,
-    EventsTable,
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
+from posthog.hogql.database.schema.events_with_flag_calls import (
+    EVENT_ROW_TABLES,
+    EventsWithFlagCallsTable,
+    union_table_of,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
@@ -118,7 +119,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -137,6 +138,21 @@ class ToTimeZoneParts:
     swapped: bool
 
 
+_PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
+
+# ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
+# toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
+# ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
+# Numeric-typed property in one of these, we must not auto-convert the property
+# to Float, the raw String value has to flow through for the parser to work.
+STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
+
+# These functions return one of their arguments unchanged, so the call around them receives the property itself.
+# A property that the outer call needs as its stored string must stay unconverted through them, as in
+# `JSONExtractArrayRaw(properties.items ?? '[]')`.
+NULL_DEFAULT_FUNCTIONS = frozenset({"ifNull", "coalesce"})
+
+
 class PropertySwapper(CloningVisitor):
     _RANGE_OPS: set[str] = {
         ast.CompareOperationOp.Gt,
@@ -144,13 +160,6 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
     }
-
-    # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-    # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
-    # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
-    # Numeric-typed property in one of these, we must not auto-convert the property
-    # to Float, the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
     # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
@@ -167,7 +176,10 @@ class PropertySwapper(CloningVisitor):
         group_properties: dict[str, dict[str, str | None]],
         context: HogQLContext,
         setTimeZones: bool,
+        before_lazy_tables: bool = False,
     ):
+        """`before_lazy_tables` marks the pass that runs before lazy tables resolve. Of the event and person
+        properties, that pass converts only the reads of a union scan, and the pass after it converts the rest."""
         super().__init__(clear_types=False)
         self.timezone = timezone
         self.event_properties = event_properties
@@ -178,6 +190,24 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self.before_lazy_tables = before_lazy_tables
+        self._union_scan_depth = 0
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
+        if not (
+            isinstance(node.type, ast.SelectQueryAliasType)
+            and isinstance(node.type.lazy_table, EventsWithFlagCallsTable)
+        ):
+            return super().visit_join_expr(node)
+        # Only the table is the union. The constraint and the joins after it read other tables.
+        self._union_scan_depth += 1
+        try:
+            table = self.visit(node.table)
+        finally:
+            self._union_scan_depth -= 1
+        joined = super().visit_join_expr(dataclasses.replace(node, table=None))
+        joined.table = table
+        return joined
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -239,6 +269,17 @@ class PropertySwapper(CloningVisitor):
             view_name=node.view_name,
         )
 
+    def _visit_json_function_call(self, node: ast.Call) -> ast.Call:
+        # ClickHouse reads the first argument of a JSON function as JSON text and raises ILLEGAL_TYPE_OF_ARGUMENT on
+        # any other type, so a typed property in that position keeps its stored string. The other arguments are keys
+        # and type names, which convert as in any other call.
+        self._suppress_numeric_conversion = True
+        document = self.visit(node.args[0])
+        self._suppress_numeric_conversion = False
+        call = super().visit_call(dataclasses.replace(node, args=node.args[1:]))
+        call.args.insert(0, document)
+        return call
+
     def visit_call(self, node: ast.Call):
         rewritten = self._rewrite_json_property_call(node)
         if rewritten is not None:
@@ -246,13 +287,19 @@ class PropertySwapper(CloningVisitor):
 
         # Track whether the immediate enclosing call parses its argument as a
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
-        # toFloatOrZero(toString(prop))) correctly reset the flag.
+        # toFloatOrZero(toString(prop))) correctly reset the flag. A null default
+        # passes the property through, so it keeps the flag of the call around it.
         saved_suppress = self._suppress_numeric_conversion
-        self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
+        self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS or (
+            saved_suppress and node.name in NULL_DEFAULT_FUNCTIONS
+        )
 
         self._inside_call_depth += 1
         try:
-            result = super().visit_call(node)
+            if node.name in JSON_FUNCTIONS and node.args:
+                result = self._visit_json_function_call(node)
+            else:
+                result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
@@ -287,7 +334,7 @@ class PropertySwapper(CloningVisitor):
         table_type = type.field_type.table_type
         if not isinstance(table_type, ast.BaseTableType):
             return False
-        return isinstance(table_type.resolve_database_table(self.context), EventsTable | FlagEvaluationsTable)
+        return isinstance(table_type.resolve_database_table(self.context), EVENT_ROW_TABLES)
 
     @staticmethod
     def _extract_string_array(field: ast.Expr) -> ast.Call:
@@ -738,14 +785,14 @@ class PropertySwapper(CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     if property_name in self.person_properties:
                         return ("person", property_name)
-                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     if property_name in self.event_properties:
                         return ("event", property_name)
         if type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 resolved_table = type.field_type.table_type.resolve_database_table(self.context)
-                if isinstance(resolved_table, EVENTS_TABLE_TYPES):
+                if isinstance(resolved_table, _PERSON_PROPERTIES_TABLES):
                     if property_name in self.person_properties:
                         return ("person", property_name)
         return None
@@ -775,6 +822,8 @@ class PropertySwapper(CloningVisitor):
             "person": self.person_properties,
             "group": self.group_properties,
         }
+        if property_type != "group" and not self._converts_event_or_person_property(node):
+            return node
         prop_info = properties_by_type[property_type].get(property_name, {})
         field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
@@ -791,6 +840,16 @@ class PropertySwapper(CloningVisitor):
         # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
         # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
+
+    def _converts_event_or_person_property(self, node: ast.Field) -> bool:
+        # Lazy tables move a union scan's property reads into branches, away from a call such as toFloatOrZero that
+        # needs the raw value. The pass before lazy tables converts each read at its call, so the branches stay raw.
+        if self._union_scan_depth > 0:
+            return False
+        if not self.before_lazy_tables:
+            return True
+        assert isinstance(node.type, ast.PropertyType)
+        return union_table_of(node.type.field_type.table_type) is not None
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":

@@ -56,6 +56,7 @@ from .team_caching import get_team_in_cache, set_team_in_cache
 if TYPE_CHECKING:
     from posthog.schema import PathCleaningFilter
 
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
@@ -148,22 +149,10 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards (demo projects skip above)
-        from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415 — breaks team import cycle
+        from products.dashboards.backend.facade import api as dashboards_api  # noqa: PLC0415 — breaks team import cycle
 
-        from products.dashboards.backend.models.dashboard import Dashboard  # noqa: PLC0415 — breaks team import cycle
-        from products.dashboards.backend.models.dashboard_templates import (  # noqa: PLC0415 — breaks team import cycle
-            DashboardTemplate,
-        )
-
-        template = DashboardTemplate.default_signup_template()
-        dashboard = Dashboard.objects.db_manager(self.db).create(
-            name="Your starter dashboard",
-            pinned=True,
-            team=team,
-            description=template.dashboard_description or "",
-        )
-        create_from_template(dashboard, template)
-        team.primary_dashboard = dashboard
+        starter_dashboard = dashboards_api.create_starter_dashboard(team_id=team.id)
+        team.primary_dashboard_id = starter_dashboard.id
 
         # Create default session recording playlists
         for playlist in DEFAULT_PLAYLISTS:
@@ -867,7 +856,9 @@ class Team(UUIDTClassicModel):
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
-    def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
+    def count_persons_seen_so_far(
+        self, database: Optional["Database"] = None, settings: Optional["HogQLGlobalSettings"] = None
+    ) -> int:
         from posthog.schema import HogQLQueryModifiers
 
         from posthog.hogql.context import HogQLContext
@@ -887,6 +878,7 @@ class Team(UUIDTClassicModel):
                 # The v1 pin survives a shared database: the persons table reads the dedup mode from
                 # each query's modifiers at print time, not from the database.
                 context=HogQLContext(team_id=self.pk, database=database),
+                settings=settings,
             ).results[0][0]
 
     def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
@@ -953,9 +945,14 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.storage.team_metadata_signal_handlers import enqueue_retired_token_metadata_clear_on_commit
         from posthog.tasks.remote_config import update_team_remote_config
+        from posthog.tasks.team_access_cache_tasks import invalidate_team_tokens_sync
 
         self.save()
+        # The auth entries go first, because the metadata clear removes the entry they still point to.
+        transaction.on_commit(lambda: invalidate_team_tokens_sync(self.id))
+        enqueue_retired_token_metadata_clear_on_commit(self.id, old_token)
         # The post_save receiver also dispatches the plain remote config sync for this save.
         # A worker that predates the old_token argument rejects this task. That worker still
         # runs the plain sync, which writes the new token's Redis entry.

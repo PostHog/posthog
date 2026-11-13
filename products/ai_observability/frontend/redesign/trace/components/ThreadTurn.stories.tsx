@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { messagesSides } from '../sampleFixtures/sampleContent'
 import { FIXTURE_ATTACHMENT_PARTS, FIXTURE_TURN } from '../storyFixtures'
 import { ThreadTurn } from './ThreadTurn'
 
@@ -17,15 +18,18 @@ export const WithError: StoryObj<typeof ThreadTurn> = {
         isActive: false,
         turn: {
             ...FIXTURE_TURN,
-            messages: [
-                {
-                    id: 'm-user-image',
-                    role: 'user',
-                    parts: [{ kind: 'text', text: 'What does this chart show?' }, FIXTURE_ATTACHMENT_PARTS[0]],
-                    isInternal: false,
-                    sourceNodeId: 'gen-answer',
-                },
-            ],
+            ...messagesSides(
+                [
+                    {
+                        id: 'm-user-image',
+                        role: 'user',
+                        parts: [{ kind: 'text', text: 'What does this chart show?' }, FIXTURE_ATTACHMENT_PARTS[0]],
+                        isInternal: false,
+                        sourceNodeId: 'gen-answer',
+                    },
+                ],
+                []
+            ),
             error: 'BadRequestError: 400 This model does not accept image input',
         },
     },

@@ -3,7 +3,6 @@ import { getRouterContext } from 'kea-router/lib/router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
@@ -16,14 +15,12 @@ import { traceDrawerLogic } from './traceDrawerLogic'
 import { withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow } from './traceListRows'
 import { traceViewHostLogic } from './traceViewHostLogic'
-import { traceViewPreferenceLogic } from './traceViewPreferenceLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     ...jest.requireActual('lib/utils/product-intents'),
     addProductIntent: jest.fn(),
 }))
 
-const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const LIST_PATH = urls.aiObservabilityTraces()
 
 const A: TraceListRow = { traceId: 'a', timestamp: null, stepId: 'x' }
@@ -75,15 +72,10 @@ describe('traceDrawerLogic', () => {
         host.mount()
     }
 
-    function setUp({
-        url = LIST_PATH,
-        flag = true,
-        listId,
-    }: { url?: string; flag?: boolean; listId?: TraceDrawerListId } = {}): void {
+    function setUp({ url = LIST_PATH, listId }: { url?: string; listId?: TraceDrawerListId } = {}): void {
         initKeaTests()
         localStorage.clear()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: flag })
         goTo(url)
 
         browserHistory = [url]
@@ -199,6 +191,11 @@ describe('traceDrawerLogic', () => {
 
     it.each<[TraceDrawerListId, string, Record<string, unknown>]>([
         ['traces', LIST_PATH, { mode: 'spans', detailTab: 'messages', openingMode: null }],
+        [
+            'offline-experiment',
+            urls.aiObservabilityOfflineEvaluationExperiment('experiment-1'),
+            { mode: 'spans', detailTab: 'messages', openingMode: null },
+        ],
         [
             'evaluation-runs',
             urls.aiObservabilityEvaluation('e1'),
@@ -354,39 +351,6 @@ describe('traceDrawerLogic', () => {
         expect(host.values).toMatchObject({ requestedStepId: null, requestedTraceId: 'b' })
     })
 
-    it.each([
-        ['the flag is off', (): void => undefined, false],
-        ['the person is on the old view', (): void => traceViewPreferenceLogic.actions.switchView('legacy'), true],
-    ])('sends a link to the trace page, without tracking, when %s', (_name, prepare, flag) => {
-        setUp({ flag })
-        prepare()
-        logic.unmount()
-        goTo(`${LIST_PATH}?date_from=-7d&trace=a%2Fb&ts=2026-01-01&step=gen-1`)
-
-        mountDrawer()
-
-        expect(logic.values.isEnabled).toBe(false)
-        expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('a/b'))
-        expect(router.values.searchParams).toEqual({
-            date_from: '-7d',
-            timestamp: '2026-01-01',
-            event: 'gen-1',
-            back_to: 'traces',
-            back_url: `${LIST_PATH}?date_from=-7d`,
-        })
-        expect(capturedEvents()).toEqual([])
-        expect(addProductIntent).not.toHaveBeenCalled()
-    })
-
-    it('sends a trace-level link to the trace page with no event, because that page is the legacy scene', () => {
-        const path = urls.aiObservabilityEvaluation('e1')
-
-        setUp({ url: `${path}?trace=a`, flag: false, listId: 'evaluation-runs' })
-
-        expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('a'))
-        expect(router.values.searchParams).toEqual({ tab: 'evals', back_to: 'evaluation', back_url: path })
-    })
-
     it('keeps its params on unmount, so a list that remounts while it loads reopens the trace', () => {
         setUp({ url: `${LIST_PATH}?trace_search=1.50&trace=a&ts=2026&step=x` })
         logic.actions.setRows([A, B])
@@ -442,6 +406,7 @@ describe('traceDrawerLogic', () => {
         ['generations', urls.aiObservabilityGenerations()],
         ['prompt-traces', urls.aiObservabilityPrompt('p1')],
         ['reviews', urls.aiObservabilityReviews()],
+        ['review-queue', urls.aiObservabilityReviews()],
         ['evaluation-runs', urls.aiObservabilityEvaluation('e1')],
         ['evaluation-runs', `/project/1${urls.aiObservabilityEvaluation('e1')}`],
         ['dataset-items', urls.aiObservabilityDataset('d1')],
@@ -470,11 +435,8 @@ describe('traceDrawerLogic', () => {
         expect(capturedEvents()).toEqual([])
     })
 
-    it.each([
-        ['enabled', true],
-        ['disabled', false],
-    ])('ignores a trace param on another product URL when %s', (_name, flag) => {
-        setUp({ flag })
+    it('ignores a trace param on another product URL', () => {
+        setUp()
         const search = '?trace=0AF7651916CD43DD&ts=2026-01-01T00:00:00Z'
         const replaceState = jest.spyOn(routerHistory(), 'replaceState')
 
@@ -602,6 +564,15 @@ describe('traceDrawerLogic', () => {
         expect(searchParams).toMatchObject({
             back_to: 'prompt',
             back_url: '/prompt-management/prompts/p1?tab=usage',
+        })
+    })
+
+    it('links a queue trace to the full page with the back target and queue the legacy page understands', () => {
+        setUp({ url: `${urls.aiObservabilityReviews()}?queue_id=q1&trace=a`, listId: 'review-queue' })
+
+        expect(combineUrl(logic.values.fullPageHref ?? '').searchParams).toMatchObject({
+            back_to: 'reviews',
+            queue_id: 'q1',
         })
     })
 

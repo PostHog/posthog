@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "user_id": {
+            "default": "@me",
+            "description": "Always `@me`. The tool reads the settings of the authenticated user and ignores other values.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

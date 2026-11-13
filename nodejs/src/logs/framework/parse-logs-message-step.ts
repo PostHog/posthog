@@ -58,6 +58,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             if (!team) {
                 // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
                 logger.warn('team_not_found', { token_with_no_team: token })
+                context.unknownTokens?.record(token)
                 countDropped('team_not_found')
                 return drop('team_not_found')
             }
@@ -100,7 +101,12 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 recordCount,
                 minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                 backfillRequested: headers.backfill_days !== undefined,
-                internalLogs: internalLogsVerifier.verify(headers[INTERNAL_LOGS_HEADER], team.id, headers.created_at),
+                sentAsInternalLogs: headers[INTERNAL_LOGS_HEADER] !== undefined,
+                verifiedAsInternalLogs: internalLogsVerifier.verify(
+                    headers[INTERNAL_LOGS_HEADER],
+                    team.id,
+                    headers.created_at
+                ),
             })
         } catch (e) {
             // A failed quarantine of bad size headers lands here, and a second DLQ failure fails the batch.

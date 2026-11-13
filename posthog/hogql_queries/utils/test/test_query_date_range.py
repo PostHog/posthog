@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from dateutil import parser
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
@@ -11,10 +13,11 @@ from pydantic import ValidationError as PydanticValidationError
 from posthog.schema import DateRange, IntervalType
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange, QueryDateRangeWithIntervals
+from posthog.hogql_queries.utils.query_date_range import MAX_DATE_BUCKETS, QueryDateRange, QueryDateRangeWithIntervals
 from posthog.interval_specs import PERIOD_MAP
-from posthog.models.team import WeekStartDay
+from posthog.models.team import Team, WeekStartDay
 
 
 class CalendarDayInclusiveDateRange(QueryDateRange):
@@ -746,6 +749,55 @@ def _count_intervals_by_stepping(query: QueryDateRangeWithIntervals) -> int:
         intervals += 1
 
     return intervals
+
+
+class TestAllValuesBucketLimit(SimpleTestCase):
+    def _query_date_range(self, date_range: DateRange, interval: IntervalType) -> QueryDateRange:
+        return QueryDateRange(
+            team=Team(timezone="UTC"),
+            date_range=date_range,
+            interval=interval,
+            now=parser.isoparse("2021-08-25T00:00:00Z"),
+        )
+
+    def _minute_buckets(self, bucket_count: int) -> QueryDateRange:
+        date_from = parser.isoparse("2021-01-01T00:00:00Z")
+        date_to = date_from + timedelta(minutes=bucket_count - 1)
+        return self._query_date_range(
+            DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat(), explicitDate=True),
+            IntervalType.MINUTE,
+        )
+
+    def test_range_at_the_limit_returns_every_bucket(self):
+        self.assertEqual(len(self._minute_buckets(MAX_DATE_BUCKETS).all_values()), MAX_DATE_BUCKETS)
+
+    def test_range_one_bucket_past_the_limit_is_rejected(self):
+        with self.assertRaises(QueryError) as context:
+            self._minute_buckets(MAX_DATE_BUCKETS + 1).all_values()
+
+        self.assertEqual(
+            str(context.exception),
+            "This date range splits into 250,001 minute intervals, and a query can use at most 250,000. "
+            "Choose a shorter date range or a longer interval.",
+        )
+
+    def test_hour_interval_from_the_earliest_timestamp_floor_is_allowed(self):
+        date_range = self._query_date_range(
+            DateRange(date_from="2015-01-01", date_to="2040-01-01", explicitDate=True), IntervalType.HOUR
+        )
+
+        self.assertEqual(len(date_range.all_values()), 219_145)
+
+    @parameterized.expand(
+        [
+            ("second_over_ten_years", "-3650d", IntervalType.SECOND),
+            ("minute_over_a_year", "-365d", IntervalType.MINUTE),
+            ("second_since_epoch", "1970-01-01", IntervalType.SECOND),
+        ]
+    )
+    def test_long_range_at_a_short_interval_is_rejected(self, _name: str, date_from: str, interval: IntervalType):
+        with self.assertRaises(QueryError):
+            self._query_date_range(DateRange(date_from=date_from), interval).all_values()
 
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):

@@ -126,6 +126,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "cases": "New cases reported in the state on this day.",
         },
     },
+    "states_history_deaths": {
+        "description": "Daily new reported COVID-19 deaths per German federal state.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "abbreviation": "Two-letter state abbreviation (e.g. BY for Bayern).",
+            "id": "Numeric state identifier used by the RKI.",
+            "name": "State name.",
+            "date": "Reporting day the row covers.",
+            "deaths": "New deaths reported in the state on this day.",
+        },
+    },
+    "states_history_incidence": {
+        "description": "Daily 7-day incidence per 100,000 inhabitants per German federal state.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "abbreviation": "Two-letter state abbreviation (e.g. BY for Bayern).",
+            "id": "Numeric state identifier used by the RKI.",
+            "name": "State name.",
+            "date": "Reporting day the row covers.",
+            "weekIncidence": "7-day incidence per 100,000 inhabitants in the state on this day.",
+        },
+    },
     "districts": {
         "description": "Current COVID-19 snapshot per German district (Landkreis / kreisfreie Stadt).",
         "docs_url": _DOCS_URL,
@@ -144,6 +166,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "weekIncidence": "7-day incidence per 100,000 inhabitants.",
             "casesPer100k": "Cumulative cases per 100,000 inhabitants.",
             "delta": "Day-over-day change in cases, deaths, recovered, and week incidence.",
+        },
+    },
+    "districts_history_cases": {
+        "description": "Daily new reported COVID-19 cases per German district (Landkreis / kreisfreie Stadt).",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "ags": "Official municipality key (Allgemeiner Gemeindeschlüssel) identifying the district.",
+            "name": "District name.",
+            "date": "Reporting day the row covers.",
+            "cases": "New cases reported in the district on this day.",
+        },
+    },
+    "districts_history_incidence": {
+        "description": "Daily 7-day incidence per 100,000 inhabitants per German district (Landkreis / kreisfreie Stadt).",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "ags": "Official municipality key (Allgemeiner Gemeindeschlüssel) identifying the district.",
+            "name": "District name.",
+            "date": "Reporting day the row covers.",
+            "weekIncidence": "7-day incidence per 100,000 inhabitants in the district on this day.",
         },
     },
     "testing_history": {

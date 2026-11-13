@@ -15,14 +15,15 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
-import { faviconUrl } from 'scenes/web-analytics/common'
 
 import type { ContentAutopilotOpportunityApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
 import { MAX_DRAFTS_PER_RUN, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageToUpdate } from './ContentAutopilotPageToUpdate'
 import { ContentAutopilotProposalStatusTag } from './ContentAutopilotProposalStatusTag'
-import { engineLabel } from './utils'
+import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 
 const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element | null> = {
     new: null,
@@ -62,13 +63,13 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
         opportunitySearch,
         opportunityProposals,
         pagesToUpdate,
+        draftingOpportunityIds,
     } = useValues(contentAutopilotLogic)
     const {
         refreshOpportunities,
         toggleOpportunitySelection,
         draftOpportunities,
         dismissOpportunity,
-        selectProposal,
         setShowDismissedOpportunities,
         setOpportunitySearch,
     } = useActions(contentAutopilotLogic)
@@ -77,14 +78,16 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
     return (
         <section className="flex flex-col gap-3">
             <p className="m-0 text-muted max-w-3xl">
-                Questions AI assistants answered without citing {siteName}, most promising first. Pick up to{' '}
-                {MAX_DRAFTS_PER_RUN} and draft them.
+                Prompts where AI assistants answered without citing {siteName}, clearest gaps first. Content autopilot
+                drafts a page that answers the prompt, or changes to a page you already have. Select up to{' '}
+                {MAX_DRAFTS_PER_RUN} to draft them together. You review and download each draft, and nothing is
+                published for you.
             </p>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
                     size="small"
-                    placeholder="Search questions"
+                    placeholder="Search prompts"
                     value={opportunitySearch}
                     onChange={setOpportunitySearch}
                     className="w-72"
@@ -113,8 +116,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={draftOpportunities}
-                        loading={runMutationLoading}
+                        onClick={() => draftOpportunities()}
+                        loading={runMutationLoading && draftingOpportunityIds.length === 0}
                         disabledReason={draftDisabledReason}
                         data-attr="content-autopilot-draft-opportunities"
                     >
@@ -143,10 +146,10 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
             ) : visibleOpportunities.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     {opportunitySearch.trim() ? (
-                        <p className="m-0 text-muted">No questions match your search.</p>
+                        <p className="m-0 text-muted">No prompts match your search.</p>
                     ) : dismissedOpportunityCount > 0 ? (
                         <>
-                            <h3 className="m-0">All questions are dismissed</h3>
+                            <h3 className="m-0">All opportunities are dismissed</h3>
                             <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
                                 Turn on "Show dismissed" to see them again, or refresh to check for new citation gaps.
                             </p>
@@ -155,9 +158,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                         <>
                             <h3 className="m-0">No citation gaps found</h3>
                             <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                                Opportunities appear when AI citation checks show an assistant answering a tracked
-                                question without citing {siteName}. If checks haven't run for this project yet, there's
-                                nothing to show.
+                                An opportunity appears when an AI assistant answers a tracked prompt without citing{' '}
+                                {siteName}. Add prompts on the Prompts tab, and check back after the next daily run.
                             </p>
                         </>
                     )}
@@ -185,7 +187,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                             ),
                         },
                         {
-                            title: 'Question',
+                            title: 'Prompt',
                             key: 'title',
                             render: (_, opportunity) => {
                                 const proposal = opportunityProposals[opportunity.id]
@@ -208,8 +210,9 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                 <div className="whitespace-nowrap">
                                     {visibilityTag(gap)}
                                     {gap.engines_not_citing.length > 0 ? (
-                                        <div className="text-xs text-muted mt-1">
-                                            Not cited by {gap.engines_not_citing.map(engineLabel).join(', ')}
+                                        <div className="flex items-center gap-1.5 text-xs text-secondary mt-1">
+                                            <span>Not cited by</span>
+                                            <ContentAutopilotEngineMarks engines={gap.engines_not_citing} />
                                         </div>
                                     ) : null}
                                 </div>
@@ -222,17 +225,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                 gap.competitor_domains.length > 0 ? (
                                     <div className="flex flex-col gap-1">
                                         {gap.competitor_domains.slice(0, 3).map((domain) => (
-                                            <span key={domain} className="flex items-center gap-1 text-sm">
-                                                <img
-                                                    src={faviconUrl(domain)}
-                                                    width={16}
-                                                    height={16}
-                                                    alt=""
-                                                    className="shrink-0"
-                                                    onError={(e) => (e.currentTarget.style.display = 'none')}
-                                                />
-                                                <span className="truncate">{domain}</span>
-                                            </span>
+                                            <ContentAutopilotSiteLabel key={domain} domain={domain} isTarget={false} />
                                         ))}
                                     </div>
                                 ) : (
@@ -250,18 +243,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                             key: 'actions',
                             render: (_, opportunity) => (
                                 <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
-                                    {opportunity.proposal_id &&
-                                    opportunity.status === 'drafted' &&
-                                    opportunityProposals[opportunity.id]?.lifecycle_status !== 'generating' ? (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            onClick={() => selectProposal(opportunity.proposal_id)}
-                                            data-attr="content-autopilot-review-opportunity-draft"
-                                        >
-                                            Review draft
-                                        </LemonButton>
-                                    ) : null}
+                                    <ContentAutopilotDraftButton opportunity={opportunity} />
                                     {opportunity.status !== 'dismissed' ? (
                                         <LemonButton
                                             size="small"
@@ -273,7 +255,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                                     ? 'Wait for the draft to finish'
                                                     : dismissingOpportunityId &&
                                                         dismissingOpportunityId !== opportunity.id
-                                                      ? 'Wait for the other question to finish dismissing'
+                                                      ? 'Wait for the other opportunity to finish dismissing'
                                                       : undefined
                                             }
                                             data-attr="content-autopilot-dismiss-opportunity"

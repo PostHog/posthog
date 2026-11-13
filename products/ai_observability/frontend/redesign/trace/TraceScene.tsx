@@ -1,7 +1,9 @@
 import { useValues } from 'kea'
 
-import { TraceViewContainer } from './adapter/TraceViewContainer'
+import { SceneExport } from 'scenes/sceneTypes'
+
 import { TRACE_PAGE_HOST_ID, tracePageLogic } from './tracePageLogic'
+import { TraceViewHost } from './TraceViewHost'
 
 export function TraceScene(): JSX.Element | null {
     const { traceId, timestampHint, backLink } = useValues(tracePageLogic)
@@ -10,7 +12,7 @@ export function TraceScene(): JSX.Element | null {
     }
     return (
         <div className="flex min-h-0 flex-1 flex-col pb-4">
-            <TraceViewContainer
+            <TraceViewHost
                 hostId={TRACE_PAGE_HOST_ID}
                 traceId={traceId}
                 timestampHint={timestampHint}
@@ -18,4 +20,9 @@ export function TraceScene(): JSX.Element | null {
             />
         </div>
     )
+}
+
+export const scene: SceneExport = {
+    component: TraceScene,
+    logic: tracePageLogic,
 }

@@ -60,7 +60,7 @@ export function SelfDrivingIntroModal({ isOpen, onClose, inline }: SelfDrivingIn
                 </p>
                 <LoopDiagram />
                 <p className="mt-6 text-xs text-tertiary">
-                    Your first 3 PRs each month are free, then $15 per PR. Reports are always free.
+                    Your first 3 PRs each month are free, then 1,500 credits per PR. Reports are always free.
                 </p>
             </div>
         </LemonModal>
