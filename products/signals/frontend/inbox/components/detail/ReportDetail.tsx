@@ -291,13 +291,14 @@ export function InboxDetailFrame({
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const reportActions = useReportDetailActions(report)
+    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const showCreatePr = canCreateImplementationPr(report)
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
-    const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
+    const hasImplementButton = hasPostHogAiAccess && !primaryAction && (showCreatePr || !!reportTaskToOpen)
     if (
         hasImplementButton &&
         summaryHasSolution &&
@@ -636,8 +637,7 @@ export function InboxDetailFrame({
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
                     {implementButtonInHeader && implementButton}
-                    {/* Discuss is always available and stays inline as its own dropdown button. */}
-                    <DiscussReportButton report={report} reportUrl={reportUrl} />
+                    {hasPostHogAiAccess && <DiscussReportButton report={report} reportUrl={reportUrl} />}
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                     <div className="hidden @4xl:flex items-center gap-2">
                         {reportActions.map((action) => (
