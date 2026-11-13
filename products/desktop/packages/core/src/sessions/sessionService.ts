@@ -71,6 +71,7 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
+import { readApiErrorBody } from "../integrations/apiErrorBody";
 import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import type {
   AgentSessionNotification,
@@ -5614,6 +5615,11 @@ export class SessionService {
           throw new Error(
             "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
           );
+        }
+        if (requestErrorStatus(error) === 409) {
+          this.d.queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          const refusal = readApiErrorBody(error).error;
+          if (refusal) throw new Error(refusal);
         }
         throw error;
       }
