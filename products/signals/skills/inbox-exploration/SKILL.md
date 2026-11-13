@@ -113,9 +113,15 @@ What each report status means (in roughly the order a triage agent should care a
 - `failed` — processing errored
 - `suppressed` — out of the inbox; not surfaced by default. A person or agent dismissed it, or a
   judge held it back before anyone reviewed it. See _Dismissed and held-back reports_ below
+- `monitoring` — the fix shipped, and the report's follow-up checks are verifying that it worked.
+  Only where the organization has Monitoring on.
+  See [Monitoring](references/report-state.md#monitoring)
 - `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
-  so a recurrence starts a fresh report linked back to it. Set automatically when a linked
-  implementation PR merges, or directly via `inbox-reports-set-state` (see the [report state workflow](references/report-state.md))
+  so a recurrence starts a fresh report linked back to it.
+  Set automatically when a linked implementation PR merges, or with Monitoring on, when its checks confirm the fix.
+  Also set directly via `inbox-reports-set-state` (see the [report state workflow](references/report-state.md))
+- `closed` — Monitoring could not show that the fix worked.
+  A linked follow-up report researches why
 
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by

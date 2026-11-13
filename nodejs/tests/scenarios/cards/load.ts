@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { durationMs } from '../duration'
+import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile } from './schema'
 
@@ -15,6 +16,7 @@ export const ROLE_RESTART_BACKOFF_MS = 2000
 const JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
 const STALLING_VALVES = ['role.kill', 'role.freeze', 'pg.drop_connections']
 const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
+export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
@@ -138,11 +140,25 @@ function checkSuppression(card: Card): string[] {
     )
 }
 
+const ANSWERED_AT_INTAKE = TRAFFIC.filter(({ intake }) => intake !== 'event').map(({ name }) => name)
+
+function checkIntakeVerdict(card: Card): string[] {
+    const unjudged = card.drive.traffic.filter(({ name }) => ANSWERED_AT_INTAKE.includes(name))
+    if (unjudged.length === 0 || card.invariants.some(({ name }) => name === 'refused_at_intake')) {
+        return []
+    }
+    return [
+        `invariants: ${unjudged.map(({ name }) => name).join(', ')} counts a unit its intake refused as offered, so the card needs refused_at_intake`,
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
+    const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
+    const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
     return [
         ...Object.keys(profile.settings)
-            .filter((name) => !Object.hasOwn(defaults, name) && !PROCESS_ENV_SETTINGS.includes(name))
-            .map((name) => `profile.settings.${name}: not a setting the roles read`),
+            .filter((name) => !rolesRead(name) && !loadProducerReads(name))
+            .map((name) => `profile.settings.${name}: not a setting the roles or the load producer read`),
         ...card.drive.traffic.flatMap(({ name }) => {
             const definition = definitions.traffic.find((traffic) => traffic.name === name)
             const traffic = definition?.profile.safeParse(profile.traffic[name])
@@ -184,6 +200,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         ...checkSchedules(card),
         ...checkStallBound(card, config),
         ...checkSuppression(card),
+        ...checkIntakeVerdict(card),
         ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {

@@ -197,7 +197,10 @@ export function Members(): JSX.Element | null {
 
     const adminRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const hasHiddenMembers =
-        (members?.length ?? 0) > 0 && (members?.length ?? 0) < (currentOrganization?.member_count ?? 0)
+        currentOrganization?.members_can_see_org_members === false &&
+        !!adminRestrictionReason &&
+        !!members?.length &&
+        members.length < currentOrganization.member_count
 
     useOnMountEffect(ensureAllMembersLoaded)
 

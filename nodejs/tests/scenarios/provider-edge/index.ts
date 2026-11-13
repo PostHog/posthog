@@ -5,8 +5,10 @@ import { text } from 'stream/consumers'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { createCertificates } from './certificates'
 import { CardFault, FaultList, FaultRule, SesStatusAnswer, ruleOf } from './faults'
 import { problemsOf } from './problems'
+import { Proxy, serveConnect } from './proxy'
 import {
     ConfigurationSets,
     SEND_EMAIL_PATH,
@@ -21,16 +23,21 @@ import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 export type { CardFault, FaultRule } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
-export type { TruthAttachment, TruthMessage, TruthPage, TruthRecord } from './truth'
+export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'
+
+export const WEBHOOK_HOST = 'hooks.example.com'
 
 export type ProviderEdgeOptions = {
     port: number
     configurationSets?: ConfigurationSets
     trackingKeys?: string
+    caDir?: string
+    region?: string
 }
 
 export type ProviderEdge = {
     url: string
+    caCertPath?: string
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
     clearFaults(): void
@@ -84,14 +91,20 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const { message } = request
         const recipients = addressesOf(message.to)
         const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
-        const fault = faults.take(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
+        const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
         if (fault && fault.answer.kind !== 'status') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
             return fault.answer.kind
         }
         if (fault?.answer.kind === 'status') {
             const { answer } = fault.answer
-            truth.append({ kind: 'ses.send', status: answer.status, fault: fault.name, ...correlation, detail: {} })
+            truth.append({
+                kind: 'ses.send',
+                status: answer.status,
+                fault: fault.name,
+                ...correlation,
+                detail: { errorType: answer.type },
+            })
             return sesError(answer)
         }
         const messageId = `provider-edge-${truth.records.length + 1}`
@@ -114,6 +127,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         switch (`${req.method} ${faultId === undefined ? url.pathname : '/_faults/:id'}`) {
             case `POST ${SEND_EMAIL_PATH}`:
                 return sendEmail(body)
+            case 'GET /_truth/head':
+                return { status: 200, body: truth.head() }
             case 'GET /_health':
                 return { status: 200, body: { ok: true } }
             case 'GET /_truth':
@@ -161,18 +176,49 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
     }
 
-    const server = http.createServer((req, res) => {
-        handle(req, res).catch((error: unknown) => {
-            if (res.headersSent || req.socket.destroyed) {
-                res.destroy()
-                return
-            }
-            respond(
-                res,
-                sesError({ status: 500, type: 'InternalFailure', message: `The edge failed: ${String(error)}` })
-            )
+    const receive = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+        await text(req)
+        const host = (req.headers.host ?? '').replace(/:\d+$/, '')
+        const target = req.url ?? '/'
+        if (host !== WEBHOOK_HOST) {
+            respond(res, { status: 404, body: { message: `The edge serves nothing at ${host}${target}` } })
+            return
+        }
+        const [, unitId, actionId] = /^\/u\/([^/?]+)\/([^/?]+)/.exec(target) ?? []
+        const fault = faults.takeWebhook(host)
+        const status = fault?.status ?? 200
+        truth.append({
+            kind: 'webhook',
+            status,
+            fault: fault?.name,
+            unitId,
+            actionId,
+            detail: { request: { method: req.method ?? 'GET', host, path: target } },
         })
-    })
+        respond(res, { status, body: fault ? { message: `${fault.name} answered ${status}` } : { ok: true } })
+    }
+
+    const serve =
+        (handler: typeof handle) =>
+        (req: http.IncomingMessage, res: http.ServerResponse): void => {
+            handler(req, res).catch((error: unknown) => {
+                if (res.headersSent || req.socket.destroyed) {
+                    res.destroy()
+                    return
+                }
+                respond(
+                    res,
+                    sesError({ status: 500, type: 'InternalFailure', message: `The edge failed: ${String(error)}` })
+                )
+            })
+        }
+
+    const server = http.createServer(serve(handle))
+    const certificates = options.caDir
+        ? await createCertificates(options.caDir, [WEBHOOK_HOST, `sns.${options.region ?? 'us-east-1'}.amazonaws.com`])
+        : undefined
+    const proxy: Proxy | undefined =
+        certificates && serveConnect(server, certificates.leaves, http.createServer(serve(receive)))
     await new Promise<void>((resolve, reject) => {
         server.once('error', reject)
         server.listen(options.port, '127.0.0.1', () => {
@@ -184,10 +230,12 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
 
     return {
         url: `http://127.0.0.1:${port}`,
+        caCertPath: certificates?.caCertPath,
         sent,
         addFault: (rule) => faults.add(rule),
         clearFaults: () => faults.clear(),
         close: async () => {
+            proxy?.close()
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
         },

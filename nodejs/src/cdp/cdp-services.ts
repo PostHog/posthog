@@ -627,6 +627,7 @@ export function createCdpCoreServices(
                           deliveredAddress: sandboxDeliveredAddress,
                           siteUrl: config.SITE_URL,
                           recipientPreferences: recipientPreferencesService,
+                          teamWorkflowsConfig: teamWorkflowsConfigService,
                           sesBucket: deps.sandboxEmail.sesBucket,
                       })
                     : null,

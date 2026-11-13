@@ -5,16 +5,36 @@ Saving a metric checks its event names, but a caller can waive that check, a sha
 an update checks only the names it adds. A metric on such an event has no data to compare the variants.
 """
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingCode
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingCode,
+    ExperimentHealthValueKey,
+)
 from products.experiments.backend.health.checks.events_received import joined, not_received_severity, quoted
 from products.experiments.backend.health.context import HealthContext, MetricEvents
 from products.experiments.backend.health.skips import (
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     CheckOutcome,
+    CheckRows,
     not_applicable,
     not_checked,
 )
+
+
+def metric_event_rows(ctx: HealthContext) -> CheckRows:
+    if ctx.archived or ctx.has_ended:
+        return ()
+    return tuple(
+        {
+            ExperimentHealthValueKey.METRIC_NAME: metric.name,
+            ExperimentHealthValueKey.METRIC_ROLE: metric.role,
+            ExperimentHealthValueKey.EVENT: event,
+            ExperimentHealthValueKey.EVENT_RECEIVED: ctx.events_received.get(event),
+        }
+        for metric in ctx.metric_events
+        for event in metric.events
+    )
 
 
 def metric_event_not_ingested(ctx: HealthContext) -> CheckOutcome:

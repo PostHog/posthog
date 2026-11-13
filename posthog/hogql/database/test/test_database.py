@@ -607,15 +607,34 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="acme",
+            connection_id="acme",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.HUBSPOT,
+            prefix="acme",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="acme_contacts",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="https://bucket.s3/contacts/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        sourced_key = get_data_warehouse_table_name(source, sourced_table.name)
 
         database = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, database=database)
         full = database.serialize(context, include_hidden_posthog_tables=True)
         subset = database.serialize(
-            context, include_only={"events", "warehouse_table"}, include_hidden_posthog_tables=True
+            context, include_only={"events", "warehouse_table", sourced_key}, include_hidden_posthog_tables=True
         )
 
-        assert set(subset.keys()) == {"events", "warehouse_table"}
+        assert sourced_key != sourced_table.name
+        assert set(subset.keys()) == {"events", "warehouse_table", sourced_key}
         for table_name, subset_table in subset.items():
             assert subset_table == full[table_name], table_name
 
@@ -1072,8 +1091,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         DataWarehouseTable.objects.filter(pk=newer.pk).update(created_at="2024-06-01T00:00:00+00:00")
 
         database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://newer/*"
+        assert serialized["pull_requests"].id == str(newer.id)
 
     def test_serialize_database_warehouse_table_source_query_count(self):
         source = ExternalDataSource.objects.create(
@@ -1104,7 +1125,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
@@ -1138,7 +1159,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))

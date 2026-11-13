@@ -93,12 +93,16 @@ def forced_variant_values(ctx: HealthContext) -> CheckValues:
     forced = sum(1 for condition in flag.reachable_conditions if condition.pinned_variant is not None)
     values = {ExperimentHealthValueKey.FORCED_CONDITION_COUNT: forced}
     measured = _measured_traffic(ctx)
-    if measured is None:
+    traffic = ctx.condition_set_traffic
+    if measured is None or traffic is None:
         return values
     return {
         **values,
         ExperimentHealthValueKey.MATCHED_COUNT: measured.matched_people,
         ExperimentHealthValueKey.TRAFFIC_SINCE_AT: measured.since.astimezone(UTC).isoformat(),
+        ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: (
+            round(traffic.remotely_evaluated_calls / traffic.calls * 100, 2) if traffic.calls else None
+        ),
     }
 
 

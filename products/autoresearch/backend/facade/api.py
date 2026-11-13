@@ -43,6 +43,7 @@ from ..dataset.labeling import (
 )
 from ..dataset.templates import TemplateKey as _TemplateKey
 from ..dataset.validation import (
+    AutoresearchValidationErrorCode as _AutoresearchValidationErrorCode,
     ValidationWarningCode as _ValidationWarningCode,
     validate_pipeline_definition as _validate_pipeline_definition,
 )
@@ -1175,6 +1176,7 @@ def validate_definition(
         inference_population_size=result.inference_population_size,
         warnings=[ValidationWarning(code=w.code, message=w.message, severity=w.severity) for w in result.warnings],
         error=result.error,
+        error_code=result.error_code.value if result.error_code else None,
     )
 
 
@@ -2232,6 +2234,7 @@ PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
 TEMPLATE_KEY_CHOICES = _TemplateKey.choices
 # A plain list, not choices: the serializer explains why `code` is not an enum.
 VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
+VALIDATION_ERROR_CODE_CHOICES = _AutoresearchValidationErrorCode.choices
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
 KICKOFF_REASON_CHOICES = AutoresearchTrainingRun.KickoffReason.choices
