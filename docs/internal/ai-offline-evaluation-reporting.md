@@ -21,7 +21,9 @@ The harness's dedicated trace client captures `$ai_generation`, `$ai_span`, and 
 During teardown, the harness waits up to five seconds for trace shutdown before continuing infrastructure cleanup.
 Pending traces may be lost if delivery does not finish before the process exits.
 A sandboxed trace has one `$ai_span` per tool call, under the `$ai_generation` that made the call, with the tool's input, output, latency, and error state.
+A failed call also sets `$ai_error` to its output.
 The `$ai_provider` of agent generations follows `--agent-runtime`: `anthropic` for Claude and `openai` for Codex.
+When the log names no model, the generations use the run's `--agent-model`.
 
 ## Result contents and scope
 
