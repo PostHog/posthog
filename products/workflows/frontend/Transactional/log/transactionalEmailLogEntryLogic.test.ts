@@ -11,6 +11,8 @@ import type {
 import { transactionalEmailLogEntryLogic } from './transactionalEmailLogEntryLogic'
 
 const SENT = '2026-03-10T09:00:00.000Z'
+const NOW = '2026-03-15T12:00:00.000Z'
+const WEEK_BEFORE_SENT = '2026-03-03T09:00:00.000Z'
 const LOG = '/api/projects/:team_id/transactional_email_log/'
 
 const SEND = {
@@ -29,16 +31,17 @@ const OTHERS = [
 const PERSON_ROWS = [['person-1', '{"email":"ada@example.com"}', '2025-01-01T00:00:00Z']]
 const ACTIVITY = { before: [{ uuid: 'ev-1' }], after: [], has_more_before: true, has_more_after: false }
 
-type Endpoint = 'detail' | 'person' | 'activity' | 'others'
+const PANELS = ['person', 'activity', 'otherEmails'] as const
+type Endpoint = 'detail' | (typeof PANELS)[number]
 
 describe('transactionalEmailLogEntryLogic', () => {
     let logic: ReturnType<typeof transactionalEmailLogEntryLogic.build>
     let sends: Record<string, TransactionalEmailLogDetailApi>
     let failing: Set<Endpoint>
     let served: Endpoint[]
-    let otherEmailsSearch: string | null
+    let othersQuery: Record<string, string> | null
 
-    const serve = (endpoint: Endpoint, answer: () => [number, any]): [number, any] => {
+    const serve = (endpoint: Endpoint, answer: () => [number, unknown]): [number, unknown] => {
         served.push(endpoint)
         return failing.has(endpoint) ? [500, { detail: 'boom' }] : answer()
     }
@@ -50,10 +53,14 @@ describe('transactionalEmailLogEntryLogic', () => {
     }
 
     beforeEach(() => {
+        jest.useFakeTimers({
+            now: new Date(NOW),
+            doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'clearTimeout'],
+        })
         sends = { [SEND.message_id]: SEND }
         failing = new Set()
         served = []
-        otherEmailsSearch = null
+        othersQuery = null
         useMocks({
             get: {
                 [`${LOG}:id/`]: ({ params }) =>
@@ -61,8 +68,8 @@ describe('transactionalEmailLogEntryLogic', () => {
                 [`${LOG}:id/activity/`]: ({ params }) =>
                     serve('activity', () => (sends[params.id as string] ? [200, ACTIVITY] : [404, {}])),
                 [LOG]: ({ request }) => {
-                    otherEmailsSearch = new URL(request.url).searchParams.get('search')
-                    return serve('others', () => [200, { has_more: false, results: OTHERS }])
+                    othersQuery = Object.fromEntries(new URL(request.url).searchParams)
+                    return serve('otherEmails', () => [200, { has_more: false, results: OTHERS }])
                 },
             },
             post: {
@@ -80,15 +87,13 @@ describe('transactionalEmailLogEntryLogic', () => {
 
     it('loads a send by its id, then its recipient, their activity, and their other emails', async () => {
         await open('msg-1')
-
         expect(logic.values.email).toEqual(SEND)
         expect(logic.values.person).toMatchObject({ id: 'person-1', properties: { email: 'ada@example.com' } })
         expect(logic.values.activity).toMatchObject({ before: [{ uuid: 'ev-1' }], after: [], hasMoreBefore: true })
-        expect(otherEmailsSearch).toBe('Ada@example.com')
+        expect(othersQuery).toMatchObject({ search: 'Ada@example.com', date_from: WEEK_BEFORE_SENT, date_to: NOW })
         expect(logic.values.otherEmails.map((e) => e.message_id)).toEqual(['msg-2'])
         expect(logic.values.breadcrumbs.map((b) => b.name)).toEqual(['Transactional', 'Log', 'Email'])
         expect(logic.values.breadcrumbs[2].key).toEqual(['TransactionalEmailLogEntry', 'msg-1'])
-
         logic.actions.showAllBefore()
         expect(logic.values).toMatchObject({ beforeExpanded: true, afterExpanded: false })
         logic.actions.showAllAfter()
@@ -98,7 +103,6 @@ describe('transactionalEmailLogEntryLogic', () => {
     it('loads nothing else for a send with no distinct id or recipient', async () => {
         sends['msg-9'] = { ...SEND, message_id: 'msg-9', distinct_id: '', recipient: '' }
         await open('msg-9')
-
         expect(logic.values.email?.message_id).toBe('msg-9')
         expect(served).toEqual(['detail'])
     })
@@ -119,18 +123,17 @@ describe('transactionalEmailLogEntryLogic', () => {
         expect(logic.values.email).toEqual(SEND)
     })
 
-    it('marks each side panel failed on its own, and a retry clears it', async () => {
-        failing = new Set(['person', 'activity', 'others'])
+    it.each(PANELS)('marks only the %s panel failed, and a retry clears it', async (panel) => {
+        failing.add(panel)
         await open('msg-1')
-        expect(logic.values).toMatchObject({ personFailed: true, activityFailed: true, otherEmailsFailed: true })
-
+        const flags = (): boolean[] => PANELS.map((p) => logic.values[`${p}Failed` as const])
+        expect(flags()).toEqual(PANELS.map((p) => p === panel))
         failing.clear()
         logic.actions.loadPerson('user-1')
         logic.actions.loadActivity()
         logic.actions.loadOtherEmails(SEND)
-        expect(logic.values).toMatchObject({ personFailed: false, activityFailed: false, otherEmailsFailed: false })
+        expect(flags()).toEqual([false, false, false])
         await expectLogic(logic).toFinishAllListeners()
-
         expect(logic.values.person).toMatchObject({ id: 'person-1' })
         expect(logic.values.activity?.hasMoreBefore).toBe(true)
         expect(logic.values.otherEmails).toHaveLength(1)

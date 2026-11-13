@@ -42,10 +42,7 @@ describe('transactionalEmailLogLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
-    afterEach(() => {
-        logic.unmount()
-        jest.useRealTimers()
-    })
+    afterEach(() => logic.unmount())
 
     it('loads the last week of sends on open, and queries each filter change from the first page', async () => {
         expect(requests).toEqual([{ ...LAST_WEEK, offset: '0' }])
