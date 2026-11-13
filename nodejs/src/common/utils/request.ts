@@ -392,17 +392,35 @@ function natAddress({ address, family }: LookupAddress): string | null {
 
 // A new connection resolves its hostname once and a kept-alive request resolves nothing, so this sees each new
 // connection once. The socket may try every address it gets, so each IPv4 address takes a token. When the limit is
-// enforced, an address with no token left is removed. In count-only mode every address stays, so the result is the
-// same as with no limit.
+// enforced, an address with no token left is removed. In count-only mode every address stays.
 function admitNewConnection(hostname: string, addresses: LookupAddress[]): LookupAddress[] {
-    const natAddresses = addresses.map(natAddress)
-    const limited = natAddresses.filter((address): address is string => address !== null)
-    if (!connectionRateLimiter || limited.length === 0) {
+    if (!connectionRateLimiter) {
         return addresses
     }
-    const admitted = limited.find((address) => connectionRateLimiter.tryTake(address))
+    // The socket dials every entry, so a repeated address would open one connection per copy for one token.
+    const seen = new Set<string>()
+    const unique = addresses.filter((answer) => {
+        const key = natAddress(answer) ?? answer.address
+        if (seen.has(key)) {
+            return false
+        }
+        seen.add(key)
+        return true
+    })
+    const natAddresses = unique.map(natAddress)
+    const limited = natAddresses.filter((address): address is string => address !== null)
+    if (limited.length === 0) {
+        return unique
+    }
+    // Each team has its own budget per address, so one team cannot use up the connections of another.
+    const teamId = fetchAttribution.getStore()?.teamId
+    const admitted = new Set(
+        limited.filter((address) =>
+            connectionRateLimiter.tryTake(teamId === undefined ? address : `${teamId}:${address}`)
+        )
+    )
     const enforced = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
-    if (!admitted) {
+    if (admitted.size === 0) {
         const address = limited[0]
         connectionRateLimitedCounter.inc({ enforced: String(enforced) })
         if (!connectionRateLimitLogged.has(address)) {
@@ -415,21 +433,13 @@ function admitNewConnection(hostname: string, addresses: LookupAddress[]): Looku
             })
         }
     }
-    // A DNS answer can repeat an address, and each address may only take one token.
-    const admittedAddresses = new Map<string, boolean>(admitted ? [[admitted, true]] : [])
-    const kept = addresses.filter((_, index) => {
-        const address = natAddresses[index]
-        if (address === null) {
-            return true
-        }
-        if (!admittedAddresses.has(address)) {
-            admittedAddresses.set(address, connectionRateLimiter.tryTake(address))
-        }
-        return admittedAddresses.get(address)
-    })
     if (!enforced) {
-        return addresses
+        return unique
     }
+    const kept = unique.filter((_, index) => {
+        const address = natAddresses[index]
+        return address === null || admitted.has(address)
+    })
     if (kept.length === 0) {
         throw new ConnectionRateLimitError(limited[0])
     }
