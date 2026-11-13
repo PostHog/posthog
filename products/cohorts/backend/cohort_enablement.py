@@ -5,6 +5,7 @@ a cohort that is off must hold no stamp. Both directions clear them, and the fin
 a cohort that is off.
 """
 
+from collections.abc import Callable
 from functools import partial
 
 from django.db import transaction
@@ -35,30 +36,34 @@ class RealtimeTurnOnRefused(ValueError):
     pass
 
 
-def turn_realtime_on(team_id: int, cohort_id: int) -> list[int]:
+def turn_realtime_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]) -> list[int]:
     """Turn realtime on for the cohort and every realtime cohort it includes, and queue their backfills.
 
     Returns the ids it turned on. Raises ``RealtimeTurnOnRefused`` before it writes anything when one
-    of them can never be ready.
+    of them can never be ready, or ``can_edit`` refuses one of them.
     """
-    return _turn_on(team_id, cohort_id, including_cohort=True)
+    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=True)
 
 
-def turn_realtime_on_for_included_cohorts(team_id: int, cohort_id: int) -> list[int]:
+def turn_realtime_on_for_included_cohorts(
+    team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
+) -> list[int]:
     """After an edit of a cohort that is on, turn on the realtime cohorts it now includes.
 
     Does nothing once the cohort itself is off, so an edit that read the cohort before a turn-off cannot
     undo it.
     """
-    return _turn_on(team_id, cohort_id, including_cohort=False)
+    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=False)
 
 
-def _turn_on(team_id: int, cohort_id: int, *, including_cohort: bool) -> list[int]:
+def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool], including_cohort: bool) -> list[int]:
     if not is_processing_team(team_id, fresh=True):
         raise RealtimeTurnOnRefused("Realtime cohorts aren't available for this project.")
 
     with transaction.atomic():
-        cohort = Cohort.objects.get(id=cohort_id, team_id=team_id)
+        # Locked before the traversal, so an edit that adds an included cohort either commits first and is
+        # traversed here, or waits for this commit and then finds the cohort on.
+        cohort = Cohort.objects.select_for_update(of=("self",)).get(id=cohort_id, team_id=team_id)
         if not including_cohort and not cohort.realtime_enabled:
             return []
         # A static cohort's criteria are a snapshot nothing evaluates, so the cohorts behind it stay as they are.
@@ -69,8 +74,8 @@ def _turn_on(team_id: int, cohort_id: int, *, including_cohort: bool) -> list[in
         }
         if including_cohort:
             ids.add(cohort_id)
-        # Only rows that change are locked, and in id order, because the finalizer locks the cohorts of a team
-        # run one at a time in no fixed order.
+        # Past the root, only rows that change are locked, and in id order, because the finalizer locks the
+        # cohorts of a team run one at a time in no fixed order.
         turned_on = list(
             Cohort.objects.select_for_update(of=("self",))
             .filter(team_id=team_id, id__in=ids, realtime_enabled_at__isnull=True)
@@ -79,6 +84,11 @@ def _turn_on(team_id: int, cohort_id: int, *, including_cohort: bool) -> list[in
 
         now = timezone.now()
         for each in turned_on:
+            if not can_edit(each):
+                raise RealtimeTurnOnRefused(
+                    "Realtime can't be turned on, because this cohort includes a cohort you can't edit. "
+                    "Ask someone who can edit that cohort to turn realtime on for it first."
+                )
             # Nothing maintained this cohort's membership while it was off, so any stamp on it is stale.
             for field in COHORT_REALTIME_SWITCH_FIELDS:
                 setattr(each, field, None)

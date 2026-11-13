@@ -1255,10 +1255,20 @@ def _resolve_realtime_readiness_if_in_rollout(
     return resolve_realtime_readiness(relevant)
 
 
-def _turn_realtime_on_after_save(turn_on: Callable[[int, int], list[int]], cohort: Cohort) -> None:
+def _can_edit(user_access_control: Optional[UserAccessControl]) -> Callable[[Cohort], bool]:
+    # Turning a cohort on also writes the cohorts it includes, so each one needs the access a direct switch needs.
+    return lambda cohort: (
+        user_access_control is not None
+        and user_access_control.check_access_level_for_object(cohort, required_level="editor")
+    )
+
+
+def _turn_realtime_on_after_save(
+    turn_on: Callable[..., list[int]], cohort: Cohort, user_access_control: Optional[UserAccessControl]
+) -> None:
     """Turn realtime on after a request saved the cohort. A refusal or an error leaves the save in place."""
     try:
-        turn_on(cohort.team_id, cohort.pk)
+        turn_on(cohort.team_id, cohort.pk, can_edit=_can_edit(user_access_control))
     except RealtimeTurnOnRefused as error:
         logger.info("cohort_realtime_turn_on_after_save_refused", cohort_id=cohort.pk, error=str(error))
         return
@@ -1489,8 +1499,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def validate_realtime_enabled(self, value: bool) -> bool:
         # update() saves the whole row, so a switch changed here would skip the checks and the backfill
-        # the `realtime` action runs.
-        if self.instance is not None and value != cast(Cohort, self.instance).realtime_enabled:
+        # the `realtime` action runs. DRF reads a boolean left out of form data as false, so only a value
+        # the request sent is compared.
+        if (
+            self.instance is not None
+            and "realtime_enabled" in self.initial_data
+            and value != cast(Cohort, self.instance).realtime_enabled
+        ):
             raise ValidationError(
                 "To turn realtime on or off for an existing cohort, send `enabled` to the cohort's `realtime` endpoint.",
                 code="realtime_enabled_read_only",
@@ -1608,7 +1623,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             cohort.enqueue_calculation(initiating_user=request.user)
 
         if realtime_enabled and _realtime_targeting_enabled(self.context):
-            _turn_realtime_on_after_save(turn_realtime_on, cohort)
+            _turn_realtime_on_after_save(turn_realtime_on, cohort, self._user_access_control())
 
         report_user_action(
             request.user,
@@ -2465,7 +2480,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 cohort.enqueue_calculation(initiating_user=request.user)
             # A cohort that is on can only be ready when every cohort it includes is on too.
             if filters_changed:
-                _turn_realtime_on_after_save(turn_realtime_on_for_included_cohorts, cohort)
+                _turn_realtime_on_after_save(turn_realtime_on_for_included_cohorts, cohort, self._user_access_control())
 
         report_user_action(
             request.user,
@@ -3212,7 +3227,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         before = cohort.to_dict()
         if enabled:
             try:
-                turn_realtime_on(cohort.team_id, cohort.pk)
+                turn_realtime_on(cohort.team_id, cohort.pk, can_edit=_can_edit(self.user_access_control))
             except RealtimeTurnOnRefused as error:
                 raise ValidationError(str(error), code="realtime_refused") from error
         else:
@@ -3271,16 +3286,15 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # Turning a cohort on turns on everything it includes, so a direct parent that is on is the only one to check.
         parents = get_cohorts_using_cohort(cohort).filter(realtime_enabled_at__isnull=False)
-        if parents.exists():
-            count = parents.count()
-            names_str = ", ".join(parent.name or "Unnamed" for parent in parents[:5])
-            if count > 5:
-                names_str = f"{names_str}, and {count - 5} more"
+        count = parents.count()
+        if count:
+            visible = self.user_access_control.filter_queryset_by_access_level(parents, include_all_if_admin=True)
+            names = _names_suffix([parent.name or "Unnamed" for parent in visible[:5]], count)
             self._refuse_turning_off(
                 request,
                 cohort,
                 "cohorts",
-                f"Realtime is on for {count} cohort(s) that include this cohort as criteria: {names_str}. "
+                f"Realtime is on for {count} cohort(s) that include this cohort as criteria{names}. "
                 "Turn realtime off for those cohorts first.",
             )
 
