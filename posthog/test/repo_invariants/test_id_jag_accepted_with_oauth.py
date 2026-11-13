@@ -37,6 +37,9 @@ OAUTH_ONLY_VIEWS: dict[str, str] = {
     "products.ai_observability.backend.api.personal_spend.PersonalSpendViewSet": (
         "Spend is aggregated by email across every organization of the user."
     ),
+    "products.ai_observability.backend.api.personal_spend.PersonalSpendEUProxyViewSet": (
+        "Forwards to the US personal spend endpoint, which stays OAuth only."
+    ),
     "products.signals.backend.views.SignalUserAutonomyConfigView": (
         "One config per user drives autonomous task starts in every organization of the user."
     ),
