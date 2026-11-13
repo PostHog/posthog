@@ -9,6 +9,7 @@ import { formatNumber } from '../dashboard/formatters'
 import { SkeletonLine } from '../dashboard/SkeletonLine'
 import { leadingLabs, type LabShare, type ScoreboardMetric } from './leaderboardShares'
 import { LoadErrorMessage } from './LoadErrorMessage'
+import { NoDataMessage } from './NoDataMessage'
 
 const PODIUM_SIZE = 3
 
@@ -39,7 +40,9 @@ export function LabScoreboard({
     onMetricChange: (metric: ScoreboardMetric) => void
 }): JSX.Element | null {
     const showSkeleton = loading && shares.length === 0
-    if (shares.length === 0 && !failed && !showSkeleton) {
+    // With no named models at all there is nothing to switch between, but an empty Users view keeps its
+    // toggle so the persisted choice can't strand the viewer there.
+    if (shares.length === 0 && !failed && !showSkeleton && metric === 'calls') {
         return null
     }
     const caption = METRICS.find(({ value }) => value === metric)?.caption
@@ -76,7 +79,11 @@ export function LabScoreboard({
                 </ToggleGroup>
             </div>
             {shares.length === 0 && !showSkeleton ? (
-                <LoadErrorMessage />
+                failed ? (
+                    <LoadErrorMessage />
+                ) : (
+                    <NoDataMessage />
+                )
             ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3">
                     {showSkeleton && Array.from({ length: PODIUM_SIZE }, (_, i) => <LabTileSkeleton key={i} />)}
