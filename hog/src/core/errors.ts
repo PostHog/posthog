@@ -137,3 +137,14 @@ export function failureText(error: unknown, isCI: boolean): string {
     }
     return isCI ? `${message} ${SERVER_DETAIL_HIDDEN}` : withServerDetail(message, serverDetail)
 }
+
+const EXIT_CODE_BY_STATUS: Readonly<Record<string, number>> = {
+    pending: EXIT_NEEDS_PERSON,
+    running: EXIT_PENDING,
+}
+
+// For commands whose result says in `status` that it waits for a person (`pending`) or for PostHog
+// (`running`). Opt-in, because results that pass PostHog objects through can carry the same words.
+export function waitingExitCode<Result extends { status: string }>(result: Result): number {
+    return Object.hasOwn(EXIT_CODE_BY_STATUS, result.status) ? EXIT_CODE_BY_STATUS[result.status]! : EXIT_SUCCESS
+}
