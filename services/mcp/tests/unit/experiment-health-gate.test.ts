@@ -16,6 +16,17 @@ describe('experiment health gate', () => {
         vi.clearAllMocks()
     })
 
+    const SYNC_WARNINGS = [
+        {
+            type: 'warehouse_sync',
+            message: 'The plans table of the Example source failed to sync.',
+            schema_name: 'plans',
+            source_type: 'Postgres',
+            status: 'Failed',
+            table_name: 'example_plans',
+        },
+    ]
+
     const exposures = {
         kind: 'ExperimentExposureQuery',
         timeseries: [],
@@ -23,6 +34,7 @@ describe('experiment health gate', () => {
         sample_ratio_mismatch: null,
         bias_risk: { multiple_variant_percentage: 3.2 },
         date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
+        warnings: SYNC_WARNINGS,
         cache_key: 'cache_2_abc',
         query_scan: { duration_ms: 377, rows_read: 17137270 },
         health_findings: [],
@@ -242,6 +254,7 @@ describe('experiment health gate', () => {
             sample_ratio_mismatch: null,
             bias_risk: { multiple_variant_percentage: 3.2 },
             date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
+            warnings: SYNC_WARNINGS,
         })
     })
 })

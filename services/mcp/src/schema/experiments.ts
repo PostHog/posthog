@@ -175,7 +175,7 @@ export const ExperimentExposureQueryResponseSchema = z.object({
 export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema> &
     Pick<
         Schemas.ExperimentExposureQueryResponse,
-        'health_findings' | 'health_checks' | 'sample_ratio_mismatch' | 'bias_risk'
+        'health_findings' | 'health_checks' | 'sample_ratio_mismatch' | 'bias_risk' | 'warnings'
     >
 
 type HealthFinding = Schemas.ExperimentHealthFinding | Schemas.ExperimentExposureHealthFinding
@@ -190,7 +190,7 @@ export type ExperimentHealthDetails = {
 
 type ExposureCounts = Pick<
     ExperimentExposureQueryResponse,
-    'total_exposures' | 'sample_ratio_mismatch' | 'bias_risk' | 'timeseries' | 'date_range'
+    'total_exposures' | 'sample_ratio_mismatch' | 'bias_risk' | 'timeseries' | 'date_range' | 'warnings'
 >
 
 export type ExperimentHealthOverview = {
@@ -488,8 +488,9 @@ function exposureCounts({
     bias_risk,
     timeseries,
     date_range,
+    warnings,
 }: ExperimentExposureQueryResponse): ExposureCounts {
-    return { total_exposures, sample_ratio_mismatch, bias_risk, timeseries, date_range }
+    return { total_exposures, sample_ratio_mismatch, bias_risk, timeseries, date_range, warnings }
 }
 
 export function transformExperimentHealth(
