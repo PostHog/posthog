@@ -50,11 +50,12 @@ def search_insight_alerts(
     held = search_held_configurations(team_ids=team_ids, source_kind=SourceKind.INSIGHT, query=query)
 
     # An alert is readable only with its insight, as the alert API gates it.
-    readable_insight_ids = viewable_insight_ids(
-        access_control=access_control,
-        team_ids=team_ids,
-        insight_ids={*rows.values_list("insight_id", flat=True), *(_insight_id(match) for match in held)} - {None},
-    )
+    insight_ids = {*rows.values_list("insight_id", flat=True), *(_insight_id(match) for match in held)} - {None}
+    readable_insight_ids = {
+        insight_id
+        for team_id in team_ids
+        for insight_id in viewable_insight_ids(access_control=access_control, team_id=team_id, insight_ids=insight_ids)
+    }
     rows = rows.filter(insight_id__in=readable_insight_ids)
     readable = [match for match in held if _insight_id(match) in readable_insight_ids]
 

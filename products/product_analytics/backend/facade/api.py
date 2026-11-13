@@ -355,15 +355,13 @@ def insight_ids_created_by(*, team_id: int, user_id: int, insight_ids: Collectio
     return set(insights.values_list("id", flat=True))
 
 
-def viewable_insight_ids(
-    *, access_control: UserAccessControl, team_ids: Collection[int], insight_ids: Collection[int]
-) -> set[int]:
-    """The ids among ``insight_ids`` of these teams' insights the user may view, deleted ones included, as the
+def viewable_insight_ids(*, access_control: UserAccessControl, team_id: int, insight_ids: Collection[int]) -> set[int]:
+    """The ids among ``insight_ids`` of this team's insights the user may view, deleted ones included, as the
     alert API's read gate narrows them."""
     if not insight_ids:
         return set()
     insights = access_control.filter_queryset_by_access_level(
-        Insight.objects.filter(team_id__in=team_ids, id__in=insight_ids), resource="insight"
+        Insight.objects.filter(team_id=team_id, id__in=insight_ids), resource="insight"
     )
     return set(insights.values_list("id", flat=True))
 
