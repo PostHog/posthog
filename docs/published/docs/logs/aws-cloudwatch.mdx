@@ -13,7 +13,7 @@ This works for any CloudWatch log group: Lambda, RDS, ECS, API Gateway, VPC flow
 You need:
 
 - Your project API key, from **Settings > Project > Project API key**.
-- Permission in AWS to create a Firehose stream, two IAM roles, an S3 bucket, and a subscription filter.
+- Permission in AWS to create a Firehose stream, two IAM roles, an S3 bucket, a CloudWatch log group, and subscription filters.
 - The names of the log groups you want to send.
 
 Firehose bills for the data it ingests. Check the [Firehose pricing page](https://aws.amazon.com/kinesis/data-firehose/pricing/) before you subscribe a high-volume log group.
@@ -29,14 +29,25 @@ If you self-host, use your own ingestion host with the same path. Firehose deliv
 
 ## Set it up with CloudFormation
 
-The template below creates the stream, the roles, a backup bucket, and a subscription filter for one log group.
+The template below creates the stream, the roles, a backup bucket, a log group for delivery errors, and a subscription filter for one log group.
 
 1. Save it as `posthog-cloudwatch-logs.yaml`.
 2. Open **CloudFormation > Create stack > With new resources**, choose **Upload a template file**, and pick the file.
-3. Fill in `PostHogEndpointUrl`, `PostHogAccessKey` (your project API key), and `LogGroupName`.
+3. Fill in `PostHogEndpointUrl`, `PostHogAccessKey` (your project API key), and `LogGroupName`. Optionally set `FilterPattern` to forward only some lines.
 4. Create the stack.
 
-To add more log groups later, create another subscription filter pointing at the `DeliveryStreamArn` output, reusing the `LogsToFirehoseRoleArn` role. You don't need a second stream.
+To add more log groups, run one command per group with the stack's `DeliveryStreamArn` and `LogsToFirehoseRoleArn` outputs. They share the stream, so you don't need a second stack. Each group can have its own filter pattern. This one forwards only warnings and errors:
+
+```bash
+aws logs put-subscription-filter \
+  --log-group-name /aws/ecs/search-indexer \
+  --filter-name posthog-logs \
+  --filter-pattern '?ERROR ?WARN' \
+  --destination-arn <DeliveryStreamArn> \
+  --role-arn <LogsToFirehoseRoleArn>
+```
+
+If you manage several log groups, the [Terraform configuration](#set-it-up-with-terraform) takes all of them with their patterns in one place.
 
 ```yaml
 AWSTemplateFormatVersion: '2010-09-09'
@@ -128,6 +139,26 @@ Resources:
               Bool:
                 aws:SecureTransport: false
 
+  # Firehose writes PostHog's response here when a delivery fails, which is what
+  # the stream's Error logs tab reads.
+  FirehoseErrorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/kinesisfirehose/${AWS::StackName}
+      RetentionInDays: 7
+
+  HttpEndpointErrorLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref FirehoseErrorLogGroup
+      LogStreamName: HttpEndpointDelivery
+
+  S3ErrorLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref FirehoseErrorLogGroup
+      LogStreamName: S3Delivery
+
   FirehoseRole:
     Type: AWS::IAM::Role
     Properties:
@@ -156,6 +187,13 @@ Resources:
                 Resource:
                   - !GetAtt BackupBucket.Arn
                   - !Sub '${BackupBucket.Arn}/*'
+        - PolicyName: WriteErrorLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: logs:PutLogEvents
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${FirehoseErrorLogGroup}:log-stream:*'
 
   DeliveryStream:
     Type: AWS::KinesisFirehose::DeliveryStream
@@ -176,12 +214,20 @@ Resources:
         RetryOptions:
           DurationInSeconds: !Ref RetryDurationSeconds
         RoleARN: !GetAtt FirehoseRole.Arn
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref FirehoseErrorLogGroup
+          LogStreamName: !Ref HttpEndpointErrorLogStream
         S3BackupMode: FailedDataOnly
         S3Configuration:
           BucketARN: !GetAtt BackupBucket.Arn
           RoleARN: !GetAtt FirehoseRole.Arn
           Prefix: failed/
           CompressionFormat: GZIP
+          CloudWatchLoggingOptions:
+            Enabled: true
+            LogGroupName: !Ref FirehoseErrorLogGroup
+            LogStreamName: !Ref S3ErrorLogStream
 
   LogsToFirehoseRole:
     Type: AWS::IAM::Role
@@ -225,6 +271,340 @@ Outputs:
   BackupBucketName:
     Description: Deliveries that PostHog could not accept land here.
     Value: !Ref BackupBucket
+  ErrorLogGroupName:
+    Description: Firehose writes PostHog's response here when a delivery fails.
+    Value: !Ref FirehoseErrorLogGroup
+```
+
+## Set it up with Terraform
+
+The configuration below creates the same resources as the CloudFormation template, and takes any number of log groups. Each log group gets its own filter pattern, so you can forward everything from one service and only warnings and errors from a noisy one.
+
+1. Save it as `posthog-cloudwatch-logs.tf` in an empty directory.
+2. Save your settings next to it as `terraform.tfvars`, using the example below.
+3. Run `terraform init`, then `terraform apply`.
+
+Terraform keeps your project API key in its state, so store the state somewhere private.
+
+```hcl
+# terraform.tfvars
+posthog_access_key = "phc_your_project_api_key"
+
+# For PostHog Cloud EU:
+# posthog_endpoint_url = "https://eu.i.posthog.com/i/v1/logs/aws/firehose"
+
+log_groups = {
+  # An empty pattern forwards every line.
+  "/aws/lambda/checkout" = ""
+
+  # Plain-text logs: forward lines that contain ERROR or WARN.
+  "/aws/ecs/search-indexer" = "?ERROR ?WARN"
+
+  # JSON logs: forward events whose level is error or warn.
+  "/aws/lambda/image-resize" = "{ $.level = \"error\" || $.level = \"warn\" }"
+}
+```
+
+Filter patterns are case-sensitive. See the [CloudWatch filter pattern syntax](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html) for more ways to match.
+
+To add or remove a log group, edit `log_groups` and run `terraform apply` again.
+
+```hcl
+# Streams CloudWatch log groups into PostHog Logs through an Amazon Data Firehose
+# HTTP endpoint destination, with one subscription filter per entry in log_groups.
+#
+# The project API key is stored in Terraform state, so keep state somewhere private.
+
+terraform {
+  required_version = ">= 1.3"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 6.0"
+    }
+  }
+}
+
+variable "posthog_endpoint_url" {
+  type        = string
+  default     = "https://us.i.posthog.com/i/v1/logs/aws/firehose"
+  description = "PostHog Firehose endpoint URL. Use https://eu.i.posthog.com/i/v1/logs/aws/firehose for PostHog Cloud EU."
+  validation {
+    condition     = startswith(var.posthog_endpoint_url, "https://")
+    error_message = "Amazon Data Firehose delivers only to HTTPS endpoints."
+  }
+}
+
+variable "posthog_access_key" {
+  type        = string
+  sensitive   = true
+  description = "Your PostHog project API key."
+}
+
+variable "log_groups" {
+  type        = map(string)
+  description = "CloudWatch log groups to stream, each mapped to a subscription filter pattern. An empty pattern forwards every log line."
+}
+
+variable "stream_name" {
+  type        = string
+  default     = "posthog-logs"
+  description = "Name of the Firehose stream. Also prefixes the bucket and role names."
+}
+
+variable "buffer_size_mb" {
+  type        = number
+  default     = 1
+  description = "Firehose buffer size in MB."
+  validation {
+    condition     = var.buffer_size_mb >= 1 && var.buffer_size_mb <= 4
+    error_message = "PostHog rejects a delivery above 8 MB, and Firehose base64-encodes records on the way out. Keep this between 1 and 4."
+  }
+}
+
+variable "buffer_interval_seconds" {
+  type        = number
+  default     = 60
+  description = "Firehose buffer interval in seconds."
+}
+
+variable "retry_duration_seconds" {
+  type        = number
+  default     = 300
+  description = "How long Firehose retries a failed delivery before writing it to the backup bucket."
+}
+
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+data "aws_partition" "current" {}
+
+locals {
+  account_id = data.aws_caller_identity.current.account_id
+  region     = data.aws_region.current.region
+  partition  = data.aws_partition.current.partition
+  dns_suffix = data.aws_partition.current.dns_suffix
+}
+
+# force_destroy stays false, so `terraform destroy` fails on a non-empty bucket
+# instead of deleting failed deliveries.
+resource "aws_s3_bucket" "backup" {
+  bucket_prefix = "${var.stream_name}-backup-"
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "backup" {
+  bucket = aws_s3_bucket.backup.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "backup" {
+  bucket                  = aws_s3_bucket.backup.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "backup" {
+  bucket = aws_s3_bucket.backup.id
+  rule {
+    id     = "ExpireFailedDeliveries"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = 14
+    }
+    # Firehose writes via multipart upload; an aborted part is invisible to the
+    # expiry rule above and bills until it is removed.
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "backup" {
+  bucket = aws_s3_bucket.backup.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource  = [aws_s3_bucket.backup.arn, "${aws_s3_bucket.backup.arn}/*"]
+      Condition = { Bool = { "aws:SecureTransport" = "false" } }
+    }]
+  })
+  depends_on = [aws_s3_bucket_public_access_block.backup]
+}
+
+# Firehose writes PostHog's response here when a delivery fails, which is what
+# the stream's Error logs tab reads.
+resource "aws_cloudwatch_log_group" "firehose_errors" {
+  name              = "/aws/kinesisfirehose/${var.stream_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_stream" "http_errors" {
+  name           = "HttpEndpointDelivery"
+  log_group_name = aws_cloudwatch_log_group.firehose_errors.name
+}
+
+resource "aws_cloudwatch_log_stream" "s3_errors" {
+  name           = "S3Delivery"
+  log_group_name = aws_cloudwatch_log_group.firehose_errors.name
+}
+
+resource "aws_iam_role" "firehose" {
+  name_prefix = "${var.stream_name}-firehose-"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "firehose.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+      Condition = { StringEquals = { "sts:ExternalId" = local.account_id } }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "firehose_write_backup" {
+  name = "WriteBackupBucket"
+  role = aws_iam_role.firehose.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "s3:AbortMultipartUpload",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:ListBucketMultipartUploads",
+        "s3:PutObject",
+      ]
+      Resource = [aws_s3_bucket.backup.arn, "${aws_s3_bucket.backup.arn}/*"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "firehose_write_error_logs" {
+  name = "WriteErrorLogs"
+  role = aws_iam_role.firehose.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "logs:PutLogEvents"
+      Resource = "${aws_cloudwatch_log_group.firehose_errors.arn}:log-stream:*"
+    }]
+  })
+}
+
+resource "aws_kinesis_firehose_delivery_stream" "posthog" {
+  name        = var.stream_name
+  destination = "http_endpoint"
+
+  server_side_encryption {
+    enabled  = true
+    key_type = "AWS_OWNED_CMK"
+  }
+
+  http_endpoint_configuration {
+    name               = "PostHog"
+    url                = var.posthog_endpoint_url
+    access_key         = var.posthog_access_key
+    buffering_size     = var.buffer_size_mb
+    buffering_interval = var.buffer_interval_seconds
+    retry_duration     = var.retry_duration_seconds
+    role_arn           = aws_iam_role.firehose.arn
+    s3_backup_mode     = "FailedDataOnly"
+
+    request_configuration {
+      content_encoding = "GZIP"
+    }
+
+    cloudwatch_logging_options {
+      enabled         = true
+      log_group_name  = aws_cloudwatch_log_group.firehose_errors.name
+      log_stream_name = aws_cloudwatch_log_stream.http_errors.name
+    }
+
+    s3_configuration {
+      bucket_arn         = aws_s3_bucket.backup.arn
+      role_arn           = aws_iam_role.firehose.arn
+      prefix             = "failed/"
+      compression_format = "GZIP"
+
+      cloudwatch_logging_options {
+        enabled         = true
+        log_group_name  = aws_cloudwatch_log_group.firehose_errors.name
+        log_stream_name = aws_cloudwatch_log_stream.s3_errors.name
+      }
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.firehose_write_backup,
+    aws_iam_role_policy.firehose_write_error_logs,
+  ]
+}
+
+resource "aws_iam_role" "logs_to_firehose" {
+  name_prefix = "${var.stream_name}-cwl-"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "logs.${local.region}.${local.dns_suffix}" }
+      Action    = "sts:AssumeRole"
+      Condition = { ArnLike = { "aws:SourceArn" = "arn:${local.partition}:logs:${local.region}:${local.account_id}:*" } }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "logs_put_to_stream" {
+  name = "PutToDeliveryStream"
+  role = aws_iam_role.logs_to_firehose.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["firehose:PutRecord", "firehose:PutRecordBatch"]
+      Resource = aws_kinesis_firehose_delivery_stream.posthog.arn
+    }]
+  })
+}
+
+# One filter per log group, all sharing the same stream and role.
+resource "aws_cloudwatch_log_subscription_filter" "posthog" {
+  for_each        = var.log_groups
+  name            = var.stream_name
+  log_group_name  = each.key
+  filter_pattern  = each.value
+  destination_arn = aws_kinesis_firehose_delivery_stream.posthog.arn
+  role_arn        = aws_iam_role.logs_to_firehose.arn
+
+  depends_on = [aws_iam_role_policy.logs_put_to_stream]
+}
+
+output "delivery_stream_arn" {
+  value = aws_kinesis_firehose_delivery_stream.posthog.arn
+}
+
+output "logs_to_firehose_role_arn" {
+  value = aws_iam_role.logs_to_firehose.arn
+}
+
+output "backup_bucket_name" {
+  value = aws_s3_bucket.backup.bucket
+}
+
+output "error_log_group_name" {
+  value = aws_cloudwatch_log_group.firehose_errors.name
+}
 ```
 
 ## Set it up in the console

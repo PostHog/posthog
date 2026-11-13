@@ -70,6 +70,7 @@ from products.data_modeling.backend.facade.api import (
     clear_incremental_state,
     duplicate_output_columns,
     duplicate_output_columns_message,
+    get_incremental_state,
     inject_incremental_filter,
     parse_model_query,
     record_incremental_history,
@@ -396,8 +397,8 @@ class MaterializeViewResult:
     should_trigger_cdp_producer: bool = False
 
 
-def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
-    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}"
+def _build_model_table_uri(team_id: int, saved_query_id_hex: str, storage_name: str) -> str:
+    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{storage_name}"
 
 
 def get_aws_storage_options() -> dict[str, str]:
@@ -884,7 +885,7 @@ def _get_matview_input_objects(
         raise InvalidNodeTypeException(f"Node {node.name} has no saved_query")
     # we explicitly get the saved query to avoid sync_to_async issues later for things like folder_path
     saved_query = (
-        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        DataWarehouseSavedQuery.objects.select_related("team", "table")
         .exclude(deleted=True)
         .get(id=node.saved_query.id, team_id=inputs.team_id)
     )
@@ -1116,7 +1117,11 @@ async def _materialize_fully(
     # on the full-refresh path.
     if plan.config is not None and plan.fingerprint is not None and watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(
-            objects.saved_query, watermark=watermark, fingerprint=plan.fingerprint, mode="full_refresh"
+            objects.saved_query,
+            watermark=watermark,
+            fingerprint=plan.fingerprint,
+            mode="full_refresh",
+            table_uri=table_uri,
         )
     return row_count, file_uris
 
@@ -1206,7 +1211,11 @@ async def _materialize_incrementally(
 
     if watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(
-            objects.saved_query, watermark=watermark, fingerprint=plan.fingerprint, mode="incremental"
+            objects.saved_query,
+            watermark=watermark,
+            fingerprint=plan.fingerprint,
+            mode="incremental",
+            table_uri=table_uri,
         )
 
     # Reopened because deltalite commits through its own handle, leaving this one pinned to the
@@ -1276,6 +1285,15 @@ async def clear_cdp_staging_activity(inputs: ClearCDPStagingInputs) -> None:
     await producer.clear()
 
 
+def _watermark_table_uri(objects: MatviewInputObjects) -> str:
+    """The table location that the saved watermark describes."""
+    recorded = get_incremental_state(objects.saved_query).table_uri
+    if recorded is not None:
+        return recorded
+    # Progress saved without a location belongs to the path that followed the model's name.
+    return _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
+
+
 @activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
@@ -1289,11 +1307,14 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
-    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
+    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.storage_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
     storage_options = get_aws_storage_options()
     plan = await database_sync_to_async_pool(resolve_write_plan)(inputs.team_id, objects.saved_query.id)
+    if plan.incremental and _watermark_table_uri(objects) != table_uri:
+        # The watermark describes rows in another table. An update from it would skip rows here.
+        plan = dataclasses.replace(plan, incremental=False, reason="table location changed")
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")

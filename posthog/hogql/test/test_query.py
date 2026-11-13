@@ -68,6 +68,7 @@ from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -1224,6 +1225,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("cte_unknown_function", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t", "toValidUTF8(properties.list)"),
             ("cte_equality_unchanged", "list = 'x'", False, None, "t"),
             ("cte_inequality_unchanged", "list != 'x'", True, None, "t"),
+            ("numeric_definition", "JSONExtractArrayRaw(properties.typed_list)", ["1", "2"], []),
+            ("numeric_definition_null_default", "JSONExtractArrayRaw(properties.typed_list ?? '[]')", ["1", "2"], []),
         ]
     )
     def test_json_container_functions_accept_nullable_input(
@@ -1235,11 +1238,20 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         source: str = "events",
         cte_expression: str = "properties.list",
     ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="typed_list", property_type="Numeric"
+        )
         _create_event(
             distinct_id="d1",
             event="with",
             team=self.team,
-            properties={"list": [1, 2], "obj": {"a": 1, "b": 2}, "map": {"k": "v"}, "num": 7},
+            properties={
+                "list": [1, 2],
+                "typed_list": [1, 2],
+                "obj": {"a": 1, "b": 2},
+                "map": {"k": "v"},
+                "num": 7,
+            },
         )
         _create_event(distinct_id="d1", event="without", team=self.team, properties={})
         flush_persons_and_events()
