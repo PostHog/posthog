@@ -823,7 +823,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
     @parameterized.expand(
         [
-            param("events_mode_with_the_flag", EVENTS, False, union_flag=True),
+            param("events_mode_with_the_flag", EVENTS, False, union_flag=True, new_events_schema=False),
             param("read_mode", READ, False),
             param("read_mode_with_the_flag", READ, True, union_flag=True),
             param("read_mode_with_the_flag_and_the_union_disabled", READ, False, union_flag=True, union=False),
