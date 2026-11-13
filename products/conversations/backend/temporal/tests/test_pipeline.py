@@ -191,6 +191,7 @@ async def test_workflow_persists_on_high_score(
     assert "confidence=0.85" in result
     assert "attempts=1" in result
     mock_persist.assert_called_once()
+    assert mock_persist.call_args.args[0].run_id
     mock_persist_gaps.assert_not_called()
 
 
@@ -1394,6 +1395,50 @@ class TestPersistReplyActivity:
         assert comment.item_context["confidence"] == 0.85
         assert comment.item_context["persist_as"] == "reply"
         assert "investigation_summary" not in comment.item_context
+
+    @parameterized.expand([("recorded", False), ("recording_fails", True)])
+    def test_run_citations_never_block_the_note(self, _name, recording_fails):
+        from posthog.models.comment import Comment
+        from posthog.models.organization import Organization
+        from posthog.models.scoping import team_scope
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+
+        from products.business_knowledge.backend import logic as knowledge_logic
+        from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeRunCitation
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user = User.objects.create(email="agent@example.com")
+        ticket = Ticket.objects.create_with_number(
+            team=team, channel_source="widget", widget_session_id="session", distinct_id="customer"
+        )
+        source = knowledge_logic.create_text_source(
+            team_id=team.id, created_by_id=user.id, name="Refunds", text="Refunds take five days."
+        )
+        with team_scope(team.id, canonical=True):
+            chunk = KnowledgeChunk.objects.get(source_id=source.id)
+        persist_input = PersistReplyInput(
+            team_id=team.id,
+            ticket_id=str(ticket.id),
+            reply="Refunds take five days.",
+            citations=[str(chunk.id)],
+            confidence=0.85,
+            run_id="run-1",
+        )
+
+        with ExitStack() as stack:
+            if recording_fails:
+                stack.enter_context(
+                    patch(f"{PERSIST_REPLY_MODULE}.record_run_citations", side_effect=RuntimeError("boom"))
+                )
+            _persist_reply_sync(persist_input)
+
+        comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
+        assert comment.item_context["run_id"] == "run-1"
+        with team_scope(team.id, canonical=True):
+            cited = list(KnowledgeRunCitation.objects.values_list("run_id", "ticket_id", "source_id"))
+        assert cited == ([] if recording_fails else [("run-1", ticket.id, source.id)])
 
     def test_findings_note_does_not_present_reply_as_answer(self):
         from posthog.models.comment import Comment

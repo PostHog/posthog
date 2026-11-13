@@ -224,6 +224,7 @@ class SupportReplyWorkflow:
             persist_input = replace(
                 persist_input,
                 require_awaiting_clarification=input.clarification_round >= 1,
+                run_id=wf_info.run_id,
             )
             raw = await workflow.execute_activity(
                 support_persist_reply_activity,

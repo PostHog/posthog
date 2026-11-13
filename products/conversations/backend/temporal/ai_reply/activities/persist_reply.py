@@ -5,6 +5,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Q
 
+import structlog
 from temporalio import activity
 
 from posthog.comment.tiptap import markdown_to_tiptap_doc
@@ -13,6 +14,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.business_knowledge.backend.facade.api import record_run_citations
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.temporal.ai_reply.gate import format_findings_comment
@@ -22,6 +24,8 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
     PersistReplyOutput,
     coerce_dataclass,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 @activity.defn
@@ -59,6 +63,25 @@ def _lock_ticket(*, team_id: int, ticket_id: str) -> Ticket | None:
         .filter(team_id=team_id, id=ticket_id)
         .first()
     )
+
+
+def _record_citations(input: PersistReplyInput) -> None:
+    """Record the knowledge this run cited. A failure here must not stop the note."""
+    if not input.run_id or not input.citations:
+        return
+    try:
+        # Savepoint, so a failed insert cannot poison the transaction that posts the note.
+        with transaction.atomic():
+            record_run_citations(
+                team_id=input.team_id,
+                run_id=input.run_id,
+                ticket_id=UUID(str(input.ticket_id)),
+                citations=input.citations,
+                persist_as=input.persist_as,
+                confidence=input.confidence,
+            )
+    except Exception:
+        logger.warning("support_reply_citation_record_failed", team_id=input.team_id, exc_info=True)
 
 
 def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
@@ -113,6 +136,8 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             item_context["unknowns"] = input.unknowns
             item_context["clarifying_questions"] = input.clarifying_questions
             item_context["findings_reason"] = input.findings_reason
+        if input.run_id:
+            item_context["run_id"] = input.run_id
 
         # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
         Comment.objects.create(
@@ -123,6 +148,7 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             rich_content=markdown_to_tiptap_doc(content),
             item_context=item_context,
         )
+        _record_citations(input)
         if input.require_awaiting_clarification and ticket is not None:
             # Post and reopen together. record_triage is best-effort and would leave the
             # ticket pending forever if it were the only reopen after a completed child id.

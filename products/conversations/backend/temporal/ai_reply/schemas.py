@@ -208,6 +208,8 @@ class PersistReplyInput:
     findings_reason: str = ""
     # Follow-up round only. If awaiting_clarification was already cleared, do not post.
     require_awaiting_clarification: bool = False
+    # The workflow run that produced this note. Empty on histories recorded before the field existed.
+    run_id: str = ""
 
 
 @dataclass(frozen=False)
