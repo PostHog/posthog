@@ -262,7 +262,7 @@ OAuth tokens and Personal API Keys with `integration:write` can verify an existi
 
 The update accepts a nested `config` with `email`, `name`, `provider`, and optional `mail_from_subdomain` and `reply_to`. Supply the existing email address and provider; only the display name, MAIL FROM subdomain and reply-to address change. The update calls the existing provider configuration operation and sends no email.
 
-The same flag exposes the MCP tools `integrations-email-partial-update`, `integrations-domain-connect-check-retrieve` and `integrations-domain-connect-apply-url-create`. The `integrations-email-create`, `integrations-email-status-retrieve` and `integrations-email-verify-create` tools stay behind the separate `workflows-email-domain-agent-setup` flag. The create tool accepts only the `ses` provider. An organization's read-only MCP restriction still blocks the tools that write.
+The same flag exposes the MCP tools `integrations-email-partial-update`, `integrations-domain-connect-check-retrieve` and `integrations-domain-connect-apply-url-create`. The `integrations-email-create`, `integrations-email-status-retrieve` and `integrations-email-verify-create` tools need no flag. The create tool accepts only the `ses` provider. An organization's read-only MCP restriction still blocks the tools that write.
 
 ### OpenID Connect Scopes
 

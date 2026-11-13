@@ -1655,10 +1655,6 @@
         "chromium": 9.757,
         "webkit": 3.871
     },
-    "products/ai_observability/frontend/AIObservabilityTraceScene.stories.tsx": {
-        "chromium": 22.674,
-        "webkit": 6.292
-    },
     "products/ai_observability/frontend/ByokModelPickerNotice.stories.tsx": {
         "chromium": 16.599,
         "webkit": 3.915

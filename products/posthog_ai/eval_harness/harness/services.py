@@ -338,14 +338,12 @@ def start_mcp_server(
         # Force the selected behavior via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
         # mcp-exec-skills follows the run's skill delivery mode. dashboard-widgets gates
-        # the widget batch tools that the dashboard widget evals exercise. The email domain
-        # setup eval needs both workflows-email flags: workflows-email-domain-agent-setup
-        # gates the sender status and verify tools, and workflows-email-from-code gates the
-        # sender create, update and Domain Connect tools.
+        # the widget batch tools that the dashboard widget evals exercise.
+        # workflows-email-from-code gates the sender update and Domain Connect tools that
+        # the email domain setup eval exercises.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "dashboard-widgets": True,
-                "workflows-email-domain-agent-setup": True,
                 "workflows-email-from-code": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
