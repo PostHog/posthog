@@ -30,16 +30,31 @@ _UNREADABLE = (ValueError, TypeError, AttributeError, KeyError, IndexError, Recu
 _page_access: ContextVar[dict[tuple[int, int], UserAccessControl] | None] = ContextVar(
     "resend_import_page_access", default=None
 )
+_page_gated_templates: ContextVar[dict[int, frozenset[str]] | None] = ContextVar(
+    "resend_import_page_gated_templates", default=None
+)
 
 
 @contextmanager
 def reuse_import_access() -> Iterator[None]:
-    """Load each user's access rules once for every automation imported inside the block."""
-    token = _page_access.set({})
+    """Load each user's access rules, and the team's flag-gated templates, once for every automation imported inside
+    the block. A flag check can call the flag service, and the page holds its run's row lock meanwhile."""
+    access_token = _page_access.set({})
+    templates_token = _page_gated_templates.set({})
     try:
         yield
     finally:
-        _page_access.reset(token)
+        _page_gated_templates.reset(templates_token)
+        _page_access.reset(access_token)
+
+
+def _gated_templates(team: Team) -> frozenset[str]:
+    cache = _page_gated_templates.get()
+    if cache is None:
+        return frozenset(hidden_gated_template_ids(team))
+    if team.id not in cache:
+        cache[team.id] = frozenset(hidden_gated_template_ids(team))
+    return cache[team.id]
 
 
 def _access(team: Team, user: User) -> UserAccessControl:
@@ -109,7 +124,7 @@ def import_resend_automation(
             segment_id: _segment_cohort(team_id, user, access, segment_id, name)
             for segment_id, name in (segments or {}).items()
         },
-        unavailable_templates=frozenset(hidden_gated_template_ids(team))
+        unavailable_templates=_gated_templates(team)
         if step_types & {"add_to_segment", "contact_update"}
         else frozenset(),
     )
