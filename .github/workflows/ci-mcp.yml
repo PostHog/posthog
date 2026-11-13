@@ -513,7 +513,11 @@ jobs:
                   rm -f /tmp/rust-build.status
                   # Redirected to a file, so the step does not hold the runner's stdout pipe
                   # open and returns as soon as cargo is started.
-                  ( cargo build -p feature-flags > /tmp/rust-build.log 2>&1; echo "$?" > /tmp/rust-build.status ) &
+                  (
+                      status=0
+                      cargo build -p feature-flags > /tmp/rust-build.log 2>&1 || status=$?
+                      echo "$status" > /tmp/rust-build.status
+                  ) &
                   echo "cargo build -p feature-flags started in the background"
 
             - name: Download MaxMind Database
