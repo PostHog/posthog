@@ -5720,8 +5720,10 @@ export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 export enum SlackIntegrationScope {
     APP_MENTIONS_READ = 'app_mentions:read',
     ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_READ = 'canvases:read',
     CANVASES_WRITE = 'canvases:write',
     CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_JOIN = 'channels:join',
     CHANNELS_MANAGE = 'channels:manage',
     CHANNELS_READ = 'channels:read',
     CHAT_WRITE = 'chat:write',
@@ -5744,22 +5746,6 @@ export enum SlackIntegrationScope {
 }
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
-
-// Scopes that wait on Slack app review. Only DEV and local development request them, because the
-// US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
-/** @schemaEnum */
-export enum SlackIntegrationScopeInReview {
-    CANVASES_READ = 'canvases:read',
-    CHANNELS_JOIN = 'channels:join',
-}
-
-export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
-
-export function slackRequestedScopes(includeInReview: boolean): string[] {
-    return includeInReview
-        ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
-        : [...SLACK_INTEGRATION_SCOPES]
-}
 
 export interface IntegrationType {
     id: number

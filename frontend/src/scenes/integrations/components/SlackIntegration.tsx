@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
@@ -13,8 +13,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SLACK_INTEGRATION_SCOPES } from '~/types'
-
-import { useSlackRequiredScopes } from './slackScopes'
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
 const getSlackAppManifest = (): any => ({
@@ -68,8 +66,7 @@ export function SlackIntegration({
     })
     const { user } = useValues(userLogic)
 
-    const requiredScopesArr = useSlackRequiredScopes()
-    const requiredScopes = useMemo(() => requiredScopesArr.join(' '), [requiredScopesArr])
+    const requiredScopes = SLACK_INTEGRATION_SCOPES.join(' ')
 
     return (
         <div>

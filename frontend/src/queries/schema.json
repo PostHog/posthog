@@ -60153,8 +60153,10 @@
             "enum": [
                 "app_mentions:read",
                 "assistant:write",
+                "canvases:read",
                 "canvases:write",
                 "channels:history",
+                "channels:join",
                 "channels:manage",
                 "channels:read",
                 "chat:write",
@@ -60175,10 +60177,6 @@
                 "users:read",
                 "users:read.email"
             ],
-            "type": "string"
-        },
-        "SlackIntegrationScopeInReview": {
-            "enum": ["canvases:read", "channels:join"],
             "type": "string"
         },
         "SlashCommandName": {

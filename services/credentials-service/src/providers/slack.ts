@@ -5,8 +5,10 @@ import type { ProviderSpec } from './schema'
 const SCOPES = [
     'app_mentions:read',
     'assistant:write',
+    'canvases:read',
     'canvases:write',
     'channels:history',
+    'channels:join',
     'channels:manage',
     'channels:read',
     'chat:write',
@@ -28,9 +30,6 @@ const SCOPES = [
     'users:read.email',
 ]
 
-// `SlackIntegrationScopeInReview`: Slack has not approved these for the public app, so only dev asks for them.
-const SCOPES_IN_REVIEW = ['canvases:read', 'channels:join']
-
 export const slack: ProviderSpec = {
     kind: 'slack',
     label: 'Slack',
@@ -49,9 +48,6 @@ export const slack: ProviderSpec = {
     },
     identityConfigKeys: ['team'],
     tokenInfo: { idPath: 'team.id', namePath: 'team.name' },
-    overrides: {
-        environment: { dev: { authorize: { scope: [...SCOPES, ...SCOPES_IN_REVIEW].join(',') } } },
-    },
     // A bot token without token rotation has no refresh token and no expiry, so it never comes due.
     refresh: { ...OAUTH_REFRESH, mode: 'rotating' },
     resolveExposes: ACCESS_TOKEN_ONLY,

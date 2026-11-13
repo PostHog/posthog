@@ -29,7 +29,7 @@ from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
+from posthog.schema_enums import SlackIntegrationScope
 from posthog.scopes import get_oauth_scopes_supported
 
 from . import apple_ads, common, model, refresh_tracking, row_writes
@@ -246,13 +246,6 @@ class OauthConfig:
 #
 # Every scope here is approved for the public Cloud app, so every instance requests it.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
-
-
-def posthog_slack_scope() -> str:
-    # See SlackIntegrationScopeInReview in frontend/src/types.ts for why only DEV and local request these.
-    if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV":
-        return ",".join([POSTHOG_SLACK_SCOPE, *(scope.value for scope in SlackIntegrationScopeInReview)])
-    return POSTHOG_SLACK_SCOPE
 
 
 def _apple_ads_acl_accounts(access_token: str) -> list[dict[str, Any]]:
@@ -720,7 +713,7 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                scope=posthog_slack_scope(),
+                scope=POSTHOG_SLACK_SCOPE,
                 id_path="team.id",
                 name_path="team.name",
             )

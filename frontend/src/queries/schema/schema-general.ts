@@ -60,7 +60,6 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
-    SlackIntegrationScopeInReview,
     StepOrderValue,
 } from '~/types'
 
@@ -68,9 +67,9 @@ import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, non_negative_integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
-// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` and `SLACK_INTEGRATION_SCOPES_IN_REVIEW`.
-export { SlackIntegrationScope, SlackIntegrationScopeInReview }
+// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
+// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
+export { SlackIntegrationScope }
 
 /**
  * PostHog Query Schema definition.
