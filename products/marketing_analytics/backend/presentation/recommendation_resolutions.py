@@ -4,7 +4,7 @@ from uuid import UUID
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,33 +17,31 @@ from posthog.schema import (
 )
 
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
 from products.marketing_analytics.backend.facade.api import (
     InvalidRecommendationIdentity,
-    list_recommendation_resolutions,
+    can_resolve_recommendations,
     resolve_recommendation,
     restore_recommendation,
 )
 
-DEFAULT_PAGE_SIZE = 100
 MAX_SUBJECT_LENGTH = 10_000
-MAX_NAME_LENGTH = 400
 
 
-def _choices(enum: type[StrEnum]) -> list[tuple[str, str]]:
+def _labels(enum: type[StrEnum]) -> dict[str, str]:
     # Same labels as the model's TextChoices, so the OpenAPI enums keep the names derived from those classes.
-    return [(member.value, member.name.replace("_", " ").title()) for member in enum]
+    return {member.value: member.name.replace("_", " ").title() for member in enum}
 
 
 class RecommendationIdentitySerializer(serializers.Serializer):
     rule = serializers.ChoiceField(
-        choices=_choices(MarketingAnalyticsRecommendationRule), help_text="The rule that produced the recommendation."
+        choices=list(_labels(MarketingAnalyticsRecommendationRule).items()),
+        help_text="The rule that produced the recommendation.",
     )
     source_type = serializers.ChoiceField(
-        choices=_choices(MarketingAnalyticsRecommendationIdentitySourceType),
+        choices=list(_labels(MarketingAnalyticsRecommendationIdentitySourceType).items()),
         help_text="The ad platform the ids belong to.",
     )
     customer_id = serializers.CharField(
@@ -69,15 +67,8 @@ class RecommendationResolutionRequestSerializer(serializers.Serializer):
     identity = RecommendationIdentitySerializer(
         help_text="The recommendation's `identity` from the recommendations query, sent as is."
     )
-    name = serializers.CharField(
-        max_length=MAX_NAME_LENGTH,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="A display label for the recommendation, such as the campaign name or the search term. The activity log shows it. It is not part of the identity.",
-    )
     resolution = serializers.ChoiceField(
-        choices=_choices(MarketingAnalyticsRecommendationResolutionState),
+        choices=list(_labels(MarketingAnalyticsRecommendationResolutionState).items()),
         help_text="Dismissed hides the recommendation. Applied marks that someone made the change it suggests.",
     )
 
@@ -97,12 +88,8 @@ class RecommendationResolutionSerializer(serializers.Serializer):
     key = serializers.CharField(
         help_text="Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query."
     )
-    name = serializers.CharField(
-        allow_blank=True,
-        help_text="The display label sent with the last resolution, such as the campaign name. Empty when none was sent.",
-    )
     resolution = serializers.ChoiceField(
-        choices=_choices(MarketingAnalyticsRecommendationResolutionState),
+        choices=list(_labels(MarketingAnalyticsRecommendationResolutionState).items()),
         help_text="Dismissed hides the recommendation. Applied marks that someone made the change it suggests.",
     )
     resolved_by = RecommendationResolverSerializer(
@@ -121,34 +108,24 @@ class RecommendationResolutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
 
     scope_object = "marketing_analytics"
     permission_classes = [IsAuthenticated]
-    pagination_class = PrecountedLimitOffsetPagination
 
-    @validated_request(
-        summary="List resolved recommendations",
-        description="Lists the project's dismissed and applied recommendations, most recently resolved first.",
-        responses={200: RecommendationResolutionSerializer(many=True)},
-    )
-    def list(self, request: Request, **kwargs: Any) -> Response:
-        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
-        page = list_recommendation_resolutions(
-            self.team_id,
-            limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE,
-            offset=paginator.get_offset(request),
-        )
-        paginator.set_count(page.count)
-        results = self.paginate_queryset(list(page.results))
-        return self.get_paginated_response(RecommendationResolutionSerializer(results, many=True).data)
+    def _require_source_access(self) -> None:
+        if not can_resolve_recommendations(self.team_id, self.user_access_control):
+            raise PermissionDenied(
+                "You need access to all of this project's Google Ads and Search Console sources to change recommendations. Ask a project admin for access."
+            )
 
     @validated_request(
         request_serializer=RecommendationResolutionRequestSerializer,
         summary="Resolve a recommendation",
-        description="Dismisses a recommendation or marks it as applied. Resolving it again replaces the earlier resolution. Returns 400 when the identity's rule never produces that combination of ids.",
+        description="Dismisses a recommendation or marks it as applied. Resolving it again replaces the earlier resolution. Returns 400 when the identity's rule never produces that combination of ids, and 403 without access to every Google Ads and Search Console source of the project.",
         responses={
             200: OpenApiResponse(response=RecommendationResolutionSerializer, description="Replaced a resolution."),
             201: OpenApiResponse(response=RecommendationResolutionSerializer, description="Created a resolution."),
         },
     )
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        self._require_source_access()
         data = request.validated_data
         try:
             outcome = resolve_recommendation(
@@ -156,7 +133,6 @@ class RecommendationResolutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
                 MarketingAnalyticsRecommendationIdentity(**data["identity"]),
                 MarketingAnalyticsRecommendationResolutionState(data["resolution"]),
                 cast(User, request.user).id,
-                name=data["name"],
             )
         except InvalidRecommendationIdentity as error:
             raise ValidationError({"identity": str(error)})
@@ -167,10 +143,11 @@ class RecommendationResolutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
 
     @validated_request(
         summary="Restore a recommendation",
-        description="Deletes a resolution, so its recommendation shows again.",
+        description="Deletes a resolution, so its recommendation shows again. Returns 403 without access to every Google Ads and Search Console source of the project.",
         responses={204: OpenApiResponse(description="The resolution is deleted.")},
     )
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        self._require_source_access()
         try:
             resolution_id = UUID(pk)
         except ValueError:
