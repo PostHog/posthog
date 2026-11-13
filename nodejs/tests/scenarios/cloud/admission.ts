@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 import { readFileSync } from 'fs'
+import os from 'os'
 import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -14,7 +15,7 @@ export type Controller = {
     aws: Aws
     origin: Origin
     now(): Date
-    home: string
+    env: NodeJS.ProcessEnv
     print(line: string): void
     warn(line: string): void
 }
@@ -33,9 +34,15 @@ const PROBE_ID = 'scn-permission-probe'
 
 export function estimateOf({ writerClass, readerAcu, host, admission }: CloudProfile): EstimateLine[] {
     const { rates, allowances } = admission
-    const hourly = rates.writerPerHour + readerAcu.max * rates.acuPerHour + rates.hostPerHour
     const months = TTL_HOURS / HOURS_PER_MONTH
-    const logGb = (MONITORED_INSTANCES * TTL_HOURS * HOUR_S * allowances.enhancedMonitoringEventBytes) / BYTES_PER_GB
+    const logGbPerHour = (MONITORED_INSTANCES * HOUR_S * allowances.enhancedMonitoringEventBytes) / BYTES_PER_GB
+    const logGb = TTL_HOURS * logGbPerHour
+    const fullInventoryPerHour =
+        rates.writerPerHour +
+        readerAcu.max * rates.acuPerHour +
+        rates.hostPerHour +
+        (allowances.storageGb * rates.storagePerGbMonth + host.ebsGb * rates.ebsPerGbMonth) / HOURS_PER_MONTH +
+        logGbPerHour * rates.logsIngestPerGb
     return [
         { item: `writer ${writerClass}, ${TTL_HOURS} h`, usd: TTL_HOURS * rates.writerPerHour },
         { item: `reader at ${readerAcu.max} ACU, ${TTL_HOURS} h`, usd: TTL_HOURS * readerAcu.max * rates.acuPerHour },
@@ -51,7 +58,7 @@ export function estimateOf({ writerClass, readerAcu, host, admission }: CloudPro
             item: `S3 requests, ${allowances.s3Requests}`,
             usd: (allowances.s3Requests / 1000) * rates.s3PerThousandRequests,
         },
-        { item: 'teardown tail, 1 h of the full inventory', usd: hourly },
+        { item: 'teardown tail, 1 h of the full inventory', usd: fullInventoryPerHour },
         { item: 'margin', usd: admission.reserve.marginUsd },
     ]
 }
@@ -68,24 +75,33 @@ function printEstimate({ print }: Controller, profile: CloudProfile): number {
     return total
 }
 
-async function sessionExpiry({ aws, home }: Controller): Promise<Date | undefined> {
-    const ssoSession = await aws.text(['configure', 'get', 'sso_session']).catch(() => '')
-    if (ssoSession !== '') {
-        // The CLI refreshes cached SSO role credentials silently, so only the SSO token's own expiry bounds the run.
-        const cached = path.join(
-            home,
-            '.aws',
-            'sso',
-            'cache',
-            `${createHash('sha1').update(ssoSession).digest('hex')}.json`
-        )
-        const expiresAt = (parseJSON(readFileSync(cached, 'utf8')) as { expiresAt?: string }).expiresAt
-        return expiresAt ? new Date(expiresAt) : undefined
+type Session = { endsAt: Date } | { refreshable: true } | { unknown: true } | { problem: string }
+
+function cachedSsoToken(home: string, ssoSession: string): { expiresAt?: string; refreshToken?: string } | undefined {
+    const name = `${createHash('sha1').update(ssoSession).digest('hex')}.json`
+    try {
+        return parseJSON(readFileSync(path.join(home, '.aws', 'sso', 'cache', name), 'utf8'))
+    } catch {
+        return undefined
     }
-    const { Expiration } = parseJSON(await aws.text(['configure', 'export-credentials', '--format', 'process'])) as {
-        Expiration?: string
+}
+
+async function sessionOf({ aws, env }: Controller): Promise<Session> {
+    const ssoSession = env.AWS_ACCESS_KEY_ID ? '' : await aws.text(['configure', 'get', 'sso_session']).catch(() => '')
+    if (ssoSession === '') {
+        const { Expiration } = parseJSON(
+            await aws.text(['configure', 'export-credentials', '--format', 'process'])
+        ) as { Expiration?: string }
+        return Expiration ? { endsAt: new Date(Expiration) } : { unknown: true }
     }
-    return Expiration ? new Date(Expiration) : undefined
+    const token = cachedSsoToken(env.HOME ?? os.homedir(), ssoSession)
+    if (token === undefined) {
+        return { problem: `No SSO token is cached for ${ssoSession}. Run aws sso login --sso-session ${ssoSession}.` }
+    }
+    if (token.refreshToken) {
+        return { refreshable: true }
+    }
+    return token.expiresAt ? { endsAt: new Date(token.expiresAt) } : { unknown: true }
 }
 
 function probesOf({ baseline }: CloudProfile, now: Date): [string, string[]][] {
@@ -208,12 +224,18 @@ export async function admit(
     const needed = new Date(
         now().getTime() + TTL_HOURS * HOUR_S * 1000 + durationMs(profile.admission.teardownAllowance)
     )
-    const expiry = await sessionExpiry(controller)
-    if (expiry === undefined) {
+    const session = await sessionOf(controller)
+    if ('problem' in session) {
+        problems.push(session.problem)
+    } else if ('unknown' in session) {
         problems.push('The credentials have no known expiry; use an Access Elevator profile with an SSO session.')
-    } else if (expiry < needed) {
+    } else if ('refreshable' in session) {
+        controller.warn(
+            'The SSO session refreshes its token, so its end cannot be read here. If it ends before the run, the stack-delete schedules still remove the stack.'
+        )
+    } else if (session.endsAt < needed) {
         problems.push(
-            `The credentials expire at ${expiry.toISOString()}, before the run and its teardown end at ${needed.toISOString()}.`
+            `The credentials expire at ${session.endsAt.toISOString()}, before the run and its teardown end at ${needed.toISOString()}.`
         )
     }
 

@@ -1,13 +1,9 @@
-import { execFileSync } from 'child_process'
-import os from 'os'
-
-import { internalFetch } from '~/common/utils/request'
-
 import { EXIT_CODE } from '../runner/status'
-import { Controller, Origin, admit } from './admission'
+import { Controller, admit } from './admission'
 import { awsCli } from './aws'
 import { lease, manifestOf, release, sweepExpired } from './lease'
-import { LoadedCloudProfile, REGION, loadCloudProfile } from './profile'
+import { githubOrigin } from './origin'
+import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
 
 export type { Controller } from './admission'
 
@@ -16,40 +12,19 @@ const USAGE = [
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile>',
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> (<run id> | --expired)',
 ].join('\n')
-const REPOSITORY = 'PostHog/posthog'
-const REQUEST_TIMEOUT_MS = 10_000
-
-function githubOrigin(): Origin {
-    return {
-        head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim(),
-        published: async (commit) => {
-            const response = await internalFetch(`https://api.github.com/repos/${REPOSITORY}/commits/${commit}`, {
-                headers: { Accept: 'application/vnd.github+json' },
-                timeoutMs: REQUEST_TIMEOUT_MS,
-            })
-            if (response.status === 404 || response.status === 422) {
-                return false
-            }
-            if (response.status !== 200) {
-                throw new Error(`GitHub answered ${response.status} for commit ${commit}`)
-            }
-            return true
-        },
-    }
-}
 
 function defaultController(): Controller {
     return {
         aws: awsCli({ ...process.env, AWS_REGION: REGION, AWS_PAGER: '' }),
         origin: githubOrigin(),
         now: () => new Date(),
-        home: os.homedir(),
+        env: process.env,
         print: (line) => process.stdout.write(`${line}\n`),
         warn: (line) => process.stderr.write(`${line}\n`),
     }
 }
 
-async function run(controller: Controller, loaded: LoadedCloudProfile): Promise<number> {
+async function run(controller: Controller, loaded: RunInputs): Promise<number> {
     const bucket = loaded.profile.baseline.evidenceBucket
     await sweepExpired(controller, bucket)
     const admission = await admit(controller, loaded.profile)
@@ -66,7 +41,7 @@ async function run(controller: Controller, loaded: LoadedCloudProfile): Promise<
     return EXIT_CODE.passed
 }
 
-async function cleanup(controller: Controller, { profile }: LoadedCloudProfile, target: string): Promise<number> {
+async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {
     const bucket = profile.baseline.evidenceBucket
     if (target === '--expired') {
         await sweepExpired(controller, bucket)
@@ -85,8 +60,9 @@ export async function main(argv: string[], controller: Controller = defaultContr
         return EXIT_CODE.invalid
     }
     try {
-        const loaded = loadCloudProfile(file)
-        return command === 'run' ? await run(controller, loaded) : await cleanup(controller, loaded, target)
+        return command === 'run'
+            ? await run(controller, loadRunInputs(file))
+            : await cleanup(controller, loadCloudProfile(file), target)
     } catch (error) {
         controller.warn((error as Error).message)
         return EXIT_CODE.invalid

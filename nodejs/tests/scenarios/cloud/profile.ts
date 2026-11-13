@@ -67,9 +67,9 @@ export const CloudProfile = z
 
 export type CloudProfile = z.infer<typeof CloudProfile>
 
-export type InputFile = { file: string; path: string; sha256: string }
+export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type LoadedCloudProfile = { profile: CloudProfile; inputs: InputFile[] }
+export type RunInputs = { profile: CloudProfile; inputs: InputFile[] }
 
 export class CloudProfileError extends Error {
     constructor(file: string, problems: string[]) {
@@ -78,21 +78,20 @@ export class CloudProfileError extends Error {
     }
 }
 
-function inputOf(file: string, filePath: string): InputFile {
+function readInput(file: string, filePath: string): InputFile {
     let bytes: Buffer
     try {
         bytes = readFileSync(filePath)
     } catch (error) {
         throw new CloudProfileError(filePath, [(error as Error).message])
     }
-    return { file, path: filePath, sha256: createHash('sha256').update(bytes).digest('hex') }
+    return { file, bytes, sha256: createHash('sha256').update(bytes).digest('hex') }
 }
 
-export function loadCloudProfile(filePath: string): LoadedCloudProfile {
-    const cloud = inputOf('cloud-profile.yaml', filePath)
+function parseCloudProfile(filePath: string, { bytes }: InputFile): CloudProfile {
     let raw: unknown
     try {
-        raw = parse(readFileSync(filePath, 'utf8'), { maxAliasCount: 0 })
+        raw = parse(bytes.toString('utf8'), { maxAliasCount: 0 })
     } catch (error) {
         throw new CloudProfileError(filePath, [(error as Error).message])
     }
@@ -103,6 +102,16 @@ export function loadCloudProfile(filePath: string): LoadedCloudProfile {
             parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
         )
     }
-    const runner = inputOf('runner-profile.yaml', path.resolve(path.dirname(filePath), parsed.data.runnerProfile))
-    return { profile: parsed.data, inputs: [cloud, runner] }
+    return parsed.data
+}
+
+export function loadCloudProfile(filePath: string): CloudProfile {
+    return parseCloudProfile(filePath, readInput('cloud-profile.yaml', filePath))
+}
+
+export function loadRunInputs(filePath: string): RunInputs {
+    const cloud = readInput('cloud-profile.yaml', filePath)
+    const profile = parseCloudProfile(filePath, cloud)
+    const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
+    return { profile, inputs: [cloud, runner] }
 }

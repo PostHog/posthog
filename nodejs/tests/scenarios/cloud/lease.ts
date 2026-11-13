@@ -7,7 +7,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { Admitted, Controller } from './admission'
 import { Aws, AwsError } from './aws'
-import { LoadedCloudProfile, TTL_HOURS } from './profile'
+import { RunInputs, TTL_HOURS } from './profile'
 
 export type Manifest = {
     runId: string
@@ -38,14 +38,12 @@ function bucketOf(aws: Aws, bucket: string) {
             rmSync(dir, { recursive: true, force: true })
         }
     }
-    const upload = (key: string, file: string): Promise<unknown> =>
-        aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
     return {
-        upload,
-        put: (key: string, body: string): Promise<unknown> =>
+        name: bucket,
+        put: (key: string, body: string | Buffer): Promise<unknown> =>
             withScratch((file) => {
                 writeFileSync(file, body)
-                return upload(key, file)
+                return aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
             }),
         get: (key: string): Promise<string> =>
             withScratch(async (file) => {
@@ -121,7 +119,7 @@ async function register(controller: Controller, schedulerRole: string, manifest:
 
 export async function lease(
     controller: Controller,
-    { profile, inputs }: LoadedCloudProfile,
+    { profile, inputs }: RunInputs,
     { owner, commit }: Admitted
 ): Promise<Manifest> {
     const runId = randomUUID()
@@ -145,17 +143,45 @@ export async function lease(
         await bucket.put(keyOf(runId, 'manifest.json'), body)
         await bucket.put(keyOf(runId, 'input/manifest.json'), body)
         for (const input of inputs) {
-            await bucket.upload(keyOf(runId, `input/${input.file}`), input.path)
+            await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)
         }
         await register(controller, profile.baseline.schedulerRole, manifest)
         return manifest
     } catch (error) {
-        await deleteSchedules(controller, manifest)
-        for (const key of await bucket.keys(keyOf(runId, ''))) {
-            await bucket.delete(key)
+        const reason = (error as Error).message
+        const remaining = await removePartialLease(controller, bucket, manifest)
+        if (remaining.length > 0) {
+            throw new LeaseError(
+                `Could not lease run ${runId}: ${reason}\nRemove what remains by hand:\n${remaining.map((item) => `- ${item}`).join('\n')}`
+            )
         }
-        throw new LeaseError(`Could not lease run ${runId}, so nothing was created: ${(error as Error).message}`)
+        throw new LeaseError(`Could not lease run ${runId}, so nothing was created: ${reason}`)
     }
+}
+
+async function removePartialLease(
+    { aws }: Controller,
+    bucket: ReturnType<typeof bucketOf>,
+    manifest: Manifest
+): Promise<string[]> {
+    const remaining: string[] = []
+    const attempt = async (item: string, removal: () => Promise<unknown>): Promise<void> => {
+        await removal().catch(() => remaining.push(item))
+    }
+    for (const name of manifest.schedules) {
+        await attempt(`schedule ${name}`, () =>
+            ignoringNotFound(aws.call(['scheduler', 'delete-schedule', '--name', name]))
+        )
+    }
+    const prefix = keyOf(manifest.runId, '')
+    const keys = await bucket.keys(prefix).catch(() => {
+        remaining.push(`s3://${bucket.name}/${prefix}`)
+        return []
+    })
+    for (const key of keys) {
+        await attempt(`s3://${bucket.name}/${key}`, () => bucket.delete(key))
+    }
+    return remaining
 }
 
 export async function release(controller: Controller, evidenceBucket: string, manifest: Manifest): Promise<void> {

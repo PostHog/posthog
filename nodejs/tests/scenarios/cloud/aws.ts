@@ -24,9 +24,10 @@ export class AwsError extends Error {
     }
 }
 
-function retriesOf(args: string[]): NodeJS.ProcessEnv {
-    // A retried failover after a lost response would promote a second time, so the CLI gets one attempt.
-    return args[1] === 'failover-db-cluster' ? { AWS_MAX_ATTEMPTS: '1' } : {}
+const PROMOTES_AGAIN_WHEN_RETRIED = new Set(['failover-db-cluster'])
+
+function retryBudgetOf(args: string[]): NodeJS.ProcessEnv {
+    return PROMOTES_AGAIN_WHEN_RETRIED.has(args[1]) ? { AWS_MAX_ATTEMPTS: '1' } : {}
 }
 
 export function awsCli(env: NodeJS.ProcessEnv): Aws {
@@ -35,7 +36,7 @@ export function awsCli(env: NodeJS.ProcessEnv): Aws {
             execFile(
                 'aws',
                 args,
-                { env: { ...env, ...retriesOf(args) }, maxBuffer: OUTPUT_LIMIT_BYTES },
+                { env: { ...env, ...retryBudgetOf(args) }, maxBuffer: OUTPUT_LIMIT_BYTES },
                 (error, stdout, stderr) => {
                     if (!error) {
                         resolve(stdout)
