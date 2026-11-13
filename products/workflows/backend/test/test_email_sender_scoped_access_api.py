@@ -1,10 +1,13 @@
+import threading
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+from posthog.test.base import NonAtomicAPIBaseTest
 from unittest.mock import patch
 
-from django.db import DEFAULT_DB_ALIAS, OperationalError, connections
+from django.db import connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -14,15 +17,21 @@ from rest_framework import status
 from posthog.api.integration import EMAIL_FROM_CODE_FLAG
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
-from posthog.models.integration.email import lock_sender_domain
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.proxy_record import ProxyRecord
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
+from posthog.test.waiting import wait_until
 
-from products.workflows.backend.test.email_domain_api_test_case import DOMAIN, ROOT_DOMAIN, EmailDomainApiTestCase
+from products.workflows.backend.test.email_domain_api_test_case import (
+    DOMAIN,
+    ROOT_DOMAIN,
+    EmailDomainApi,
+    EmailDomainApiTestCase,
+    email_domain_settings,
+)
 from products.workflows.backend.tests.fakes.world import domain_connect_signing_key_pem
 
 SENDER = f"hello@{DOMAIN}"
@@ -516,54 +525,108 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
         assert self.mail_from_domain() == f"{mail_from}.{DOMAIN}"
         assert self.config(other_sender)["mail_from_subdomain"] == "feedback"
 
-    def test_ses_mail_from_change_holds_off_a_sender_created_on_the_same_domain(self) -> None:
-        domain = f"billing.{ROOT_DOMAIN}"
-        self.world.ses.add_identity(domain, mail_from_domain=f"feedback.{domain}")
-        sender = Integration.objects.create(
-            team=self.team,
-            kind="email",
-            integration_id=f"hello@{domain}",
-            config={"email": f"hello@{domain}", "domain": domain, "name": "Example", "provider": "ses"},
-        ).id
-        write_mail_from = self.world.ses._set_identity_mail_from_domain
-        creator_could_proceed: list[bool] = []
 
-        def write_while_a_creator_tries_the_domain(**kwargs: Any) -> dict:
-            creator_could_proceed.append(sender_creation_can_lock(domain))
-            return write_mail_from(**kwargs)
+class RequestOnItsOwnConnection:
+    def __init__(self, send: Callable[[], Any]) -> None:
+        self._send = send
+        self._response: Any = None
+        self._error: BaseException | None = None
+        self._finished = threading.Event()
+        self._thread = threading.Thread(target=self._run)
 
-        with (
-            email_from_code(True),
-            patch.object(self.world.ses, "_set_identity_mail_from_domain", write_while_a_creator_tries_the_domain),
-        ):
-            response = self.client.patch(
+    @property
+    def started(self) -> bool:
+        return self._thread.ident is not None
+
+    def _run(self) -> None:
+        try:
+            self._response = self._send()
+        except BaseException as error:
+            self._error = error
+        finally:
+            connection.close()
+            self._finished.set()
+
+    def start_and_let_it_reach_the_domain(self) -> None:
+        self._thread.start()
+        wait_until(
+            lambda: self._finished.is_set() or another_connection_waits_on_this_one(),
+            timeout=10,
+            message="the second request neither finished nor waited on the first",
+        )
+
+    def response(self) -> Any:
+        self._thread.join(timeout=10)
+        assert not self._thread.is_alive(), "the second request never finished"
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def another_connection_waits_on_this_one() -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE NOT granted AND pg_backend_pid() = ANY(pg_blocking_pids(pid)))"
+        )
+        return cursor.fetchone()[0]
+
+
+@email_domain_settings
+class TestMailFromChangeRacingSenderCreation(EmailDomainApi, NonAtomicAPIBaseTest):
+    # Both requests commit for real, so the second one, on its own connection, can wait on the first.
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("mail_from_change_first", True, status.HTTP_200_OK, "bounce"),
+            ("sender_creation_first", False, status.HTTP_403_FORBIDDEN, "feedback"),
+        ]
+    )
+    def test_every_sender_on_the_domain_keeps_the_mail_from_ses_holds(
+        self, _name: str, mail_from_change_first: bool, change_status: int, mail_from: str
+    ) -> None:
+        sender = self.create_sender(SENDER)
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        token_client = self.client_class()
+
+        def change_mail_from() -> Any:
+            return token_client.patch(
                 f"/api/projects/{self.team.id}/integrations/{sender}/email",
-                {
-                    "config": {
-                        "email": f"hello@{domain}",
-                        "name": "Example",
-                        "provider": "ses",
-                        "mail_from_subdomain": "bounce",
-                    }
-                },
+                {"config": {"email": SENDER, "name": "Example", "provider": "ses", "mail_from_subdomain": "bounce"}},
                 format="json",
-                **self.credentials("pak"),
+                HTTP_AUTHORIZATION="Bearer admin_key",
             )
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert self.mail_from_domain(domain) == f"bounce.{domain}"
-        assert creator_could_proceed == [False]
+        def create_sender_in_other_project() -> Any:
+            return self.client.post(
+                f"/api/projects/{other_team.id}/integrations",
+                {"kind": "email", "config": {"email": f"news@{DOMAIN}", "name": "News", "provider": "ses"}},
+                format="json",
+            )
 
+        # The first request calls SES while it holds the domain, so the second request starts there and must wait for it.
+        if mail_from_change_first:
+            first, second, ses_call = change_mail_from, create_sender_in_other_project, "_set_identity_mail_from_domain"
+        else:
+            first, second, ses_call = create_sender_in_other_project, change_mail_from, "_verify_domain_identity"
+        second_request = RequestOnItsOwnConnection(second)
+        call_ses = getattr(self.world.ses, ses_call)
 
-def sender_creation_can_lock(domain: str) -> bool:
-    creator = connections.create_connection(DEFAULT_DB_ALIAS)
-    try:
-        with creator.cursor() as cursor:
-            cursor.execute("SET lock_timeout = '100ms'")
-            try:
-                lock_sender_domain(cursor, domain)
-            except OperationalError:
-                return False
-            return True
-    finally:
-        creator.close()
+        def let_the_second_request_reach_the_domain(**kwargs: Any) -> Any:
+            if not second_request.started:
+                second_request.start_and_let_it_reach_the_domain()
+            return call_ses(**kwargs)
+
+        with email_from_code(True), patch.object(self.world.ses, ses_call, let_the_second_request_reach_the_domain):
+            first_response = first()
+            second_response = second_request.response()
+
+        change, creation = (
+            (first_response, second_response) if mail_from_change_first else (second_response, first_response)
+        )
+        assert change.status_code == change_status, change.json()
+        assert creation.status_code == status.HTTP_201_CREATED, creation.json()
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"{mail_from}.{DOMAIN}"
+        assert {sender.config["mail_from_subdomain"] for sender in Integration.objects.filter(kind="email")} == {
+            mail_from
+        }
