@@ -8,7 +8,7 @@ import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { renderColumn } from './renderColumn'
+import { getPersonForDeleteColumn, renderColumn } from './renderColumn'
 import { defaultDataTableColumns } from './utils'
 
 const select = defaultDataTableColumns(NodeKind.EventsQuery)
@@ -136,6 +136,38 @@ describe('renderColumn', () => {
 
         expect(screen.getByText('someone@example.com')).toBeInTheDocument()
         expect(screen.queryByText('Unknown')).toBeNull()
+    })
+
+    const personUUID = 'c3b1f6a2-0000-0000-0000-000000000000'
+
+    it.each<[string, string[], unknown[], string | null]>([
+        [
+            'the ID column comes before the Person column',
+            ['id', 'person_display_name -- Person', 'created_at', 'person.$delete'],
+            [personUUID, { display_name: 'someone@example.com', id: personUUID }, '2024-01-01T00:00:00Z', null],
+            personUUID,
+        ],
+        [
+            'the person column is not first',
+            ['created_at', 'person', 'person.$delete'],
+            ['2024-01-01T00:00:00Z', { id: personUUID, distinct_ids: ['the-distinct-id'], properties: {} }, null],
+            personUUID,
+        ],
+        [
+            'only the ID column identifies the person',
+            ['created_at', 'id', 'person.$delete'],
+            ['2024-01-01T00:00:00Z', personUUID, null],
+            personUUID,
+        ],
+        ['no column identifies the person', ['created_at', 'person.$delete'], ['2024-01-01T00:00:00Z', null], null],
+    ])('delete column finds the person when %s', (_case, columns, row, expectedId) => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select: columns },
+        }) as DataTableNode
+
+        const person = getPersonForDeleteColumn(row, query)
+        expect(person === null ? null : person.id).toEqual(expectedId)
     })
 
     it.each([
