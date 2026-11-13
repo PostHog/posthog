@@ -759,6 +759,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
         ),
+    warm_submission_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.'
+        ),
     warm_run_id: zod
         .uuid()
         .nullish()

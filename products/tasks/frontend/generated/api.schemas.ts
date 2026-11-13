@@ -1945,6 +1945,11 @@ export interface TaskCreateApi {
      */
     scheduled_at?: string | null
     /**
+     * Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.
+     * @nullable
+     */
+    warm_submission_id?: string | null
+    /**
      * Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.
      * @nullable
      */
