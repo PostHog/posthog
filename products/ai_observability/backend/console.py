@@ -30,6 +30,7 @@ from products.ai_observability.backend.facade.admin import (
     EvalSuggestionReviewVerdict,
     ReviewCard,
     UsageReportRefused,
+    current_label,
     dataset_retention_enabled,
     label_card,
     load_review_cards,
@@ -176,7 +177,10 @@ def label_suggestion(request: HttpRequest, form: forms.Form | None) -> HttpRespo
     assert form is not None
     verdict = EvalSuggestionReviewVerdict(form.cleaned_data["verdict"])
     cleaned = form.cleaned_data
-    if not label_card(cleaned["team"], cleaned["suggestion"], verdict=verdict, note=cleaned["note"]):
+    reviewer_id = cast(User, request.user).pk
+    if not label_card(
+        cleaned["team"], cleaned["suggestion"], verdict=verdict, note=cleaned["note"], reviewer_id=reviewer_id
+    ):
         messages.error(request, "This team has no suggestion with this ID.")
         return HttpResponse(status=404)
     messages.success(request, f"Labeled the suggestion {verdict.label.lower()}.")
@@ -239,6 +243,17 @@ def _review_row(card: ReviewCard) -> Row:
     )
 
 
+def _label_initial(request: HttpRequest) -> dict[str, object]:
+    """The card's current label, so submitting the form unchanged keeps it."""
+    initial: dict[str, object] = {"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")}
+    form = LabelSuggestionForm({**initial, "verdict": EvalSuggestionReviewVerdict.GOOD})
+    if form.is_valid():
+        label = current_label(form.cleaned_data["team"], form.cleaned_data["suggestion"])
+        if label is not None and label.verdict is not None:
+            initial.update(verdict=label.verdict, note=label.note)
+    return initial
+
+
 @console.register_tool
 class EvalSuggestionReviewTool(ConsoleTool):
     key = "eval-suggestion-review"
@@ -290,7 +305,7 @@ class EvalSuggestionReviewTool(ConsoleTool):
                 label="Label a suggestion",
                 handler=label_suggestion,
                 form_class=LabelSuggestionForm,
-                form_initial={"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")},
+                form_initial=_label_initial(request),
                 description="Saves a staff label on one card. The customer sees nothing.",
             )
         ]

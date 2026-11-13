@@ -1,3 +1,4 @@
+import re
 import uuid
 
 import time_machine
@@ -112,6 +113,18 @@ class TestEvalSuggestionReviewTool(BaseTest):
 
         assert response.status_code == expected_status
         self.unlabeled.refresh_from_db()
-        assert (self.unlabeled.review_verdict, self.unlabeled.review_note) == (
-            ("good", "Real failures") if known else (None, "")
+        assert (self.unlabeled.review_verdict, self.unlabeled.review_note, self.unlabeled.reviewed_by_id) == (
+            ("good", "Real failures", self.user.pk) if known else (None, "", None)
         )
+
+    def test_the_label_form_opens_with_the_cards_current_label(self) -> None:
+        self.labeled.review_note = "Examples are summaries"
+        self.labeled.save()
+
+        response = self.client.get(
+            f"/admin/console/tools/eval-suggestion-review/label/?team={self.team.pk}&suggestion={self.labeled.id}"
+        )
+
+        content = response.content.decode()
+        assert re.search(r'<option value="bad"\s+selected>', content)
+        assert "Examples are summaries" in content

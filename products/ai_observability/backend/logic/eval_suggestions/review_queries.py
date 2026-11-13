@@ -86,11 +86,24 @@ def load_review_cards(*, since: datetime, team_id: int | None, unlabeled_only: b
     ]
 
 
-def label_card(team_id: int, suggestion_id: UUID, *, verdict: EvalSuggestionReviewVerdict, note: str) -> bool:
+@frozen
+class ReviewLabel:
+    verdict: str | None
+    note: str
+
+
+def current_label(team_id: int, suggestion_id: UUID) -> ReviewLabel | None:
+    card = EvalSuggestion.objects.for_team(team_id).filter(id=suggestion_id).first()
+    return ReviewLabel(verdict=card.review_verdict, note=card.review_note) if card else None
+
+
+def label_card(
+    team_id: int, suggestion_id: UUID, *, verdict: EvalSuggestionReviewVerdict, note: str, reviewer_id: int
+) -> bool:
     """False when the team has no card with this id. A second label replaces the first."""
     updated = (
         EvalSuggestion.objects.for_team(team_id)
         .filter(id=suggestion_id)
-        .update(review_verdict=verdict, review_note=note, reviewed_at=timezone.now())
+        .update(review_verdict=verdict, review_note=note, reviewed_at=timezone.now(), reviewed_by_id=reviewer_id)
     )
     return updated > 0
