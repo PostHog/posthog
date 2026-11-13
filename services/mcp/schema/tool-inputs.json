@@ -956,12 +956,18 @@
             "type": "string",
             "description": "ISO timestamp — only return jobs created before this date (e.g. \"2025-12-31T23:59:59Z\")."
         },
+        "ExternalDataJobsLimitSchema": {
+            "description": "Maximum number of jobs to return, from 1 to 100 (default 20). Jobs are newest first. To get older jobs, pass the returned `next_before` as `before`.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+        },
         "ExternalDataJobsSchemasSchema": {
+            "description": "Filter jobs by table schema names (e.g. [\"users\", \"orders\"]). Only returns jobs for these tables.",
             "type": "array",
             "items": {
                 "type": "string"
-            },
-            "description": "Filter jobs by table schema names (e.g. [\"users\", \"orders\"]). Only returns jobs for these tables."
+            }
         },
         "ExternalDataSourcePayloadSchema": {
             "type": "object",

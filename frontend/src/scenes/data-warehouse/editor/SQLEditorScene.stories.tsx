@@ -764,7 +764,6 @@ const BI_MODE_WORKSHEET_MOCKS = {
 export const BIModeWorksheet: Story = {
     beforeEach: pinQueryTimer,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         // The editor restores BI state only alongside the query it generated
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
             q: buildBIQuery(BI_WORKSHEET_CONFIG)?.query ?? '',

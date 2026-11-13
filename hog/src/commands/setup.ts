@@ -45,6 +45,13 @@ const OPTIONS = {
     },
 } as const satisfies Record<string, OptionSpec>
 
+const AGENT_LEADING_KEYS = ['step', 'status', 'code', 'next', 'done'] as const
+
+function agentResult(result: SetupResult): unknown {
+    const { skills } = result.context
+    return skills ? { ...result, context: { ...result.context, skills: skills.map((skill) => skill.id) } } : result
+}
+
 function joinBlocks(blocks: readonly (readonly string[])[]): string[] {
     return blocks.filter((lines) => lines.length > 0).flatMap((lines, index) => (index === 0 ? lines : ['', ...lines]))
 }
@@ -202,7 +209,7 @@ export default defineCommand({
     },
 
     agent({ result, out }) {
-        out.json(result)
+        out.json(agentResult(result), { first: AGENT_LEADING_KEYS })
     },
 
     telemetry: ({ args, result }) => ({

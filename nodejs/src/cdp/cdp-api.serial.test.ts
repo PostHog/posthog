@@ -1,5 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
@@ -19,6 +20,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT } from '~/common/outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -33,6 +35,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
+import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -1597,6 +1600,39 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a deadline', { wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
+            ['no request', undefined, 200, undefined],
+            ['an unreadable deadline', { wait_until: 'soon' }, 400, undefined],
+        ])(
+            'resolves the audience up front only on a valid deadline: %s',
+            async (_desc, audienceSnapshot, status, waitUntil) => {
+                const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+                api['batchResolverProducer'] = fakeJobProducer({ createJob: createJobMock })
+
+                try {
+                    const res = await supertest(app)
+                        .post(
+                            `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-794`
+                        )
+                        .send({ audience_snapshot: audienceSnapshot })
+
+                    expect(res.status).toEqual(status)
+                    if (status !== 200) {
+                        expect(createJobMock).not.toHaveBeenCalled()
+                        return
+                    }
+                    const arg = createJobMock.mock.calls[0][0]
+                    // The resolver asks Django for the snapshot on its first dequeue, so the job starts now.
+                    expect(arg.scheduled).toBeUndefined()
+                    const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                    expect(state.audienceSnapshot).toEqual(waitUntil ? { waitUntil } : undefined)
+                } finally {
+                    api['batchResolverProducer'] = null
+                }
+            }
+        )
+
+        it.each([
             ['a deadline', { id: 7, team_id: 1, wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
             ['no deadline', { id: 7, team_id: 1 }, 200, undefined],
             ['an unreadable deadline', { id: 7, team_id: 1, wait_until: 'tomorrow-ish' }, 400, undefined],
@@ -2011,6 +2047,58 @@ describe('CDP API', () => {
             } finally {
                 hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
                 produceSpy.mockRestore()
+            }
+        })
+
+        it('refuses to queue a run over the workflow quota without waiting on metrics Kafka', async () => {
+            const billableHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                billable_action_types: ['function'],
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+            mockProducerObserver.resetKafkaProducer()
+            const kafka = mockProducer['producer'] as unknown as { produce: jest.Mock }
+            const stalledMetricAcks: (() => void)[] = []
+            kafka.produce.mockImplementation((topic: string, ...rest: any[]) => {
+                const ack = rest[rest.length - 1]
+                if (topic === 'clickhouse_app_metrics2_test') {
+                    stalledMetricAcks.push(() => ack?.())
+                } else {
+                    ack?.()
+                }
+            })
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${billableHogFlow.team_id}/hog_flows/${billableHogFlow.id}/scheduled_invocations`
+                    )
+                    .timeout(3000)
+                    .send({})
+
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                expect(hogflowQueue.queued).toEqual([])
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .map((message) => message.value)
+                    expect(metrics).toContainEqual(
+                        expect.objectContaining({
+                            app_source_id: billableHogFlow.id,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            count: 1,
+                        })
+                    )
+                })
+            } finally {
+                kafka.produce.mockImplementation((...args: any[]) => args[args.length - 1]?.())
+                stalledMetricAcks.forEach((ack) => ack())
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
             }
         })
 
@@ -2530,8 +2618,6 @@ describe('CDP API', () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
-            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
-            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         })
 
         afterEach(() => {
@@ -2636,6 +2722,7 @@ describe('CDP API', () => {
             const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
+                mockProducerObserver.resetKafkaProducer()
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
@@ -2649,25 +2736,45 @@ describe('CDP API', () => {
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
                 [
-                    'a code send from a sender without an address',
+                    'a code send without a from address after it resolved to another sender',
                     'transactional_email/send',
                     { ...body, send: addresslessSend },
-                    { ...body, send: addresslessSend },
+                    { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
-                    const sent = await sendKeyedOn(route, first)
-                    const replayed = await sendKeyedOn(route, retry)
+                    const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+                    const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                    await queue.startAsProducer()
+                    api['hogflowQueue'] = queue
+                    try {
+                        const sent = await sendKeyedOn(route, first)
+                        const replayed = await sendKeyedOn(route, retry)
 
-                    expect(sent.status).toEqual(202)
-                    expect(sent.body).toMatchObject({ replayed: false })
-                    expect(replayed.status).toEqual(202)
-                    expect(replayed.body).toEqual({ ...sent.body, replayed: true })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                    expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
-                    ])
+                        expect(sent.status).toEqual(202)
+                        expect(sent.body).toMatchObject({ replayed: false })
+                        expect(replayed.status).toEqual(202)
+                        expect(replayed.body).toEqual({ ...sent.body, replayed: true })
+                        const { rows } = await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [
+                            hogFlow.id,
+                        ])
+                        expect(rows.map((row) => row.id)).toEqual([sent.body.invocation_id])
+                        await waitForExpect(() =>
+                            expect(
+                                mockProducerObserver
+                                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                                    .filter(({ key }) => key === sent.body.invocation_id)
+                            ).toEqual([
+                                expect.objectContaining({
+                                    value: expect.objectContaining({ status: 'queued' }),
+                                }),
+                            ])
+                        )
+                    } finally {
+                        await queue.stopProducer()
+                        await cyclotron.end()
+                    }
                 }
             )
 
@@ -2693,14 +2800,6 @@ describe('CDP API', () => {
                     [
                         'transactional_email/send',
                         { ...body, send: { ...codeSend, from: { ...codeSend.from, email: 'alerts@example.com' } } },
-                    ],
-                ],
-                [
-                    'another sender without an address',
-                    ['transactional_email/send', { ...body, send: addresslessSend }],
-                    [
-                        'transactional_email/send',
-                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                     ],
                 ],
                 [
@@ -4702,33 +4801,216 @@ describe('CDP API', () => {
                 )
             })
 
-            it('replays a retry of the first request until a day after the latest time the send can be moved to', async () => {
+            const HOUR_MS = DAY_MS / 24
+            it.each([
+                [
+                    'a send accepted to go out now and moved 30 days ahead, an hour before then',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id,
+                ],
+                [
+                    'a send accepted to go out now and moved 30 days ahead by its uppercase id',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id.toUpperCase(),
+                ],
+                [
+                    'a send scheduled a day ahead and moved 30 days ahead',
+                    1,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id,
+                ],
+                [
+                    'a send accepted to go out now and moved 30 days ahead, an hour after then',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS + HOUR_MS,
+                    false,
+                    (id: string) => id,
+                ],
+                [
+                    'a send accepted to go out now and never moved',
+                    undefined,
+                    null,
+                    DAY_MS + HOUR_MS,
+                    false,
+                    (id: string) => id,
+                ],
+            ])(
+                'replays a retry of %s only until a day after the latest time it can be due',
+                async (_desc, scheduledInDays, movedToDays, retryAfterMs, replays, messageIdInUrl) => {
+                    const keys = api['transactionalEmailIdempotencyKeys']
+                    const valkey = keys['valkey']!
+                    const scope = `scope-${new UUIDT().toString()}`
+                    api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                    const letStoreTimePass = (ms: number) =>
+                        valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                            for (const stored of await client.keys(`*${scope}*`)) {
+                                const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                                const remainingMs = await client.pttl(storedKey)
+                                if (remainingMs > ms) {
+                                    await client.pexpire(storedKey, remainingMs - ms)
+                                } else if (remainingMs >= 0) {
+                                    await client.del(storedKey)
+                                }
+                            }
+                        })
+                    try {
+                        const request = {
+                            ...body,
+                            ...(scheduledInDays !== undefined && { scheduled_at: inDays(scheduledInDays) }),
+                            idempotency_key: `key-${scope}`,
+                        }
+                        const sendFirstRequest = () =>
+                            send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
+                        const first = await sendFirstRequest()
+                        expect(first.status).toEqual(202)
+                        if (movedToDays !== null) {
+                            const moved = await manage('reschedule', messageIdInUrl(first.body.invocation_id), {
+                                scheduled_at: inDays(movedToDays),
+                            })
+                            expect(moved.status).toEqual(200)
+                        }
+                        await letStoreTimePass(retryAfterMs)
+
+                        const retry = await sendFirstRequest()
+
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({
+                            ...first.body,
+                            invocation_id: retry.body.invocation_id,
+                            replayed: replays,
+                        })
+                        expect(retry.body.invocation_id === first.body.invocation_id).toEqual(replays)
+                    } finally {
+                        api['transactionalEmailIdempotencyKeys'] = keys
+                    }
+                }
+            )
+
+            it('replays a retry of a moved code send without a from address after it resolved to another sender', async () => {
                 const keys = api['transactionalEmailIdempotencyKeys']
+                const valkey = keys['valkey']!
                 const scope = `scope-${new UUIDT().toString()}`
-                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(keys['valkey'], scope)
+                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
+                const keyed = (send: Record<string, unknown>) => ({ ...body, send, idempotency_key: `key-${scope}` })
                 try {
-                    const request = { ...body, scheduled_at: inDays(1), idempotency_key: `key-${scope}` }
-                    const sendFirstRequest = () =>
-                        send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
-                    const first = await sendFirstRequest()
+                    const first = await sendAccepted(hogFlow.id, keyed(addresslessSend))
+                    expect(first.status).toEqual(202)
                     const moved = await manage('reschedule', first.body.invocation_id, { scheduled_at: inDays(29.9) })
-
-                    const retry = await sendFirstRequest()
-
                     expect(moved.status).toEqual(200)
+                    await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                        for (const stored of await client.keys(`*${scope}*`)) {
+                            const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                            await client.pexpire(storedKey, (await client.pttl(storedKey)) - (DAY_MS + HOUR_MS))
+                        }
+                    })
+
+                    const retry = await sendAccepted(
+                        hogFlow.id,
+                        keyed({ ...addresslessSend, from: { integrationId: codeSend.from.integrationId + 3 } })
+                    )
+
                     expect(retry.status).toEqual(202)
                     expect(retry.body).toEqual({ ...first.body, replayed: true })
-                    const ttlSeconds = await keys['valkey']!.useClient({ name: 'test-ttl' }, async (client) => {
-                        const stored = await client.keys(`*${scope}*`)
-                        expect(stored).toHaveLength(1)
-                        return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
-                    })
-                    expect(ttlSeconds).toBeGreaterThan((31 * DAY_MS) / 1000 - 120)
-                    expect(ttlSeconds).toBeLessThanOrEqual((31 * DAY_MS) / 1000)
+                    expect(await idsAnEmailWorkerClaims()).toEqual([])
                 } finally {
                     api['transactionalEmailIdempotencyKeys'] = keys
                 }
             })
+
+            it.each([
+                ['the key store is down', 'failed'],
+                ['no key store is configured', 'unavailable'],
+            ])(
+                'answers a move with 503 when %s and keeps the move, so a retry of it keeps the key',
+                async (_desc, outcome) => {
+                    const keys = api['transactionalEmailIdempotencyKeys']
+                    const valkey = keys['valkey']!
+                    const scope = `scope-${new UUIDT().toString()}`
+                    const scopedKeys = new IdempotencyKeys(valkey, scope)
+                    api['transactionalEmailIdempotencyKeys'] = scopedKeys
+                    const breakStore = (): (() => void) => {
+                        if (outcome === 'failed') {
+                            const outage = jest
+                                .spyOn(valkey, 'useClient')
+                                .mockRejectedValue(new Error('connection lost'))
+                            return () => outage.mockRestore()
+                        }
+                        api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(null, scope)
+                        return () => {
+                            api['transactionalEmailIdempotencyKeys'] = scopedKeys
+                        }
+                    }
+                    const failedWrites = async (): Promise<number> =>
+                        (
+                            await (
+                                register.getSingleMetric('cdp_hogflow_idempotency_operations_total') as Counter
+                            ).get()
+                        ).values.find(
+                            (v) =>
+                                v.labels.scope === scope &&
+                                v.labels.operation === 'replay_until' &&
+                                v.labels.outcome === outcome
+                        )?.value ?? 0
+                    try {
+                        const sendFirstRequest = () =>
+                            send(
+                                hogFlow.id,
+                                { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                                { ...body, idempotency_key: `key-${scope}` }
+                            )
+                        const first = await sendFirstRequest()
+                        expect(first.status).toEqual(202)
+                        const messageId = first.body.invocation_id
+                        const scheduledAt = inDays(3)
+
+                        const restoreStore = breakStore()
+                        let moved: supertest.Response
+                        try {
+                            moved = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                        } finally {
+                            restoreStore()
+                        }
+
+                        expect(moved.status).toEqual(503)
+                        expect(moved.body).toEqual({ error: 'idempotency_unavailable' })
+                        expect(await scheduledTime(messageId)).toEqual(scheduledAt)
+                        expect(emailStatusRows().at(-1)).toEqual(
+                            expect.objectContaining({
+                                message_id: messageId,
+                                status: 'scheduled',
+                                scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                            })
+                        )
+                        expect(await failedWrites()).toEqual(1)
+
+                        const movedAgain = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                        expect(movedAgain.status).toEqual(200)
+                        await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                            for (const stored of await client.keys(`*${scope}*`)) {
+                                const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                                const remainingMs = await client.pttl(storedKey)
+                                await (remainingMs > DAY_MS + HOUR_MS
+                                    ? client.pexpire(storedKey, remainingMs - DAY_MS - HOUR_MS)
+                                    : client.del(storedKey))
+                            }
+                        })
+                        const retry = await sendFirstRequest()
+                        expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    } finally {
+                        api['transactionalEmailIdempotencyKeys'] = keys
+                    }
+                }
+            )
 
             it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {
                 const messageId = await scheduleSend()
@@ -4760,7 +5042,7 @@ describe('CDP API', () => {
             it.each([
                 ['a time that has passed', 0],
                 ['a time that has passed, for a message older than 30 days', 31 * DAY_MS],
-            ])('moves a send to now for %s', async (_desc, messageAgeMs) => {
+            ])('moves a keyed send to now for %s', async (_desc, messageAgeMs) => {
                 const messageId = new UUIDT(Date.now() - messageAgeMs).toString()
                 await manager.createJob({
                     id: messageId,
@@ -4768,6 +5050,11 @@ describe('CDP API', () => {
                     functionId: hogFlow.id,
                     queueName: 'email',
                     scheduled: new Date(Date.now() + DAY_MS),
+                    state: Buffer.from(
+                        JSON.stringify({
+                            state: { idempotencyKey: { hash: `hash-${messageId}`, fingerprint: 'request' } },
+                        })
+                    ),
                 })
                 const before = Date.now()
 

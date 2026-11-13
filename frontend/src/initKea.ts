@@ -102,6 +102,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadTableDetails', // The model detail summary renders its own error state with a retry
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
+    'loadEvalSuggestions', // The suggested evals list shows its own retry line
+    'loadEvalSuggestionEstimate', // The judge suggestion confirm shows the estimate error and still lets the user add the eval
 ]
 
 /*
@@ -113,6 +115,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
+    loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
     loadPage: 'scenes.project-homepage.today.todayReportLogic',
@@ -223,6 +226,7 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // Shows the rejected field under its input, or toasts the rejection
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
 }
 
 /*

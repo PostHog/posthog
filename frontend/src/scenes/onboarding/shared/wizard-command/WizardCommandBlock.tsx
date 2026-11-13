@@ -4,14 +4,12 @@ import { type ReactNode, useState } from 'react'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
-import { WizardModeShell, type WizardShellHog } from './WizardModeShell'
+import { WizardModeShell } from './WizardModeShell'
 
 export function WizardCommandBlock({
-    hog,
     subcommand,
     description,
 }: {
-    hog?: WizardShellHog
     /** Wizard subcommand to run, e.g. `self-driving`. Omit for the plain SDK install. */
     subcommand?: string
     /** Replaces the default "what this does" line when the subcommand does something else. */
@@ -28,7 +26,7 @@ export function WizardCommandBlock({
     }
 
     return (
-        <WizardModeShell hogCastKey={castKey} hog={hog} data-attr="wizard-command-block">
+        <WizardModeShell hogCastKey={castKey} data-attr="wizard-command-block">
             <CommandBlock
                 command={wizardCommand}
                 copyLabel="Wizard command"

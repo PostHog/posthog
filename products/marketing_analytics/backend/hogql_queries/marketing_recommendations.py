@@ -10,11 +10,18 @@ from posthog.schema import (
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as BenchmarkSource,
+    MarketingAnalyticsRecommendationIdentity,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationStep as Step,
 )
 
 from posthog.dataclasses import frozen
+
+from products.marketing_analytics.backend.hogql_queries.recommendation_identity import (
+    ACCOUNT_AGNOSTIC_RULES,
+    RecommendationKey,
+    recommendation_identity,
+)
 
 PER_RULE_LIMIT = 10
 # Share of impressions that become clicks once a page reaches the top 3 organic results. A rough industry figure.
@@ -171,6 +178,7 @@ class RecommendationInputs:
     days: int
     term_keywords: tuple[TermKeywordStats, ...] = ()
     ranking_pages: tuple[RankingPage, ...] = ()
+    customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
 
 
@@ -256,6 +264,21 @@ def _merge_organic(queries: Iterable[OrganicQueryStats]) -> dict[str, OrganicQue
     return merged
 
 
+def dedupe_account_agnostic_rules(
+    recommendations: Iterable[MarketingAnalyticsRecommendation],
+) -> list[MarketingAnalyticsRecommendation]:
+    # These rules carry no account ids, so every ad account that buys the search repeats the same recommendation.
+    seen: set[str] = set()
+    deduped = []
+    for recommendation in recommendations:
+        if recommendation.rule in ACCOUNT_AGNOSTIC_RULES:
+            if recommendation.key in seen:
+                continue
+            seen.add(recommendation.key)
+        deduped.append(recommendation)
+    return deduped
+
+
 def recommend(inputs: RecommendationInputs) -> list[MarketingAnalyticsRecommendation]:
     return _Recommender(inputs).run()
 
@@ -265,7 +288,8 @@ class _Recommender:
         self.inputs = inputs
         self.per_month = 30 / max(inputs.days, 1)
         self.brands = brands_from_site_urls(inputs.site_urls)
-        self.campaigns = {campaign.id: campaign for campaign in inputs.campaigns}
+        # Query rows come back in no fixed order, and the campaign that carries a shared budget's recommendation must not change between runs.
+        self.campaigns = {campaign.id: campaign for campaign in sorted(inputs.campaigns, key=lambda c: c.id)}
         self.organic = _merge_organic(inputs.organic_queries)
         self.term_cost_by_campaign: dict[str, float] = defaultdict(float)
         for row in inputs.search_terms:
@@ -343,6 +367,7 @@ class _Recommender:
             None,
             "gain",
             "measured",
+            recommendation_identity(MarketingAnalyticsRecommendationRule.KEYWORD_TRACKING, self.inputs.customer_id),
             steps=(
                 Step(text="In Google Ads, open Admin, then Account settings, and expand Tracking."),
                 Step(
@@ -383,10 +408,9 @@ class _Recommender:
                     constrained_budgets.add(campaign.budget_id)
             if POLICY_REASONS.intersection(campaign.status_reasons):
                 recommendations.append(
-                    self._recommendation(
+                    self._campaign_recommendation(
                         MarketingAnalyticsRecommendationRule.POLICY_LIMITED,
-                        "campaign",
-                        campaign.name,
+                        campaign,
                         "Check the affected ads in Policy manager",
                         "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
                         None,
@@ -447,16 +471,16 @@ class _Recommender:
             if campaign.lost_to_budget
             else ""
         )
-        return self._recommendation(
+        return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.BUDGET_CONSTRAINED,
-            "campaign",
-            campaign.name,
+            campaign,
             f"Raise the daily budget from {self._money(budget)} to {self._money(recommended)}",
             f"Limited by budget, and its {benchmark.compared} is at or below {benchmark.label}. "
             f"{lost}{self._money(recommended)} a day is Google's recommended budget.",
             (recommended - budget) * 30,
             "invest",
             "estimated",
+            budget_id=campaign.budget_id,
             cpa=self._cpa(cpa, benchmark),
         )
 
@@ -502,10 +526,9 @@ class _Recommender:
             if has_brand_campaign
             else "People who search your brand often find you without an ad."
         )
-        return self._recommendation(
+        return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.BRAND_LEAK,
-            "campaign",
-            campaign.name,
+            campaign,
             action,
             f'{share:.0%} of its search term spend goes to brand searches such as "{top_term}", '
             f"with {conversions:,.0f} conversions. {follow_up}",
@@ -520,10 +543,9 @@ class _Recommender:
     ) -> MarketingAnalyticsRecommendation:
         budget_bound = (campaign.lost_to_budget or 0) >= (campaign.lost_to_rank or 0)
         extra = campaign.cost * min(lost / max(campaign.impression_share or 0.1, 0.1), 1)
-        return self._recommendation(
+        return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.SCALE_CAMPAIGN,
-            "campaign",
-            campaign.name,
+            campaign,
             "Raise the budget" if budget_bound else "Raise bids or improve ad quality",
             f"Its {benchmark.compared} is at or below {benchmark.label}. "
             f"It loses {campaign.lost_to_budget or 0:.0%} of impressions to budget "
@@ -538,10 +560,9 @@ class _Recommender:
         cpa = campaign.cost / campaign.conversions
         lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
         extra = campaign.cost * min(lost / max(campaign.impression_share or 0.1, 0.1), 1)
-        return self._recommendation(
+        return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.SCALE_CAMPAIGN,
-            "campaign",
-            campaign.name,
+            campaign,
             "Raise the target CPA or improve its asset groups",
             f"Converts at a CPA of {self._money(cpa)}. "
             f"It loses {campaign.lost_to_rank or 0:.0%} of eligible search impressions to ad rank "
@@ -560,10 +581,9 @@ class _Recommender:
             if cpa is None
             else f"Its {benchmark.compared} is {cpa / benchmark.cpa:.1f}x {benchmark.label}."
         )
-        return self._recommendation(
+        return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.REVIEW_CAMPAIGN,
-            "campaign",
-            campaign.name,
+            campaign,
             "Review bids, ads and landing page, or pause",
             reason,
             campaign.cost * self.per_month,
@@ -922,6 +942,9 @@ class _Recommender:
                     query.impressions * TOP3_CTR * average_cpc * self.per_month,
                     "invest",
                     "estimated",
+                    recommendation_identity(
+                        MarketingAnalyticsRecommendationRule.KEYWORD_GAP, self.inputs.customer_id, subject=query.query
+                    ),
                     campaign.name if campaign else None,
                     steps=steps,
                 )
@@ -1180,9 +1203,37 @@ class _Recommender:
             impact * self.per_month,
             direction,
             impact_type,
+            recommendation_identity(rule, self.inputs.customer_id, subject=term.term),
             self._campaign_name(term),
             steps=steps,
             cpa=self._cpa(term.cost / term.conversions if term.conversions else None, benchmark) if benchmark else None,
+        )
+
+    def _campaign_recommendation(
+        self,
+        rule: MarketingAnalyticsRecommendationRule,
+        campaign: CampaignStats,
+        action: str,
+        reason: str,
+        impact: float | None,
+        direction: Direction,
+        impact_type: Literal["measured", "estimated"],
+        steps: tuple[Step, ...] = (),
+        budget_id: str | None = None,
+        cpa: MarketingAnalyticsRecommendationCpa | None = None,
+    ) -> MarketingAnalyticsRecommendation:
+        return self._recommendation(
+            rule,
+            "campaign",
+            campaign.name,
+            action,
+            reason,
+            impact,
+            direction,
+            impact_type,
+            recommendation_identity(rule, self.inputs.customer_id, campaign_id=campaign.id, subject=budget_id),
+            steps=steps,
+            cpa=cpa,
         )
 
     def _recommendation(
@@ -1195,6 +1246,7 @@ class _Recommender:
         impact: float | None,
         direction: Direction,
         impact_type: Literal["measured", "estimated"],
+        identity: MarketingAnalyticsRecommendationIdentity,
         campaign: str | None = None,
         steps: tuple[Step, ...] = (),
         cpa: MarketingAnalyticsRecommendationCpa | None = None,
@@ -1204,6 +1256,8 @@ class _Recommender:
             level=level,
             subject=subject,
             campaign=campaign,
+            identity=identity,
+            key=RecommendationKey.from_identity(identity).encoded,
             action=action,
             reason=reason,
             impact=round(impact) if impact is not None else None,

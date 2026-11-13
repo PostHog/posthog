@@ -142,16 +142,10 @@ describe('load', () => {
             'convergeWithin: 60s must exceed 77s',
         ],
         [
-            'a stall timeout the janitor would read as no number',
+            'an empty stall timeout, which the janitor replaces with its default',
             { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
             { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds at or above zero',
-        ],
-        [
-            'a stall timeout with a leading point, which the service reads as no number',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '.5' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds at or above zero',
+            'convergeWithin: 18s must exceed 47s',
         ],
         [
             'a negative sweep interval',
