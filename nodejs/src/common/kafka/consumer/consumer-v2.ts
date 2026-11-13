@@ -31,6 +31,7 @@ import {
     consumerBatchSize,
     consumerBatchSizeKb,
     consumerBatchUtilization,
+    consumerBatchUtilizationBytes,
     consumerDrainDuration,
     consumerDrainTimeouts,
     consumerPolls,
@@ -405,7 +406,10 @@ export class KafkaConsumerV2 {
         consumerBatchSize.observe(messages.length)
         const bytes = valueBytes(messages)
         consumerBatchSizeKb.observe(bytes / 1024)
-        consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(this.batchUtilization(messages, bytes))
+        consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)
+        if (this.fetchBatchMaxBytes > 0) {
+            consumerBatchUtilizationBytes.labels({ groupId: this.config.groupId }).set(bytes / this.fetchBatchMaxBytes)
+        }
 
         if (messages.length === 0 && !this.config.callEachBatchWhenEmpty) {
             return
@@ -450,15 +454,6 @@ export class KafkaConsumerV2 {
             this.rdKafkaConsumer.setDefaultConsumeTimeout(this.batchTimeoutMs)
         }
         return batch
-    }
-
-    /** A batch that either bound ended is full, because autoscaling on other lanes reads this gauge. */
-    private batchUtilization(messages: Message[], bytes: number): number {
-        const byCount = messages.length / this.fetchBatchSize
-        if (this.fetchBatchMaxBytes <= 0) {
-            return byCount
-        }
-        return Math.min(1, Math.max(byCount, bytes / this.fetchBatchMaxBytes))
     }
 
     private consume(count: number): Promise<Message[]> {
