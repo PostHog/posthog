@@ -4,6 +4,9 @@ export const EXIT_USAGE = 2
 export const EXIT_NEEDS_PERSON = 3
 export const EXIT_PENDING = 4
 
+// Ctrl-C. Shells report 130 for a process that SIGINT stopped, so hog uses the same code.
+export const EXIT_CANCELLED = 130
+
 // A failure hog reports to the caller. `code` is stable and machine-readable, so agents and
 // scripts can branch on it; `message` and `hint` are for people. Agents also get `details`.
 // `serverDetail` is PostHog's own reason for refusing a request. It stays out of `message`, because

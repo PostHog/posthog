@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import type { Secrets } from '@/core/runtime'
 import { LOGIN_SCOPES } from '@/posthog/device-auth'
 import { HOG_CLIENT_ID } from '@/posthog/oauth'
@@ -98,7 +99,7 @@ describe('hog auth login', () => {
             respond: deviceFlow(0),
         })
 
-        expect(result.exitCode).toBe(3)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.json()).toMatchObject({
             status: 'pending',
             code: 'BCDF-GHJK',
@@ -155,7 +156,7 @@ describe('hog auth login', () => {
             respond: deviceFlow(0),
         })
 
-        expect(result.exitCode).toBe(3)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.requests.map((request) => request.url)).toEqual([`${loginHost}/oauth/device-authorization/`])
     })
 
@@ -181,15 +182,29 @@ describe('hog auth login', () => {
     })
 
     test.each([
-        ['an agent without a region', ['auth', 'login'], { CLAUDECODE: '1' }, {}, 3, 'region_required'],
-        ['a CI job', ['auth', 'login', '--region', 'us'], { CI: 'true' }, {}, 3, 'login_needs_a_person'],
-        ['--wait with no login started', ['auth', 'login', '--wait'], { CLAUDECODE: '1' }, {}, 1, 'no_pending_login'],
+        ['an agent without a region', ['auth', 'login'], { CLAUDECODE: '1' }, {}, EXIT_NEEDS_PERSON, 'region_required'],
+        [
+            'a CI job',
+            ['auth', 'login', '--region', 'us'],
+            { CI: 'true' },
+            {},
+            EXIT_NEEDS_PERSON,
+            'login_needs_a_person',
+        ],
+        [
+            '--wait with no login started',
+            ['auth', 'login', '--wait'],
+            { CLAUDECODE: '1' },
+            {},
+            EXIT_FAILURE,
+            'no_pending_login',
+        ],
         [
             '--read-only with --wait',
             ['auth', 'login', '--wait', '--read-only'],
             { CLAUDECODE: '1' },
             { [PENDING_FILE]: PENDING },
-            2,
+            EXIT_USAGE,
             'read_only_with_wait',
         ],
     ])('%s fails with a hint', async (_name, argv, env, files, exitCode, code) => {
@@ -218,7 +233,7 @@ describe('hog auth login', () => {
             respond: deviceFlow(2),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({
             status: 'logged_in',
             host: EU,
@@ -295,7 +310,7 @@ describe('hog auth login', () => {
                 secrets: () => broken,
             })
 
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(result.json()).toMatchObject({
                 store: 'file',
                 credentialsPath: HOG_CREDENTIALS_FILE,
@@ -316,14 +331,14 @@ describe('hog auth login', () => {
             { status: 400, body: { error: 'expired_token' } },
             { code: 'login_expired' },
             false,
-            3,
+            EXIT_NEEDS_PERSON,
         ],
         [
             'stops when the person denies it and forgets it',
             { status: 400, body: { error: 'access_denied' } },
             { code: 'login_rejected' },
             false,
-            3,
+            EXIT_NEEDS_PERSON,
         ],
         [
             "stops with PostHog's reason when it refuses the client, and forgets it",
@@ -333,14 +348,14 @@ describe('hog auth login', () => {
             },
             { code: 'login_unavailable', message: expect.stringContaining("hasn't verified this app") },
             false,
-            1,
+            EXIT_FAILURE,
         ],
         [
             'retries a server that keeps failing, then keeps the login to resume',
             { status: 503, body: 'Service Unavailable' },
             { code: 'login_interrupted' },
             true,
-            1,
+            EXIT_FAILURE,
         ],
     ])('--wait %s', async (_name, final, expected, keepsPending, exitCode) => {
         const result = await runHog(['auth', 'login', '--wait'], {
@@ -372,7 +387,7 @@ describe('hog auth login', () => {
             respond: deviceFlow(1),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout.split('\n')[0]).toBe(`✓ Logged in to ${host}, project 42`)
         expect(result.opened).toHaveLength(opensBrowser ? 1 : 0)
         expect(result.files[PENDING_FILE]).toBeUndefined()
@@ -388,7 +403,7 @@ describe('hog auth login', () => {
             respond: () => ({ status: 401, body: { detail: 'Invalid personal API key.' } }),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.stderr).toContain('https://ph.example.com rejected the personal API key')
         expect(result.keychain).toEqual({})
     })
@@ -446,7 +461,7 @@ describe('hog auth login', () => {
             respond: () => ({ status: 200, body: ROWS }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.requests.map((request) => request.url)).toEqual([`${EU}/api/environments/${project}/query`])
     })
 
@@ -458,7 +473,7 @@ describe('hog auth login', () => {
             respond: () => ({ status: 200, body: ROWS }),
         })
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({
             code: 'project_mismatch',
             message: expect.stringContaining(
@@ -633,11 +648,17 @@ describe('hog auth login', () => {
             'a working key',
             200,
             200,
-            0,
+            EXIT_SUCCESS,
             { authenticated: true, user: { email: 'ana@example.com' }, projectName: 'Shop' },
         ],
-        ['a key without user:read', 403, 200, 0, { authenticated: true, user: null, projectName: 'Shop' }],
-        ['a deleted key', 401, 401, 1, { authenticated: false, error: expect.any(String), next: 'hog auth login' }],
+        ['a key without user:read', 403, 200, EXIT_SUCCESS, { authenticated: true, user: null, projectName: 'Shop' }],
+        [
+            'a deleted key',
+            401,
+            401,
+            EXIT_FAILURE,
+            { authenticated: false, error: expect.any(String), next: 'hog auth login' },
+        ],
     ])('status reports %s', async (_name, userStatus, projectStatus, exitCode, expected) => {
         const result = await runHog(['auth', 'status'], {
             env: { CLAUDECODE: '1' },
@@ -698,13 +719,13 @@ describe('hog auth login', () => {
             ...KEYCHAIN_LOGIN,
             respond: (url) => (url.endsWith('/api/users/@me/') ? { status: 403, body: {} } : { status: 500, body: {} }),
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code: 'http_500' })
     })
 
     test('status without a key exits 1 and points to login', async () => {
         const result = await runHog(['auth', 'status'], { env: { CLAUDECODE: '1' } })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.json()).toEqual({ authenticated: false, next: 'hog auth login', config: null, login: null })
     })
 
@@ -760,7 +781,7 @@ describe('hog auth login', () => {
                 keychain: KEYCHAIN_LOGIN.keychain,
             })
             expect(result.requests).toEqual([])
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(result.json()).toMatchObject({ status, revokeUrl, stillSet })
             expect(result.keychain).toEqual(files[SETTINGS_FILE] ? {} : KEYCHAIN_LOGIN.keychain)
             expect(result.files[PENDING_FILE]).toBeUndefined()
@@ -783,7 +804,7 @@ describe('hog auth login', () => {
             keychain: { [EU_ITEM]: JSON.stringify(secret) },
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ status: 'logged_out', revoked })
         expect(result.requests).toEqual([])
         expect(result.keychain).toEqual({})
@@ -867,7 +888,7 @@ describe('hog auth login', () => {
             respond: () => ({ status: 200, body: ROWS }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(keychainCalls).toEqual([])
         expect(readJson(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({ [`${US}#42`]: { apiKey: 'phx_us' } })
     })
@@ -894,13 +915,13 @@ describe('hog auth login', () => {
             ...query,
             files: { [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: keyRecord(EU) }, host: EU }) },
         })
-        expect(refused.exitCode).toBe(0)
+        expect(refused.exitCode).toBe(EXIT_SUCCESS)
         expect([...items.keys()]).toEqual([EU])
 
         writes.refused = false
         const moved = await runHog(['query', 'run', 'select 1'], { ...query, files: refused.files })
 
-        expect(moved.exitCode).toBe(0)
+        expect(moved.exitCode).toBe(EXIT_SUCCESS)
         expect([...items.keys()]).toEqual([EU_ITEM])
         expect(readJson(moved.files[SETTINGS_FILE] ?? '{}')).toEqual({
             logins: { [EU]: { '42': keyRecord(EU) } },
@@ -1035,7 +1056,7 @@ describe('hog auth login', () => {
             },
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({
             status: 'logged_out',
             logins: [
@@ -1171,21 +1192,21 @@ describe('hog auth login', () => {
             "a key posthog-cli saved moves into the keychain, and posthog-cli's file stays",
             { [LEGACY_CLI_FILE]: STORED },
             200,
-            0,
+            EXIT_SUCCESS,
             { status: 'migrated', host: 'https://eu.posthog.com', projectId: '42', store: 'keychain' },
         ],
         [
             'nothing to move points to login',
             {},
             200,
-            0,
+            EXIT_SUCCESS,
             { status: 'nothing_to_migrate', legacyFile: LEGACY_CLI_FILE, next: 'hog auth login' },
         ],
         [
             'a broken file fails with a hint',
             { [LEGACY_CLI_FILE]: JSON.stringify({ token: 'abc', env_id: '42' }) },
             200,
-            1,
+            EXIT_FAILURE,
             { code: 'invalid_legacy_credentials', hint: expect.any(String) },
         ],
         [
@@ -1198,14 +1219,14 @@ describe('hog auth login', () => {
                 }),
             },
             200,
-            0,
+            EXIT_SUCCESS,
             { status: 'migrated', host: 'https://example.com/posthog', store: 'keychain' },
         ],
         [
             'a key PostHog rejects stays out of the store',
             { [LEGACY_CLI_FILE]: STORED },
             401,
-            1,
+            EXIT_FAILURE,
             { code: 'key_rejected', hint: expect.stringContaining('hog auth login') },
         ],
     ])('migrate: %s', async (_name, files: Record<string, string>, keyStatus, exitCode, expected) => {
@@ -1222,9 +1243,9 @@ describe('hog auth login', () => {
         })
 
         expect(result.exitCode).toBe(exitCode)
-        expect(exitCode === 0 ? result.json() : result.error()).toMatchObject(expected)
+        expect(exitCode === EXIT_SUCCESS ? result.json() : result.error()).toMatchObject(expected)
         expect(result.files[LEGACY_CLI_FILE]).toBe(files[LEGACY_CLI_FILE])
-        const migrated = exitCode === 0 && files[LEGACY_CLI_FILE] !== undefined
+        const migrated = exitCode === EXIT_SUCCESS && files[LEGACY_CLI_FILE] !== undefined
         expect(Object.values(result.keychain)).toEqual(migrated ? [JSON.stringify({ apiKey: 'phx_secret' })] : [])
     })
 
@@ -1499,7 +1520,7 @@ describe('hog auth login', () => {
             respond: challengedQuery,
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.requests.find((request) => request.url.endsWith('/device-authorization/'))?.body).toEqual({
             client_id: HOG_CLIENT_ID,
             scope: 'openid insight:read query:read dashboard:write',
@@ -1521,7 +1542,7 @@ describe('hog auth login', () => {
                     : { status: 200, body: { name: 'Hedgebox' } },
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain('Hedgebox')
     })
 
@@ -1543,7 +1564,7 @@ describe('hog auth login', () => {
                     : { status: 404, body: { detail: 'Not found.' } },
         })
 
-        expect(result.exitCode).toBe(3)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.error()).toMatchObject({
             code: 'step_up_required',
             command: `hog auth add --host ${EU} ${scopes}`,
@@ -1577,7 +1598,7 @@ describe('hog auth login', () => {
                     : flow(url),
         })
 
-        expect(result.exitCode).toBe(3)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(
             result.requests.filter((request) => request.method === 'POST' && !request.url.includes('/oauth/'))
         ).toEqual([])
@@ -1593,7 +1614,7 @@ describe('hog auth login', () => {
                     : { status: 401, body: { detail: 'Invalid token.' } },
         })
 
-        expect(result.exitCode).toBe(3)
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.error()).toMatchObject({
             code: 'session_expired',
             message: "hog couldn't look up the release: Your hog login expired or was revoked.",

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 
 import { LEGACY_COMMANDS } from '@/commands/legacy'
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { runHog } from './testing'
@@ -19,7 +20,7 @@ describe('hog', () => {
         ['command help lists examples and scopes', ['query', 'run', '--help'], 'Needs the scopes: query:read'],
     ])('%s', async (_name, argv, stdout) => {
         const result = await runHog(argv)
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain(stdout)
     })
 
@@ -27,7 +28,7 @@ describe('hog', () => {
         '%s fails and points to %s',
         async (name, use) => {
             const result = await runHog([name, 'sub', "it's", '--flag'])
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error()).toMatchObject({ code: 'not_ported' })
             expect(result.error().message).toContain(`${use} sub 'it'\\''s' --flag`)
         }
@@ -48,7 +49,7 @@ describe('hog', () => {
         ],
     ])('%s points to posthog-cli', async (_name, argv, invocation) => {
         const result = await runHog(argv)
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error().message).toEndWith(`Run this instead:\n  ${invocation}`)
     })
 
@@ -74,7 +75,7 @@ describe('hog', () => {
         ],
     ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code, feedback) => {
         const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({ code, feedback })
     })
 
@@ -85,7 +86,7 @@ describe('hog', () => {
         ['api skill', ['api', 'skill', 'install', 'posthog-flags'], '`skill` is `hog skills list|add` in hog.'],
     ])('a command that moved, like %s, points to its new name', async (_name, argv, message) => {
         const result = await runHog(argv)
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error().message).toContain(message)
     })
 
@@ -98,7 +99,7 @@ describe('hog', () => {
 
     test('commands lists every command for agents', async () => {
         const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         const manifest = result.json(
             z.looseObject({
                 globalOptions: z.array(z.unknown()),

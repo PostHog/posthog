@@ -200,5 +200,5 @@ export default defineCommand({
         })
     },
 
-    exitCode: (result) => approvalExitCode(result),
+    exitCode: approvalExitCode,
 })
