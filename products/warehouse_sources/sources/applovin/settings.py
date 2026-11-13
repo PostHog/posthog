@@ -117,8 +117,7 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
         path="/report",
         dimensions=[
             "day",
-            # The docs list `application` for publisher reports, but `/report` answers
-            # `400 Invalid Column: application` with report_type=publisher.
+            "application",
             "package_name",
             "store_id",
             "platform",
