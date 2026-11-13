@@ -181,34 +181,57 @@ function parseIpAddress(text: string): IpAddress | null {
         return null
     }
     if (value.includes(':')) {
-        return ipaddr.IPv6.isValid(value) ? ipaddr.IPv6.parse(value) : null
+        const hexValue = withHexIPv4Tail(value)
+        return hexValue !== null && ipaddr.IPv6.isValid(hexValue) ? ipaddr.IPv6.parse(hexValue) : null
     }
     return ipaddr.IPv4.isValidFourPartDecimal(value) ? ipaddr.IPv4.parse(value) : null
 }
 
-function parseIpEntry(entry: string): IpEntry | null {
-    const [startText, endText, ...extraEnds] = entry.split('-')
-    if (endText !== undefined) {
-        const start = parseIpAddress(startText)
-        const end = parseIpAddress(endText)
-        return start && end && extraEnds.length === 0 ? { kind: 'range', start, end } : null
+function withHexIPv4Tail(value: string): string | null {
+    const tailStart = value.lastIndexOf(':') + 1
+    const tail = value.slice(tailStart)
+    if (!tail.includes('.')) {
+        return value
     }
+    if (!ipaddr.IPv4.isValidFourPartDecimal(tail)) {
+        return null
+    }
+    const [a, b, c, d] = ipaddr.IPv4.parse(tail).octets
+    return `${value.slice(0, tailStart)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`
+}
+
+function parseIpRange(entry: string): IpEntry | null {
+    const [startText, endText, ...extraEnds] = entry.split('-')
+    const start = parseIpAddress(startText)
+    const end = parseIpAddress(endText)
+    return start && end && extraEnds.length === 0 ? { kind: 'range', start, end } : null
+}
+
+function parsePrefixLength(entry: string, address: IpAddress, prefixText: string | undefined): number | null {
+    if (prefixText === undefined) {
+        return address instanceof ipaddr.IPv4 ? 32 : 128
+    }
+    if (ipaddr.isValidCIDR(entry)) {
+        return ipaddr.parseCIDR(entry)[1]
+    }
+    if (address instanceof ipaddr.IPv4 && ipaddr.IPv4.isValidFourPartDecimal(prefixText)) {
+        return ipaddr.IPv4.parse(prefixText).prefixLengthFromSubnetMask()
+    }
+    return null
+}
+
+function parseIpNetwork(entry: string): IpEntry | null {
     const [addressText, prefixText, ...extraPrefixes] = entry.split('/')
     const address = parseIpAddress(addressText)
     if (!address || extraPrefixes.length > 0) {
         return null
     }
-    if (prefixText === undefined) {
-        return { kind: 'cidr', address, prefix: address instanceof ipaddr.IPv4 ? 32 : 128 }
-    }
-    if (ipaddr.isValidCIDR(entry)) {
-        return { kind: 'cidr', address, prefix: ipaddr.parseCIDR(entry)[1] }
-    }
-    if (address instanceof ipaddr.IPv4 && ipaddr.IPv4.isValidFourPartDecimal(prefixText)) {
-        const prefix = ipaddr.IPv4.parse(prefixText).prefixLengthFromSubnetMask()
-        return prefix === null ? null : { kind: 'cidr', address, prefix }
-    }
-    return null
+    const prefix = parsePrefixLength(entry, address, prefixText)
+    return prefix === null ? null : { kind: 'cidr', address, prefix }
+}
+
+function parseIpEntry(entry: string): IpEntry | null {
+    return entry.includes('-') ? parseIpRange(entry) : parseIpNetwork(entry)
 }
 
 function asIPv6(address: IpAddress): ipaddr.IPv6 {
@@ -220,6 +243,65 @@ function compareAddresses(left: ipaddr.IPv6, right: ipaddr.IPv6): number {
     const rightBytes = right.toByteArray()
     const index = leftBytes.findIndex((byte, position) => byte !== rightBytes[position])
     return index === -1 ? 0 : leftBytes[index] - rightBytes[index]
+}
+
+type IpBounds = { version: string; start: bigint; end: bigint }
+
+function addressToBigInt(address: IpAddress): bigint {
+    return address.toByteArray().reduce((value, byte) => (value << 8n) | BigInt(byte), 0n)
+}
+
+function ipEntryBounds(entry: IpEntry): IpBounds {
+    if (entry.kind === 'range') {
+        return { version: entry.start.kind(), start: addressToBigInt(entry.start), end: addressToBigInt(entry.end) }
+    }
+    const hostBits = BigInt((entry.address instanceof ipaddr.IPv4 ? 32 : 128) - entry.prefix)
+    const start = (addressToBigInt(entry.address) >> hostBits) << hostBits
+    return { version: entry.address.kind(), start, end: start + (1n << hostBits) - 1n }
+}
+
+function mergedBounds(bounds: IpBounds[]): IpBounds[] {
+    const sorted = [...bounds].sort(
+        (left, right) =>
+            left.version.localeCompare(right.version) ||
+            (left.start < right.start ? -1 : left.start > right.start ? 1 : 0)
+    )
+    const merged: IpBounds[] = []
+    for (const current of sorted) {
+        const last = merged[merged.length - 1]
+        if (last && last.version === current.version && current.start <= last.end + 1n) {
+            last.end = current.end > last.end ? current.end : last.end
+        } else {
+            merged.push({ ...current })
+        }
+    }
+    return merged
+}
+
+function blockCount({ start, end }: IpBounds, limit: number): number {
+    let count = 0
+    let current = start
+    while (current <= end && count <= limit) {
+        let size = current === 0n ? 1n << 128n : current & -current
+        while (current + size - 1n > end) {
+            size >>= 1n
+        }
+        current += size
+        count++
+    }
+    return count
+}
+
+function networkBlockCount(ranges: string[]): number {
+    const bounds = ranges.map(parseIpEntry).flatMap((entry) => (entry ? [ipEntryBounds(entry)] : []))
+    let count = 0
+    for (const merged of mergedBounds(bounds)) {
+        count += blockCount(merged, MAX_IP_RANGES_PER_CONDITION - count)
+        if (count > MAX_IP_RANGES_PER_CONDITION) {
+            break
+        }
+    }
+    return count
 }
 
 function ipEntryError(entry: string): string | null {
@@ -272,6 +354,9 @@ function validateIpRanges(condition: CustomBotCondition): string | null {
         if (error) {
             return error
         }
+    }
+    if (networkBlockCount(ranges) > MAX_IP_RANGES_PER_CONDITION) {
+        return `These ranges cover more than ${MAX_IP_RANGES_PER_CONDITION} network blocks. Use fewer or wider ranges.`
     }
     return null
 }
@@ -347,9 +432,9 @@ export function validateCustomBotRuleSet(rules: CustomBotRule[]): string | null 
     const totalRanges = rules
         .flatMap((rule) => rule.items)
         .filter((condition) => condition.matcher === CustomBotMatcher.Cidr)
-        .reduce((sum, condition) => sum + conditionRanges(condition).length, 0)
+        .reduce((sum, condition) => sum + networkBlockCount(conditionRanges(condition)), 0)
     if (totalRanges > MAX_TOTAL_IP_RANGES) {
-        return `You can have at most ${MAX_TOTAL_IP_RANGES} IP ranges across all rules.`
+        return `You can have at most ${MAX_TOTAL_IP_RANGES} IP network blocks across all rules.`
     }
     return null
 }

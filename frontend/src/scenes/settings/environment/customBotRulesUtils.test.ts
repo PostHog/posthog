@@ -34,6 +34,9 @@ const ipCondition = (...patterns: string[]): CustomBotCondition =>
 const separateAddresses = (count: number, start = 0): string[] =>
     Array.from({ length: count }, (_, i) => `10.${Math.floor((start + i) / 200)}.${(start + i) % 200}.1`)
 
+const adjacentAddresses = (count: number, start = 0): string[] =>
+    Array.from({ length: count }, (_, i) => `10.0.${Math.floor((start + i) / 256)}.${(start + i) % 256}`)
+
 describe('customBotRulesUtils', () => {
     // These rules mirror the ones the API enforces. When they drift, a rule the editor calls valid
     // comes back as a 400 on save instead of an inline error next to the row.
@@ -84,6 +87,8 @@ describe('customBotRulesUtils', () => {
             ['an octal-looking octet', '010.0.0.1', false],
             ['a shortened address', '127.1', false],
             ['a hex octet', '0x7f.0.0.1', false],
+            ['a leading-zero octet in an IPv6 address', '::ffff:192.168.001.1', false],
+            ['a hex octet in an IPv6 address', '::ffff:0x7f.0.0.1', false],
             ['a prefix wider than the family', '192.0.2.0/33', false],
             ['too many parts', '192.0.2.0/24/8', false],
             ['a netmask with gaps', '192.0.2.0/255.0.255.0', false],
@@ -113,6 +118,11 @@ describe('customBotRulesUtils', () => {
                 "In '192.0.2.40-192.0.2.10', the start comes after the end.",
             ],
             ['too many ranges', ipCondition(...separateAddresses(501)), 'A condition can have at most 500 IP ranges.'],
+            [
+                'ranges that split into too many network blocks',
+                ipCondition(...Array.from({ length: 126 }, (_, n) => `10.0.${n}.1-10.0.${n}.6`)),
+                'These ranges cover more than 500 network blocks. Use fewer or wider ranges.',
+            ],
         ])('rejects %s', (_name, value, expected) => {
             expect(validateCustomBotCondition(value)).toEqual(expected)
         })
@@ -178,8 +188,18 @@ describe('customBotRulesUtils', () => {
                 rule({ id: String(i), items: [ipCondition(...separateAddresses(400, i * 400))] })
             )
 
-            expect(validateCustomBotRuleSet(rules)).toEqual('You can have at most 1000 IP ranges across all rules.')
+            expect(validateCustomBotRuleSet(rules)).toEqual(
+                'You can have at most 1000 IP network blocks across all rules.'
+            )
             expect(validateCustomBotRuleSet(rules.slice(0, 2))).toBeNull()
+        })
+
+        it('counts adjacent addresses as the network blocks they merge into', () => {
+            const rules = Array.from({ length: 3 }, (_, i) =>
+                rule({ id: String(i), items: [ipCondition(...adjacentAddresses(400, i * 400))] })
+            )
+
+            expect(validateCustomBotRuleSet(rules)).toBeNull()
         })
     })
 
@@ -254,6 +274,7 @@ describe('customBotRulesUtils', () => {
             ['an address inside a netmask range', '192.0.2.0/255.255.255.0', '192.0.2.55', true],
             ['an IPv4-mapped value inside a v4 range', '192.0.2.0/24', '::ffff:192.0.2.55', true],
             ['a v4 value inside an IPv4-mapped range', '::ffff:192.0.2.0/120', '192.0.2.55', true],
+            ['a v4 value outside an IPv4-compatible range', '::192.0.2.0/120', '192.0.2.55', false],
         ])('range matching, %s', (_name, pattern, value, expected) => {
             expect(conditionMatchesValue(ipCondition(pattern), value)).toBe(expected)
         })

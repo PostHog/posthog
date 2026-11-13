@@ -122,9 +122,8 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @staticmethod
     def _condition(item: dict[str, Any]) -> dict[str, Any]:
         condition: dict[str, Any] = {**item, "id": item.get("id") or str(uuid4())}
-        if item["matcher"] == CIDR_MATCHER:
-            pattern = condition.pop("pattern", None)
-            condition["patterns"] = item.get("patterns") or ([pattern] if pattern else [])
+        if item["matcher"] == CIDR_MATCHER and item.get("patterns"):
+            condition.pop("pattern", None)
         return condition
 
     @extend_schema(
