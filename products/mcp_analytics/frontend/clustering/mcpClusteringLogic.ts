@@ -691,7 +691,7 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                     if (clusterFilter === 'failing') {
                         return cluster.error_count > 0
                     }
-                    return clusterFilter === 'all' || routeShape(cluster) === clusterFilter
+                    return routeShape(cluster) === clusterFilter
                 })
             },
         ],
