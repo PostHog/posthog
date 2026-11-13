@@ -103,7 +103,8 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
-    # Matches the flag key limit, because an experiment variant key is the longest label a scope gives.
+    # Real keys are short ("test_a", "step_2"), but a variant key is only charset-validated, never
+    # length-bounded, so this matches `FeatureFlag.key` rather than truncate one a flag accepted.
     group_key = models.CharField(
         max_length=400,
         null=True,
