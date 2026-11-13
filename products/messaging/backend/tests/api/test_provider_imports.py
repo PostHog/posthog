@@ -158,13 +158,16 @@ class TestProviderImportsAPI(APIBaseTest):
 
 
 @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=False)
-class TestResendImportFlag(APIBaseTest):
-    def test_resend_stays_hidden_and_refused_while_its_flag_is_off(self, _flag: MagicMock) -> None:
+class TestProviderImportFlag(APIBaseTest):
+    @parameterized.expand([("resend",), ("postmark",)])
+    def test_a_flagged_provider_stays_hidden_and_refused_while_its_flag_is_off(
+        self, _flag: MagicMock, provider: str
+    ) -> None:
         url = f"/api/projects/{self.team.id}/messaging_provider_imports/"
 
         providers = self.client.get(f"{url}providers/").json()
-        response = self.client.post(url, {"provider": "resend", "steps": ["suppressions"], "api_key": "re_key"})
+        response = self.client.post(url, {"provider": provider, "steps": ["suppressions"], "api_key": "a_key"})
 
         assert [provider["key"] for provider in providers] == ["customerio"]
         assert response.status_code == 400
-        assert "Unknown import provider: resend" in str(response.json())
+        assert f"Unknown import provider: {provider}" in str(response.json())
