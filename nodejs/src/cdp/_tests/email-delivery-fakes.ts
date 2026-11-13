@@ -76,6 +76,7 @@ export class BucketProxy {
     lastModifiedAgeMs = 0
     downloadDelayMs = 0
     requests = 0
+    copied: string[] = []
     abandonedRequests = 0
     downloads = 0
     endpoint = ''
@@ -122,6 +123,9 @@ export class BucketProxy {
         this.requests++
         if (request.method === 'GET') {
             this.downloads++
+        }
+        if (request.headers['x-amz-copy-source']) {
+            this.copied.push(new URL(request.url ?? '', this.endpoint).pathname)
         }
         if (request.method === 'GET' && this.downloadDelayMs > 0) {
             setTimeout(() => this.answerRequest(request, response), this.downloadDelayMs)

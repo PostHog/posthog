@@ -27,8 +27,8 @@ Also check product-created unlisted dashboards. `Dashboard.CreationMode.UNLISTED
 | Area                | Files                                                                                            |
 | ------------------- | ------------------------------------------------------------------------------------------------ |
 | Models              | `products/dashboards/backend/models/dashboard.py`, `dashboard_tile.py`, `dashboard_templates.py` |
-| Dashboard endpoints | `products/dashboards/backend/api/dashboard.py`                                                   |
-| Templates endpoint  | `products/dashboards/backend/api/dashboard_templates.py`                                         |
+| Dashboard endpoints | `products/dashboards/backend/presentation/views/dashboard.py`                                    |
+| Templates endpoint  | `products/dashboards/backend/presentation/views/dashboard_templates.py`                          |
 | Product routes      | `products/dashboards/backend/routes.py`                                                          |
 | Scene state         | `frontend/src/scenes/dashboard/dashboardLogic.tsx`                                               |
 | Main layout         | `products/dashboards/frontend/DashboardItems.tsx`, `tileLayouts.ts`                              |

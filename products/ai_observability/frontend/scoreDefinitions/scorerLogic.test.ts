@@ -38,6 +38,10 @@ const definition: ScoreDefinitionApi = {
     config: {},
     archived: false,
     current_version: 2,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: 'version-example',
     team: MOCK_DEFAULT_TEAM.id,
     created_by: null,
@@ -56,6 +60,52 @@ describe('scorer editor', () => {
         jest.resetAllMocks()
         retrieve.mockResolvedValue(definition)
         router.actions.replace(urls.aiObservabilityScorer(definition.id))
+    })
+
+    it('creates a new version when a composite input is explicitly updated', async () => {
+        const input = {
+            alias: 'quality',
+            definition_id: 'source',
+            name: 'Quality',
+            kind: 'numeric' as const,
+            scorer_version_id: 'source-v1',
+            version: 1,
+            latest_version_id: 'source-v2',
+            latest_version: 2,
+            config: { passing_rule: { operator: 'gte' as const, threshold: 0.8 } },
+        }
+        const existing: ScoreDefinitionApi = {
+            ...definition,
+            calculation: 'composite',
+            composition: {
+                expression: 'quality',
+                inputs: [{ alias: input.alias, scorer_version_id: input.scorer_version_id }],
+            },
+            input_scorers: [input],
+        }
+        retrieve.mockResolvedValue(existing)
+        createVersion.mockResolvedValue({ ...existing, current_version: 3 })
+        const logic = scorerLogic({ scorerId: definition.id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.hasChanges).toBe(false)
+        expect(logic.values.draft.inputs[0].scorer_version_id).toBe('source-v1')
+        logic.actions.setDraftField('inputs', [{ ...input, scorer_version_id: 'source-v2', version: 2 }])
+        expect(logic.values.willCreateVersion).toBe(true)
+        await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+
+        expect(createVersion).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            definition.id,
+            expect.objectContaining({
+                base_version: 2,
+                composition: { expression: 'quality', inputs: [{ alias: 'quality', scorer_version_id: 'source-v2' }] },
+            })
+        )
+        expect(update).not.toHaveBeenCalled()
+        expect(existing.composition?.inputs[0].scorer_version_id).toBe('source-v1')
+        logic.unmount()
     })
 
     it.each<{
@@ -124,6 +174,35 @@ describe('scorer editor', () => {
         expect(logic.values.draft.categoricalPassingCategories).toEqual(['accurate'])
         logic.actions.removeOption(2)
         expect(logic.values.draft.categoricalPassingCategories).toEqual([])
+    })
+
+    it('updates a default categorical formula when an output category is renamed, until the formula is edited', () => {
+        const logic = scorerLogic({ scorerId: 'new' })
+        logic.mount()
+        logic.actions.setDraftField('calculation', 'composite')
+        logic.actions.setDraftField('kind', 'categorical')
+        logic.actions.setDraftField('options', [
+            { key: '', label: 'Good' },
+            { key: '', label: 'Bad' },
+        ])
+        logic.actions.setDraftField('inputs', [
+            {
+                alias: 'safe',
+                definition_id: 'safe',
+                scorer_version_id: 'safe-v1',
+                name: 'Safety',
+                kind: 'boolean',
+                version: 1,
+                latest_version: 1,
+                latest_version_id: 'safe-v1',
+                config: {},
+            },
+        ])
+        logic.actions.updateOptionLabel(0, 'Ready')
+        expect(logic.values.draft.expression).toBe('"ready" if (safe) else "bad"')
+        logic.actions.setDraftField('expression', '"custom"')
+        logic.actions.updateOptionLabel(0, 'Approved')
+        expect(logic.values.draft.expression).toBe('"custom"')
     })
 
     it('saves metadata and passing rules together in a version guarded by the original version number', async () => {

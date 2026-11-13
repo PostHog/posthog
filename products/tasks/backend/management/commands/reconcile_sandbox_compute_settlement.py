@@ -86,6 +86,9 @@ class Command(BaseCommand):
     ) -> None:
         self.stdout.write("")
         self.stdout.write(title)
+        if not rows:
+            self.stdout.write("No teams in this window.")
+            return
         self.stdout.write(f"{'team':>12} {'local_usd':>14} {'gateway_usd':>14} {'delta_usd':>14} {'local_rows':>10}")
         omitted = 0
         for row in rows:
@@ -97,5 +100,12 @@ class Command(BaseCommand):
                 f"{row.delta_usd:>14.6f} {row.local_rows:>10}"
             )
             self.stdout.write(self.style.WARNING(line))
+        local_total = sum((row.local_usd for row in rows), Decimal(0))
+        gateway_total = sum((row.gateway_usd for row in rows), Decimal(0))
+        row_total = sum(row.local_rows for row in rows)
+        self.stdout.write(
+            f"{'TOTAL':>12} {local_total:>14.6f} {gateway_total:>14.6f} "
+            f"{local_total - gateway_total:>14.6f} {row_total:>10}"
+        )
         if omitted:
             self.stdout.write(f"{len(rows) - omitted} of {len(rows)} teams listed, {omitted} within tolerance")

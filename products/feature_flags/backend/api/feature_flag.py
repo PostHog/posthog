@@ -119,7 +119,7 @@ from products.approvals.backend.policies import lock_approval_policies
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.dashboards.backend.api.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
@@ -3894,7 +3894,7 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         fields = [*MinimalFeatureFlagSerializer.Meta.fields, "has_experiment"]
 
     def get_has_experiment(self, feature_flag: FeatureFlag) -> bool:
-        # The evaluation/cache batch queries annotate `_has_experiment` via a bulk Exists,
+        # The evaluation/cache batch queries set `_has_experiment` from one bulk read,
         # so this avoids an N+1. The exists() fallback only fires for unannotated callers.
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:

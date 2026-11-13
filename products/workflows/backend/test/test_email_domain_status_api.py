@@ -225,6 +225,12 @@ class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
                 {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
             ),
             (
+                "mail_from_status_missing_from_ses",
+                lambda world: setattr(world.ses.identities[DOMAIN], "reports_mail_from_status", False),
+                "records_found",
+                {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
+            ),
+            (
                 "mail_from_set_for_another_senders_subdomain",
                 lambda world: setattr(world.ses.identities[DOMAIN], "mail_from_domain", f"bounce.{DOMAIN}"),
                 "records_found",
@@ -280,7 +286,26 @@ class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
             expected_records
         )
         if expected_status != "verified":
-            assert (body["verified"], self.is_verified(sender), self.verified_events()) == (False, False, [])
+            assert (body["verified"], self.is_verified(sender)) == (False, False)
+
+    def test_verifying_a_sender_whose_mail_from_status_ses_leaves_out_keeps_it_unverified(self) -> None:
+        self.world.ses.add_identity(DOMAIN, reports_mail_from_status=False)
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.verify(sender)
+
+        assert (response.status_code, self.is_verified(sender)) == (status.HTTP_200_OK, False)
+
+    def test_verifying_after_ses_gave_up_on_the_mail_from_record_restarts_its_setup(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].mail_from_setup_expired = True
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.verify(sender)
+
+        assert (response.status_code, self.is_verified(sender)) == (status.HTTP_200_OK, True)
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"feedback.{DOMAIN}"
 
 
 class TestEmailDomainTenantScoping(EmailDomainApiTestCase):

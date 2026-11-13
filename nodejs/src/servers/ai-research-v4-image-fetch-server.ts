@@ -15,6 +15,8 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
+import { CachedConfigurationCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/cached-configuration-crawl-history'
+import { MAX_RECORD_BYTES } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/collected-urls-record'
 import {
     ConfigurationPolicyService,
     HttpConfigurationFetcher,
@@ -220,7 +222,8 @@ export function buildImageFetchConsumerOverrides(
     consumerCount: number
 ): RdKafkaConsumerOverrides {
     assertImageFetchBatchTarget(consumerCount)
-    const maximumRecordBytes = config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
+    // The frontier carries job records and never an image, and each of its writers caps a record at MAX_RECORD_BYTES.
+    const maximumRecordBytes = MAX_RECORD_BYTES * 2 + 64 * 1024
     return {
         'fetch.message.max.bytes': maximumRecordBytes,
         'max.partition.fetch.bytes': maximumRecordBytes,
@@ -316,7 +319,15 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
                 `AI_RESEARCH_V4_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS must be a positive number, got ${dynamoDBTimeoutMs}`
             )
         }
-        const s3 = buildSessionRecordingS3Client(this.config)
+        // A write past the agent's socket limit waits with its sealed image in memory and its timeout running.
+        const storeSockets = {
+            keepAlive: true,
+            maxSockets: this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES,
+        }
+        const s3 = buildSessionRecordingS3Client(
+            this.config,
+            new NodeHttpHandler({ httpAgent: storeSockets, httpsAgent: storeSockets })
+        )
         if (!s3) {
             throw new Error('SESSION_RECORDING_V2_S3_* must be configured for the v4 image fetch lane')
         }
@@ -327,13 +338,17 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
             maxAttempts: 5,
             requestHandler: new NodeHttpHandler(),
         })
-        const crawlHistory = new DynamoDBCrawlHistory(
+        const storedCrawlHistory = new DynamoDBCrawlHistory(
             this.crawlHistoryClient,
             historyTable,
             dynamoDBTimeoutMs,
             STORE_BATCH_BUDGET_MS
         )
-        await crawlHistory.validateAccess(Date.now())
+        await storedCrawlHistory.validateAccess(Date.now())
+        // Each origin the pod tracks has a robots item and a TDMRep item.
+        const crawlHistory = new CachedConfigurationCrawlHistory(storedCrawlHistory, {
+            maxEntries: 2 * this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
+        })
 
         const keys = new TeamMonthKeys(
             new DynamoDBClient({ region, endpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT, maxAttempts: 5 }),

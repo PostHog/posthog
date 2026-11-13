@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconHide, IconLightBulb } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconLightBulb } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { NAV_PANEL_PLACEMENT } from 'lib/components/NavPanelAdvertisement/navPanelAdShared'
 import { navPanelAdvertisementLogic } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisementLogic'
@@ -10,10 +10,12 @@ import {
     productPushDismissKey,
 } from 'lib/components/NavPanelAdvertisement/navPanelProductPushAdLogic'
 import { PRODUCT_PUSH_PROMPTS } from 'lib/components/NavPanelAdvertisement/productPushPrompts'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { isExternalLink } from 'lib/utils/url'
 
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 
-import { TodayRow } from './TodayRow'
+import { TodayPromptItem } from './TodayPromptItem'
 import type { TodayRowIcon } from './todayRowIcons'
 
 const PRODUCT_PUSH_ICON: TodayRowIcon = {
@@ -35,35 +37,40 @@ export function TodayProductPushRow({ campaign }: { campaign: ProductPushCampaig
     }
 
     return (
-        <TodayRow
-            tone="quiet"
+        <TodayPromptItem
             icon={PRODUCT_PUSH_ICON}
             title={prompt.title}
-            facts={prompt.facts}
-            to={destination}
-            onOpen={() => reportAdClicked()}
+            meta={prompt.description}
+            dataAttr="today-product-push"
             actions={
-                <Tooltip>
-                    <TooltipTrigger
+                <>
+                    <Button
+                        size="sm"
+                        variant="link-muted"
+                        onClick={() => {
+                            reportAdDismissed()
+                            hideAdvertisement()
+                        }}
+                        data-attr="today-product-push-hide"
+                    >
+                        Not now
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
                         render={
-                            <Button
-                                variant="link-muted"
-                                size="icon-sm"
-                                aria-label="Don’t suggest this again"
-                                onClick={() => {
-                                    reportAdDismissed()
-                                    hideAdvertisement()
-                                }}
-                                data-attr="today-product-push-hide"
+                            <LinkPrimitive
+                                to={destination}
+                                target={isExternalLink(destination) ? '_blank' : undefined}
                             />
                         }
+                        onClick={() => reportAdClicked()}
+                        data-attr="today-product-push-open"
                     >
-                        <IconHide className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">Don’t suggest this again</TooltipContent>
-                </Tooltip>
+                        {prompt.action}
+                    </Button>
+                </>
             }
-            dataAttr="today-product-push"
         />
     )
 }

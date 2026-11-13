@@ -12,10 +12,15 @@ from posthog.models import Team
 from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
-from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS
+from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS, announcement_to_deliver
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    DestinationMisconfigured,
+    RefusedEverywhere,
+)
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
     AlertDeliveryRequest,
@@ -25,7 +30,6 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.logic.alert_routes import RoutedReceiver, routed_receivers
-from products.alerts_platform.backend.logic.platform_alert_events import announcement
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -77,15 +81,7 @@ def deliver_routes(request: AlertDeliveryRequest) -> int:
     receivers = routed_receivers(team_id=request.team_id, labels=labels or {})
     if not receivers:
         return 0
-    announced = announcement(
-        request.team_id,
-        request.configuration_id,
-        request.evaluation_key,
-        source=request.source,
-        incident_grouping_keys=request.incident_actions.keys(),
-        part=request.part,
-        parts=request.parts,
-    )
+    announced = announcement_to_deliver(request, path="routed")
     if announced is None:
         return 0
     return _deliver_to(receivers, request=request, team=team, announced=announced)
@@ -103,6 +99,7 @@ def _deliver_to(
     sent = 0
     busy: list[str] = []
     failures: list[str] = []
+    retryable = False
     for receiver in receivers:
         transport_class = _message_transport(receiver)
         transitions = tuple(
@@ -129,9 +126,11 @@ def _deliver_to(
             busy.append(str(error))
         except DeliveryError as error:
             failures.append(str(error))
+            retryable = retryable or not isinstance(error, DestinationMisconfigured)
         except Exception as error:
             # Named by class only, because an exception's text can carry a credential URL.
             failures.append(type(error).__name__)
+            retryable = True
         else:
             sent += 1
     # A held thread wins over a failure, as in `deliver_evaluation`: the workflow waits it out and
@@ -139,5 +138,6 @@ def _deliver_to(
     if busy:
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
-        raise DeliveryError(f"{len(failures)} receiver(s) failed: " + "; ".join(failures))
+        failed = DeliveryError if retryable else RefusedEverywhere
+        raise failed(f"{len(failures)} receiver(s) failed: " + "; ".join(failures))
     return sent

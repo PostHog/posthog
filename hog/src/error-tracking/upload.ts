@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HogError } from '@/core/errors'
+import { EXIT_FAILURE, HogError, wrapFailure } from '@/core/errors'
 import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
 import { failWith, parseOrThrow, type Schema } from '@/core/schema'
@@ -50,18 +50,29 @@ function transferTimeout(bytes: number): number {
 const RATE_LIMIT_PER_MINUTE = 480
 
 const ErrorBody = z.object({ code: z.string() })
+const ErrorDetail = z.object({ detail: z.string() })
 
 export function errorCode(body: string): string | undefined {
     return parseJsonOrUndefined(body, ErrorBody)?.code
 }
 
-class ApiFailure extends Error {
+// The raw body can be a proxy's error page or other text nobody asked to see, so only PostHog's own
+// `detail` reaches the person, as the `serverDetail` that `Output` hides in CI.
+class ApiFailure extends HogError {
     constructor(
         readonly status: number,
         readonly body: string,
         readonly url: string
     ) {
-        super(`PostHog answered ${status} for ${url}: ${body}`)
+        const detail = parseJsonOrUndefined(body, ErrorDetail)?.detail
+        super(
+            `http_${status}`,
+            `PostHog answered ${status} for ${new URL(url).pathname}.`,
+            undefined,
+            EXIT_FAILURE,
+            undefined,
+            detail
+        )
     }
 
     // posthog-cli matches error codes in the parsed body, or anywhere in the raw text as a fallback.
@@ -350,9 +361,10 @@ export class SymbolSetClient {
                 })
             )
         } catch (error) {
-            throw new HogError(
+            throw wrapFailure(
                 'upload_not_finished',
-                `PostHog didn't confirm the upload, so the symbol sets aren't attached: ${describe(error)}`,
+                "PostHog didn't confirm the upload, so the symbol sets aren't attached",
+                error,
                 'Run the upload again. Chunks that already reached PostHog are skipped.'
             )
         }
@@ -474,7 +486,7 @@ function startFailure(error: unknown): Error {
             'Pass --force to replace it, or --skip-on-conflict to keep the existing one.'
         )
     }
-    return new HogError('upload_failed', `PostHog didn't start the upload: ${describe(error)}`)
+    return wrapFailure('upload_failed', "PostHog didn't start the upload", error)
 }
 
 // Like posthog-cli's thread pool: after the first failure no new item starts, and the call returns

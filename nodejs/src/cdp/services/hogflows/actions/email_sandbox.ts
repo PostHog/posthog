@@ -58,14 +58,15 @@ export class SandboxEmailActionHandler implements ActionHandler {
     }
 
     private async runTest(options: ActionHandlerOptions<SandboxEmailAction>): Promise<ActionHandlerResult> {
-        if (options.hogExecutorOptions?.functions) {
-            this.log(options, 'Mocked the sandbox email send')
-            return this.finish(options, { status: 'accepted' })
-        }
+        const mocked = !!options.hogExecutorOptions?.functions
         if (!this.testClient) {
-            return this.finish(options, toStepResult(WORKER_UNAVAILABLE))
+            return this.finish(options, mocked ? { status: 'accepted' } : toStepResult(WORKER_UNAVAILABLE))
         }
-        return this.finish(options, await this.testClient.send(options))
+        const stepResult = await this.testClient.send(options)
+        if (mocked && stepResult.status === 'accepted') {
+            this.log(options, 'Mocked the sandbox email send')
+        }
+        return this.finish(options, stepResult)
     }
 
     private routeToSandboxQueue(
@@ -111,7 +112,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
         stepResult: SandboxEmailStepResult
     ): ActionHandlerResult {
         if (stepResult.status === 'failed') {
-            return { result: stepResult, error: new Error(`Sandbox email was not sent: ${stepResult.reason}`) }
+            return { result: stepResult, error: new Error(failureMessage(stepResult.reason)) }
         }
         this.log(
             options,
@@ -129,6 +130,14 @@ export class SandboxEmailActionHandler implements ActionHandler {
             message: `${actionIdForLogging(action)} ${message}`,
         })
     }
+}
+
+const FAILURE_MESSAGES: Record<string, string> = {
+    send_rate_limited: 'Too many emails are being sent right now. Send the test again in a moment.',
+}
+
+function failureMessage(reason: string | undefined): string {
+    return (reason && FAILURE_MESSAGES[reason]) ?? `Sandbox email was not sent: ${reason}`
 }
 
 function toStepResult({ outcome, reason, messageId }: SandboxEmailOutcome): SandboxEmailStepResult {

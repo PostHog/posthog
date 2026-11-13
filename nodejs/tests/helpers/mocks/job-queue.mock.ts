@@ -1,4 +1,5 @@
 import { JobQueue } from '../../../src/cdp/services/job-queue/job-queue.interface'
+import { CyclotronJobInvocation } from '../../../src/cdp/types'
 
 export function createMockJobQueue(): jest.Mocked<JobQueue> {
     return {
@@ -15,4 +16,16 @@ export function createMockJobQueue(): jest.Mocked<JobQueue> {
         deferInvocations: jest.fn().mockResolvedValue(undefined),
         stillOwns: jest.fn().mockResolvedValue(true),
     } as jest.Mocked<JobQueue>
+}
+
+export function createInMemoryJobQueue(): jest.Mocked<JobQueue> & { queued: CyclotronJobInvocation[] } {
+    const queued: CyclotronJobInvocation[] = []
+    return {
+        ...createMockJobQueue(),
+        queued,
+        queueInvocations: jest.fn((invocations: CyclotronJobInvocation[]) => {
+            queued.push(...invocations)
+            return Promise.resolve()
+        }),
+    }
 }

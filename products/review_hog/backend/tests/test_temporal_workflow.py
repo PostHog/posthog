@@ -53,6 +53,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RecordTurnMarkerInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -159,6 +160,7 @@ async def _run_full_review_pr_workflow(
     review_design: str = "pipeline",
     lens_chunk_count: int = 0,
     lens_chunks_capped: bool = False,
+    devex_lens: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
     coordinator: bool = False,
@@ -253,6 +255,7 @@ async def _run_full_review_pr_workflow(
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
+            devex_lens=devex_lens,
             coordinator=coordinator,
             zero_change_skip=zero_change_skip,
             delta_band=delta_band,
@@ -301,9 +304,11 @@ async def _run_full_review_pr_workflow(
         return None
 
     marker_calls: dict[str, ReviewHogMarker | None] = {}
+    devex_lens_calls: list[tuple[str, bool]] = []
 
     @activity.defn(name="record_turn_marker_activity")
-    async def record_marker(input) -> ReviewHogMarker:
+    async def record_marker(input: RecordTurnMarkerInput) -> ReviewHogMarker:
+        devex_lens_calls.append(("marker", input.devex_lens))
         return _TURN_MARKER
 
     @activity.defn(name="split_chunks_activity")
@@ -376,6 +381,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
         _saw_design("dedup", input.review_design)
+        devex_lens_calls.append(("dedup", input.devex_lens))
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
         dedup_attempts.append(1)
@@ -622,6 +628,7 @@ async def _run_full_review_pr_workflow(
         "modes": mode_calls,
         "efforts": effort_calls,
         "markers": marker_calls,
+        "devex_lens": devex_lens_calls,
         "designs": design_calls,
         "single_agent": single_agent_calls,
         "lens": lens_calls,
@@ -1050,6 +1057,7 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
         review_mode="flash",
         review_design="single_agent",
         lens_chunk_count=3,
+        devex_lens=True,
         trigger_source="automatic",
         run_index=3,
         review_authored_prs=True,
@@ -1064,7 +1072,9 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
     assert recorded["gate_arms"] == [(True, True)]
     assert recorded["main_delta"] == [baseline]
     assert set(recorded["lens_delta"]) == {baseline}
-    assert len(recorded["lens"]) == (2 if expect_delta else 6)
+    assert len(recorded["lens"]) == (2 if expect_delta else 7)
+    assert (("devex", 1) in recorded["lens"]) is not expect_delta
+    assert recorded["devex_lens"] == [("marker", not expect_delta), ("dedup", not expect_delta)]
     assert recorded["track_p1"] == [(True, True, expect_delta)]
 
 

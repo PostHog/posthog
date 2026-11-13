@@ -59,7 +59,8 @@ def _answers(days: int) -> str:
             ) AS cites_own,
             cites_own OR ({_NAMES_BRAND.format(field="ifNull(answer_text, '')")}) AS mentioned
         FROM system.aeo_citation_checks
-        WHERE NOT check_failed
+        -- A no-search engine never cites, so its answers would pull every rate here down.
+        WHERE NOT check_failed AND mode = 'web_search'
             AND created_at >= toStartOfDay(now()) - INTERVAL {days} DAY
             AND created_at < toStartOfDay(now())
             AND NOT ({_NAMES_BRAND.format(field="prompt_text")})

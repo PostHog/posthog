@@ -188,6 +188,8 @@ export interface BroadcastEmailSettings {
     messageCategoryType: string | null
     trackingEnabled: boolean
     utmTagsEnabled: boolean
+    /** Sends a marketing email past the team's frequency cap, for time-sensitive email. */
+    skipFrequencyCap: boolean
     utmParams: UtmTagValues
     /** The utmParams keys that still follow the team default. Absent on broadcasts saved before team defaults. */
     utmParamsFromDefault?: UtmTagKey[]
@@ -198,6 +200,7 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     messageCategoryType: null,
     trackingEnabled: true,
     utmTagsEnabled: false,
+    skipFrequencyCap: false,
     utmParams: {},
 }
 
@@ -322,6 +325,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
+        skipFrequencyCap: config.skip_frequency_cap === true,
         utmParams: config.utm_params ?? {},
         utmParamsFromDefault: config.utm_params_from_default,
     }
@@ -336,6 +340,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         message_category_type: settings.messageCategoryType ?? undefined,
         tracking_enabled: settings.trackingEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
+        skip_frequency_cap: settings.skipFrequencyCap,
         utm_params: settings.utmParams,
         utm_params_from_default: settings.utmParamsFromDefault,
     }
@@ -2466,7 +2471,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     path: broadcastPath(broadcastId),
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
+                    excluded_cohort_count: values.audienceProperties.filter(
+                        (filter) =>
+                            filter.type === PropertyFilterType.Cohort && filter.operator === PropertyOperator.NotIn
+                    ).length,
                     has_goal: values.goalEnabled,
+                    skip_frequency_cap: values.emailSettings.skipFrequencyCap,
                     entry_source: values.entrySource ?? loadEntrySource(broadcastId),
                     ...(cache.prefilledEmail
                         ? {
