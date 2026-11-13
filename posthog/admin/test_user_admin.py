@@ -116,12 +116,11 @@ class TestUserAdminTicketParam(BaseTest):
 class TestUserAdminPasswordDisplay(SimpleTestCase):
     @parameterized.expand(
         [
-            ("usable", make_password("a-strong-password-123"), "Algorithm"),
+            ("usable", make_password("a-strong-password-123"), "Resetting the password"),
             ("unusable", make_password(None), "No password set."),
-            ("unknown_format", "not-a-hash$abc$def", "Unknown password format."),
         ]
     )
-    def test_shows_only_the_algorithm(self, _name: str, encoded: str, expected: str):
+    def test_shows_no_part_of_the_hash(self, _name: str, encoded: str, expected: str):
         user = User(pk=1, email="someone@example.com", password=encoded)
 
         rendered = str(UserAdmin(User, AdminSite()).password_display(user))
