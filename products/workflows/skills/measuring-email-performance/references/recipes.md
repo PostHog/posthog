@@ -95,7 +95,7 @@ LIMIT 500
 ```
 
 Divide opens and clicks by `email_sent` minus `email_untracked`. `conversion` counts the whole workflow's conversions in the run, not this step's.
-`email_opened_by_person` and `email_clicked_by_person` count people, not events: the approximate distinct openers and clickers of the run, about 1% off. A click also counts its person as an opener. Each person counts once per run, under the step they first opened or clicked, so for a run with one email step they are its openers and clickers. A person who opens again more than 30 days later counts again. Never add them to opens or clicks. They exist from 2026-11-05, so read them only for runs that started on or after 2026-11-06.
+`email_opened_by_person` and `email_clicked_by_person` count people, not events: the approximate distinct openers and clickers of the run, about 1% off. A click also counts its person as an opener. Each person counts once per run, under the step they first opened or clicked, so for a run with one email step they are its openers and clickers. A person who opens again more than 30 days later counts again. Never add them to opens or clicks. They exist from 2026-11-05, so read them only for runs that started on or after 2026-11-06. A person counts only at their first open or click of the run, so start the window at the run's start, or the count misses people who first engaged earlier.
 For a trend across runs, pass every run in the window and order the rows by the run start times from `posthog:workflows-list-batch-jobs`.
 
 ### Engagement by version

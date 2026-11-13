@@ -54,7 +54,7 @@ For a broadcast or batch workflow, run the **Run counters** recipe for the run.
 Then run the **Step engagement** recipe.
 
 - When the counters show sends and the recipe shows no `sent` for the step, the sent events were not captured for this step and window. Take sends and every ratio from the counters, and skip what needs the captured sends: `tracked_sent`, `people_sent`, `people_tracked` and the product outcome. Opens, clicks and their people still come from the events when the recipe shows them, because each callback checks the capture setting when it arrives. Do not conclude that the project has event capture off: the setting can have changed since these sends.
-- When the recipe's `sent` sits well below the counters' `email_sent` for the step, event capture was off for part of the window. Then the events miss some people's first send, so skip the product outcome, and say beside every people count from the events that it covers only the captured sends.
+- When the recipe's `sent` sits well below the counters' `email_sent` for the step, event capture was off for part of the window. Then the events miss some people's first send, so skip the product outcome, and say that `people_sent` and `people_tracked` cover only the captured sends. Opens, clicks and their people are captured when each callback arrives, so they can include people whose sends were not captured.
 - When neither the counters nor the recipe show sends in the window, the step did not send. Report that, never a 0% ratio, with the reason the counters in "Attempts outside `email_sent`" give.
 
 Done when you know which sources the rest of the report can use.
