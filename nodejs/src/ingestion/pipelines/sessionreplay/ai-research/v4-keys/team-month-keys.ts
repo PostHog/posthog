@@ -19,8 +19,8 @@ type Item = Record<string, AttributeValue>
 type PendingRead = { result: Promise<TeamMonthKey>; controller: AbortController; waiters: number }
 
 /**
- * The key rows of a month expire at the start of the month this many months later. A session writes up to about 15
- * days after its key month and its objects live up to 98 days, so this leaves a margin to raise the raw window.
+ * The key rows of a month expire at the start of the month this many months later. A session writes up to about 14
+ * days after its key month ends, so this covers the object lifetimes in replay-data.md with a margin to raise them.
  */
 const KEY_LIFETIME_MONTHS = 5
 

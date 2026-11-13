@@ -133,7 +133,11 @@ impl FlushWork {
 }
 
 /// Resolves the keys of the flush's sessions. Keys are stored before anything is sealed with them, as in v3.
-async fn resolve_keys(blocks: &[Arc<Block>], writer: &Writer) -> Result<FlushKeys, FlushError> {
+async fn resolve_keys(
+    blocks: &[Arc<Block>],
+    writer: &Writer,
+    day: &str,
+) -> Result<FlushKeys, FlushError> {
     let sessions: Vec<SessionId> = blocks
         .iter()
         .map(|b| SessionId {
@@ -143,8 +147,11 @@ async fn resolve_keys(blocks: &[Arc<Block>], writer: &Writer) -> Result<FlushKey
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let keys = writer.keys.keys_for_flush(&sessions).await?;
-    counter!("ai_research_v4_recorder_dropped_sessions_total").increment(keys.dropped.len() as u64);
+    let keys = writer.keys.keys_for_flush(&sessions, day).await?;
+    for (_, cause) in &keys.dropped {
+        counter!("ai_research_v4_recorder_dropped_sessions_total", "cause" => cause.as_str())
+            .increment(1);
+    }
     Ok(keys)
 }
 
@@ -163,7 +170,7 @@ pub async fn write_flush(
         Some(done) => done.clone(),
         None => {
             let day = write_day(now);
-            let keys = Arc::new(resolve_keys(blocks, writer).await?);
+            let keys = Arc::new(resolve_keys(blocks, writer, &day).await?);
             resolved.insert((day, keys)).clone()
         }
     };

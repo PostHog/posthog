@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use aws_sdk_dynamodb::primitives::Blob;
 use aws_sdk_dynamodb::types::AttributeValue;
-use chrono::{DateTime, Months, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Months, NaiveDate, Utc};
 use sha2::{Digest, Sha256};
 
 use crate::envelope::NONCE_BYTES;
@@ -13,8 +13,8 @@ use crate::session;
 
 /// v3 spreads a team's sessions over 32 partitions so one large team cannot overload one partition. v4 keeps this.
 pub const SESSION_SHARDS: u32 = 32;
-/// A session's key month is its start month, and it writes at most 14 days past that month. Raw
-/// objects live 90 days and fetched images 98, so five months covers them and leaves room to raise that window a little.
+/// A new session's key month is its start month, and it writes about 14 days past that month at most. Five months
+/// covers the object lifetimes in `products/ai_training/docs/replay-data.md` and leaves room to raise them.
 const ROW_LIFETIME_MONTHS: u32 = 5;
 /// The attributes that hold key material. A deletion removes all of them.
 pub const KEY_MATERIAL: [&str; 3] = ["wrapped_key", "sealed_key", "key_nonce"];
@@ -84,6 +84,18 @@ pub fn session_key_month(session_id: &str) -> Option<String> {
     let start = DateTime::from_timestamp_millis(session::start_ms(session_id)?)?;
     let month = start.format("%Y-%m").to_string();
     (month.len() == 7).then_some(month)
+}
+
+/// Whether a flush that writes on `write_day` may create a key of `key_month`: the month of the write, or the one before
+/// or after it. A team deletion tombstones those three months before it sweeps the rest (`reachable_months` in
+/// `products/ai_training/backend/privacy/keys.py`), so a key of any other month could outlive the deletion.
+pub fn may_create_key(key_month: &str, write_day: &str) -> bool {
+    let index = |text: &str| {
+        let start =
+            NaiveDate::parse_from_str(&format!("{}-01", text.get(..7)?), "%Y-%m-%d").ok()?;
+        Some(start.year() * 12 + start.month0() as i32)
+    };
+    matches!((index(key_month), index(write_day)), (Some(key), Some(write)) if (key - write).abs() <= 1)
 }
 
 /// The start of the month `key_month + 5`, in epoch seconds: when DynamoDB TTL may remove the row.
@@ -370,6 +382,27 @@ mod tests {
                 session_key_month(session_id).as_deref(),
                 month,
                 "{session_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn creates_keys_only_for_the_months_a_team_deletion_tombstones_first() {
+        let cases = [
+            ("2026-10", "2026-10-15", true),
+            ("2026-09", "2026-10-01", true),
+            ("2026-11", "2026-10-31", true),
+            ("2026-12", "2027-01-01", true),
+            ("2027-01", "2026-12-31", true),
+            ("2026-08", "2026-10-01", false),
+            ("2026-12", "2026-10-31", false),
+            ("2026-13", "2026-12-31", false),
+        ];
+        for (key_month, write_day, expected) in cases {
+            assert_eq!(
+                may_create_key(key_month, write_day),
+                expected,
+                "{key_month} on {write_day}"
             );
         }
     }

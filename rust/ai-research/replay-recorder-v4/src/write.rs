@@ -373,16 +373,21 @@ pub async fn write_images(
     concurrency: usize,
     permits: &Arc<Semaphore>,
 ) -> Result<Vec<ImageIndexRow>, WriteError> {
-    let packs: Vec<_> = images
+    // A pack left out would leave its blocks pointing at images that were never stored, so a missing key fails the flush.
+    let packs = images
         .into_iter()
-        .filter_map(|((team_id, key_month), team_images)| {
-            let team_key = *keys.team_month(team_id, &key_month)?;
+        .map(|((team_id, key_month), team_images)| {
+            let team_key = *keys.team_month(team_id, &key_month).ok_or_else(|| {
+                WriteError::Seal(format!(
+                    "team {team_id} has no team month key for {key_month}"
+                ))
+            })?;
             let pack_key = format!(
                 "images/packs/dt={write_day}/{team_id}/{}",
                 unique_suffix(at)
             );
             let store = store.clone();
-            Some(async move {
+            Ok(async move {
                 let key = pack_key.clone();
                 let (pack, rows) = seal_blocking(permits, move || {
                     seal_pack(team_id, &team_images, &team_key, &key_month, &key)
@@ -392,7 +397,7 @@ pub async fn write_images(
                 Ok::<_, WriteError>(rows)
             })
         })
-        .collect();
+        .collect::<Result<Vec<_>, WriteError>>()?;
     Ok(stream::iter(packs)
         .buffer_unordered(concurrency.max(1))
         .try_collect::<Vec<_>>()
@@ -1867,6 +1872,24 @@ mod tests {
                 png(b"same")
             );
         }
+
+        let (_, mut december) = session_key("december");
+        december.key_month = "2026-12".to_owned();
+        let block = block("december", events);
+        let mut unkeyed =
+            vec![seal_block(&block, &december, &[8; 32], "blocks/dt=2026-11-01/y").unwrap()];
+        let written = write_images(
+            new_images(&mut unkeyed),
+            &keys,
+            "2026-11-01",
+            "images-v4",
+            &store,
+            at(),
+            4,
+            &Arc::new(Semaphore::new(4)),
+        )
+        .await;
+        assert!(matches!(written, Err(WriteError::Seal(_))));
     }
 
     #[test]

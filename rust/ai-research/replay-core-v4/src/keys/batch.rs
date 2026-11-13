@@ -7,7 +7,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use rand::RngCore;
 
 use super::kms::{CachedKms, KeyWrapper, KmsError};
-use super::rows::{session_key_month, Row, TableKey};
+use super::rows::{may_create_key, session_key_month, Row, TableKey};
 use super::table::{KeyTable, PutOutcome, TableError};
 use crate::seal::{open_session_key, seal_session_key, SealedKey, WrappingContext};
 
@@ -41,7 +41,10 @@ pub enum DropCause {
     /// The session's key row, or the team month key it is sealed under, is stored but gives no key: the seal does not
     /// open, KMS refuses the wrapped key, or the row is malformed or expired. The row stays, so no new key replaces it.
     KeyUnusable,
+    /// The session ID is not a UUIDv7.
     NoStartMonth,
+    /// The session is new and started in a month that a flush on this day may not create a key for.
+    StartMonthOutOfRange,
 }
 
 impl DropCause {
@@ -52,6 +55,7 @@ impl DropCause {
             DropCause::KeyLost => "key_lost",
             DropCause::KeyUnusable => "key_unusable",
             DropCause::NoStartMonth => "no_start_month",
+            DropCause::StartMonthOutOfRange => "start_month_out_of_range",
         }
     }
 }
@@ -123,12 +127,20 @@ impl<T: KeyTable, W: KeyWrapper> KeyStore<T, W> {
     /// Resolves a key for every session, storing the new ones. Call it before sealing anything for the flush: a key
     /// that is not stored yet cannot open what it sealed if this process dies. A new key takes its session's start
     /// month, as in v3, so that one team month key seals the session's blocks and images whatever day they are written.
-    pub async fn keys_for_flush(&self, sessions: &[SessionId]) -> Result<FlushKeys, KeyError> {
+    /// The flush writes on `write_day`, which bounds the months it may create keys for.
+    pub async fn keys_for_flush(
+        &self,
+        sessions: &[SessionId],
+        write_day: &str,
+    ) -> Result<FlushKeys, KeyError> {
         let mut flush = FlushKeys::default();
         let mut started = Vec::with_capacity(sessions.len());
         for session in sessions {
             match session_key_month(&session.session_id) {
-                Some(month) => started.push((session, month)),
+                Some(month) => {
+                    let row_key = TableKey::session(session.team_id, &session.session_id);
+                    started.push((session, month, row_key));
+                }
                 None => flush
                     .dropped
                     .push((session.clone(), DropCause::NoStartMonth)),
@@ -136,36 +148,41 @@ impl<T: KeyTable, W: KeyWrapper> KeyStore<T, W> {
         }
         let start_months: BTreeSet<(i64, &str)> = started
             .iter()
-            .map(|(session, month)| (session.team_id, month.as_str()))
+            .map(|(session, month, _)| (session.team_id, month.as_str()))
             .collect();
         let mut keys: Vec<TableKey> = start_months
             .iter()
             .map(|&(team, month)| TableKey::team_month(team, month))
             .collect();
-        keys.extend(
-            started
-                .iter()
-                .map(|(s, _)| TableKey::session(s.team_id, &s.session_id)),
-        );
+        keys.extend(started.iter().map(|(_, _, row_key)| row_key.clone()));
         let rows = self.table.batch_get(&keys).await?;
 
-        let new_session_months: BTreeSet<(i64, &str)> = started
+        // Only a new session creates a team month key. Every other start month resolves from this read, so a flush of
+        // sessions keyed by their start month reads the table once.
+        let creates: BTreeSet<(i64, &str)> = started
             .iter()
-            .filter(|(s, _)| !rows.contains_key(&TableKey::session(s.team_id, &s.session_id)))
-            .map(|(session, month)| (session.team_id, month.as_str()))
+            .filter(|(_, month, row_key)| {
+                !rows.contains_key(row_key) && may_create_key(month, write_day)
+            })
+            .map(|(session, month, _)| (session.team_id, month.as_str()))
             .collect();
         // The futures are built before they enter the stream, which keeps the flush future `Send`.
-        let created: Vec<_> = new_session_months
-            .into_iter()
-            .map(|(team, month)| {
+        let first_read: Vec<_> = start_months
+            .iter()
+            .map(|&(team, month)| {
                 let row = rows.get(&TableKey::team_month(team, month));
+                let create = creates.contains(&(team, month));
                 async move {
-                    let team_month = self.team_month_or_new(team, month, row).await?;
+                    let team_month = if create {
+                        self.team_month_or_new(team, month, row).await?
+                    } else {
+                        self.stored_team_month(team, month, row).await?
+                    };
                     Ok::<_, KeyError>(((team, month.to_owned()), team_month))
                 }
             })
             .collect();
-        let mut team_months: TeamMonths = stream::iter(created)
+        let mut team_months: TeamMonths = stream::iter(first_read)
             .buffer_unordered(PUT_CONCURRENCY)
             .try_collect()
             .await?;
@@ -183,8 +200,8 @@ impl<T: KeyTable, W: KeyWrapper> KeyStore<T, W> {
             .await?;
 
         let mut new_sessions = Vec::new();
-        for (session, start_month) in started {
-            match rows.get(&TableKey::session(session.team_id, &session.session_id)) {
+        for (session, start_month, row_key) in started {
+            match rows.get(&row_key) {
                 Some(Row::Session {
                     key_month, sealed, ..
                 }) => match open_stored(session, key_month, sealed, &team_months) {
@@ -197,6 +214,9 @@ impl<T: KeyTable, W: KeyWrapper> KeyStore<T, W> {
                 Some(_) => flush
                     .dropped
                     .push((session.clone(), DropCause::KeyUnusable)),
+                None if !may_create_key(&start_month, write_day) => flush
+                    .dropped
+                    .push((session.clone(), DropCause::StartMonthOutOfRange)),
                 None => match &team_months[&(session.team_id, start_month.clone())] {
                     TeamMonth::Key(team_key) => {
                         new_sessions.push((session.clone(), *team_key, start_month))
@@ -416,6 +436,7 @@ enum NewSession {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     use async_trait::async_trait;
@@ -472,6 +493,7 @@ mod tests {
         KeyStore::new(table, CachedKms::new(kms, 100, Duration::from_secs(60)))
     }
 
+    const MID_AUGUST: &str = "01a0054b-0e00";
     const MID_OCTOBER: &str = "01a13f6e-fa00";
     const END_OF_OCTOBER: &str = "01a19467-e7ff";
     const START_OF_NOVEMBER: &str = "01a19467-e800";
@@ -500,7 +522,7 @@ mod tests {
         let first = store(MemoryTable::default());
         let a = session_at(END_OF_OCTOBER, 7, 1);
         let october = first
-            .keys_for_flush(std::slice::from_ref(&a))
+            .keys_for_flush(std::slice::from_ref(&a), "2026-10-31")
             .await
             .unwrap();
         let (key, october_team_key) = october.session(&a).unwrap();
@@ -514,13 +536,14 @@ mod tests {
         let b = session_at(START_OF_NOVEMBER, 7, 2);
         let second = store(rows_of(&first));
         let november = second
-            .keys_for_flush(&[a.clone(), b.clone()])
+            .keys_for_flush(&[a.clone(), b.clone()], "2026-11-02")
             .await
             .unwrap();
         assert_eq!(november.session(&a), Some((key, october_team_key)));
         let (b_key, b_team_key) = november.session(&b).unwrap();
         assert_eq!(b_key.key_month, "2026-11");
         assert_ne!(b_team_key, october_team_key);
+        assert_eq!(second.table.reads.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -537,7 +560,7 @@ mod tests {
             .unwrap();
 
         let flush = store(rows_of(&first))
-            .keys_for_flush(std::slice::from_ref(&a))
+            .keys_for_flush(std::slice::from_ref(&a), "2026-10-15")
             .await
             .unwrap();
         let (key, team_key) = flush.session(&a).unwrap();
@@ -549,7 +572,7 @@ mod tests {
         let a = session(7, 1);
         let winner = store(MemoryTable::default());
         let winning = winner
-            .keys_for_flush(std::slice::from_ref(&a))
+            .keys_for_flush(std::slice::from_ref(&a), "2026-10-15")
             .await
             .unwrap();
 
@@ -572,13 +595,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn drops_sessions_a_deletion_tombstoned_and_ids_with_no_start() {
+    async fn drops_tombstoned_sessions_and_new_ones_it_may_not_key() {
         let table = MemoryTable::default();
         let (deleted_session, deleted_team, kept) = (session(7, 1), session(8, 2), session(7, 3));
         let no_start = SessionId {
             team_id: 7,
             session_id: "session".to_owned(),
         };
+        let too_early = session_at(MID_AUGUST, 7, 4);
         table.store(
             TableKey::session(7, &deleted_session.session_id),
             Row::Deleted,
@@ -587,12 +611,16 @@ mod tests {
         let store = store(table);
 
         let flush = store
-            .keys_for_flush(&[
-                deleted_session.clone(),
-                deleted_team.clone(),
-                kept.clone(),
-                no_start.clone(),
-            ])
+            .keys_for_flush(
+                &[
+                    deleted_session.clone(),
+                    deleted_team.clone(),
+                    kept.clone(),
+                    no_start.clone(),
+                    too_early.clone(),
+                ],
+                "2026-10-15",
+            )
             .await
             .unwrap();
         assert_eq!(flush.sessions.keys().collect::<Vec<_>>(), vec![&kept]);
@@ -601,6 +629,7 @@ mod tests {
         assert_eq!(
             dropped,
             vec![
+                (too_early, DropCause::StartMonthOutOfRange),
                 (deleted_session, DropCause::Deleted),
                 (no_start, DropCause::NoStartMonth),
                 (deleted_team, DropCause::Deleted),
@@ -614,7 +643,7 @@ mod tests {
         let first = store(MemoryTable::default());
         let (a, b) = (session(7, 1), session_at(START_OF_NOVEMBER, 7, 2));
         first
-            .keys_for_flush(std::slice::from_ref(&a))
+            .keys_for_flush(std::slice::from_ref(&a), "2026-10-15")
             .await
             .unwrap();
         let rows = rows_of(&first);
@@ -623,7 +652,7 @@ mod tests {
 
         let second = store(rows);
         let flush = second
-            .keys_for_flush(&[a.clone(), b.clone()])
+            .keys_for_flush(&[a.clone(), b.clone()], "2026-11-02")
             .await
             .unwrap();
         assert_eq!(flush.dropped, vec![(a, DropCause::Deleted)]);
@@ -661,7 +690,7 @@ mod tests {
         let (a, b, c) = (session(7, 1), session(8, 2), session(9, 3));
         let first = store(MemoryTable::default());
         first
-            .keys_for_flush(&[a.clone(), b.clone(), c.clone()])
+            .keys_for_flush(&[a.clone(), b.clone(), c.clone()], "2026-10-15")
             .await
             .unwrap();
         let rows = rows_of(&first);
@@ -694,7 +723,7 @@ mod tests {
         );
         let second = store(rows);
         let all = [a.clone(), b.clone(), c.clone(), d.clone(), e.clone()];
-        let flush = second.keys_for_flush(&all).await.unwrap();
+        let flush = second.keys_for_flush(&all, "2026-11-02").await.unwrap();
         let mut dropped = flush.dropped.clone();
         dropped.sort_by(|x, y| x.0.cmp(&y.0));
         assert_eq!(
@@ -711,7 +740,7 @@ mod tests {
 
         let during_outage = store_with(rows_of(&second), FakeKms { outage: true });
         assert!(matches!(
-            during_outage.keys_for_flush(&all).await,
+            during_outage.keys_for_flush(&all, "2026-11-02").await,
             Err(KeyError::Kms(KmsError::Timeout))
         ));
     }
