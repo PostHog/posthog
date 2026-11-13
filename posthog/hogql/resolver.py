@@ -1706,6 +1706,10 @@ class Resolver(CloningVisitor):
             elif (
                 table_alias != table_name_alias
                 or isinstance(database_table, FunctionCallTable)
+                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal.
+                # `get_alias_for_table_type` returns the first scope entry with an equal type. Without an alias,
+                # the second scan prints with the first scan's name.
+                or node_table_type in scope.tables.values()
                 # The lazy table resolver looks an unaliased lazy table up in scope by its printed HogQL name.
                 # `posthog.persons` is scoped as `posthog__persons` but prints as `persons`, so it needs the alias.
                 or (
