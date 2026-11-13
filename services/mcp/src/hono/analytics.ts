@@ -16,7 +16,7 @@ import {
 } from '@/lib/posthog/analytics'
 import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -276,7 +276,7 @@ export async function trackExecuteSqlGeneration(
     meta: ExecuteSqlGenerationMeta,
     analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
-    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+    if (toolName !== EXECUTE_SQL_TOOL_NAME || !shouldCaptureToolCall(toolName, args)) {
         return
     }
     const query = (args as { query?: unknown } | null | undefined)?.query
@@ -385,6 +385,7 @@ type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
 const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
     ['workflows-transactional-emails-list', 'arguments-and-result'],
     ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['opt-outs-list', 'arguments-and-result'],
     ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],
     ['suppressions-add', 'arguments'],
@@ -418,6 +419,10 @@ function emailRecipientExposure(toolName: string, input: unknown): EmailRecipien
 }
 
 function shouldCaptureToolCall(toolName: string, input: unknown): boolean {
+    // Property-filter values can contain credentials under the generic `value` key.
+    if (hasSqlFilters(toolName, input)) {
+        return false
+    }
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
