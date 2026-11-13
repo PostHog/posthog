@@ -99,7 +99,7 @@ export async function withPostgres<T>(
 export type ScratchSchema = { url: string; create(): Promise<void>; drop(): Promise<void> }
 
 export function scratchSchema(connectionString: string, schema: string, tables: string[]): ScratchSchema {
-    const searchPath = encodeURIComponent(`-c search_path=${schema},public`)
+    const searchPath = encodeURIComponent(`-c search_path=${schema}`)
     return {
         url: `${connectionString}${connectionString.includes('?') ? '&' : '?'}options=${searchPath}`,
         create: () =>
@@ -108,6 +108,16 @@ export function scratchSchema(connectionString: string, schema: string, tables: 
                 await client.query(`CREATE SCHEMA ${schema}`)
                 for (const table of tables) {
                     await client.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
+                }
+                const { rows } = await client.query<{ type: string }>(
+                    `SELECT DISTINCT t.typname AS type
+                     FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid
+                     WHERE a.attrelid = ANY($1::regclass[]) AND t.typtype = 'e'
+                       AND t.typnamespace = 'public'::regnamespace`,
+                    [tables.map((table) => `public.${table}`)]
+                )
+                for (const { type } of rows) {
+                    await client.query(`CREATE DOMAIN ${schema}.${type} AS public.${type}`)
                 }
             }, connectionString),
         drop: async () => {

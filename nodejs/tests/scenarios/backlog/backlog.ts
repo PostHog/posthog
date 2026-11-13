@@ -27,7 +27,7 @@ const BATCH_BYTES = 8 * 1024 * 1024
 
 export const manifestPathOf = (stateDir: string): string => path.join(stateDir, 'backlog.json')
 
-export function stateSizes(count: number, { p50, p90, p99 }: Backlog['stateBytes']): number[] {
+function stateSizeAt(i: number, count: number, { p50, p90, p99 }: Backlog['stateBytes']): number {
     const anchors: [number, number][] = [
         [0, p50 / 2],
         [0.5, p50],
@@ -35,34 +35,34 @@ export function stateSizes(count: number, { p50, p90, p99 }: Backlog['stateBytes
         [0.99, p99],
         [1, p99],
     ]
-    return Array.from({ length: count }, (_, i) => {
-        const q = (i + 0.5) / count
-        const upper = anchors.findIndex(([at]) => at >= q)
-        const [q0, s0] = anchors[upper - 1]
-        const [q1, s1] = anchors[upper]
-        return Math.max(1, Math.round(s0 + ((s1 - s0) * (q - q0)) / (q1 - q0)))
-    })
+    const q = (i + 0.5) / count
+    const upper = anchors.findIndex(([at]) => at >= q)
+    const [q0, s0] = anchors[upper - 1]
+    const [q1, s1] = anchors[upper]
+    return Math.max(1, Math.round(s0 + ((s1 - s0) * (q - q0)) / (q1 - q0)))
 }
 
-export function residentState(size: number, compressibility: number): Buffer {
+function residentState(size: number, compressibility: number): Buffer {
     const random = Math.round(size * (1 - compressibility))
     return Buffer.concat([randomBytes(random), Buffer.alloc(size - random, 'a')])
 }
 
-function residentJobs(backlog: Backlog, scheduled: Date): CyclotronV2JobInit[] {
+function* residentJobs(backlog: Backlog, scheduled: Date): Generator<CyclotronV2JobInit> {
     const functions = Array.from({ length: backlog.teams }, () => randomUUID())
-    return Object.entries(backlog.jobs).flatMap(([queueName, count]) =>
-        stateSizes(count, backlog.stateBytes).map((size, i) => ({
-            teamId: RESIDENT_TEAMS_FROM + (i % backlog.teams),
-            functionId: functions[i % backlog.teams],
-            queueName,
-            scheduled,
-            state: residentState(size, backlog.compressibility),
-        }))
-    )
+    for (const [queueName, count] of Object.entries(backlog.jobs)) {
+        for (let i = 0; i < count; i++) {
+            yield {
+                teamId: RESIDENT_TEAMS_FROM + (i % backlog.teams),
+                functionId: functions[i % backlog.teams],
+                queueName,
+                scheduled,
+                state: residentState(stateSizeAt(i, count, backlog.stateBytes), backlog.compressibility),
+            }
+        }
+    }
 }
 
-function* batchesOf(jobs: CyclotronV2JobInit[]): Generator<CyclotronV2JobInit[]> {
+function* batchesOf(jobs: Iterable<CyclotronV2JobInit>): Generator<CyclotronV2JobInit[]> {
     let batch: CyclotronV2JobInit[] = []
     let bytes = 0
     for (const job of jobs) {
@@ -114,12 +114,8 @@ async function footprintOf(cyclotronUrl: string): Promise<Footprint> {
     }, cyclotronUrl)
 }
 
-export async function seedBacklog(
-    backlog: Backlog,
-    cyclotronUrl: string,
-    stateDir: string,
-    now: Date = new Date()
-): Promise<SeedResult> {
+export async function seedBacklog(backlog: Backlog, cyclotronUrl: string, stateDir: string): Promise<SeedResult> {
+    const now = new Date()
     const manifest = manifestPathOf(stateDir)
     rmSync(manifest, { force: true })
     await withPostgres(

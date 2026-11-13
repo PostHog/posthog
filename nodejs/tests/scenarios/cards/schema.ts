@@ -71,7 +71,9 @@ const StateBytes = z
 export const Backlog = z
     .object({
         teams: z.number().int().min(1),
-        jobs: z.partialRecord(BacklogQueue, z.number().int().min(1)),
+        jobs: z
+            .partialRecord(BacklogQueue, z.number().int().min(1))
+            .refine((jobs) => Object.keys(jobs).length > 0, 'name at least one queue'),
         stateBytes: StateBytes,
         compressibility: z.number().min(0).max(1),
         parkFor: Duration,

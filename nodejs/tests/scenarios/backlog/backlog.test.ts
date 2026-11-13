@@ -4,6 +4,7 @@ import path from 'path'
 import { stringify } from 'yaml'
 import { deflateSync } from 'zlib'
 
+import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2/manager'
 import { defaultConfig } from '~/common/config/config'
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -147,6 +148,33 @@ describe('seed-backlog', () => {
             'hogflow: 180 live rows, outside 1% of the 200 the profile asks for'
         )
         expect(existsSync(manifestPath())).toBe(false)
+    })
+
+    it('holds no more than a batch of state in memory when the first batch goes out', async () => {
+        const held: number[] = []
+        const insert = CyclotronV2Manager.prototype.bulkCreateJobs
+        jest.spyOn(CyclotronV2Manager.prototype, 'bulkCreateJobs').mockImplementation(function (
+            this: CyclotronV2Manager,
+            ...args
+        ) {
+            held.push(process.memoryUsage().arrayBuffers)
+            return insert.apply(this, args)
+        })
+        const before = process.memoryUsage().arrayBuffers
+
+        expect(
+            await seed({
+                ...BACKLOG,
+                jobs: { hogflow: 1000 },
+                stateBytes: { p50: 100_000, p90: 100_000, p99: 100_000 },
+                compressibility: 1,
+            })
+        ).toBe(EXIT_CODE.passed)
+        expect(held[0] - before).toBeLessThan(32 * 1024 * 1024)
+    })
+
+    it('reaches only the tables its scratch schema copies', async () => {
+        await expect(query('SELECT 1 FROM _sqlx_migrations LIMIT 1')).rejects.toThrow('does not exist')
     })
 
     it('refuses a profile without a backlog', async () => {
