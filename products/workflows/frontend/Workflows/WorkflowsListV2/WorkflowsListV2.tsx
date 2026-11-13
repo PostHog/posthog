@@ -66,16 +66,6 @@ export function WorkflowsListV2(): JSX.Element {
         </div>
     )
     const renderLoadError = (): JSX.Element => {
-        if (browserLoadFailed) {
-            return (
-                <div className="border rounded p-8 text-center">
-                    <span>Couldn't load project folders</span>
-                    <LemonButton onClick={() => loadBrowser()} loading={browserReadyLoading}>
-                        Retry
-                    </LemonButton>
-                </div>
-            )
-        }
         if (loadFailed && !listLoaded) {
             return renderWorkflowsLoadError("Couldn't load workflows")
         }
@@ -133,6 +123,22 @@ export function WorkflowsListV2(): JSX.Element {
                         </div>
                     )}
                     <WorkflowFolderToolbar />
+                    {browserLoadFailed && (
+                        <div
+                            className="flex flex-col items-center gap-2 border rounded p-4 mb-2 text-center"
+                            data-attr="workflows-folders-load-failed"
+                        >
+                            <span>Couldn't load project folders, so every workflow is listed without its folder.</span>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => loadBrowser()}
+                                loading={browserReadyLoading}
+                            >
+                                Retry
+                            </LemonButton>
+                        </div>
+                    )}
                     {otherFilesScanFailed && !browserLoadFailed && (
                         <div
                             className="flex items-center gap-2 text-xs text-secondary mb-2"
@@ -150,7 +156,7 @@ export function WorkflowsListV2(): JSX.Element {
                             </LemonButton>
                         </div>
                     )}
-                    {(loadFailed && !listLoaded) || browserLoadFailed || metricsFailed ? (
+                    {(loadFailed && !listLoaded) || metricsFailed ? (
                         renderLoadError()
                     ) : showsAutomationSetup ? (
                         <AutomationEmptyState />

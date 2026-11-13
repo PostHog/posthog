@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconDecisionTree } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -19,6 +20,8 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const { placements, pendingFileMoveIds } = useValues(workflowFoldersLogic)
     const { syncTypeAndRef } = useActions(projectTreeDataLogic)
+    // A workflow with no file of its own never gets an entry, so asking again on every hover finds nothing new.
+    const synced = useRef(false)
     const candidate = placements?.[`hog_flow::${row.id}`]
     const entry = candidate?.shortcut ? undefined : candidate
     const canMove = !['viewer', 'none'].includes(row.workflow.user_access_level ?? '')
@@ -56,6 +59,12 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
             )}
         </span>
     )
+    const syncEntry = (): void => {
+        if (!entry && canMove && !synced.current) {
+            synced.current = true
+            syncTypeAndRef('hog_flow', row.id)
+        }
+    }
     return (
         <WorkflowFolderRow
             icon={<IconDecisionTree />}
@@ -64,8 +73,8 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
                     ? { id: getItemId(entry), label: `Drag workflow ${row.name}` }
                     : undefined
             }
-            onMouseEnter={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
-            onFocus={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
+            onMouseEnter={syncEntry}
+            onFocus={syncEntry}
         >
             {entry && <WorkflowFolderPath path={entry.path} />}
             <LemonTableLink
