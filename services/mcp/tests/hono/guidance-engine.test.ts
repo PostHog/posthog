@@ -403,7 +403,6 @@ describe('GuidanceEngine', () => {
     it.each([
         ['replay-sql-to-vision', 'select 1 from session_replay_events', true],
         ['replay-sql-to-vision', 'select 1 from raw_session_replay_events', true],
-        ['replay-sql-to-vision', 'select 1 from session_replay_features', true],
         ['replay-sql-to-vision', 'select 1 from console_logs_log_entries', true],
         ['replay-sql-to-vision', 'select 1 from system.session_recordings', true],
         ['replay-sql-to-vision', 'select 1 from log_entries', false],

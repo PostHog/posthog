@@ -139,7 +139,6 @@ from posthog.hogql.database.schema.precalculated_events import PrecalculatedEven
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
-from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
@@ -634,9 +633,6 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                     "trace_spans_kafka_metrics": TableNode(
                         name="trace_spans_kafka_metrics", table=TraceSpansKafkaMetricsTable()
-                    ),
-                    "session_replay_features": TableNode(
-                        name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
                     "hog_invocation_results": TableNode(
                         name="hog_invocation_results", table=HogInvocationResultsTable()
