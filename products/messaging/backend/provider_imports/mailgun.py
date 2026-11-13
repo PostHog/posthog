@@ -283,6 +283,7 @@ class MailgunImportProvider(ImportProvider):
                 "updated counts as one event."
             ),
             count_labels=CONTACT_COUNT_LABELS,
+            requires=("unsubscribes", "mailing_lists"),
         ),
         new_people_step("Mailgun"),
         ImportStepSpec(
