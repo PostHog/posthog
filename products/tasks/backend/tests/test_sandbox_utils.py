@@ -10,6 +10,7 @@ from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models import Integration, Team
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
@@ -30,6 +31,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_readonly_github_token,
     get_sandbox_api_url,
     get_scoped_github_token,
+    resolve_readonly_github_integration,
 )
 
 
@@ -93,6 +95,34 @@ def test_get_readonly_github_token_never_raises_and_refuses_personal_integration
         not isinstance(resolved, GitHubIntegration) or resolved.installation_unavailable.return_value
     ):
         resolved.mint_scoped_installation_token.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "selected_team, expected",
+    [("same", "selected"), ("other", "default")],
+    ids=["selected_installation", "other_team_installation_falls_back"],
+)
+def test_readonly_integration_follows_the_selected_installation(team, selected_team: str, expected: str) -> None:
+    # Repository selection can prefer an installation other than the default; a read-only token
+    # minted from the default one cannot read the private repositories it chose between.
+    other_team = Team.objects.create(organization=team.organization, name="other")
+    rows = {
+        name: Integration.objects.create(
+            team=owner,
+            kind="github",
+            integration_id=name,
+            config={"installation_id": name, "account": {"type": "Organization"}},
+            sensitive_config={},
+        )
+        for name, owner in (("default", team), ("selected", team), ("foreign", other_team))
+    }
+    selected = rows["selected"] if selected_team == "same" else rows["foreign"]
+
+    resolved = resolve_readonly_github_integration(team.id, integration_id=selected.id)
+
+    assert resolved is not None
+    assert resolved.integration.id == rows[expected].id
 
 
 @pytest.mark.parametrize(
@@ -192,14 +222,14 @@ def test_readonly_request_takes_priority_over_full_credential_path(
         github_integration_id=5,
         repository=repository,
         distinct_id="d",
-        state={"github_read_access": True},
+        state={"github_read_access": True, "github_read_integration_id": 7},
     )
 
     token = _resolve_sandbox_github_token(
         ctx, task=MagicMock(), actor_user=None, repository=repository, has_repo=has_repo
     )
 
-    mock_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories)
+    mock_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories, integration_id=7)
     assert token == ("READONLY_TOKEN" if token_available else "")
     mock_state.assert_called_once_with(ctx.run_id, updates={"github_read_access_available": token_available})
     mock_full.assert_not_called()

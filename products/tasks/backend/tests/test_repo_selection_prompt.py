@@ -460,7 +460,8 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
     session = MagicMock()
     session.end = AsyncMock()
     start = AsyncMock(return_value=(session, result))
-    github = MagicMock()
+    github = MagicMock(spec=GitHubIntegration)
+    github.integration = MagicMock(id=9)
     github.list_all_cached_repositories.return_value = [
         {"full_name": "acme/a", "private": False},
         {"full_name": "acme/b", "private": False},
@@ -488,6 +489,8 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
 
     assert selected.repository == "acme/a"
     assert start.call_args.kwargs["context"].github_read_access is True
+    # The sandbox token must come from the installation the candidates were listed from.
+    assert start.call_args.kwargs["context"].github_read_integration_id == 9
     prompt = start.call_args.kwargs["prompt"]
     if expected_in_prompt:
         assert f"filed as an issue in `{expected_in_prompt}`" in prompt

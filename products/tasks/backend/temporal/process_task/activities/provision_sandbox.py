@@ -451,7 +451,12 @@ def _resolve_sandbox_github_token(
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
     if ctx.github_read_access:
-        github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
+        github_token = (
+            get_readonly_github_token(
+                ctx.team_id, repositories=ctx.repositories, integration_id=ctx.github_read_integration_id
+            )
+            or ""
+        )
         TaskRun.update_state_atomic(ctx.run_id, updates={"github_read_access_available": bool(github_token)})
         if github_token:
             log_with_activity_context("Read-only GitHub token minted for evidence gathering", run_id=ctx.run_id)
@@ -1543,7 +1548,12 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
             # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
             # read-only run must never regain the write-capable token on resume, cloned repos or
             # not. Best-effort, since an empty token just leaves the sandbox without GitHub access.
-            github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
+            github_token = (
+                get_readonly_github_token(
+                    ctx.team_id, repositories=ctx.repositories, integration_id=ctx.github_read_integration_id
+                )
+                or ""
+            )
         elif ctx.has_github_credentials:
             try:
                 github_token = (

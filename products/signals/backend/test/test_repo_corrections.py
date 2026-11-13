@@ -112,6 +112,13 @@ class TestRepoCorrections(BaseTest):
 
 
 class TestSelectRepositoryPassesCorrections(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Runs on its own DB connection, which cannot see this test's uncommitted team.
+        resolve_github = patch.object(select_repo, "resolve_signals_github_integration", return_value=None)
+        resolve_github.start()
+        self.addCleanup(resolve_github.stop)
+
     @parameterized.expand(
         [
             ("invalid_output", ValueError("Invalid selection output")),
@@ -147,7 +154,6 @@ class TestSelectRepositoryPassesCorrections(BaseTest):
             patch.object(select_repo, "wrong_repo_corrections_block", return_value="- entry") as block,
             patch.object(select_repo, "select_repository", new=select),
             patch.object(select_repo, "resolve_agent_runtime", return_value=runtime),
-            patch.object(select_repo, "resolve_signals_github_integration", return_value=None),
         ):
             result = async_to_sync(select_repo.select_repository_for_team)(
                 self.team.id, self.user.id, "context", source_repository="acme/website"

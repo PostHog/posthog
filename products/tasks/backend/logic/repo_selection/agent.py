@@ -901,6 +901,7 @@ async def select_repository(
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
         github_read_access=True,
+        github_read_integration_id=github.integration.id if isinstance(github, GitHubIntegration) else None,
         disable_skills=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
         # The caller's per-step runtime/model override, or the selector default when it names none.

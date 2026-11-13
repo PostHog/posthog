@@ -172,6 +172,10 @@ class CustomPromptSandboxContext:
     ``contents: read``, so a run that pins repositories still clones them and just cannot push.
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
+    github_read_integration_id: int | None = None
+    """Team GitHub integration the read-only token is minted from. ``None`` uses the default
+    resolution. Set it when the caller already chose an installation, so the sandbox can read the
+    repositories that installation reaches."""
     github_token_scope: Literal["read", "push"] | None = None
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
@@ -374,6 +378,8 @@ async def _create_task_and_trigger(
         extra_run_state["codex_shared_prompt_cache"] = True
     if context.disable_skills:
         extra_run_state["disable_skills"] = True
+    if context.github_read_integration_id is not None:
+        extra_run_state["github_read_integration_id"] = context.github_read_integration_id
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:
