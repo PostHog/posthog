@@ -546,7 +546,8 @@ def _senders(team_id: int) -> dict[str, IntegrationRecord]:
 
 @frozen
 class _Sender:
-    """A Resend `from` header matched to the team's PostHog senders. Address and name are literal Liquid."""
+    """A Resend `from` header matched to the team's PostHog senders. Resend's address and display name have `{{` and
+    `{%` escaped, so they print as text in an email."""
 
     address: str
     name: str

@@ -138,13 +138,13 @@ class TestResendAutomationTranslation(SimpleTestCase):
             (
                 "variable_keeps_its_type",
                 {"first_name": {"var": "event.first_name"}},
-                {"first_name": "{event.properties.first_name}"},
+                {"first_name": "{event.properties['first_name']}"},
                 "",
             ),
             (
                 "contact_variable_reads_the_person",
                 {"last_name": {"var": "contact.last_name"}},
-                {"last_name": "{person.properties.last_name}"},
+                {"last_name": "{person.properties['last_name']}"},
                 "",
             ),
             (
@@ -158,6 +158,18 @@ class TestResendAutomationTranslation(SimpleTestCase):
                 "hyphen_in_a_variable_name",
                 {"properties": {"tier": {"var": "event.order-tier"}}},
                 {"tier": "{event.properties['order-tier']}"},
+                "",
+            ),
+            (
+                "accented_variable_name",
+                {"properties": {"prénom": {"var": "event.prénom"}}},
+                {"prénom": "{event.properties['prénom']}"},
+                "",
+            ),
+            (
+                "reserved_word_as_a_variable_name",
+                {"properties": {"note": {"var": "event.null"}}},
+                {"note": "{event.properties['null']}"},
                 "",
             ),
             (
