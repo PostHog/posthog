@@ -28,8 +28,6 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
-
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.presentation.serializers.session_replay import (
     ExperimentInSessionExposureSerializer,

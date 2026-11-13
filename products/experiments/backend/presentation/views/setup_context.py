@@ -16,7 +16,6 @@ from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 from products.experiments.backend.presentation.serializers.setup_context import (
     ExperimentSetupContextInputSerializer,

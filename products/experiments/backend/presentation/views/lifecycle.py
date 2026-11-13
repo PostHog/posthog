@@ -15,8 +15,6 @@ from posthog.permissions import get_authenticator_scopes, is_scout_sandbox_reque
 from posthog.user_permissions import UserPermissions
 
 from products.experiments.backend.experiment_service import ExperimentService
-
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.presentation.scout_writes import (
     refuse_scout_cleanup_pr,

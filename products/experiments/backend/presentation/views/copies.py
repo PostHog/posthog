@@ -19,8 +19,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import LegacyMigrationError
 from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
-
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import Experiment, experiment_has_legacy_metrics
 from products.experiments.backend.presentation.scout_writes import (
     refuse_scout_experiment_copy_to_project,

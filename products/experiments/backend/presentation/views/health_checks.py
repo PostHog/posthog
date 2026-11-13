@@ -23,8 +23,6 @@ from products.access_control.backend.facade.api import (
 )
 from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
-
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.presentation.serializers.health_checks import (
     ExperimentHealthInputsSerializer,

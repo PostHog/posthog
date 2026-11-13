@@ -15,8 +15,6 @@ from posthog.api.utils import action
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
-
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.presentation.serializers.experiment_crud import ExperimentSerializer
 from products.experiments.backend.presentation.serializers.prompts import CreateFromPromptInputSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag

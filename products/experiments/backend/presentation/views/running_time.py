@@ -11,8 +11,6 @@ from posthog.api.utils import action
 
 from products.experiments.backend.facade.api import get_running_time_target
 from products.experiments.backend.facade.contracts import RunningTimeMode
-
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.presentation.serializers.running_time import (
     RunningTimeCalculationInputSerializer,
