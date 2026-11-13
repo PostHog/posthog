@@ -1,103 +1,31 @@
-import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from contextlib import nullcontext
 from functools import partial
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 import dagster
-import psycopg2
-import psycopg2.extras
-from confluent_kafka import KafkaError, KafkaException
+from confluent_kafka import ConsumerGroupTopicPartitions, KafkaError, KafkaException, TopicPartition
+from confluent_kafka.admin import OffsetSpec
 from parameterized import parameterized
 
-from posthog.dags.personhog_shadow_drift import ShadowLaneStopConfig, stop_shadow_lane
 from posthog.dags.personhog_shadow_lane import (
-    GROUP_ID_NOT_FOUND,
-    NON_EMPTY_GROUP,
     SHADOW_CONSUMER_DEPLOYMENT,
     SHADOW_CONSUMER_GROUP,
     SHADOW_KAFKA_BOOTSTRAP_ENV_VAR,
     SHADOW_PROCESSOR_DEPLOYMENT,
     ShadowLaneStartConfig,
-    _reset_consumer_offsets,
-    _reset_shadow_state,
+    ShadowLaneStopConfig,
+    _move_consumer_offsets,
     processor_ramp,
-    read_shadow_write_counter,
-    require_shadow_dsn,
     shadow_kafka_admin,
     start_shadow_lane,
+    stop_shadow_lane,
     wait_for_deployments,
-    wait_for_quiescence,
 )
-from posthog.persons_db import persons_db_url
-
-
-class TestRequireShadowDsn:
-    @parameterized.expand(
-        [
-            ("postgres://user:pass@persons-shadow.cluster-abc.us-east-1.rds.amazonaws.com:5432/posthog",),
-            ("postgres://user@localhost:5432/persons_shadow_test",),
-        ]
-    )
-    def test_accepts_shadow_targets(self, url: str) -> None:
-        require_shadow_dsn(url)
-
-    @parameterized.expand(
-        [
-            (
-                "postgres://user:pass@posthog-cloud-persons-prod-us-east-1.cluster-abc.us-east-1.rds.amazonaws.com:5432/posthog",
-            ),
-            ("postgres://user@localhost:5432/posthog_persons",),
-            ("postgres://user:shadow@localhost:5432/posthog_persons",),
-            # libpq lets query parameters and multi-host authorities point the
-            # connection somewhere other than the URL's hostname.
-            ("postgres://user@persons-shadow.example:5432/posthog?hostaddr=10.0.0.1",),
-            ("postgres://user@persons-shadow.example:5432/posthog?host=prod.example",),
-            ("postgres://user@persons-shadow.example:5432/posthog?dbname=production",),
-            ("postgres://user@persons-shadow.example:5432/posthog?service=prod",),
-            ("postgres://user@persons-shadow.example,prod.example:5432/posthog",),
-            # A libpq key/value DSN has no URL authority for the guard to check.
-            ("host=prod.example dbname=posthog user=dagster_shadow",),
-        ]
-    )
-    def test_rejects_non_shadow_targets(self, url: str) -> None:
-        with pytest.raises(dagster.Failure):
-            require_shadow_dsn(url)
-
-
-class TestWaitForQuiescence:
-    @parameterized.expand(
-        [
-            ("flat_counter", [5, 5, 5, 5], 3, 4),
-            ("moving_then_flat", [5, 6, 6, 7, 7, 7], 2, 6),
-        ]
-    )
-    def test_returns_once_counter_is_stable(
-        self, _name: str, readings: list[int], stable_checks: int, expected_polls: int
-    ) -> None:
-        values = iter(readings)
-        polls = wait_for_quiescence(
-            lambda: next(values),
-            poll_seconds=0,
-            stable_checks=stable_checks,
-            timeout_seconds=60,
-            sleep=lambda _seconds: None,
-        )
-        assert polls == expected_polls
-
-    def test_raises_when_counter_never_settles(self) -> None:
-        counter = iter(range(1000))
-        with pytest.raises(TimeoutError):
-            wait_for_quiescence(
-                lambda: next(counter),
-                poll_seconds=0,
-                stable_checks=2,
-                timeout_seconds=0,
-                sleep=lambda _seconds: None,
-            )
 
 
 class TestWaitForDeployments:
@@ -244,13 +172,13 @@ def stopping_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[..., _StoppingApp
         apps = _StoppingAppsApi(linger_polls)
         clock = _FakeClock()
         monkeypatch.setattr("posthog.dags.personhog_shadow_lane.time", clock)
-        monkeypatch.setattr("posthog.dags.personhog_shadow_drift.apps_api", lambda: apps)
+        monkeypatch.setattr("posthog.dags.personhog_shadow_lane.apps_api", lambda: apps)
         monkeypatch.setattr(
-            "posthog.dags.personhog_shadow_drift.deployment_pod_count",
+            "posthog.dags.personhog_shadow_lane.deployment_pod_count",
             lambda _apps, _namespace, name: apps.pod_count(name),
         )
         monkeypatch.setattr(
-            "posthog.dags.personhog_shadow_drift.wait_for_deployments",
+            "posthog.dags.personhog_shadow_lane.wait_for_deployments",
             partial(wait_for_deployments, sleep=clock.sleep),
         )
         return apps
@@ -303,20 +231,42 @@ def stopped_lane(monkeypatch: pytest.MonkeyPatch) -> _FakeAppsApi:
 
 
 class _FakeKafkaAdmin:
-    def __init__(self, error_code: int | None = None) -> None:
-        self.error_code = error_code
-        self.deleted: list[str] = []
+    """Answers offset lookups from fixed tables: a partition with nothing after the time reports -1."""
 
-    def delete_consumer_groups(self, group_ids: list[str], **_kwargs: object) -> dict[str, Future]:
-        futures: dict[str, Future] = {}
-        for group_id in group_ids:
+    def __init__(self, at_time: dict[int, int], latest: dict[int, int], refuse: bool = False) -> None:
+        self.at_time = at_time
+        self.latest = latest
+        self.refuse = refuse
+        self.altered: list[tuple[str, list[tuple[int, int]]]] = []
+
+    def list_topics(self, topic: str, timeout: float) -> Any:
+        return SimpleNamespace(
+            topics={topic: SimpleNamespace(partitions=dict.fromkeys(self.at_time), error=None)},
+        )
+
+    def list_offsets(self, topic_partition_offsets: dict[TopicPartition, Any], **_kwargs: Any) -> dict[Any, Future]:
+        futures: dict[Any, Future] = {}
+        for topic_partition, spec in topic_partition_offsets.items():
+            table = self.latest if isinstance(spec, type(OffsetSpec.latest())) else self.at_time
             future: Future = Future()
-            if self.error_code is None:
-                self.deleted.append(group_id)
-                future.set_result(None)
+            future.set_result(SimpleNamespace(offset=table[topic_partition.partition]))
+            futures[topic_partition] = future
+        return futures
+
+    def alter_consumer_group_offsets(
+        self, alter_consumer_group_offsets_request: list[ConsumerGroupTopicPartitions], **_kwargs: Any
+    ) -> dict[str, Future]:
+        futures: dict[str, Future] = {}
+        for group in alter_consumer_group_offsets_request:
+            future: Future = Future()
+            if self.refuse:
+                future.set_exception(KafkaException(KafkaError(KafkaError.UNKNOWN_MEMBER_ID)))  # type: ignore[attr-defined]
             else:
-                future.set_exception(KafkaException(KafkaError(self.error_code)))
-            futures[group_id] = future
+                self.altered.append(
+                    (group.group_id, [(tp.partition, tp.offset) for tp in group.topic_partitions or []])
+                )
+                future.set_result(group)
+            futures[group.group_id] = future
         return futures
 
 
@@ -324,49 +274,32 @@ def _no_admin() -> _FakeKafkaAdmin:
     raise AssertionError("the admin client must not be reached while the lane has pods")
 
 
-@parameterized.expand(
-    [
-        (
-            "reset_state",
-            lambda context, apps: _reset_shadow_state(context, ShadowLaneStartConfig(reset_state=True), apps),
-        ),
-        (
-            "reset_offsets",
-            lambda context, apps: _reset_consumer_offsets(
-                context, ShadowLaneStartConfig(reset_offsets=True), apps, _no_admin
-            ),
-        ),
-    ]
-)
-def test_reset_refuses_while_lane_wants_pods(
-    _name: str, reset: Callable[[dagster.OpExecutionContext, _FakeAppsApi], object]
-) -> None:
-    with pytest.raises(dagster.Failure, match="stop-and-compare"):
-        reset(dagster.build_op_context(), _FakeAppsApi(desired_replicas=2))
+def test_offset_move_refuses_while_lane_wants_pods() -> None:
+    with pytest.raises(dagster.Failure, match="Run the stop job first"):
+        _move_consumer_offsets(
+            dagster.build_op_context(),
+            ShadowLaneStartConfig(start_offsets_at_ms=1),
+            _FakeAppsApi(desired_replicas=2),
+            _no_admin,
+        )
 
 
-@pytest.mark.parametrize(
-    "error_code,expected",
-    [
-        pytest.param(None, True, id="deleted"),
-        pytest.param(GROUP_ID_NOT_FOUND, False, id="missing_group"),
-    ],
-)
-def test_offset_reset_deletes_the_consumer_group(
-    stopped_lane: _FakeAppsApi, error_code: int | None, expected: bool
-) -> None:
-    admin = _FakeKafkaAdmin(error_code)
-    config = ShadowLaneStartConfig(reset_offsets=True)
-    deleted = _reset_consumer_offsets(dagster.build_op_context(), config, stopped_lane, lambda: admin)
-    assert deleted == expected
-    assert admin.deleted == ([SHADOW_CONSUMER_GROUP] if expected else [])
+def test_offsets_move_to_the_time_and_past_the_end_to_the_end(stopped_lane: _FakeAppsApi) -> None:
+    admin = _FakeKafkaAdmin(at_time={0: 10, 1: -1, 2: 30}, latest={1: 99})
+
+    moved = _move_consumer_offsets(
+        dagster.build_op_context(), ShadowLaneStartConfig(start_offsets_at_ms=1), stopped_lane, lambda: admin
+    )
+
+    assert moved == 3
+    assert admin.altered == [(SHADOW_CONSUMER_GROUP, [(0, 10), (1, 99), (2, 30)])]
 
 
-def test_offset_reset_fails_while_the_group_has_members(stopped_lane: _FakeAppsApi) -> None:
-    admin = _FakeKafkaAdmin(NON_EMPTY_GROUP)
-    with pytest.raises(dagster.Failure, match="still has members"):
-        _reset_consumer_offsets(
-            dagster.build_op_context(), ShadowLaneStartConfig(reset_offsets=True), stopped_lane, lambda: admin
+def test_offset_move_fails_when_kafka_refuses_it(stopped_lane: _FakeAppsApi) -> None:
+    admin = _FakeKafkaAdmin(at_time={0: 10}, latest={}, refuse=True)
+    with pytest.raises(dagster.Failure, match="Kafka refused to move"):
+        _move_consumer_offsets(
+            dagster.build_op_context(), ShadowLaneStartConfig(start_offsets_at_ms=1), stopped_lane, lambda: admin
         )
 
 
@@ -374,37 +307,3 @@ def test_offset_reset_needs_the_bootstrap_servers(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv(SHADOW_KAFKA_BOOTSTRAP_ENV_VAR, raising=False)
     with pytest.raises(dagster.Failure, match=SHADOW_KAFKA_BOOTSTRAP_ENV_VAR):
         shadow_kafka_admin()
-
-
-@pytest.mark.persons_db_direct
-@pytest.mark.django_db(transaction=True)
-def test_write_counter_ignores_lifecycle_op_tables() -> None:
-    connection = psycopg2.connect(persons_db_url(writer=True), cursor_factory=psycopg2.extras.RealDictCursor)
-    connection.autocommit = True
-    op_id = str(uuid.uuid4())
-    person_uuid = str(uuid.uuid4())
-    try:
-        before = read_shadow_write_counter(connection)
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO lifecycle_op_tmp (op_id, op_type, team_id, step, request) "
-                "VALUES (%s, 'merge', 2, 'start', '{}')",
-                (op_id,),
-            )
-            cursor.execute("DELETE FROM lifecycle_op_tmp WHERE op_id = %s", (op_id,))
-            cursor.execute("SELECT pg_stat_force_next_flush()")
-        assert read_shadow_write_counter(connection) == before
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO posthog_person (created_at, properties, is_identified, uuid, version, team_id, is_deleted) "
-                "VALUES (now(), '{}', false, %s, 1, 2, false)",
-                (person_uuid,),
-            )
-            cursor.execute("SELECT pg_stat_force_next_flush()")
-        assert read_shadow_write_counter(connection) == before + 1
-    finally:
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM posthog_person WHERE uuid = %s", (person_uuid,))
-        connection.close()
