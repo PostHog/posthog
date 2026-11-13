@@ -12786,22 +12786,24 @@ Note: Diffed against the official twilio-oai api/2010-04-01 spec (121 paths). Th
 
 ## Twitter — **thin**
 
-Today (7): `Followers`, `Following`, `LikedPosts`, `Mentions`, `OwnedLists`, `Posts`, `Profile`
+Today (9): `ApiUsage`, `Followers`, `Following`, `LikedPosts`, `Mentions`, `OwnedLists`, `Posts`, `Profile`, `SearchedPosts`
 
 Diffed against: <https://docs.x.com/openapi.json>
 
 - [ ] `Users by IDs (GET /2/users)` — resolve author IDs on mentions, liked posts, and referenced posts beyond the configured profile and follower lists (high)
 - [ ] `Posts analytics (GET /2/tweets/analytics)` — measure impressions, clicks, and engagement over time, beyond the cumulative public metrics on synced posts (high)
-- [ ] `Recent post search (GET /2/tweets/search/recent)` — track brand keywords and conversation replies that do not directly mention the configured account (high)
+- [x] `Recent post search (GET /2/tweets/search/recent)` — track brand keywords and conversation replies that do not directly mention the configured account (high)
 - [ ] `Post liking users (GET /2/tweets/{id}/liking_users)` — identify accounts that engage with each post and compare audience segments (medium)
 - [ ] `Post reposting users (GET /2/tweets/{id}/retweeted_by)` — identify accounts that distribute posts and assess audience reach through reposts (medium)
 - [ ] `Quoted posts (GET /2/tweets/{id}/quote_tweets)` — analyze commentary and discussion attached to quoted posts (medium)
 - [ ] `List members (GET /2/lists/{id}/members)` — materialize membership of owned lists for audience and community analysis (medium)
 - [ ] `List posts (GET /2/lists/{id}/tweets)` — analyze content published by members of curated lists (medium)
 - [ ] `Direct message events (GET /2/dm_events)` — measure private customer conversations and message activity for support and outreach analysis (medium)
-- [ ] `API usage (GET /2/usage/tweets)` — monitor post consumption by project and application to track API utilization (medium)
+- [x] `API usage (GET /2/usage/tweets)` — monitor post consumption by project and application to track API utilization (medium)
 
 Note: Compared every GET operation in the current official X API specification with the seven source paths. Post and list engagement endpoints need requests for each parent; user lookup accepts batches of IDs. Analytics and direct messages require user authorization, while the current source accepts an application bearer token. Excluded write operations, uploads, webhook administration, compliance jobs, and continuous streams; plan access was not tested.
+
+Not built: `Posts analytics` accepts only user-context tokens, and this source uses an app-only bearer token. `Users by IDs` is a lookup by up to 100 IDs, not a list: the IDs would come from reading the `Mentions` and `LikedPosts` timelines again, and X bills each post read.
 
 ## TwitterAds — gaps
 
@@ -12841,14 +12843,14 @@ Note: docs.ubidots.com is a ReadMe site that renders endpoints client-side, so I
 
 ## Unleash — gaps
 
-Today (11): `addons`, `context_fields`, `environments`, `feature_types`, `features`, `projects`, `segments`, `strategies`, `tag_types`, `tags`, `users`
+Today (14): `addons`, `context_fields`, `environments`, `events`, `feature_metrics`, `feature_strategies`, `feature_types`, `features`, `projects`, `segments`, `strategies`, `tag_types`, `tags`, `users`
 
 Diffed against: <https://app.unleash-hosted.com/demo/docs/openapi.json>
 
-- [ ] `events (GET /api/admin/events, /api/admin/events/{featureName}, POST /api/admin/search/events)` — the full change/audit history — who toggled which flag when; the core analytical table of a flag system (high)
-- [ ] `client metrics (GET /api/admin/client-metrics/features/{name} and /raw)` — per-flag evaluation counts (yes/no) by environment — Unleash's headline usage metric, entirely absent today (high)
-- [ ] `feature strategies per environment (GET /api/admin/projects/{projectId}/features/{featureName}/environments/{environment}/strategies)` — resolves which strategy and rollout is live in which environment; the synced features and strategies tables cannot be joined without it (high)
-- [ ] `project features (GET /api/admin/projects/{projectId}/features)` — authoritative project-to-feature membership, including archived and stale state the flat features list omits (high)
+- [x] `events (GET /api/admin/events, /api/admin/events/{featureName}, POST /api/admin/search/events)` — the full change/audit history — who toggled which flag when; the core analytical table of a flag system (high). Added as `events` from `GET /api/admin/search/events` (incremental on `createdAt`). The other two calls are deprecated, and the search call is a `GET`.
+- [x] `client metrics (GET /api/admin/client-metrics/features/{name} and /raw)` — per-flag evaluation counts (yes/no) by environment — Unleash's headline usage metric, entirely absent today (high). Added as `feature_metrics` from `/raw` (fan-out over `features`, incremental on `timestamp` through `hoursBack`). The summary call skipped: it sums the same hourly rows.
+- [x] `feature strategies per environment (GET /api/admin/projects/{projectId}/features/{featureName}/environments/{environment}/strategies)` — resolves which strategy and rollout is live in which environment; the synced features and strategies tables cannot be joined without it (high). Added as `feature_strategies` from `GET /api/admin/projects/{projectId}/features/{featureName}` (fan-out over `features`), which returns every environment's strategies in one request.
+- ~~`project features (GET /api/admin/projects/{projectId}/features)` — authoritative project-to-feature membership, including archived and stale state the flat features list omits (high)~~ — skipped: its rows are a subset of the `features` table, which already has `project` and `stale`, and the call does not return archived flags
 - [ ] `applications and instances (GET /api/admin/metrics/applications, /{appName}/overview, /instances/{appName}/environment/{environment})` — registered SDK apps and connected instances — which services actually consume which flags (medium)
 - [ ] `feature lifecycle (GET /api/admin/projects/{projectId}/features/{featureName}/lifecycle, /api/admin/lifecycle/count, /api/admin/insights/lifecycle)` — stage transition history powering flag-debt and cleanup reporting (medium)
 - [ ] `feature tags (GET /api/admin/features/{featureName}/tags)` — feature-to-tag join table; tags and tag_types are synced but nothing links them to flags (medium)
