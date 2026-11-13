@@ -353,6 +353,7 @@ _SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
 _PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT = "tasks-rotation-activity-before-boot"
+_PATCH_ID_END_IDLE_RUN_AT_SANDBOX_DEADLINE = "tasks-end-idle-run-at-sandbox-deadline"
 
 
 def _check_rotation_activity_before_boot() -> bool:
@@ -724,6 +725,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         """
         if self._context is None or not self._context.sandbox_rotation_enabled:
             return "flag_disabled"
+        return self._sandbox_activity_block_reason()
+
+    def _sandbox_activity_block_reason(self) -> str | None:
         if self._agent_active:
             return "agent_active"
         if self._end_of_turn_received is False:
@@ -735,6 +739,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if not self._sandbox_rotation_idle:
             return "agent_activity"
         return None
+
+    def _ends_idle_run_at_sandbox_deadline(self) -> bool:
+        """Ends an idle run that cannot rotate: work after the deadline snapshot dies with the sandbox."""
+        if self._context is None or self._context.sandbox_rotation_enabled:
+            return False
+        if self._sandbox_activity_block_reason() is not None:
+            return False
+        return workflow.patched(_PATCH_ID_END_IDLE_RUN_AT_SANDBOX_DEADLINE)
 
     async def _wait_for_sandbox_deadline(self) -> TaskEvent:
         """Wake up shortly before the provider kills the sandbox.
@@ -1304,6 +1316,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
                     case TaskEvent.SANDBOX_TTL_APPROACHING:
+                        if self._ends_idle_run_at_sandbox_deadline():
+                            timeout_event = TaskEvent.TIMEOUT_REACHED
+                            break
                         self._sandbox_ttl_snapshot_taken = True
                         deadline_started_at = workflow.now()
                         workflow.logger.info(

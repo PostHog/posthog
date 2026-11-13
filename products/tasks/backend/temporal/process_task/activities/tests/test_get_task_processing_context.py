@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import call, patch
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.test import override_settings
 
@@ -506,6 +507,33 @@ class TestGetTaskProcessingContextActivity:
         )
 
         assert result.create_pr is expected
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "payload,expected",
+        [
+            ({"user": "on"}, False),
+            ({"user": "off"}, True),
+            ({"slack": "on"}, True),
+            (None, True),
+        ],
+    )
+    def test_get_task_processing_context_stops_rotating_a_profile_that_starts_a_run_per_wake(
+        self, activity_environment, test_task, payload, expected
+    ):
+        test_task.profile = "user"
+        test_task.save(update_fields=["profile"])
+        task_run = test_task.create_run()
+        cache.delete(f"tasks:run_per_wake:{test_task.team_id}:user")
+
+        with patch(
+            "products.tasks.backend.run_per_wake.posthoganalytics.get_feature_flag_payload", return_value=payload
+        ):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.sandbox_rotation_enabled is expected
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
