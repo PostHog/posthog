@@ -405,6 +405,9 @@ class _Converter:
         sides: list[str] = []
         for argument in (left, right):
             if _LITERAL_ARGUMENT.match(argument):
+                # The renderer decodes entities inside a tag before parsing it, so `&quot;` would end the string.
+                if _ENTITY.search(argument):
+                    return None
                 sides.append(_string_literal(argument))
                 continue
             path = self._path(argument)

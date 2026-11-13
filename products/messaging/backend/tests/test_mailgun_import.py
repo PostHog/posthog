@@ -553,6 +553,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "{{#if (eq a b)}}x{{/if}}",
                 "{% raw %}{{#if (eq a b)}}{% endraw %}x{% raw %}{{/if}}{% endraw %}",
             ),
+            (
+                "entity_in_an_equal_literal_stays_text",
+                '{{#equal a "&quot; or person.properties.vip or &quot;"}}x{{/equal}}',
+                '{% raw %}{{#equal a "&quot; or person.properties.vip or &quot;"}}{% endraw %}x'
+                "{% raw %}{{/equal}}{% endraw %}",
+            ),
             ("stray_closer", "x{{/if}}", "x{% raw %}{{/if}}{% endraw %}"),
             ("stray_else", "x{{else}}", "x{% raw %}{{else}}{% endraw %}"),
             ("unclosed_opening", "a {{ b", 'a {{ "{{" }} b'),
