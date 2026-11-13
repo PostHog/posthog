@@ -1,9 +1,8 @@
 import type { ComponentType, ReactElement } from 'react'
 
 import { track } from '@/lib/analytics'
-import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
-import { LiveIcon } from '@/ui/icons/LiveIcon'
+import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { SpacesIcon } from '@/ui/icons/SpacesIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { ViewsIcon } from '@/ui/icons/ViewsIcon'
@@ -20,11 +19,10 @@ import { SettingsRadioRow } from './SettingsRadioRow'
 
 // The same glyphs as the bottom bar, so the rows read as the tabs they open.
 const ICONS: Record<DefaultPage, ComponentType<IconProps>> = {
-    inbox: HomeIcon,
+    live: HomeIcon,
+    inbox: InboxIcon,
     chats: SpacesIcon,
     views: ViewsIcon,
-    web_analytics: GlobeIcon,
-    live: LiveIcon,
 }
 
 export function DefaultPageGroup(): ReactElement {

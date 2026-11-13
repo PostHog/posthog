@@ -1721,6 +1721,8 @@ from = [
 path = "products.data_catalog"
 depends_on = [
     "posthog",
+    # Facade-only: the usage tab checks object access on the dashboards its charts sit on.
+    "products.dashboards",
     "products.data_quality",
     "products.data_tools",
     "products.product_analytics",
