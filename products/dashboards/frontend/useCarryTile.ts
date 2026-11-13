@@ -3,10 +3,10 @@ import type { MutableRefObject, RefObject } from 'react'
 
 import { type TileCarry, type TilePickUp, carryTile, getTilePickUp, travelledLikeClick } from './carryTile'
 
-export type TileMoveInput = 'drag' | 'click' | 'canceled'
+export type TileCarryInput = 'drag' | 'click' | 'canceled'
 export type TileCarryKind = 'move' | 'resize'
 
-interface UseClickToMoveTileProps {
+interface UseCarryTileProps {
     containerRef: RefObject<HTMLElement>
     enabled: boolean
     handleSelector: string
@@ -16,21 +16,20 @@ interface UseClickToMoveTileProps {
     onCarryCanceled?: (kind: TileCarryKind) => void
 }
 
-export interface ClickToMoveTile {
-    tileMoveInputRef: MutableRefObject<TileMoveInput>
-    carryHeldDrag: (gridItem: HTMLElement | null) => void
-    carryHeldResize: (resizeHandle: HTMLElement | null) => void
+export interface CarryTileControls {
+    tileCarryInputRef: MutableRefObject<TileCarryInput>
+    carryHeld: (target: HTMLElement | null, kind: TileCarryKind) => void
 }
 
-export function useClickToMoveTile({
+export function useCarryTile({
     containerRef,
     enabled,
     handleSelector,
     cancelSelector,
     onCarryingChange,
     onCarryCanceled,
-}: UseClickToMoveTileProps): ClickToMoveTile {
-    const tileMoveInputRef = useRef<TileMoveInput>('drag')
+}: UseCarryTileProps): CarryTileControls {
+    const tileCarryInputRef = useRef<TileCarryInput>('drag')
     const carryRef = useRef<TileCarry | null>(null)
     const pressRef = useRef<{ x: number; y: number } | null>(null)
     const onCarryingChangeRef = useRef(onCarryingChange)
@@ -53,18 +52,18 @@ export function useClickToMoveTile({
                 announced = true
                 onCarryingChangeRef.current(kind)
             }
-            const finish = (finalInput: TileMoveInput): void => {
+            const finish = (finalInput: TileCarryInput): void => {
                 carryRef.current = null
                 if (announced) {
                     onCarryingChangeRef.current(null)
                 }
-                tileMoveInputRef.current = finalInput
+                tileCarryInputRef.current = finalInput
                 // The drag stop handler reads the input once the release reaches react-grid-layout, after this handler.
                 window.setTimeout(() => {
-                    tileMoveInputRef.current = 'drag'
+                    tileCarryInputRef.current = 'drag'
                 }, 0)
             }
-            tileMoveInputRef.current = input
+            tileCarryInputRef.current = input
             if (input === 'click') {
                 announce()
             }
@@ -80,7 +79,7 @@ export function useClickToMoveTile({
                         travelledLikeClick({ x: clientX, y: clientY }, event.clientX, event.clientY)
                     ) {
                         input = 'click'
-                        tileMoveInputRef.current = input
+                        tileCarryInputRef.current = input
                     }
                     announce()
                 },
@@ -94,26 +93,14 @@ export function useClickToMoveTile({
         []
     )
 
-    const carryHeldDrag = useCallback(
-        (gridItem: HTMLElement | null): void => {
+    const carryHeld = useCallback(
+        (target: HTMLElement | null, kind: TileCarryKind): void => {
             const press = pressRef.current
-            const grid = gridItem?.parentElement
-            if (carryRef.current || !press || !gridItem || !grid) {
+            const grid = target?.closest('.react-grid-item')?.parentElement
+            if (carryRef.current || !press || !target || !grid) {
                 return
             }
-            startCarrying({ target: gridItem, grid }, press.x, press.y, 'drag', 'move')
-        },
-        [startCarrying]
-    )
-
-    const carryHeldResize = useCallback(
-        (resizeHandle: HTMLElement | null): void => {
-            const press = pressRef.current
-            const grid = resizeHandle?.closest('.react-grid-item')?.parentElement
-            if (carryRef.current || !press || !resizeHandle || !grid) {
-                return
-            }
-            startCarrying({ target: resizeHandle, grid }, press.x, press.y, 'drag', 'resize')
+            startCarrying({ target, grid }, press.x, press.y, 'drag', kind)
         },
         [startCarrying]
     )
@@ -151,5 +138,5 @@ export function useClickToMoveTile({
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- containerRef is a stable ref object
     }, [enabled, handleSelector, cancelSelector, startCarrying])
 
-    return { tileMoveInputRef, carryHeldDrag, carryHeldResize }
+    return { tileCarryInputRef, carryHeld }
 }

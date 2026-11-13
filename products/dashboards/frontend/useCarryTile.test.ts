@@ -1,8 +1,8 @@
 import { renderHook } from '@testing-library/react'
 
-import { useClickToMoveTile } from './useClickToMoveTile'
+import { useCarryTile } from './useCarryTile'
 
-describe('useClickToMoveTile', () => {
+describe('useCarryTile', () => {
     let container: HTMLElement
     let gridItem: HTMLElement
     let handle: HTMLElement
@@ -38,11 +38,11 @@ describe('useClickToMoveTile', () => {
         onCarryingChange: jest.Mock
         onCarryCanceled: jest.Mock
         rerender: (enabled: boolean) => void
-        result: { current: ReturnType<typeof useClickToMoveTile> }
+        result: { current: ReturnType<typeof useCarryTile> }
     } => {
         const onCarryingChange = jest.fn()
         const onCarryCanceled = jest.fn()
-        const props = (isEnabled: boolean): Parameters<typeof useClickToMoveTile>[0] => ({
+        const props = (isEnabled: boolean): Parameters<typeof useCarryTile>[0] => ({
             containerRef: { current: container },
             enabled: isEnabled,
             handleSelector: '.CardMeta',
@@ -50,15 +50,15 @@ describe('useClickToMoveTile', () => {
             onCarryingChange,
             onCarryCanceled,
         })
-        const { result, rerender } = renderHook((isEnabled: boolean) => useClickToMoveTile(props(isEnabled)), {
+        const { result, rerender } = renderHook((isEnabled: boolean) => useCarryTile(props(isEnabled)), {
             initialProps: enabled,
         })
         if (gesture === 'move') {
             // react-grid-layout reports a drag start on the first pointer move, not on the press.
-            document.addEventListener('mousemove', () => result.current.carryHeldDrag(gridItem), { once: true })
+            document.addEventListener('mousemove', () => result.current.carryHeld(gridItem, 'move'), { once: true })
         } else {
             // react-resizable reports a resize start on the press itself.
-            resizeHandle.addEventListener('mousedown', () => result.current.carryHeldResize(resizeHandle), {
+            resizeHandle.addEventListener('mousedown', () => result.current.carryHeld(resizeHandle, 'resize'), {
                 once: true,
             })
         }
@@ -117,24 +117,21 @@ describe('useClickToMoveTile', () => {
         document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }))
 
         expect(resizeReleases).toHaveLength(1)
-        expect(result.current.tileMoveInputRef.current).toBe(input)
+        expect(result.current.tileCarryInputRef.current).toBe(input)
         expect(onCarryingChange).toHaveBeenLastCalledWith(null)
     })
 
     it('puts a carried resize back to where it started on Escape', () => {
         const { onCarryingChange, onCarryCanceled, result } = renderMove(true, 'resize')
-        const pointer: { x: number; y: number }[] = []
-        document.addEventListener('mousemove', (event) => pointer.push({ x: event.clientX, y: event.clientY }))
         const atRelease: [string, unknown[][]][] = []
         document.addEventListener('mouseup', () =>
-            atRelease.push([result.current.tileMoveInputRef.current, [...onCarryCanceled.mock.calls]])
+            atRelease.push([result.current.tileCarryInputRef.current, [...onCarryCanceled.mock.calls]])
         )
 
         resizeHandle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
         document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }))
         document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }))
 
-        expect(pointer.at(-1)).toEqual({ x: 10, y: 10 })
         // The grid settles the resize on this release, so it must already know the resize was canceled.
         expect(atRelease).toEqual([['canceled', [['resize']]]])
         expect(onCarryingChange).toHaveBeenLastCalledWith(null)

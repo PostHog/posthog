@@ -169,6 +169,7 @@ import {
 import { TileFiltersOverride } from 'products/dashboards/frontend/TileFiltersOverride'
 import { calculateDuplicateLayout, calculateLayouts } from 'products/dashboards/frontend/tileLayouts'
 import { tileLogic } from 'products/dashboards/frontend/tileLogic'
+import type { TileCarryKind } from 'products/dashboards/frontend/useCarryTile'
 import {
     chunkTileIds,
     fetchRunWidgets,
@@ -813,7 +814,7 @@ export interface dashboardLogicValues {
     canSaveProjectDashboardTemplate: boolean
     canUndoLayoutChange: boolean
     cancellingPreview: boolean
-    carryingTile: 'move' | 'resize' | null
+    carryingTile: TileCarryKind | null
     changedFilterCount: number
     collapsedTileGroupKeys: string[]
     collapsedTileIds: Set<number>
@@ -1486,8 +1487,8 @@ export interface dashboardLogicActions {
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
     }
-    setCarryingTile: (carryingTile: 'move' | 'resize' | null) => {
-        carryingTile: 'move' | 'resize' | null
+    setCarryingTile: (carryingTile: TileCarryKind | null) => {
+        carryingTile: TileCarryKind | null
     }
     setCompareFilter: (compareFilter: CompareFilter | null) => {
         compareFilter: CompareFilter | null
@@ -2364,7 +2365,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
-        setCarryingTile: (carryingTile: 'move' | 'resize' | null) => ({ carryingTile }),
+        setCarryingTile: (carryingTile: TileCarryKind | null) => ({ carryingTile }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3820,7 +3821,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         carryingTile: [
-            null as 'move' | 'resize' | null,
+            null as TileCarryKind | null,
             {
                 setCarryingTile: (_, { carryingTile }) => carryingTile,
                 setDashboardMode: () => null,

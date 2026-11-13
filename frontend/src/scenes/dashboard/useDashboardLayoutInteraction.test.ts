@@ -92,6 +92,8 @@ describe('useDashboardLayoutInteraction', () => {
             item,
             neighbor,
         ])
+        const otherBand: Layout = [{ i: '3', x: 0, y: 0, w: 6, h: 5 }]
+        expect(gridCompactor.compact(otherBand, 12)).toMatchObject(otherBand)
         finishInteraction()
     })
 })

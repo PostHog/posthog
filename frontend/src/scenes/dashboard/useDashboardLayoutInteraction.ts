@@ -110,7 +110,6 @@ export function useDashboardLayoutInteraction({
         baselineById.current = new Map(baselineLayout.current.map((layoutItem) => [layoutItem.i, layoutItem]))
         activeItemId.current = item.i
         interactionKind.current = kind
-        interactionCanceled.current = false
         resizeNeighbors.current = kind === 'resize' ? getResizeNeighbors(baselineLayout.current, item, item.i) : {}
     }, [])
 
