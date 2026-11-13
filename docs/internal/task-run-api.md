@@ -142,6 +142,11 @@ It is `null` for a caller who cannot read the latest run's analytics context.
 `?task_status=` filters the task list on the task's own status.
 `?status=` still filters on the status of the task's most recent run.
 
+A done task refuses new runs, cloud resumes, and follow-up messages with `409`.
+`POST /api/projects/{team_id}/tasks/{task_id}/close/` moves an idle task to done.
+A task can become done only while its profile is set to `enforce` in the `tasks-task-done` feature flag payload.
+Every profile is off until the payload names it.
+
 ## MCP tools
 
 - `tasks-create` creates an idle task. It does not accept run-start inputs.

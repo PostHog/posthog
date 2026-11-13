@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
@@ -30,6 +31,7 @@ from products.tasks.backend.pr_urls import (
     read_pr_urls,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
+from products.tasks.backend.task_done import record_pull_request_outcome
 from products.tasks.backend.task_run_sync import sync_task_pr_urls_on_commit
 
 logger = structlog.get_logger(__name__)
@@ -401,6 +403,16 @@ def handle_pull_request_event(payload: dict) -> None:
             robust=True,
         )
         _notify_slack_thread_on_close(task_run, pr_url, merged=merged)
+
+    if task_run is not None and action in ("closed", "reopened"):
+        task_id = task_run.task_id
+        outcome: Literal["merged", "closed", "open"] = (
+            ("merged" if merged else "closed") if action == "closed" else "open"
+        )
+        transaction.on_commit(
+            lambda: record_pull_request_outcome(task_id, pr_url, state=outcome),
+            robust=True,
+        )
 
 
 def handle_pull_request_review_event(payload: dict) -> None:

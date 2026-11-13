@@ -234,6 +234,14 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.task_done import (
+    TaskDoneError as TaskDoneError,
+    check_wake as check_wake,
+    check_wake_by_task_id as check_wake_by_task_id,
+    close_task as close_task,
+    wake_refusal,
+    warm_done_mode,
+)
 from products.tasks.backend.task_profiles import (
     PUBLIC_RUN_OPTIONS as PUBLIC_RUN_OPTIONS,
     SPACE_SETUP,
@@ -307,6 +315,10 @@ __all__ = [
     "TaskOriginProduct",
     "TaskRuntime",
     "TaskStatus",
+    "TaskDoneError",
+    "check_wake",
+    "check_wake_by_task_id",
+    "close_task",
     "TaskStatusReason",
     "TaskRunEnvironment",
     "TaskRunStatus",
@@ -6180,6 +6192,7 @@ def signal_task_run_user_message(
         return None
     if not plan_owner_consented:
         ensure_subscription_owner(run.state, actor_user_id)
+    check_wake(run.task, source="follow_up")
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -6906,6 +6919,12 @@ def bootstrap_task_run(
                 kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
             )
         )
+    except TaskDoneError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
 
@@ -7005,7 +7024,7 @@ def start_task_run(
     """Apply run-scoped attachments and trigger the cloud workflow for a startable run.
 
     Caller must have already verified startability and applied the usage gate. Returns
-    ``(outcome, task_id)``: ``"not_found"``, ``"missing_artifacts:<csv>"``, or ``"started"``
+    ``(outcome, task_id)``: ``"not_found"``, ``"missing_artifacts:<csv>"``, ``"task_done"``, or ``"started"``
     (``task_id`` set). Rolls back any pending-state writes on failure (re-raising), mirroring
     the original view.
     """
@@ -7035,6 +7054,7 @@ def start_task_run(
             state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
 
     previous_state = dict(run.state or {})
+    warm_done_mode(task)
     try:
         with transaction.atomic():
             task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
@@ -7045,6 +7065,8 @@ def start_task_run(
             )
             if not run.matches_task_ownership(task):
                 return "ownership_changed", None
+            if wake_refusal(task, source="start_run") is not None:
+                return "task_done", None
             if state_updates:
                 TaskRun.update_state_atomic(run.id, updates=state_updates)
                 run.refresh_from_db()
@@ -7078,7 +7100,7 @@ def resume_task_run_in_cloud(
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
     ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
-    ``"auth_error:<detail>"``
+    ``"task_done"`` (409), ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -7119,6 +7141,7 @@ def resume_task_run_in_cloud(
         },
     )
 
+    warm_done_mode(run.task)
     with transaction.atomic():
         task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
@@ -7133,6 +7156,8 @@ def resume_task_run_in_cloud(
 
         if task.origin_product not in Task.OriginProduct.values:
             return "invalid_origin", None, None
+        if wake_refusal(task, source="cloud_resume") is not None:
+            return "task_done", None, None
 
         is_cloud_active = run.status in (
             TaskRun.Status.QUEUED,
@@ -10042,7 +10067,14 @@ def warm_task_resume_sandbox(
             expected_resume_from_run_id=previous_run.id,
             required_existing_state=stable_selection,
         )
-    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError):
+    except (
+        PermissionDenied,
+        QuotaLimitExceeded,
+        Throttled,
+        WarmSourceChanged,
+        TaskOwnershipChangedError,
+        TaskDoneError,
+    ):
         # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
         # locked create_run, keeping this best-effort endpoint from returning a server error.
         return None
@@ -10362,6 +10394,12 @@ def run_task(
                     # A previous activation attempt may have moved these out of staging before delivery failed.
                     _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
+                    if (done_error := wake_refusal(task, source="warm_activation")) is not None:
+                        return contracts.TaskRunResult(
+                            error=contracts.TaskValidationError(
+                                kind="validation_error", code="task_done", detail=str(done_error), attr="status"
+                            )
+                        )
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(
                             warm_run,
@@ -10680,6 +10718,7 @@ def run_task(
     )
     if trial_admission is None and not pipeline_rerun and task.uses_self_driving_billing(mode):
         enforce_self_driving_pr_quota(task.team, report_id=report_id_for_slot_check, stage="task_run")
+    warm_done_mode(task)
     try:
         with transaction.atomic():
             if only_if_no_runs:
@@ -10708,6 +10747,12 @@ def run_task(
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(
                 kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
+    except TaskDoneError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
             )
         )
     except TaskOwnershipChangedError:
@@ -12670,9 +12715,12 @@ def forward_thread_message(
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
-        signal_result = signal_task_run_user_message(
-            run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
-        )
+        try:
+            signal_result = signal_task_run_user_message(
+                run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
+            )
+        except TaskDoneError:
+            return "no_run", None
         if not signal_result:
             return "signal_failed", None
 
@@ -13088,7 +13136,7 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     transaction and dispatches its processing workflow on commit with
     ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done``.
     """
     from products.signals.backend.facade.self_driving import (
         self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
@@ -13106,6 +13154,7 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
         return "not_found"
     if acting_user_id is None or admission_task.created_by_id != acting_user_id:
         return "forbidden"
+    warm_done_mode(admission_task)
     trial_admission = prepare_task_trial(
         team=admission_task.team,
         origin=admission_task.origin_product,
@@ -13134,6 +13183,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             return "forbidden"
         if reason := get_compute_quota_denial_reason(task):
             return _canvas_fix_denial_outcome(reason)
+        if wake_refusal(task, source="canvas_fix") is not None:
+            return "task_done"
         run = task.latest_run
         if run is not None and not run.is_terminal:
             try:
