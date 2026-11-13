@@ -293,11 +293,11 @@ def log_in_as_user(request: HttpRequest, obj: Model, form: forms.Form | None) ->
 class Impersonation:
     @staticmethod
     def refusal(user: User) -> str | None:
-        """Why staff cannot log in as this user. CAN_LOGIN_AS refuses the same cases when the form is posted."""
+        """Why nobody can log in as this user. Staff log in as any other user. CAN_LOGIN_AS refuses the same cases on post."""
         if user.is_staff:
-            return "Not possible for staff accounts"
+            return "This user is staff. Nobody can log in as a staff account"
         if user.allow_impersonation is False:
-            return "Turned off by the user"
+            return "This user turned off log in as user"
         return None
 
 
