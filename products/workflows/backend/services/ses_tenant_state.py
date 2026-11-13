@@ -16,6 +16,10 @@ from posthog.tasks.email import (
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.services.email_sending_tier import SesTenantState
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
+from products.workflows.backend.tasks.email_sending_tiers import raise_trusted_email_sending_tier_floor
+from products.workflows.backend.utils.email_sending_tiers import MIN_EMAIL_SENDING_TIER
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +60,13 @@ def _announce_state_change(team_id: int) -> None:
         reload_team_workflows_config_on_workers(team_id)
     except Exception:
         logger.exception("Failed to announce SES tenant state change to workers", team_id=team_id)
+
+
+def _queue_trusted_floor_raise(team_id: int) -> None:
+    try:
+        raise_trusted_email_sending_tier_floor.delay(team_id)
+    except Exception:
+        logger.exception("Failed to queue the trusted email tier floor raise", team_id=team_id)
 
 
 def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:
@@ -116,7 +127,26 @@ def apply_ses_tenant_state(
         config.ses_tenant_sending_status = sending_status
         config.ses_tenant_reputation_impact = impact
         config.ses_tenant_state_synced_at = now
-        config.save(update_fields=_STATE_FIELDS)
+        update_fields = list(_STATE_FIELDS)
+        previous_tier = config.email_sending_tier
+        if SesTenantState(sending_status=sending_status).is_paused:
+            # An AWS pause counts as a demotion, so a reinstated tenant earns its tier back by sending
+            # rather than through the trusted floor. Drop the tier now, as a staff suspension does: a
+            # pause and reinstatement can both land between two sweeps, and the sweep would then
+            # read the pause stamp as a recent rate demotion and hold the old tier through the cooldown.
+            config.email_sending_tier_demoted_at = now
+            update_fields.append("email_sending_tier_demoted_at")
+            if not config.email_sending_tier_pinned:
+                config.email_sending_tier = MIN_EMAIL_SENDING_TIER
+                config.email_sending_tier_updated_at = now
+                update_fields += ["email_sending_tier", "email_sending_tier_updated_at"]
+        config.save(update_fields=update_fields)
+        if config.email_sending_tier != previous_tier:
+            # Inside the transaction: the after-commit notification can raise, and a retry sees the
+            # state unchanged and returns early, so a row written after it would be lost for good.
+            log_email_sending_tier_change(
+                config.team, previous_tier=previous_tier, new_tier=MIN_EMAIL_SENDING_TIER, reason="ses_tenant_paused"
+            )
         logger.info(
             "SES tenant state changed",
             team_id=team_id,
@@ -130,6 +160,13 @@ def apply_ses_tenant_state(
         # sending and a reinstatement keeps blocking until the entry expires. After commit, so the
         # worker cannot re-read the row before the new state is visible and cache it again.
         transaction.on_commit(lambda: _announce_state_change(team_id))
+
+        is_verified_clean = SesTenantState(sending_status=sending_status, reputation_impact=impact).is_verified_clean
+        was_verified_clean = SesTenantState(
+            sending_status=previous_status, reputation_impact=previous_impact
+        ).is_verified_clean
+        if is_verified_clean and not was_verified_clean:
+            transaction.on_commit(lambda: _queue_trusted_floor_raise(team_id))
 
         notify = _pick_notification(
             previous_status=previous_status,

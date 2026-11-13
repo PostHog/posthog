@@ -2,6 +2,7 @@ from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F, Q, QuerySet
 
 from posthog.helpers.full_text_search import build_rank
@@ -453,6 +454,7 @@ def create_ses_email_domain(
     keep_existing_mail_from: bool = False,
 ) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
+    from products.workflows.backend.tasks.ses_tenant_state import sync_ses_tenant_state_task  # noqa: PLC0415
 
     providers.SESProvider().create_email_domain(
         domain,
@@ -461,6 +463,8 @@ def create_ses_email_domain(
         org_team_ids=org_team_ids,
         keep_existing_mail_from=keep_existing_mail_from,
     )
+    # AWS sends no event for a new tenant, and a trusted account's floor waits on the first sync.
+    transaction.on_commit(lambda: sync_ses_tenant_state_task.delay(team_id), robust=True)
 
 
 def get_ses_mail_from_subdomain(domain: str) -> str | None:

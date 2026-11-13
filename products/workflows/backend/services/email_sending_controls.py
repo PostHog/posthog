@@ -56,12 +56,16 @@ def suspend_email_sending(
         # which the periodic sweep skips.
         config.email_sending_tier = MIN_EMAIL_SENDING_TIER
         config.email_sending_tier_updated_at = suspended_at
+        # Counts as a demotion even when the team was already at the lowest tier, so the sends from
+        # before the suspension cannot lift it straight back to the trusted floor once reinstated.
+        config.email_sending_tier_demoted_at = suspended_at
         config.save(
             update_fields=[
                 "email_sending_suspended_at",
                 "email_sending_suspension_reason",
                 "email_sending_tier",
                 "email_sending_tier_updated_at",
+                "email_sending_tier_demoted_at",
             ]
         )
     log_email_sending_tier_change(
