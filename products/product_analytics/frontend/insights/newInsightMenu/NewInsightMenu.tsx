@@ -5,7 +5,6 @@ import { IconPlusSmall, IconSparkles } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconInsightNumber, IconInsightPie, IconInsightTable, IconInsightWorldMap } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,6 +14,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { metricsInsightAvailabilityLogic } from 'scenes/insights/metricsInsightAvailabilityLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import {
     INSIGHT_TYPES_METADATA,
@@ -177,6 +177,7 @@ function useNewInsightCards(): {
     byType: Partial<Record<InsightType, NewInsightCardSpec>>
 } {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { showMetricsInsight } = useValues(metricsInsightAvailabilityLogic)
 
     const byType: Partial<Record<InsightType, NewInsightCardSpec>> = {}
     for (const [insightType, metadata] of Object.entries(INSIGHT_TYPES_METADATA)) {
@@ -195,9 +196,7 @@ function useNewInsightCards(): {
         }
         byType[insightType as InsightType] = spec
     }
-    const metricsEnabled =
-        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
-    return { ai: AI_CARD, metrics: metricsEnabled ? METRICS_CARD : undefined, byType }
+    return { ai: AI_CARD, metrics: showMetricsInsight ? METRICS_CARD : undefined, byType }
 }
 
 function NewInsightCard({
