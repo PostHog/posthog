@@ -3,11 +3,12 @@
 `GeoipEnrichment.apply` returns the properties that the transformation in
 `nodejs/src/cdp/templates/_transformations/geoip/geoip.template.ts` returns for the same event and the
 same MMDB file. Records are in the raw MaxMind shape (snake_case), where the template reads the camelCase
-shape of geoip2-node. `tests/fixtures/geoip_template_parity.json` holds the template's output for each
-test case. A backfill that writes different keys or values than ingestion would leave events that
-disagree with their neighbours.
+shape of geoip2-node. `tests/fixtures/geoip_template_parity*.json` hold the output of each shipped
+template version for each test case. A backfill that writes different keys or values than ingestion
+would leave events that disagree with their neighbours.
 """
 
+import hashlib
 import ipaddress
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -45,6 +46,38 @@ _LOCAL_DEVELOPMENT_IP = "89.160.20.129"
 
 GeoipRecord = Mapping[str, Any]
 GeoipLookup = Callable[[str], GeoipRecord | None]
+
+
+@frozen
+class GeoipTemplateVersion:
+    """A shipped source of the template. A function keeps the source it was saved with."""
+
+    source_sha256: str
+    shipped: str
+    remaps_private_network: bool
+
+
+# The hashes match NOOP_SOURCE_HASHES in nodejs/src/cdp/hog-transformations/geoip-noop.ts. The versions
+# differ only in the private network rule: the 2025 source maps 127.0.0.1 alone to the development IP.
+TEMPLATE_VERSIONS: tuple[GeoipTemplateVersion, ...] = (
+    GeoipTemplateVersion(
+        source_sha256="c60a2c9cf0d2f82812392c3c682f4223e17082f109e02fbf5467fbb0069d0770",
+        shipped="2025-01-30",
+        remaps_private_network=False,
+    ),
+    GeoipTemplateVersion(
+        source_sha256="936b06d7d65914d43e5b9f45d8eecda36450e0c128bbfb522020fc0600261175",
+        shipped="2026-01-08",
+        remaps_private_network=True,
+    ),
+)
+
+
+def template_version(hog_source: str) -> GeoipTemplateVersion | None:
+    """The shipped version a function's Hog source is, or None for an edited or unknown source."""
+    # Saving a function trims these characters, as `trimLikeSave` in geoip-noop.ts does.
+    digest = hashlib.sha256(hog_source.strip(" \t\r\n").encode()).hexdigest()
+    return next((version for version in TEMPLATE_VERSIONS if version.source_sha256 == digest), None)
 
 
 @frozen
@@ -99,12 +132,14 @@ class MmdbGeoipLookup:
         self._reader.close()
 
 
-def geoip_enrichment(properties: Mapping[str, Any], lookup: GeoipLookup) -> GeoipEnrichment | None:
+def geoip_enrichment(
+    properties: Mapping[str, Any], lookup: GeoipLookup, version: GeoipTemplateVersion
+) -> GeoipEnrichment | None:
     """What the template adds to an event with these properties, or None when it returns the event unchanged."""
     ip = properties.get("$ip")
     if _hog_truthy(properties.get("$geoip_disable")) or not ip or not isinstance(ip, str):
         return None
-    if ip == "127.0.0.1" or ip[:8] == "192.168.":
+    if ip == "127.0.0.1" or (version.remaps_private_network and ip[:8] == "192.168."):
         ip = _LOCAL_DEVELOPMENT_IP
     record = lookup(ip)
     if not record:

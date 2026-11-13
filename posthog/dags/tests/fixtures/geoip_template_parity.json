@@ -1,5 +1,6 @@
 {
-  "description": "Event properties that nodejs/src/cdp/templates/_transformations/geoip/geoip.template.ts returns for each case, recorded through TemplateTester against GeoLite2-City-Test.mmdb.br. A case with node_error failed in the template, which leaves the event unchanged in ingestion.",
+  "description": "Event properties that the GeoIP template returns for each case, recorded through TemplateTester against GeoLite2-City-Test.mmdb.br. source_sha256 is the hash of the template's trimmed Hog source. A case with node_error failed in the template, which leaves the event unchanged in ingestion.",
+  "source_sha256": "936b06d7d65914d43e5b9f45d8eecda36450e0c128bbfb522020fc0600261175",
   "cases": [
     {
       "name": "city_one_subdivision_postal_metro_code",
