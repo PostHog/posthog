@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -329,6 +330,14 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="The experiment this scanner's targeting watches, if any.",
     )
 
+    # Nullable only until a backfill gives every row an explicit kind; after that a null scope is never a valid
+    # stored state, because "every session" is itself a kind and must be stated.
+    scope = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Which sessions the scanner watches and the label it gives each one, as `{"kind": ...}`.',
+    )
+
     estimated_monthly_observations = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -483,6 +492,15 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                 name="rl_inline_created_idx",
                 condition=models.Q(origin=ScannerOrigin.INLINE),
             ),
+            # Serves "which scanners watch experiment N" for the experiment page and the launch receiver.
+            # Partial on `scope` alone, never on a kind: callers filter on the id, and an equality on the id
+            # implies `scope IS NOT NULL`, so the planner still uses it. Most scanners have no scope, which
+            # makes this index a fraction of the full one's size for the same plan.
+            models.Index(
+                KeyTransform("experiment_id", "scope"),
+                name="rl_scope_experiment_idx",
+                condition=models.Q(scope__isnull=False),
+            ),
         ]
 
     _VERSION_TRACKED_FIELDS = (
@@ -490,6 +508,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "scanner_config",
         "query",
         "experiment_targeting",
+        "scope",
         "sampling_rate",
         "sampling_mode",
         "provider",
@@ -497,7 +516,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "sampling_rate", "sampling_mode"})
+    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "scope", "sampling_rate", "sampling_mode"})
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (

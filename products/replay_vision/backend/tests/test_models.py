@@ -88,6 +88,7 @@ class TestReplayScanner(BaseTest):
             ("sampling_rate", 0.25),
             ("model", ScannerModel.GEMINI_3_5_FLASH_LITE),
             ("emits_signals", True),
+            ("scope", {"kind": "experiment", "experiment_id": 42, "variants": ["control", "test"]}),
         ]
     )
     def test_scanner_version_bumps_on_tracked_field_change(self, field: str, new_value) -> None:
@@ -121,6 +122,19 @@ class TestReplayScanner(BaseTest):
 
         self.assertEqual(scanner.scanner_version, 2)
         self.assertEqual(scanner.estimated_at is None, expect_stale)
+
+    def test_scope_change_stales_the_estimate(self) -> None:
+        scanner = self._create_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=100, estimated_at=timezone.now()
+        )
+        scanner.refresh_from_db()
+
+        scanner.scope = {"kind": "experiment", "experiment_id": 42, "variants": ["control", "test"]}
+        scanner.save()
+        scanner.refresh_from_db()
+
+        self.assertIsNone(scanner.estimated_at)
 
     def test_scanner_version_does_not_bump_on_metadata_change(self) -> None:
         scanner = self._create_scanner(name="original")
