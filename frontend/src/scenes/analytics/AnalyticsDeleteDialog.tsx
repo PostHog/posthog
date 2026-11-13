@@ -27,9 +27,7 @@ export function AnalyticsDeleteDialog(): JSX.Element {
             <AlertDialogContent data-attr="analytics-delete-dialog">
                 <AlertDialogHeader>
                     <AlertDialogTitle>{deleteTarget ? `Delete "${deleteTarget.name}"?` : ''}</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        It's removed for everyone in the project. You can undo this from the message that follows.
-                    </AlertDialogDescription>
+                    <AlertDialogDescription>This deletes it for everyone in the project.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" disabled={deleting} />}>

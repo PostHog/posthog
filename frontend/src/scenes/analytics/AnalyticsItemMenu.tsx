@@ -107,6 +107,7 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
                                 Move to another collection
                             </DropdownMenuItem>
                             <DropdownMenuItem
+                                variant="destructive"
                                 onClick={() => moveItem(target, null)}
                                 data-attr="analytics-list-row-remove-from-space"
                             >

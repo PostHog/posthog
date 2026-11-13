@@ -38,6 +38,9 @@ export interface analyticsItemActionsLogicActions {
     deleteItemFailure: () => {
         value: true
     }
+    deleteItemSuccess: () => {
+        value: true
+    }
     duplicateFinished: (key: string) => {
         key: string
     }
@@ -71,6 +74,7 @@ export const analyticsItemActionsLogic = kea<analyticsItemActionsLogicType>([
         closeDeleteConfirm: true,
         deleteItem: true,
         deleteItemFailure: true,
+        deleteItemSuccess: true,
         /** The list reads again after this, so the copy shows up and the deleted row goes. */
         itemChanged: true,
     }),
@@ -91,10 +95,10 @@ export const analyticsItemActionsLogic = kea<analyticsItemActionsLogicType>([
             {
                 openDeleteConfirm: (_, { item }) => item,
                 closeDeleteConfirm: () => null,
-                itemChanged: () => null,
+                deleteItemSuccess: () => null,
             },
         ],
-        deleting: [false, { deleteItem: () => true, deleteItemFailure: () => false, itemChanged: () => false }],
+        deleting: [false, { deleteItem: () => true, deleteItemFailure: () => false, deleteItemSuccess: () => false }],
     }),
     listeners(({ actions, values }) => ({
         duplicateItem: async ({ item }) => {
@@ -141,6 +145,7 @@ export const analyticsItemActionsLogic = kea<analyticsItemActionsLogicType>([
                 toast.error({ title: `Couldn't delete "${item.name}". Try again.` })
                 return
             }
+            actions.deleteItemSuccess()
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
             posthog.capture('analytics item deleted', { type: item.type, removed_entry_only: !deleted.length })
             // The file system keeps an item that another folder still links to and removes only this entry.

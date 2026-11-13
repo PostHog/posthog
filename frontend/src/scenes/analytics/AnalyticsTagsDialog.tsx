@@ -19,11 +19,9 @@ import { analyticsTagsLogic } from './analyticsTagsLogic'
 
 /** Edits one list row's tags, opened from the row's tag menu. */
 export function AnalyticsTagsDialog(): JSX.Element {
-    const { target, draftTags, saving } = useValues(analyticsTagsLogic)
+    const { target, draftTags, saving, hasChanges } = useValues(analyticsTagsLogic)
     const { closeTagEditor, setDraftTags, saveTags } = useActions(analyticsTagsLogic)
     const tagPages = useTagPages(useId())
-    const unchanged =
-        !!target && draftTags.length === target.tags.length && draftTags.every((tag) => target.tags.includes(tag))
 
     return (
         <Dialog
@@ -33,7 +31,7 @@ export function AnalyticsTagsDialog(): JSX.Element {
         >
             <DialogContent data-attr="analytics-tags-dialog">
                 <DialogHeader>
-                    <DialogTitle>Edit tags</DialogTitle>
+                    <DialogTitle>Manage tags</DialogTitle>
                     <DialogDescription>{target ? `Tags on "${target.name}".` : ''}</DialogDescription>
                 </DialogHeader>
                 <DialogBody>
@@ -65,7 +63,7 @@ export function AnalyticsTagsDialog(): JSX.Element {
                         variant="primary"
                         onClick={() => saveTags()}
                         loading={saving}
-                        disabled={unchanged}
+                        disabled={!hasChanges}
                         data-attr="analytics-tags-save"
                     >
                         Save
