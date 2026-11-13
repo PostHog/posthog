@@ -255,16 +255,12 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                                 if (!dashboardEditing) {
                                     setDashboardEditing(true, DashboardEventSource.DashboardFilters)
                                 }
-                                let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
-                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                                if (
-                                    breakdown_filter &&
-                                    !breakdown_filter.breakdown_type &&
-                                    !breakdown_filter.breakdowns
-                                ) {
-                                    saved_breakdown_filter = null
+                                const merged: BreakdownFilter = {
+                                    ...effectiveEditBarFilters.breakdown_filter,
+                                    ...breakdown_filter,
                                 }
-                                setBreakdownFilter(saved_breakdown_filter)
+                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                                setBreakdownFilter(!merged.breakdown_type && !merged.breakdowns ? null : merged)
                             }}
                             updateDisplay={() => {}}
                             disablePropertyInfo
