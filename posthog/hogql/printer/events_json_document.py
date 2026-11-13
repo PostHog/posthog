@@ -85,10 +85,11 @@ def stored_document_sql(document_sql: str, *, object_key: str | None = None) -> 
     `$feature_flags` map of event properties.
 
     The cleaner (`parseNestedAsString` in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go)
-    stores each value compact, with sorted keys, in the spelling `JSONExtractRaw` prints. A value rebuilt from a
-    stored string is already sorted, and `JSONExtractKeysAndValuesRaw` prints it in that spelling and keeps its
-    order, so the text written here is the text the cleaner would store. A value built any other way has to be
-    sorted before it reaches this function.
+    stores each value compact, with sorted keys and with strings escaped the way ClickHouse prints them. A value
+    rebuilt from a stored string is already sorted, and `JSONExtractKeysAndValuesRaw` keeps its order, so the text
+    written here matches the cleaner's except for numbers: the cleaner copies a number as it was sent, and
+    ClickHouse prints `2.0` as `2` and quotes an integer that does not fit 64 bits. A value built any other way has
+    to be sorted before it reaches this function.
     """
     is_container = "(startsWith(kv.2, '[') or startsWith(kv.2, '{'))"
     if object_key is not None:

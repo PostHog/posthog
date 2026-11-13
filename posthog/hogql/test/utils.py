@@ -1,9 +1,7 @@
 import re
 import json
-import math
 import dataclasses
 from collections.abc import Sequence
-from decimal import Decimal
 from typing import Any
 
 from posthog.test.base import clean_varying_query_parts
@@ -174,24 +172,7 @@ class _StoredMembers(list):
 
 
 class _StoredNumber(str):
-    """A number inside a stored object or array, spelled the way the cleaner writes it.
-
-    An integer that does not fit 64 bits is not one: the cleaner stores it as a string, so it stays a plain `str`.
-    """
-
-
-def _stored_integer(token: str) -> str:
-    return _StoredNumber(int(token)) if -(2**63) <= int(token) < 2**64 else token
-
-
-def _stored_float(token: str) -> str:
-    value = float(token)
-    if math.isinf(value):
-        return _StoredNumber(token)
-    if value == 0 or 1e-6 <= abs(value) < 1e21:
-        return _StoredNumber(format(Decimal(repr(value)), "f").removesuffix(".0"))
-    mantissa, exponent = repr(value).split("e")
-    return _StoredNumber(f"{mantissa}e{int(exponent)}")
+    """The text of a number inside a stored object or array, which the cleaner copies as it was sent."""
 
 
 _STORED_STRING_ESCAPES = {'"': '\\"', "\\": "\\\\", "\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
@@ -222,9 +203,9 @@ def native_stored_document(document: str) -> str:
     """A properties document as the native cleaner stores it, for fixtures that cast text into the JSON column.
 
     Every top-level object and array, except the `$feature_flags` map of event properties, becomes a string of the
-    text the cleaner writes for it: no whitespace, the keys of every object sorted, and numbers and strings spelled
-    the way ClickHouse prints them. Every other value keeps its text, so a top-level number token such as `2.0` or
-    `1e21` reaches ClickHouse as it was written.
+    text the cleaner writes for it: no whitespace, the keys of every object sorted, strings escaped the way
+    ClickHouse prints them, and numbers as they were sent. Every other value keeps its text, so a number token such
+    as `2.0` or `1e21` reaches ClickHouse as it was written.
     """
     decoder = json.JSONDecoder()
     members: list[str] = []
@@ -239,7 +220,7 @@ def native_stored_document(document: str) -> str:
         value = document[start:index]
         if value[0] in "[{" and key != "$feature_flags":
             parsed = json.loads(
-                value, object_pairs_hook=_StoredMembers, parse_int=_stored_integer, parse_float=_stored_float
+                value, object_pairs_hook=_StoredMembers, parse_int=_StoredNumber, parse_float=_StoredNumber
             )
             value = json.dumps(_stored_text(parsed))
         members.append(f"{json.dumps(key)}:{value}")
