@@ -2705,7 +2705,7 @@ def _fail_run_whose_workflow_is_gone(run: TaskRun) -> None:
     claimed = TaskRun.objects.filter(
         id=run.id,
         team_id=run.team_id,
-        status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+        status=TaskRun.Status.IN_PROGRESS,
     ).update(status=TaskRun.Status.FAILED)
     if not claimed:
         return
@@ -7239,10 +7239,6 @@ def resume_task_run_in_cloud(
         )
         if is_cloud_active:
             return "already_active", None, None
-        try:
-            task.refuse_run_beside_live_run(source="cloud_resume", exclude_run_id=run.id)
-        except TaskRunAlreadyLiveError:
-            return "run_in_progress", None, None
 
         if (
             task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}
@@ -7266,6 +7262,11 @@ def resume_task_run_in_cloud(
                         pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
                     ),
                 }
+
+        try:
+            task.refuse_run_beside_live_run(source="cloud_resume", exclude_run_id=run.id)
+        except TaskRunAlreadyLiveError:
+            return "run_in_progress", None, None
 
         prior_status = run.status
         prior_environment = run.environment
@@ -9714,6 +9715,7 @@ def _deliver_warm_run_message(
 
     try:
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id, team_id=run.team_id)
             current_run = eligible_runs.select_for_update(of=("self",)).first()
             claimed_run = current_run or TaskRun.objects.filter(id=run.id, team_id=run.team_id).first()
             if claimed_run is not None and _warm_run_claimed_by_other_submission(claimed_run, submission_id):
@@ -9729,6 +9731,10 @@ def _deliver_warm_run_message(
                 )
             ):
                 raise WarmRunActivationUnavailable("target_unavailable")
+            try:
+                task.refuse_run_beside_live_run(source="warm_activation", exclude_run_id=run.id)
+            except TaskRunAlreadyLiveError as error:
+                raise WarmRunActivationUnavailable("target_unavailable") from error
             # Claim before signaling so a different composer's release cannot cancel delivery in flight.
             current_run.state["warm_activation_started"] = True
             current_run.state["warm_activation_message_id"] = message_id
@@ -13433,7 +13439,11 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
-            if run.environment == TaskRun.Environment.CLOUD and not (run.state or {}).get("cancel_requested_at"):
+            if (
+                run.environment == TaskRun.Environment.CLOUD
+                and run.status == TaskRun.Status.IN_PROGRESS
+                and not (run.state or {}).get("cancel_requested_at")
+            ):
                 _fail_run_whose_workflow_is_gone(run)
         if quota_gate is not None:
             enforce_self_driving_pr_quota(

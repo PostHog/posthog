@@ -2669,6 +2669,21 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert stale_run.status == expected_status
         assert TaskRun.objects.filter(task=task).exclude(id=stale_run.id).get().status == TaskRun.Status.QUEUED
 
+    def test_request_fix_leaves_a_queued_run_that_has_not_started_yet(self):
+        canvas_id, build_id, task = self._authored_canvas()
+        queued = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED, state={})
+
+        with (
+            patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._request_fix(canvas_id, build_id)
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        queued.refresh_from_db()
+        assert queued.status == TaskRun.Status.QUEUED
+        assert TaskRun.objects.filter(task=task).count() == 1
+
     def test_scoped_keys_need_task_write_to_request_a_fix(self):
         # The dispatched fix run executes with the creator's credentials, so a
         # canvas:write-only token must not be able to start or steer it.

@@ -1040,7 +1040,12 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             steer_after_patch = self.client.post(command_url, message, format="json")
             assert steer_after_patch.status_code == 409, steer_after_patch.content
 
-            warm_task.create_run(mode="interactive", extra_state={"run_source": "signal_report"}, branch=None)
+            warm_task.create_run(
+                environment=TaskRun.Environment.LOCAL,
+                mode="interactive",
+                extra_state={"run_source": "signal_report"},
+                branch=None,
+            )
             hidden = facade.run_task(
                 warm_task.id,
                 self.team.id,
@@ -2454,29 +2459,39 @@ class TestRunTaskWarmActivation(APIBaseTest):
             warm.refresh_from_db()
             assert warm.state["billing_product"] == "posthog_ai"
 
-    @parameterized.expand([("run_task",), ("user_message",)])
-    def test_first_message_to_a_warm_run_logs_a_live_sibling_once(self, activation: str) -> None:
+    def test_run_task_does_not_activate_a_warm_run_beside_a_live_sibling(self) -> None:
         task, run = self._warm_run()
         live = TaskRun.objects.create(
             task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
         )
         TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
 
-        with (
-            patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started,
-            patch(f"{FACADE}.signal_task_run_user_message", return_value=True),
-        ):
-            if activation == "run_task":
-                facade.run_task(
-                    task.id,
-                    self.team.id,
-                    self.user.id,
-                    validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "go"},
-                )
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as signal:
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "go"},
+            )
+
+        assert result is not None and result.error is not None
+        assert result.error.code == "run_in_progress"
+        signal.assert_not_called()
+        assert task.runs.count() == 2
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+
+    def test_a_delivered_first_message_logs_a_live_sibling_once(self) -> None:
+        task, run = self._warm_run()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
+
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
             facade.activate_warm_task_run(run.id)
             facade.activate_warm_task_run(run.id)
 
-        assert task.runs.count() == 2
         log_started.assert_called_once_with(run, [live.id])
         run.refresh_from_db()
         assert "await_user_message" not in run.state

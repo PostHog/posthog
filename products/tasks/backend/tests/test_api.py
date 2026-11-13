@@ -9278,14 +9278,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "user"},
         )
+        stale = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=stale.id).update(updated_at=django_timezone.now() - timedelta(days=2))
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "github_authorization_required")
         run.refresh_from_db()
+        stale.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        self.assertEqual(stale.status, TaskRun.Status.IN_PROGRESS)
         mock_resume.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
