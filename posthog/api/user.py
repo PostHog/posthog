@@ -829,6 +829,13 @@ class UserSerializer(serializers.ModelSerializer):
                 if scoped_teams:
                     candidate_teams = candidate_teams.filter(id__in=scoped_teams)
                 current_team = candidate_teams.order_by("id").first()
+                # Saving no team would let `User.team` later pick any accessible team, outside the
+                # credential's team list, so refuse the switch instead.
+                if current_team is None and scoped_teams:
+                    raise serializers.ValidationError(
+                        {"set_current_organization": [f"Object with id={current_organization.id} does not exist."]},
+                        code="does_not_exist",
+                    )
             validated_data["current_team"] = current_team
         elif current_team:
             validated_data["current_team"] = current_team
