@@ -22,7 +22,7 @@ const ADA = ['person-ada', { display_name: 'Ada' }, JSON.stringify({ email: 'ada
 const GRACE = ['person-grace', null, JSON.stringify({ email: 'grace@example.com', name: 'Grace' })]
 const READY_EMAIL: BroadcastEmailValue = {
     ...DEFAULT_BROADCAST_EMAIL,
-    from: { integrationId: 1, email: 'team@example.com' },
+    from: { integrationId: 1 },
     subject: 'Hi {{ person.properties.name }}',
     html: '<p>Hello {{ person.properties.name }}</p>',
 }
