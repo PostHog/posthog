@@ -16,6 +16,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,
+    evict_team_metadata_cache_for_token,
     get_cache_stats,
     refresh_expiring_caches,
     update_team_metadata_cache,
@@ -52,6 +53,26 @@ def update_team_metadata_cache_task(team_id: int) -> None:
         operation="update",
         result="success" if success else "failure",
     ).inc()
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    autoretry_for=(Exception,),
+    max_retries=5,
+    retry_backoff=30,
+)
+@skip_team_scope_audit
+def evict_rotated_token_team_metadata_cache_task(old_token: str) -> None:
+    """
+    Delete a rotated token's team metadata entry that a scheduled cache job wrote back after the rotation.
+    """
+    # The task runs an hour after the rotation. By then the team may have set this token
+    # again, or another team may have taken it, and its entry is live.
+    if Team.objects.filter(api_token=old_token).exists():
+        return
+
+    evict_team_metadata_cache_for_token(old_token)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

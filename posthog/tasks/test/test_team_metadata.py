@@ -3,8 +3,15 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.project import Project
-from posthog.tasks.team_metadata import update_related_teams_metadata_cache_task
+from posthog.models.team.team import Team
+from posthog.storage.team_metadata_cache import team_metadata_hypercache
+from posthog.tasks.team_metadata import (
+    evict_rotated_token_team_metadata_cache_task,
+    update_related_teams_metadata_cache_task,
+)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
@@ -43,3 +50,27 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
             update_related_teams_metadata_cache_task(organization_id=self.organization.id)
 
         mock_logger.exception.assert_called_once()
+
+
+@override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
+class TestEvictRotatedTokenTeamMetadataCacheTask(BaseTest):
+    @parameterized.expand(
+        [
+            ("unowned_token_is_deleted_from_every_tier", False, True),
+            ("token_owned_again_is_kept", True, False),
+        ]
+    )
+    def test_evicts_only_an_unowned_token(self, _name: str, token_owned: bool, expect_delete: bool) -> None:
+        if token_owned:
+            Team.objects.create(organization=self.organization, api_token="phc_rotated_token")
+
+        with (
+            override_settings(TEST=False),
+            patch.object(team_metadata_hypercache, "delete_cache_entry") as mock_delete,
+        ):
+            evict_rotated_token_team_metadata_cache_task("phc_rotated_token")
+
+        if expect_delete:
+            mock_delete.assert_called_once_with("phc_rotated_token", kinds=None)
+        else:
+            mock_delete.assert_not_called()
