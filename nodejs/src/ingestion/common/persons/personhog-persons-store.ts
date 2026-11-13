@@ -202,14 +202,6 @@ const HELD_RESOLVE_INTERVAL_MS = 5_000
  */
 export const HELD_LANES_LIMIT = 10_000
 
-/**
- * The personhog person store: resolution and creation through the identity
- * service, person state through the leader's strong reads, and property
- * updates buffered as per-person lanes of folded ops the leader resolves
- * authoritatively. The cache holds BatchWritingPersonsCache's coherence
- * grade: a merge purges local state rather than repairing it, and a stale
- * view self-heals through the leader's tombstone redirect and re-reads.
- */
 function pruneMarks(marks: Map<string, number>, oldestRead: number): void {
     for (const [key, seq] of marks) {
         if (seq > oldestRead) {
@@ -219,6 +211,14 @@ function pruneMarks(marks: Map<string, number>, oldestRead: number): void {
     }
 }
 
+/**
+ * The personhog person store: resolution and creation through the identity
+ * service, person state through the leader's strong reads, and property
+ * updates buffered as per-person lanes of folded ops the leader resolves
+ * authoritatively. The cache holds BatchWritingPersonsCache's coherence
+ * grade: a merge purges local state rather than repairing it, and a stale
+ * view self-heals through the leader's tombstone redirect and re-reads.
+ */
 export class PersonhogPersonsStore implements PersonsStore {
     readonly backend = 'personhog' as const
 
@@ -269,6 +269,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     private readsInFlight: Map<number, number> = new Map()
     private purgedDistinctKeys: Map<string, number> = new Map()
     private purgedPersonKeys: Map<string, number> = new Map()
+    private purgedTeams: Map<string, number> = new Map()
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
@@ -328,10 +329,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (oldest.done) {
             this.purgedDistinctKeys.clear()
             this.purgedPersonKeys.clear()
+            this.purgedTeams.clear()
             return
         }
         pruneMarks(this.purgedDistinctKeys, oldest.value)
         pruneMarks(this.purgedPersonKeys, oldest.value)
+        pruneMarks(this.purgedTeams, oldest.value)
     }
 
     private fencePurge(distinctKeys: Iterable<string>, personKeys: Iterable<string>): void {
@@ -349,10 +352,29 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private purgedSince(read: number, distinctKey: string | null, personKey: string | null): boolean {
-        const began = this.readsInFlight.get(read) ?? this.purgeSeq
+    /**
+     * Marks every key of the team. A merge that ended without a full verdict can have destroyed a person the store
+     * cannot name, so no per-key mark can stop a read that is in flight for that person.
+     */
+    private fenceTeam(teamId: number): void {
+        if (this.readsInFlight.size === 0) {
+            return
+        }
+        const team = String(teamId)
+        this.purgedTeams.delete(team)
+        this.purgedTeams.set(team, ++this.purgeSeq)
+    }
+
+    private purgedSince(read: number, distinctKey: string, personKey: string | null): boolean {
+        const began = this.readsInFlight.get(read)
+        // The marks a read needs are pruned when the read ends, so an ended read cannot prove that its answer is fresh.
+        if (began === undefined) {
+            return true
+        }
+        const team = distinctKey.slice(0, distinctKey.indexOf(':'))
         return (
-            (distinctKey !== null && (this.purgedDistinctKeys.get(distinctKey) ?? -1) > began) ||
+            (this.purgedTeams.get(team) ?? -1) > began ||
+            (this.purgedDistinctKeys.get(distinctKey) ?? -1) > began ||
             (personKey !== null && (this.purgedPersonKeys.get(personKey) ?? -1) > began)
         )
     }
@@ -932,7 +954,18 @@ export class PersonhogPersonsStore implements PersonsStore {
                 error instanceof ConnectError &&
                 (error.code === Code.InvalidArgument ||
                     error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED)
-            this.purgeAfterMerge(teamId, namedIds, affected, refused ? 'merge_refused' : 'merge_no_verdict')
+            // Keyed on the header: a hop in between may remap the status code.
+            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
+            // A refusal and a not-applied answer both mean the saga did not run, so the persons resolved before the
+            // call are the whole set. Any other failure can hide a saga that ran against persons that an out-of-band
+            // merge put under these ids after that resolve.
+            this.purgeAfterMerge(
+                teamId,
+                namedIds,
+                affected,
+                refused ? 'merge_refused' : 'merge_no_verdict',
+                refused || notApplied !== null
+            )
             // A verdict: redelivery meets the same validation forever, so
             // it propagates raw rather than wedging the partition.
             if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
@@ -950,8 +983,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
                 throw error
             }
-            // Keyed on the header: a hop in between may remap the status code.
-            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
             if (notApplied !== null) {
                 const reason = /^[a-z0-9_-]{1,64}$/i.test(notApplied) ? notApplied : 'unknown'
                 personhogStoreMergeCallFailedCounter.inc({ error: `not_applied_${reason}` })
@@ -988,7 +1019,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (result.survivor) {
             purgedPersons.add(`${teamId}:${result.survivor.id}`)
         }
-        this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict')
+        // The verdict names a destroyed person only on a merged source. An errored or unsettled source can have
+        // destroyed a person that the verdict does not name.
+        const namesEveryPerson = result.results.every(
+            (source) => source.outcome !== 'error' && source.settled !== false
+        )
+        this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict', namesEveryPerson)
         // A fold that skipped or failed to settle any source aborts to the
         // sequential path, where each event gets its own durability
         // decision. The trigger id marks a fold request, so a single-pair
@@ -1107,12 +1143,21 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private purgeAfterMerge(teamId: number, distinctIds: string[], personKeys: Set<string>, reason: string): void {
+    private purgeAfterMerge(
+        teamId: number,
+        distinctIds: string[],
+        personKeys: Set<string>,
+        reason: string,
+        namesEveryPerson: boolean
+    ): void {
         const siblings = this.clearAllCachesForPersonIds(personKeys, reason)
         for (const distinctId of distinctIds) {
             this.removeDistinctIdFromCache(teamId, distinctId, reason)
         }
         this.fencePurge([...siblings, ...distinctIds.map((distinctId) => `${teamId}:${distinctId}`)], personKeys)
+        if (!namesEveryPerson) {
+            this.fenceTeam(teamId)
+        }
     }
 
     /** The leader enforces the size ceiling at admission; there is nothing to measure here. */
@@ -1204,7 +1249,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
             const limit = pLimit(this.options.maxConcurrentUpdates)
-            await Promise.all(
+            // Every task settles before the read ends, so one failed leader read does not unfence the answers of
+            // the others.
+            const settled = await Promise.allSettled(
                 resolved.map((entry, i) =>
                     limit(async () => {
                         const { batchId } = unresolved[i]
@@ -1241,6 +1288,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                     })
                 )
             )
+            const failed = settled.find((task): task is PromiseRejectedResult => task.status === 'rejected')
+            if (failed) {
+                throw failed.reason
+            }
         } catch (error) {
             // Counted because the degradation reads as latency.
             personhogStorePrefetchFailedCounter.inc()
