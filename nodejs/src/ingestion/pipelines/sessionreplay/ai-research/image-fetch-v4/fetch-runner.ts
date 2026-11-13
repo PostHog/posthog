@@ -4,7 +4,14 @@ import { logger } from '~/common/utils/logger'
 import type { ImageFetchBlockReason } from './block-reason'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
 import { ConfigurationPolicyPass, ConfigurationPolicyService } from './configuration-policy'
-import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
+import {
+    ConfigurationCacheItem,
+    CrawlHistoryItem,
+    HttpCacheMetadata,
+    PackedImageLocation,
+    UrlCrawlHistoryItem,
+    packOfStoredCopy,
+} from './crawl-history'
 import {
     FetchCandidatePool,
     FetchCandidatePoolAdmission,
@@ -22,7 +29,7 @@ import {
     RequestScheduleBlockReason,
     TransientFetchOutcome,
 } from './image-fetcher'
-import type { RefreshingImageSink } from './image-sink'
+import type { RefreshingImageSink, StoredImage } from './image-sink'
 import { ImageFetchPoolMetrics, ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
@@ -727,16 +734,16 @@ export class FetchRunner implements FetchPass {
         }
         // A missing or broken response leaves the stored image in place, so the lane keeps it alive. An opt-out does not.
         let storedAtMs = result.outcome === 'opt_out' ? undefined : previousUrl?.storedAtMs
+        let pack = result.outcome === 'opt_out' ? undefined : packOfStoredCopy(previousUrl)
         if (result.outcome === 'ok' || result.outcome === 'not_modified') {
             releaseRegistrableDomainSlot()
-            let stored = true
+            let stored: StoredImage | null
             try {
-                if (result.outcome === 'ok') {
-                    await this.imageSink.publishImage(attemptedCandidate, result)
-                } else {
-                    // A 304 says the stored image is current, so the sink refreshes it in place.
-                    stored = await this.imageSink.refreshImage(attemptedCandidate)
-                }
+                stored =
+                    result.outcome === 'ok'
+                        ? await this.imageSink.publishImage(attemptedCandidate, result)
+                        : // A 304 says the stored image is current, so the sink refreshes it in place.
+                          await this.imageSink.refreshImage(attemptedCandidate, previousUrl)
             } catch (error) {
                 this.logStorageFailure(result.outcome === 'ok' ? 'publish' : 'refresh', error)
                 // The republish keeps the URL on the frontier, so one failed write does not fail the whole batch. The
@@ -760,7 +767,25 @@ export class FetchRunner implements FetchPass {
                     configurationUpdates
                 )
             }
-            storedAtMs = Date.now()
+            pack = stored.pack
+            storedAtMs = stored.pack?.storedAtMs ?? Date.now()
+        } else if (pack && previousUrl && this.imageSink.indexStoredImage) {
+            // The job's write days read the copy it keeps only through their own index rows.
+            releaseRegistrableDomainSlot()
+            try {
+                await this.imageSink.indexStoredImage(attemptedCandidate, previousUrl)
+            } catch (error) {
+                this.logStorageFailure('index', error)
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    'publish_failed',
+                    'retry',
+                    ONE_MINUTE_MS,
+                    configurationUpdates,
+                    'transient_backoff'
+                )
+            }
         }
         const responseCache = result.redirects > 0 ? withoutValidators(result.cache) : result.cache
         const mergedCache =
@@ -771,7 +796,8 @@ export class FetchRunner implements FetchPass {
             mergedCache,
             configurationUpdates,
             result.refusalReason,
-            storedAtMs
+            storedAtMs,
+            pack
         )
     }
 
@@ -899,7 +925,8 @@ export class FetchRunner implements FetchPass {
         cache: HttpCacheMetadata | undefined,
         configurationUpdates: ConfigurationCacheItem[],
         refusalReason: FetchRefusalReason | 'none' = 'none',
-        storedAtMs?: number
+        storedAtMs?: number,
+        pack?: PackedImageLocation
     ): FetchAttempt {
         const nowMs = Date.now()
         const nextFetchAtMs = urlHistoryExpiresAtMs(nowMs, this.options.seenTtlSeconds, cache)
@@ -924,6 +951,7 @@ export class FetchRunner implements FetchPass {
                 outcome: String(outcome),
                 cache,
                 ...(storedAtMs === undefined ? {} : { storedAtMs }),
+                ...(storedAtMs === undefined || pack === undefined ? {} : { pack }),
             },
             configurationUpdates,
         }
@@ -933,7 +961,7 @@ export class FetchRunner implements FetchPass {
      * S3 and KMS fail in bursts, so this logs at most one failure per interval, with the count since the last one. The
      * error message can name the object key, so only the error name and status are logged, never the URL or the key.
      */
-    private logStorageFailure(operation: 'publish' | 'refresh', error: unknown): void {
+    private logStorageFailure(operation: 'publish' | 'refresh' | 'index', error: unknown): void {
         this.storageFailuresSinceLog += 1
         const nowMs = Date.now()
         if (nowMs - this.storageFailureLoggedAtMs < STORAGE_FAILURE_LOG_INTERVAL_MS) {

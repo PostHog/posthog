@@ -1,5 +1,5 @@
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
-import { FetchCandidateQueue } from './fetch-candidate-queue'
+import { FetchCandidateQueue, mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 
 const OPTIONS = {
     maxConcurrentPerRegistrableDomain: 6,
@@ -103,6 +103,22 @@ describe('FetchCandidateQueue', () => {
 
         expect(drained).toBe(dominantCandidateCount + 1)
         expect(maximumSelectableDomains).toBe(1)
+    })
+
+    it.each([
+        ['keeps the days of both jobs', ['2026-10-14'], ['2026-10-13', '2026-10-14'], ['2026-10-13', '2026-10-14']],
+        // A job with no days needs an image that a reader finds whatever the day, so the merge packs nothing.
+        ['keeps no days when one job has none', ['2026-10-14'], undefined, undefined],
+        [
+            'keeps no days past the limit',
+            ['2026-10-11', '2026-10-12'],
+            ['2026-10-13', '2026-10-14', '2026-10-15'],
+            undefined,
+        ],
+    ])('merges duplicate jobs and %s', (_name, left, right, merged) => {
+        const job = (writeDays: string[] | undefined) => ({ ...domainCandidate(0, 0), writeDays })
+
+        expect(mergeDuplicateFetchCandidates(job(left), job(right)).writeDays).toEqual(merged)
     })
 
     it.each([

@@ -4,7 +4,7 @@
 //! The index rows go to the index topic, and the Parquet sink writes them to S3. The flush does not wait for their
 //! delivery: the data is stored by then, and a lost row is counted.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use tokio::sync::Semaphore;
 
 use crate::batch::Block;
-use crate::history::{mark_fresh, FetchHistory};
+use crate::history::{fresh_urls, FetchHistory, Fresh};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records, FetchJobs, FlushUrls};
@@ -213,11 +213,11 @@ pub async fn write_flush(
         })
         .collect();
     let mut done = Vec::with_capacity(seals.len());
-    let (results, ()) = tokio::join!(
+    let (results, fresh) = tokio::join!(
         stream::iter(seals)
             .buffer_unordered(concurrency.max(1))
             .collect::<Vec<_>>(),
-        mark_fresh_urls(writer, &urls, &day),
+        fresh_flush_urls(writer, &urls, &day),
     );
     for (index, result) in results {
         match result {
@@ -270,7 +270,8 @@ pub async fn write_flush(
             .filter(|(index, _)| kept[*index])
             .map(|(index, (block, stats))| (index, &**block, stats)),
         now.timestamp_millis(),
-        &already_sent,
+        &day,
+        &|reference: &str| already_sent(reference) || fresh.references.contains(reference),
     );
     drop(urls);
 
@@ -309,35 +310,49 @@ pub async fn write_flush(
     let flush_captured_at_ms = blocks.iter().filter_map(|b| b.captured_at_ms).min();
     let mut index = image_rows
         .iter()
+        .chain(&fresh.rows)
         .map(|row| IndexMessage::image(row, flush_captured_at_ms))
         .collect::<Result<Vec<_>, _>>()?;
+    counter!("ai_research_v4_recorder_packed_url_image_rows_total")
+        .increment(fresh.rows.len() as u64);
     for row in block_index_rows(&entries, &keys, &attempt)? {
         index.push(IndexMessage::block(&row)?);
     }
+    let with_rows: HashSet<&str> = fresh.rows.iter().map(|row| &*row.image_ref).collect();
+    let (packed, unpacked): (HashSet<String>, HashSet<String>) = fresh
+        .references
+        .iter()
+        .cloned()
+        .partition(|reference| with_rows.contains(reference.as_str()));
     produce_jobs(writer, jobs, &day, now.timestamp_millis()).await;
     send_index(
         &writer.index_producer,
         &writer.index_topic,
         &day,
         index,
+        &writer.sent_urls,
+        packed,
         flush_done.clone(),
     );
+    for reference in unpacked {
+        writer.sent_urls.insert((day.clone(), reference), ());
+    }
     Ok(())
 }
 
-async fn mark_fresh_urls(writer: &Writer, urls: &FlushUrls, day: &str) {
+async fn fresh_flush_urls(writer: &Writer, urls: &FlushUrls, day: &str) -> Fresh {
     let Some(history) = &writer.fetch_history else {
-        return;
+        return Fresh::default();
     };
     let deadline = tokio::time::Instant::now() + HISTORY_READ_BUDGET;
-    mark_fresh(
+    fresh_urls(
         history.as_ref(),
         &writer.sent_urls,
         urls.unsent_references(),
         day,
         deadline,
     )
-    .await;
+    .await
 }
 
 /// Sends every fetch job of the flush, then waits for all deliveries before the flush commits, as the v3 mirror does.
@@ -395,11 +410,15 @@ async fn produce_jobs(writer: &Writer, jobs: FetchJobs, day: &str, now_ms: i64) 
 }
 
 /// Hands the index rows to the producer and returns without waiting for their delivery. The returned task counts the outcomes, then finishes `done`. `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the sink files them with those.
+/// `sent_on_delivery` names image rows whose reference `sent_urls` takes only once the row reaches the topic. A later
+/// flush on the same day then sends a lost row again.
 pub fn send_index(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,
     write_day: &str,
     messages: Vec<IndexMessage>,
+    sent_urls: &moka::sync::Cache<(String, String), ()>,
+    mut sent_on_delivery: HashSet<String>,
     done: FlushDone,
 ) -> tokio::task::JoinHandle<()> {
     let mut deliveries = Vec::with_capacity(messages.len());
@@ -425,15 +444,24 @@ pub fn send_index(
             .key(&message.key)
             .payload(&message.payload)
             .headers(headers);
+        let marks = (message.index == Index::Images)
+            .then(|| sent_on_delivery.take(&message.key))
+            .flatten();
         match producer.send_result(record) {
-            Ok(delivery) => deliveries.push((message.index, delivery)),
+            Ok(delivery) => deliveries.push((message.index, marks, delivery)),
             Err((error, _)) => failed.add(message.index, error.to_string()),
         }
     }
+    let (sent_urls, write_day) = (sent_urls.clone(), write_day.to_owned());
     tokio::spawn(async move {
-        for (index, delivery) in deliveries {
+        for (index, marks, delivery) in deliveries {
             match delivery.await {
-                Ok(Ok(_)) => counter!("ai_research_v4_recorder_index_rows_total", "index" => index.as_str(), "outcome" => "delivered").increment(1),
+                Ok(Ok(_)) => {
+                    counter!("ai_research_v4_recorder_index_rows_total", "index" => index.as_str(), "outcome" => "delivered").increment(1);
+                    if let Some(reference) = marks {
+                        sent_urls.insert((write_day.clone(), reference), ());
+                    }
+                }
                 Ok(Err((error, _))) => failed.add(index, error.to_string()),
                 Err(_) => failed.add(index, "the producer dropped the row".to_owned()),
             }
@@ -498,6 +526,10 @@ mod tests {
         let (cluster, producer) = create_mock_kafka().await;
         cluster.create_topic(TOPIC, 1, 1).unwrap();
         let done = FlushDone::default();
+        let sent_urls = crate::urls::sent_urls(100);
+        let sent = |reference: &str| {
+            sent_urls.contains_key(&("2026-10-15".to_owned(), reference.to_owned()))
+        };
         let delivered = send_index(
             &producer,
             TOPIC,
@@ -506,15 +538,19 @@ mod tests {
                 message(Index::Blocks, "session-1", Some(1_000)),
                 message(Index::Images, "image:v4:7:2026-10:abc", None),
             ],
+            &sent_urls,
+            HashSet::from(["image:v4:7:2026-10:abc".to_owned()]),
             done.clone(),
         );
         // The test runtime has one thread, so the delivery task has not run yet.
         assert!(!done.is_finished());
+        assert!(!sent("image:v4:7:2026-10:abc"));
         producer
             .flush(Timeout::After(Duration::from_secs(5)))
             .unwrap();
         delivered.await.unwrap();
         assert!(done.is_finished());
+        assert!(sent("image:v4:7:2026-10:abc"));
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", cluster.bootstrap_servers())

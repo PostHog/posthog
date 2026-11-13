@@ -1522,7 +1522,10 @@ mod tests {
         keys.team_months.insert(7, [6; 32]);
         let mut stats = BlockStats::default();
         let urls = crate::urls::FlushUrls::new([&block], &keys, "2026-10", &|_| false);
-        let jobs = crate::urls::fetch_jobs(&urls, [(0, &block, &mut stats)], 1, &|_| false);
+        let jobs =
+            crate::urls::fetch_jobs(&urls, [(0, &block, &mut stats)], 1, "2026-10-14", &|_| {
+                false
+            });
         let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
         let lines = String::from_utf8(lines).unwrap();
         let references: Vec<_> = jobs

@@ -6,17 +6,27 @@ import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/top
 
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { ConfigurationPolicyService, OriginPolicyDecision } from './configuration-policy'
-import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata } from './crawl-history'
+import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, PackedImageLocation } from './crawl-history'
 import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED, URL_TOO_OLD } from './fetch-runner'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
+import type { StoredImage } from './image-sink'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { ResponseUrlBinding } from './response-url-binding'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const NOW_MS = 1_700_000_000_000
+const PACK: PackedImageLocation = {
+    key: 'images/url/packs/dt=2023-11-14/7/1700000000000-00000000000000aa',
+    byteStart: 0,
+    byteEnd: 99,
+    mime: 'image/png',
+    byteSize: 5,
+    storedAtMs: NOW_MS,
+}
+const PACKED_EARLIER: PackedImageLocation = { ...PACK, key: PACK.key.replace('aa', 'bb'), storedAtMs: NOW_MS - 1_000 }
 const OPTIONS: FetchRunnerOptions = {
     maxConcurrentPerRegistrableDomain: 2,
     maxInFlightRequests: 50,
@@ -57,7 +67,8 @@ interface Harness {
     check: jest.Mock<Promise<OriginPolicyDecision>, [string, Map<string, ConfigurationCacheItem>, number]>
     createPass: jest.Mock
     republish: jest.Mock<Promise<RepublishResult>, any[]>
-    publishImage: jest.Mock<Promise<void>, any[]>
+    publishImage: jest.Mock<Promise<StoredImage>, any[]>
+    indexStoredImage: jest.Mock<Promise<void>, any[]>
     topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
@@ -83,7 +94,8 @@ function build(
     const createPass = jest.fn(() => ({ check }))
     const republish = jest.fn(() => Promise.resolve(republishResult))
     const createRepublishBatch = jest.fn(() => ({ republish, flush: () => Promise.resolve({ failedUrls: 0 }) }))
-    const publishImage = jest.fn(() => Promise.resolve())
+    const publishImage = jest.fn((): Promise<StoredImage> => Promise.resolve({}))
+    const indexStoredImage = jest.fn((): Promise<void> => Promise.resolve())
     const scheduler = {
         runImage: async (_url: URL, _deadlineMs: number, request: () => Promise<ImageFetchResult>) => ({
             ran: true as const,
@@ -110,12 +122,22 @@ function build(
         { createPass } as unknown as ConfigurationPolicyService,
         options,
         { createRepublishBatch } as unknown as FrontierPublisher,
-        { publishImage, refreshImage: () => Promise.resolve(true) },
+        { publishImage, refreshImage: () => Promise.resolve({}), indexStoredImage },
         { bindingFor: () => Promise.resolve(bind) },
         new ImageFetchTopHogMetrics(recordingTopHog.registry)
     )
     builtRunners.push(runner)
-    return { runner, budget, fetch, check, createPass, republish, publishImage, topHogRecords: recordingTopHog.records }
+    return {
+        runner,
+        budget,
+        fetch,
+        check,
+        createPass,
+        republish,
+        publishImage,
+        indexStoredImage,
+        topHogRecords: recordingTopHog.records,
+    }
 }
 
 describe('FetchRunner', () => {
@@ -213,6 +235,56 @@ describe('FetchRunner', () => {
         })
     })
 
+    it.each([
+        ['a new image the sink packed', { outcome: 'ok', bytes: Buffer.from('image'), contentType: 'image/png' }, PACK],
+        // The stored copy stays in place, so the history keeps naming it.
+        ['a missing response for a packed copy', { outcome: 'not_found' }, PACKED_EARLIER],
+    ])('records where %s is stored', async (_case, result, pack) => {
+        const harness = build(result as Partial<ImageFetchResult>)
+        harness.publishImage.mockResolvedValue({ pack: PACK })
+        const previous = {
+            kind: 'url' as const,
+            key: candidate().originalRef,
+            nextFetchAtMs: 0,
+            storageExpiresAtMs: NOW_MS,
+            outcome: 'ok',
+            storedAtMs: PACKED_EARLIER.storedAtMs,
+            pack: PACKED_EARLIER,
+        }
+
+        const [attempt] = await harness.runner.run([candidate()], new Map([[previous.key, previous]]))
+
+        expect(attempt.history).toMatchObject({ storedAtMs: pack.storedAtMs, pack })
+    })
+
+    it.each([
+        ['indexes the packed copy it keeps', 'ok'],
+        ['retries the job when that copy cannot be indexed', 'fails'],
+    ])('after a missing response, %s', async (_case, indexing) => {
+        const harness = build({ outcome: 'not_found' })
+        if (indexing === 'fails') {
+            harness.indexStoredImage.mockRejectedValue(new Error('index unavailable'))
+        }
+        const previous = {
+            kind: 'url' as const,
+            key: candidate().originalRef,
+            nextFetchAtMs: 0,
+            storageExpiresAtMs: NOW_MS,
+            outcome: 'ok',
+            storedAtMs: PACKED_EARLIER.storedAtMs,
+            pack: PACKED_EARLIER,
+        }
+
+        const [attempt] = await harness.runner.run([candidate()], new Map([[previous.key, previous]]))
+
+        expect(harness.indexStoredImage).toHaveBeenCalledWith(
+            expect.objectContaining({ originalRef: candidate().originalRef }),
+            previous
+        )
+        expect(attempt.finished).toBe(indexing === 'ok')
+        expect(harness.republish).toHaveBeenCalledTimes(indexing === 'ok' ? 0 : 1)
+    })
+
     it('uses one worker limit across sibling origins', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 1 })
         let releaseFirst: (() => void) | undefined
@@ -255,8 +327,8 @@ describe('FetchRunner', () => {
         let releasePublish: () => void = () => undefined
         harness.publishImage.mockImplementationOnce(
             () =>
-                new Promise<void>((resolve) => {
-                    releasePublish = resolve
+                new Promise<StoredImage>((resolve) => {
+                    releasePublish = () => resolve({})
                 })
         )
         const second = candidate({
