@@ -55,6 +55,14 @@ STRIPE_API_VERSION_ENDIVE = "2026-10-28.endive"
 # Versions that serve the API v2 money-management lists, which Stripe first published in 2026-10-28.endive.
 STRIPE_V2_MONEY_MANAGEMENT_VERSIONS = (STRIPE_API_VERSION_ENDIVE,)
 
+# `Customer.has_payment_method` is an undocumented, version-agnostic field that Stripe grants per
+# account to PostHog merchants only. When it is `false`, `/v1/customers/:id/payment_methods` is
+# empty, so the payment-method sweeps skip that call. Stripe's terms for the field: send the expand
+# only on the customer list that feeds those sweeps, stop sending it for the rest of a sync after
+# Stripe refuses it, and never store its value. The flag is the kill switch for the expand.
+CUSTOMER_HAS_PAYMENT_METHOD_FIELD = "has_payment_method"
+STRIPE_HAS_PAYMENT_METHOD_FLAG = "warehouse-stripe-has-payment-method"
+
 # CustomerPaymentMethodHistory metadata columns. Every row is one observation of a payment
 # method: either a `payment_method.*` webhook event, or a row from the initial attached-payment-
 # methods sweep (a "snapshot"). The event id doubles as the row's primary key, so webhook

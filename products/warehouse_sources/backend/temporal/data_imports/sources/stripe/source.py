@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_team_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -51,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
     STRIPE_API_VERSION_ENDIVE,
+    STRIPE_HAS_PAYMENT_METHOD_FLAG,
     STRIPE_V2_MONEY_MANAGEMENT_VERSIONS,
     SUBSCRIPTION_RESOURCE_NAME,
 )
@@ -760,6 +762,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             include_zero_balance_customers=bool(
                 config.balance_history_all_customers and config.balance_history_all_customers.enabled
             ),
+            parent_gated_expand_enabled=lambda: is_team_flag_enabled(inputs.team_id, STRIPE_HAS_PAYMENT_METHOD_FLAG),
         )
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
