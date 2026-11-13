@@ -37,7 +37,7 @@ class TestAILaneOptIn(SimpleTestCase):
 class TestPrivateScoutCapture(SimpleTestCase):
     @parameterized.expand([("default", None), ("US", "US"), ("EU", "EU")])
     def test_sql_query_filters_are_not_captured(self, _name: str, region: str | None) -> None:
-        query = {
+        query: dict[str, Any] = {
             "kind": "DataVisualizationNode",
             "source": {
                 "kind": "HogQLQuery",
@@ -70,10 +70,17 @@ class TestPrivateScoutCapture(SimpleTestCase):
         try:
             for event in ("query executed", "query execution failed", "$exception"):
                 captured = client.capture(event, distinct_id="synthetic", properties={"query": query})
+                if event == "$exception":
+                    self.assertIsNone(captured)
+                    continue
                 assert captured is not None
                 self.assertNotIn("filters", messages[-1]["properties"]["query"]["source"])
                 self.assertEqual(messages[-1]["properties"]["query"]["source"]["query"], query["source"]["query"])
             self.assertEqual(query, original)
+            with tags_context(query=query):
+                self.assertIsNone(client.capture("$exception", distinct_id="synthetic"))
+            with tags_context(query=None):
+                self.assertIsNotNone(client.capture("$exception", distinct_id="synthetic"))
         finally:
             client.shutdown()
 

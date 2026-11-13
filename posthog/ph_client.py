@@ -60,8 +60,23 @@ def _query_without_sql_filters(value: Any) -> Any:
     return value
 
 
-def omit_sql_query_filters(message: dict[str, Any]) -> dict[str, Any]:
+def _has_filtered_sql_query(value: Any) -> bool:
+    if isinstance(value, dict):
+        return (value.get("kind") == "HogQLQuery" and bool(value.get("filters"))) or any(
+            _has_filtered_sql_query(item) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(_has_filtered_sql_query(item) for item in value)
+    return False
+
+
+def filter_sql_query_capture(message: dict[str, Any]) -> dict[str, Any] | None:
     properties = message.get("properties", {})
+    # Exception chains and stack context can include expanded SQL beyond the query metadata.
+    if message.get("event") == "$exception" and (
+        _has_filtered_sql_query(properties.get("query")) or _has_filtered_sql_query(get_query_tags().query)
+    ):
+        return None
     if isinstance(properties.get("query"), dict):
         properties = {**properties, "query": _query_without_sql_filters(properties["query"])}
     if properties.get("query_type") == "HogQLQuery":
@@ -82,7 +97,7 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
         hooks.append(filter_scout_experiment_capture)
     if self_hosted:
         hooks.append(drop_exception_capture)
-    hooks.append(omit_sql_query_filters)
+    hooks.append(filter_sql_query_capture)
     hooks.append(suppress_last_seen_updates)
 
     def chained(message: dict[str, Any]) -> dict[str, Any] | None:
@@ -305,7 +320,8 @@ def get_client(region: str = "US", **kwargs: Any):
             if next_message is None:
                 return None
             message = next_message
-        return suppress_last_seen_updates(omit_sql_query_filters(message))
+        filtered_message = filter_sql_query_capture(message)
+        return suppress_last_seen_updates(filtered_message) if filtered_message is not None else None
 
     kwargs["before_send"] = capture_filter
 

@@ -103,9 +103,10 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result = await self.tool.execute(args)
                 replay = await self.tool.execute(args)
                 assert result.structured_content is not None
+                query = HogQLQuery.model_validate(result.structured_content["query"])
                 await database_sync_to_async(process_query_dict)(
                     self.team,
-                    result.structured_content["query"],
+                    query.model_dump(mode="json"),
                     user=self.user,
                     limit_context=LimitContext.POSTHOG_AI,
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -124,19 +125,18 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
                         args.model_copy(update={"query": "SELECT intDiv(1, 0) FROM events WHERE {filters}"})
                     )
                 with tags_context(query=HogQLQuery(query=args.query, filters=filters).model_dump(mode="json")):
-                    capture_exception(ValueError("example failure"))
+                    capture_exception(ValueError(f"SQL execution failed: {private_value}"))
         finally:
             client.shutdown()
 
         self.assertEqual(replay.content, result.content)
         self.assertNotEqual(other.content, result.content)
-        assert result.structured_content is not None
-        self.assertEqual(HogQLQuery.model_validate(result.structured_content["query"]).filters, filters)
+        self.assertEqual(query.filters, filters)
         executed = [message for message in messages if message["event"] == "query executed"]
         self.assertTrue(executed)
         self.assertTrue(any(message["properties"]["cache_hit"] for message in executed))
         self.assertTrue(any(message["event"] == "query execution failed" for message in messages))
-        self.assertTrue(
+        self.assertFalse(
             any(message["event"] == "$exception" and "query" in message["properties"] for message in messages)
         )
         self.assertNotIn(private_value, json.dumps(messages, default=str))

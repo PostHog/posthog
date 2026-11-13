@@ -119,8 +119,8 @@ The `src/hono/analytics.ts` module calls SDK helpers for initialization, tool ca
 Direct tool calls and inner exec calls use the same `trackToolCall()` path.
 The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
 Tool arguments and results reach `$mcp_parameters` and `$mcp_response` only under the capture policy and secret redaction that `$ai_span` uses, so a tool excluded from spans sends neither, and `execute-sql` sends its query but not its rows.
-Calls to `execute-sql` with structured filters omit both payloads and spans because property-filter values can contain sensitive data. Outer `exec` calls containing `execute-sql` also omit payloads and spans.
-Backend analytics also omit structured SQL filters from query metadata, including query success, failure, and exception events. SQL query telemetry omits error messages because they can contain expanded filter values; error types and categories remain available. Execution and cache identity retain the filters.
+Calls to `execute-sql` with structured filters omit payloads, spans, and explicit exception capture because property-filter values can contain sensitive data. Outer `exec` calls containing `execute-sql` apply the same policy. Call metrics and the detailed tool response remain available.
+Backend analytics also omit structured SQL filters from query success and failure metadata. Exception capture is suppressed for filtered SQL because exception chains and stack context can contain expanded filter values. SQL query telemetry also omits error messages; error types and categories remain available. Execution and cache identity retain the filters.
 The `opt-outs-list` tool also omits arguments, results, and spans to keep recipient addresses out of telemetry.
 An exec command that resolves no inner tool sends neither, since its raw command string has no tool name to apply the policy to.
 The result is the handler's raw object, redacted by key, not the formatted text the agent reads, and failed calls send no result because their text embeds upstream error bodies.

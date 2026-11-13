@@ -16,7 +16,7 @@ import {
 } from '@/lib/posthog/analytics'
 import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -420,14 +420,7 @@ function emailRecipientExposure(toolName: string, input: unknown): EmailRecipien
 
 function shouldCaptureToolCall(toolName: string, input: unknown): boolean {
     // Property-filter values can contain credentials under the generic `value` key.
-    // Exec embeds the arguments in text, so skip SQL payloads there too.
-    const sqlInput = input as { filters?: unknown; command?: unknown } | null | undefined
-    if (
-        (toolName === EXECUTE_SQL_TOOL_NAME && sqlInput?.filters != null) ||
-        (toolName === 'exec' &&
-            typeof sqlInput?.command === 'string' &&
-            sqlInput.command.includes(EXECUTE_SQL_TOOL_NAME))
-    ) {
+    if (hasSqlFilters(toolName, input)) {
         return false
     }
     if (isPrivateScoutTrialTool(toolName)) {
