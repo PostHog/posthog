@@ -22,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
@@ -155,12 +156,18 @@ WHERE run_id = {run_id}
 ASSIGNMENT_SLICE = timedelta(days=1)
 
 
-def assignment_slices(window_start: datetime, window_end: datetime) -> Iterator[tuple[datetime, datetime]]:
+@frozen
+class TimeSlice:
+    start: datetime
+    end: datetime
+
+
+def assignment_slices(window_start: datetime, window_end: datetime) -> Iterator[TimeSlice]:
     """[window_start, window_end) cut into consecutive pieces of at most ASSIGNMENT_SLICE, with no gap or overlap."""
     cursor = window_start
     while cursor < window_end:
         slice_end = min(cursor + ASSIGNMENT_SLICE, window_end)
-        yield cursor, slice_end
+        yield TimeSlice(start=cursor, end=slice_end)
         cursor = slice_end
 
 
@@ -182,12 +189,12 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         # One INSERT ... SELECT per day: the insert holds its result in memory until it is forwarded to the shards
         # (about 0.3 GB per million rows), and the post-refit window is a month of intents. Per day, peak memory
         # stays near 1 GB however long the window is.
-        for slice_start, slice_end in assignment_slices(window_start, window_end):
+        for time_slice in assignment_slices(window_start, window_end):
             sql, params = build_assignment_insert(
                 team_id=team.pk,
                 run_id=run.run_id,
-                window_start=slice_start,
-                window_end=slice_end,
+                window_start=time_slice.start,
+                window_end=time_slice.end,
                 topics=topics,
                 pca=pca,
             )
