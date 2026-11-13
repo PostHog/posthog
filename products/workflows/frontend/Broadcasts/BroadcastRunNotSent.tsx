@@ -32,7 +32,7 @@ export function BroadcastRunNotSent(): JSX.Element | null {
             <LemonButton
                 size="xsmall"
                 type="tertiary"
-                onClick={loadNotSent}
+                onClick={() => loadNotSent()}
                 loading={notSentLoading}
                 data-attr="broadcast-run-not-sent-retry"
             >

@@ -66,7 +66,7 @@ export interface broadcastSentLogicActions {
         sends: MessageAsset[]
         payload?: any
     }
-    loadNotSent: (_: any) => any
+    loadNotSent: (_: void) => void
     loadNotSentFailure: (
         error: string,
         errorObject?: any
@@ -76,10 +76,10 @@ export interface broadcastSentLogicActions {
     }
     loadNotSentSuccess: (
         notSent: BroadcastNotSent,
-        payload?: any
+        payload?: void
     ) => {
         notSent: BroadcastNotSent
-        payload?: any
+        payload?: void
     }
     loadSends: (_: void) => void
     loadSendsFailure: (
@@ -175,7 +175,7 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
             notSent: [
                 null as BroadcastNotSent | null,
                 {
-                    loadNotSent: async (_, breakpoint) => {
+                    loadNotSent: async (_: void, breakpoint) => {
                         if (!props.id || props.id === 'new' || !props.parentRunId || !props.runCreatedAt) {
                             return { rows: [], counts: { failed: 0, skipped: 0, canceled: 0 } }
                         }
