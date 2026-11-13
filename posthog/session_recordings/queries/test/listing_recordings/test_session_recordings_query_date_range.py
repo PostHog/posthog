@@ -8,7 +8,14 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, HogQLQueryModifiers, RecordingsQuery, SessionTableVersion
+from posthog.schema import (
+    DateRange,
+    HogQLQueryModifiers,
+    PropertyOperator,
+    RecordingsQuery,
+    SessionPropertyFilter,
+    SessionTableVersion,
+)
 
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
@@ -78,27 +85,49 @@ class TestSessionRecordingsQueryDateRange(APIBaseTest):
 class TestReplaySessionsTableVersion(APIBaseTest):
     @parameterized.expand(
         [
-            ("recent_range_in_a_covered_region", "-7d", "US", None, None, SessionTableVersion.V3),
-            ("last_30_days_in_a_covered_region", "-30d", "US", None, None, SessionTableVersion.V3),
-            ("range_longer_than_30_days", "-60d", "US", None, None, None),
-            ("range_before_the_coverage_start", "2026-09-25", "US", None, None, None),
-            ("region_without_coverage", "-7d", "EU", None, None, None),
-            ("team_pins_v2", "-7d", "US", "v2", None, None),
-            ("request_pins_v2", "-7d", "US", None, SessionTableVersion.V2, SessionTableVersion.V2),
+            ("recent_range_in_a_covered_region", {"date_from": "-7d"}, "US", None, None, {}, SessionTableVersion.V3),
+            ("last_30_days_in_a_covered_region", {"date_from": "-30d"}, "US", None, None, {}, SessionTableVersion.V3),
+            ("range_longer_than_30_days", {"date_from": "-60d"}, "US", None, None, {}, None),
+            ("range_before_the_coverage_start", {"date_from": "2026-09-25"}, "US", None, None, {}, None),
+            ("region_without_coverage", {"date_from": "-7d"}, "EU", None, None, {}, None),
+            ("team_pins_v2", {"date_from": "-7d"}, "US", "v2", None, {}, None),
+            ("request_pins_v2", {"date_from": "-7d"}, "US", None, SessionTableVersion.V2, {}, SessionTableVersion.V2),
+            (
+                "pinned_session_ids_skip_the_date_window",
+                {"date_from": "-7d", "session_ids": ["old-session"]},
+                "US",
+                None,
+                None,
+                {"bypass_date_window_for_session_ids": True},
+                None,
+            ),
+            (
+                "filter_on_a_field_only_v2_has",
+                {
+                    "date_from": "-7d",
+                    "properties": [SessionPropertyFilter(key="$vitals_lcp", value=2.5, operator=PropertyOperator.GT)],
+                },
+                "US",
+                None,
+                None,
+                {},
+                None,
+            ),
         ]
     )
     def test_recent_ranges_read_sessions_v3(
-        self, _name, date_from, region, team_version, requested_version, expected_version
+        self, _name, query_kwargs, region, team_version, requested_version, list_kwargs, expected_version
     ) -> None:
         if team_version:
             self.team.modifiers = {"sessionTableVersion": team_version}
             self.team.save()
         query = SessionRecordingListFromQuery(
             team=self.team,
-            query=RecordingsQuery(date_from=date_from),
+            query=RecordingsQuery(**query_kwargs),
             hogql_query_modifiers=HogQLQueryModifiers(sessionTableVersion=requested_version)
             if requested_version
             else None,
+            **list_kwargs,
         )
 
         with (

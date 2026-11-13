@@ -1,3 +1,4 @@
+import json
 import struct
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -22,7 +23,11 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.database.schema.sessions_v3 import SESSIONS_V3_COVERAGE_START_BY_REGION
+from posthog.hogql.database.schema.sessions_v2 import LAZY_SESSIONS_FIELDS as SESSIONS_V2_FIELDS
+from posthog.hogql.database.schema.sessions_v3 import (
+    LAZY_SESSIONS_FIELDS as SESSIONS_V3_FIELDS,
+    SESSIONS_V3_COVERAGE_START_BY_REGION,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -72,6 +77,8 @@ RECOMMENDED_SURFACING_SCORE_THRESHOLD = struct.unpack("!f", struct.pack("!f", 0.
 
 # A "last 30 days" range starts at midnight in the team's timezone, up to a day before now minus 30 days.
 REPLAY_SESSIONS_V3_MAX_RANGE = timedelta(days=31)
+
+_SESSIONS_V2_ONLY_FIELDS = frozenset(SESSIONS_V2_FIELDS) - frozenset(SESSIONS_V3_FIELDS)
 
 
 def _sessions_v3_coverage_start() -> datetime | None:
@@ -282,6 +289,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         stored = self._team.modifiers.get("sessionTableVersion") if isinstance(self._team.modifiers, dict) else None
         if stored not in (None, SessionTableVersion.AUTO.value):
             return requested
+        # Pinned session ids skip the date window, so they can reach sessions from before the v3 coverage.
+        if self._bypass_date_window() or self._references_sessions_v2_only_field():
+            return requested
         coverage_start = _sessions_v3_coverage_start()
         date_from = self.query_date_range.date_from()
         if coverage_start is None or date_from is None:
@@ -289,6 +299,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if date_from < max(coverage_start, datetime.now(UTC) - REPLAY_SESSIONS_V3_MAX_RANGE):
             return requested
         return (requested or HogQLQueryModifiers()).model_copy(update={"sessionTableVersion": SessionTableVersion.V3})
+
+    def _references_sessions_v2_only_field(self) -> bool:
+        # A filter on a field that only the v2 sessions table has would fail to resolve on v3. Matching the name
+        # anywhere in the filters can also catch an event property of the same name, which only keeps v2.
+        filters = json.dumps([self._query.model_dump(mode="json"), self._test_account_filters], default=str)
+        return any(f'"{name}"' in filters for name in _SESSIONS_V2_ONLY_FIELDS)
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
