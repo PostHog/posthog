@@ -10,7 +10,7 @@ import { HogFlow } from '../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
 import type { InvocationResultsService } from '../invocation-results.service'
-import { JobQueue } from '../job-queue/job-queue.interface'
+import type { CyclotronJobQueuePostgresV2 } from '../job-queue/job-queue-postgres-v2'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
@@ -47,7 +47,7 @@ export type ScheduledRunsDeps = {
     siteUrl: string
     teams: Pick<TeamManager, 'getTeams'>
     hogFlows: Pick<HogFlowManagerService, 'getHogFlows'>
-    queue: JobQueue
+    queue: Pick<CyclotronJobQueuePostgresV2, 'queueInvocations'>
     invocationResults: InvocationResultsService
     quotaLimiting: QuotaLimiting
     workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
@@ -148,7 +148,7 @@ export class ScheduledRuns {
         // `state.firstScheduledAt` stamp reaches cyclotron.
         invocations.forEach((invocation) => rows.queueLifecycleRow(invocation, 'running'))
         try {
-            await this.deps.queue.queueInvocations(invocations)
+            await this.deps.queue.queueInvocations(invocations, { oneInsert: true })
         } catch (error) {
             rows.dropQueuedRowsFor(invocations.map((invocation) => invocation.id))
             throw error

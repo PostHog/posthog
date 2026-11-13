@@ -2185,7 +2185,7 @@ describe('CDP API', () => {
         })
 
         it.each([100, 20])(
-            'queues a batch of 100 runs and refuses 101 whatever the queue insert size (%i)',
+            'queues a batch of 100 runs in one insert and refuses 101 whatever the queue insert size (%i)',
             async (insertBatchSize) => {
                 const hogflowQueue = createInMemoryJobQueue()
                 api['hogflowQueue'] = hogflowQueue
@@ -2206,6 +2206,7 @@ describe('CDP API', () => {
                     const accepted = await post(100)
                     expect(accepted.status).toEqual(200)
                     expect(hogflowQueue.queued).toHaveLength(100)
+                    expect(hogflowQueue.queueInvocations).toHaveBeenCalledWith(hogflowQueue.queued, { oneInsert: true })
                 } finally {
                     hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = defaultInsertBatchSize
                 }
