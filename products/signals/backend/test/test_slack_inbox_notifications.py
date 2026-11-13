@@ -17,7 +17,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.notifications.backend.models import NotificationEvent
+from products.notifications.backend.facade.testing import stored_notification_for_resource
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.facade.api import set_default_slack_notification_channel
@@ -1334,7 +1334,8 @@ def test_reviewer_added_does_not_fall_back_to_team_channel(org_and_team):
 
     assert sent == 0
     assert slack_cls.call_count == 0
-    event = NotificationEvent.objects.get(notification_type="report_assigned")
+    event = stored_notification_for_resource(resource_type="inbox", resource_id=str(report.id))
+    assert event.notification_type == "report_assigned"
     assert event.target_id == str(user.id)
     assert event.resource_id == str(report.id)
 

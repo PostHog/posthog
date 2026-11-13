@@ -17,7 +17,7 @@ from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.notifications.backend.models import NotificationEvent
+from products.notifications.backend.facade.testing import stored_notifications_for_team
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.inbox_push_notifications import _push_report, notify_pull_request_ready
 from products.signals.backend.models import (
@@ -352,10 +352,14 @@ class TestInboxPushNotifications(BaseTest):
             notify(task_run_id=str(run.id), team_id=run.team_id)
             notify(task_run_id=str(run.id), team_id=run.team_id)
 
-        events = NotificationEvent.objects.filter(notification_type="report_run_finished")
-        self.assertEqual(events.count(), expected_count)
+        events = [
+            event
+            for event in stored_notifications_for_team(self.team.id)
+            if event.notification_type == "report_run_finished"
+        ]
+        self.assertEqual(len(events), expected_count)
         if expected_count:
-            event = events.get()
+            event = events[0]
             self.assertEqual(event.target_id, str(self.user.id))
             self.assertEqual(event.resource_id, str(report.id))
             self.assertIn(outcome, event.title)
