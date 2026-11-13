@@ -188,6 +188,7 @@ class ResendImportProvider(ImportProvider):
                 "one event."
             ),
             count_labels=CONTACT_COUNT_LABELS,
+            requires=("opt_outs", "topic_opt_outs"),
         ),
         new_people_step("Resend"),
         ImportStepSpec(

@@ -31,7 +31,11 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import resend, runs
-from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.base import (
+    ImportCredentialsInvalid,
+    ImportProviderUnavailable,
+    ImportStepBlocked,
+)
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
@@ -220,6 +224,17 @@ class TestResendImport(BaseTest):
                 runs.start_run(self.team.id, "resend", ["suppressions"], API_KEY, self.user.id)
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
+        self.resend.failures["/contacts"] = [(500, {})] * 10
+        run = runs.start_run(self.team.id, "resend", ["opt_outs", "contacts"], API_KEY, self.user.id)
+
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
+        with self.assertRaises(ImportStepBlocked):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert self.resend.calls.count("/contacts") == 4
 
     @parameterized.expand([("rate_limit", 429, {"retry-after": "7"}, 7.0), ("server_error", 503, {}, 2.0)])
     def test_a_passing_failure_waits_and_the_step_completes(
