@@ -203,6 +203,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationIdentitySourceType as MarketingAnalyticsRecommendationIdentitySourceType,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
@@ -7284,6 +7285,31 @@ class MarketingAnalyticsRecommendationCpa(BaseModel):
     )
 
 
+class MarketingAnalyticsRecommendationIdentity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaign_id: str = Field(
+        ...,
+        description=("The Google Ads campaign id. Empty when the recommendation is not about one campaign."),
+    )
+    customer_id: str = Field(
+        ...,
+        description=("The Google Ads account id. Empty when the recommendation is not tied to one account."),
+    )
+    rule: MarketingAnalyticsRecommendationRule
+    source_type: MarketingAnalyticsRecommendationIdentitySourceType = Field(
+        ..., description="The ad platform the ids belong to."
+    )
+    subject: str = Field(
+        ...,
+        description=(
+            "The search term, or the budget id for a budget recommendation. Empty when"
+            " the campaign id names the subject."
+        ),
+    )
+
+
 class MarketingAnalyticsRecommendationsDataGap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7597,6 +7623,10 @@ class MetricsDisplaySettings(BaseModel):
     reduce: MetricsReducer | None = Field(
         default=MetricsReducer.LAST,
         description=("How scalar panels and legend calcs collapse a series to one number."),
+    )
+    statSparkline: bool | None = Field(
+        default=True,
+        description=("`stat` display only: whether a graph of the series shows under the value."),
     )
     statSummary: MetricsStatSummary | None = Field(
         default=MetricsStatSummary.LATEST,
@@ -22392,12 +22422,19 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None, description="CPA figures in the account currency."
     )
     currency: str | None = None
+    identity: MarketingAnalyticsRecommendationIdentity
     impact: float | None = Field(
         default=None,
         description=("Monthly money impact in the account currency. Null when the rule has no money impact."),
     )
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    key: str = Field(
+        ...,
+        description=(
+            "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is."
+        ),
+    )
     level: MarketingAnalyticsRecommendationLevel
     reason: str
     rule: MarketingAnalyticsRecommendationRule
@@ -33461,12 +33498,25 @@ class HogQLQueryResponse(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -34724,12 +34774,25 @@ class QueryResponseAlternative8(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -34888,12 +34951,25 @@ class QueryResponseAlternative43(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -35998,15 +36074,28 @@ class CachedHogQLQueryResponse(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
@@ -36104,12 +36193,25 @@ class Response3(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -36395,7 +36497,15 @@ class HogQLQuery(BaseModel):
             " sets its own LIMIT, uses UNION, or runs as raw SQL."
         ),
     )
-    query: str
+    query: str = Field(
+        ...,
+        description=(
+            "The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows;"
+            " check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in"
+            " a UNION gets the same default limit. With `sendRawQuery`, no default"
+            " limit applies and `hasMore` is not set."
+        ),
+    )
     response: HogQLQueryResponse | None = None
     sendRawQuery: bool | None = Field(
         default=None,

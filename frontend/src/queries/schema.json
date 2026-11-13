@@ -1837,7 +1837,6 @@
                 "flags",
                 "llm_analytics",
                 "sandbox",
-                "user_interview",
                 "customer_analytics"
             ],
             "type": "string"
@@ -5776,6 +5775,7 @@
                 "estimate_replay_vision_scanner",
                 "label_replay_vision_observation",
                 "analyze_replay_vision_impact",
+                "get_replay_vision_observation_stats",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -11898,6 +11898,7 @@
                     "type": "array"
                 },
                 "hasMore": {
+                    "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -11912,7 +11913,8 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -11927,7 +11929,8 @@
                     "type": "string"
                 },
                 "offset": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows skipped before the default row limit applied."
                 },
                 "query": {
                     "description": "Input query string",
@@ -22356,6 +22359,7 @@
                                     "type": "array"
                                 },
                                 "hasMore": {
+                                    "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                                     "type": "boolean"
                                 },
                                 "hogql": {
@@ -22363,7 +22367,8 @@
                                     "type": "string"
                                 },
                                 "limit": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/integer",
+                                    "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                                 },
                                 "metadata": {
                                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -22374,7 +22379,8 @@
                                     "description": "Modifiers used when performing the query"
                                 },
                                 "offset": {
-                                    "$ref": "#/definitions/integer"
+                                    "$ref": "#/definitions/integer",
+                                    "description": "Rows skipped before the default row limit applied."
                                 },
                                 "query": {
                                     "description": "Input query string",
@@ -33459,6 +33465,7 @@
                     "description": "Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
                 },
                 "query": {
+                    "description": "The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. With `sendRawQuery`, no default limit applies and `hasMore` is not set.",
                     "type": "string"
                 },
                 "response": {
@@ -33699,6 +33706,7 @@
                     "type": "array"
                 },
                 "hasMore": {
+                    "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -33706,7 +33714,8 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                 },
                 "metadata": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -33717,7 +33726,8 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "offset": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows skipped before the default row limit applied."
                 },
                 "query": {
                     "description": "Input query string",
@@ -40440,6 +40450,9 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "identity": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
+                },
                 "impact": {
                     "description": "Monthly money impact in the account currency. Null when the rule has no money impact.",
                     "type": ["number", "null"]
@@ -40449,6 +40462,10 @@
                 },
                 "impactType": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationImpactType"
+                },
+                "key": {
+                    "description": "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is.",
+                    "type": "string"
                 },
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
@@ -40471,7 +40488,17 @@
                     "type": "string"
                 }
             },
-            "required": ["rule", "level", "subject", "action", "reason", "impactDirection", "impactType"],
+            "required": [
+                "rule",
+                "level",
+                "subject",
+                "identity",
+                "key",
+                "action",
+                "reason",
+                "impactDirection",
+                "impactType"
+            ],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationCpa": {
@@ -40511,6 +40538,37 @@
         "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
             "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
             "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationIdentity": {
+            "additionalProperties": false,
+            "description": "What a dismissal or an applied mark keys on. A client sends this object as is as the `identity` of a resolution in the recommendation resolutions API.",
+            "properties": {
+                "campaign_id": {
+                    "description": "The Google Ads campaign id. Empty when the recommendation is not about one campaign.",
+                    "type": "string"
+                },
+                "customer_id": {
+                    "description": "The Google Ads account id. Empty when the recommendation is not tied to one account.",
+                    "type": "string"
+                },
+                "rule": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
+                },
+                "source_type": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentitySourceType",
+                    "description": "The ad platform the ids belong to."
+                },
+                "subject": {
+                    "description": "The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.",
+                    "type": "string"
+                }
+            },
+            "required": ["rule", "source_type", "customer_id", "campaign_id", "subject"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationIdentitySourceType": {
+            "enum": ["google_ads"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationImpactDirection": {
@@ -44099,6 +44157,11 @@
                     "default": "last",
                     "description": "How scalar panels and legend calcs collapse a series to one number."
                 },
+                "statSparkline": {
+                    "default": true,
+                    "description": "`stat` display only: whether a graph of the series shows under the value.",
+                    "type": "boolean"
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
@@ -47620,6 +47683,7 @@
                             "type": "array"
                         },
                         "hasMore": {
+                            "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                             "type": "boolean"
                         },
                         "hogql": {
@@ -47627,7 +47691,8 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                         },
                         "metadata": {
                             "$ref": "#/definitions/HogQLMetadataResponse",
@@ -47638,7 +47703,8 @@
                             "description": "Modifiers used when performing the query"
                         },
                         "offset": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "Rows skipped before the default row limit applied."
                         },
                         "query": {
                             "description": "Input query string",
@@ -50760,6 +50826,7 @@
                             "type": "array"
                         },
                         "hasMore": {
+                            "description": "Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.",
                             "type": "boolean"
                         },
                         "hogql": {
@@ -50767,7 +50834,8 @@
                             "type": "string"
                         },
                         "limit": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
                         },
                         "metadata": {
                             "$ref": "#/definitions/HogQLMetadataResponse",
@@ -50778,7 +50846,8 @@
                             "description": "Modifiers used when performing the query"
                         },
                         "offset": {
-                            "$ref": "#/definitions/integer"
+                            "$ref": "#/definitions/integer",
+                            "description": "Rows skipped before the default row limit applied."
                         },
                         "query": {
                             "description": "Input query string",
