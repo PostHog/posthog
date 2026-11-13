@@ -478,6 +478,80 @@ class TestDevTokens(_DevGatewaySettings):
         assert response.status_code == 403
         post.assert_not_called()
 
+    @override_settings(DEV_GATEWAY_DAILY_CAP_USD="1000")
+    def test_mint_sends_the_cap_and_lifetime_the_user_picked(self):
+        with patch(_POST, return_value=_minted()) as post:
+            response = self.client.post(URL, {"cap_usd": "1000", "ttl_seconds": 604800})
+
+        assert response.status_code == 201, response.json()
+        assert post.call_args.kwargs["json"]["cap_usd"] == "1000.00"
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 604800
+        assert self._rows(user=self.user).get().cap_usd == Decimal("1000")
+
+    @parameterized.expand(
+        [
+            ("cap_below_minimum", {"cap_usd": "4.99"}, "cap_usd"),
+            ("cap_above_maximum", {"cap_usd": "1000.01"}, "cap_usd"),
+            ("ttl_below_minimum", {"ttl_seconds": 3599}, "ttl_seconds"),
+            ("ttl_above_a_week", {"ttl_seconds": 604801}, "ttl_seconds"),
+        ]
+    )
+    @override_settings(DEV_GATEWAY_DAILY_CAP_USD="5000")
+    def test_out_of_range_request_never_reaches_the_gateway(self, _name, body, field):
+        with patch(_POST) as post:
+            response = self.client.post(URL, body)
+
+        assert response.status_code == 400
+        assert response.json()["code"] == "invalid_request"
+        assert response.json()["detail"].startswith(f"{field} must be between")
+        post.assert_not_called()
+        assert not self._rows(user=self.user).exists()
+
+    def test_picked_cap_over_the_budget_left_is_refused(self):
+        self._spent_token("30", hours_ago=1)
+
+        with patch(_POST) as post:
+            response = self.client.post(URL, {"cap_usd": "25"})
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == (
+            "cap_usd is 25.00, but $20.00 of your $50.00 limit for the last 24 hours is left."
+        )
+        post.assert_not_called()
+
+    def test_usage_reports_the_bounds_a_user_can_pick(self):
+        with override_settings(DEV_GATEWAY_TOKEN_MAX_CAP_USD="1000", DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS=604800):
+            body = self.client.get(f"{URL}usage/").json()
+
+        assert (body["token_cap_min_usd"], body["token_cap_usd"], body["default_cap_usd"]) == (
+            "5.00",
+            "1000.00",
+            "25.00",
+        )
+        assert (body["ttl_min_seconds"], body["ttl_seconds"], body["ttl_max_seconds"]) == (3600, 28800, 604800)
+
+    def test_cli_token_gets_the_cap_and_lifetime_approved_in_the_browser(self):
+        self.client.force_login(self.user)
+        code = self.client.post(
+            f"{URL}cli_authorize/", {"code_challenge": CHALLENGE, "cap_usd": "10", "ttl_seconds": 86400}
+        ).json()["code"]
+        self.client.logout()
+
+        with patch(_POST, return_value=_minted()) as post:
+            response = self.client.post(f"{URL}cli_exchange/", {"code": code, "code_verifier": VERIFIER})
+
+        assert response.status_code == 201, response.json()
+        assert (post.call_args.kwargs["json"]["cap_usd"], post.call_args.kwargs["json"]["ttl_seconds"]) == (
+            "10.00",
+            86400,
+        )
+
+    def test_cli_authorize_refuses_an_out_of_range_request(self):
+        response = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE, "ttl_seconds": 604801})
+
+        assert response.status_code == 400
+        assert response.json()["detail"].startswith("ttl_seconds must be between")
+
     def test_cli_authorize_needs_a_session(self):
         self.client.logout()
         response = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE})

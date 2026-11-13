@@ -7,6 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface DevTokenCreateApi {
+    /**
+     * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    cap_usd?: string | null
+    /**
+     * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     */
+    ttl_seconds?: number | null
+}
+
 export interface MintedDevTokenApi {
     /** Token id, used to revoke it. */
     id: string
@@ -33,6 +47,17 @@ export interface DevTokenRefusalApi {
 }
 
 export interface CliAuthorizeApi {
+    /**
+     * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    cap_usd?: string | null
+    /**
+     * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     */
+    ttl_seconds?: number | null
     /**
      * base64url SHA-256 of the CLI's PKCE code_verifier, without padding.
      * @pattern ^[A-Za-z0-9_-]{43}$
@@ -250,12 +275,21 @@ export interface DevTokenUsageApi {
      */
     token_cap_usd: string
     /**
-     * Budget that must be left to create a token, in USD.
+     * Smallest cap of a new token, and the budget that must be left to create one, in USD.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     token_cap_min_usd: string
-    /** Lifetime of each new token, in seconds. */
+    /**
+     * Cap of a new token when the request names none, in USD.
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    default_cap_usd: string
+    /** Lifetime of a new token when the request names none, in seconds. */
     ttl_seconds: number
+    /** Shortest lifetime of a new token, in seconds. */
+    ttl_min_seconds: number
+    /** Longest lifetime of a new token, in seconds. */
+    ttl_max_seconds: number
     /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
     tokens: DevTokenApi[]
 }

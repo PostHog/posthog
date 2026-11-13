@@ -43,9 +43,16 @@ class DevTokenUsageSerializer(serializers.Serializer):
         max_digits=10, decimal_places=2, help_text="Largest cap of a new token, in USD."
     )
     token_cap_min_usd = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Budget that must be left to create a token, in USD."
+        max_digits=10,
+        decimal_places=2,
+        help_text="Smallest cap of a new token, and the budget that must be left to create one, in USD.",
     )
-    ttl_seconds = serializers.IntegerField(help_text="Lifetime of each new token, in seconds.")
+    default_cap_usd = serializers.DecimalField(
+        max_digits=10, decimal_places=2, help_text="Cap of a new token when the request names none, in USD."
+    )
+    ttl_seconds = serializers.IntegerField(help_text="Lifetime of a new token when the request names none, in seconds.")
+    ttl_min_seconds = serializers.IntegerField(help_text="Shortest lifetime of a new token, in seconds.")
+    ttl_max_seconds = serializers.IntegerField(help_text="Longest lifetime of a new token, in seconds.")
     tokens = DevTokenSerializer(
         many=True,
         help_text="Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones.",
@@ -121,7 +128,22 @@ class DevTokenRevokedSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="How many tokens the gateway revoked.")
 
 
-class CliAuthorizeSerializer(serializers.Serializer):
+class DevTokenCreateSerializer(serializers.Serializer):
+    cap_usd = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        help_text="Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.",
+    )
+    ttl_seconds = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.",
+    )
+
+
+class CliAuthorizeSerializer(DevTokenCreateSerializer):
     code_challenge = serializers.RegexField(
         PKCE_CHALLENGE_PATTERN, help_text="base64url SHA-256 of the CLI's PKCE code_verifier, without padding."
     )

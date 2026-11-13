@@ -46,17 +46,32 @@ _LOCAL_HOSTNAMES = ("localhost", "127.0.0.1")
     is_flag=True,
     help="Skip the --host allowlist. Only use this for a host you run yourself.",
 )
+@click.option(
+    "--cap",
+    "cap_usd",
+    type=click.FloatRange(min=0, min_open=True),
+    help="Most the token can spend, in USD (5 to 1000). Prefills the browser approval; the default is $25.",
+)
+@click.option(
+    "--ttl",
+    "ttl",
+    help="How long the token lasts, such as 90m, 8h or 3d (1h to 7d). Prefills the browser approval; the default is 8h.",
+)
 @click.option("--json", "as_json", is_flag=True, help="Print the full token response as JSON.")
-def gateway_token(host: str, allow_any_host: bool, as_json: bool) -> None:
+def gateway_token(host: str, allow_any_host: bool, cap_usd: float | None, ttl: str | None, as_json: bool) -> None:
     host = host.rstrip("/") if allow_any_host else _allowed_host(host)
+    ttl_seconds = _parse_ttl(ttl) if ttl else None
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(24)
+    params: dict[str, str | int] = {"cli_challenge": challenge, "cli_state": state}
+    if cap_usd is not None:
+        params["cli_cap_usd"] = f"{cap_usd:.2f}"
+    if ttl_seconds is not None:
+        params["cli_ttl_seconds"] = ttl_seconds
 
     def approval_url(port: int) -> str:
-        return f"{host}{_SETTINGS_PATH}?" + urlencode(
-            {"cli_challenge": challenge, "cli_port": port, "cli_state": state}
-        )
+        return f"{host}{_SETTINGS_PATH}?" + urlencode({**params, "cli_port": port})
 
     try:
         code = posthog_auth.approve_in_browser(approval_url, state=state)
@@ -107,6 +122,19 @@ def gateway_status(host: str, allow_any_host: bool, as_json: bool) -> None:
         spent = float(status["cap_usd"]) - remaining
         click.echo(f"${remaining:.4f} of ${status['cap_usd']} left (${spent:.4f} spent).")
     click.echo(f"The token expires at {status['expires_at']}.")
+
+
+_TTL_UNITS = {"m": 60, "h": 60 * 60, "d": 24 * 60 * 60}
+
+
+def _parse_ttl(raw: str) -> int:
+    """`90m`, `8h`, `3d`, or a plain number of seconds. The server enforces the bounds."""
+    raw = raw.strip().lower()
+    unit = _TTL_UNITS.get(raw[-1:]) if raw else None
+    number = raw[:-1] if unit else raw
+    if not number.isdigit() or int(number) == 0:
+        raise click.BadParameter(f"--ttl must look like 90m, 8h, 3d or a number of seconds, got {raw!r}")
+    return int(number) * (unit or 1)
 
 
 def _find_token() -> str:
