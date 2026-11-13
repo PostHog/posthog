@@ -100,15 +100,21 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.warning_email.call_count == 0
 
     def test_hard_bounce_breach_pauses_the_workflow_but_not_a_transactional_one(self):
-        transactional = HogFlow.objects.create(name="Verification code", team=self.team, trigger={"type": "api"})
-        self._seed(sent=400, hard_bounces=60)
-        self._seed(source_id=str(transactional.id), sent=400, hard_bounces=60)
+        def api_flow(name: str, category_type: str) -> HogFlow:
+            email = {"id": "email", "type": "function_email", "config": {"message_category_type": category_type}}
+            return HogFlow.objects.create(name=name, team=self.team, trigger={"type": "api"}, actions=[email])
+
+        transactional = api_flow("Verification code", "transactional")
+        marketing = api_flow("API-sent newsletter", "marketing")
+        for flow in (self.flow, transactional, marketing):
+            self._seed(source_id=str(flow.id), sent=400, hard_bounces=60)
 
         applied, _ = self._sweep()
 
-        assert [(decision.hog_flow_id, decision.threshold.signal) for decision in applied] == [
-            (str(self.flow.id), "bounce")
-        ]
+        assert {(decision.hog_flow_id, decision.threshold.signal) for decision in applied} == {
+            (str(self.flow.id), "bounce"),
+            (str(marketing.id), "bounce"),
+        }
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_at is not None
         assert "addresses that do not exist reached 15%" in self.flow.email_sending_paused_reason
