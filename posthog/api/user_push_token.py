@@ -21,7 +21,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
@@ -75,6 +80,7 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
     scope_object_write_actions = ["create", "unregister"]
 
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         OAuthAccessTokenAuthentication,
         PersonalAPIKeyAuthentication,
         SessionAuthentication,

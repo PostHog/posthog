@@ -43,6 +43,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -1065,7 +1066,12 @@ class _PersonalSpendUserViewSet(viewsets.ViewSet):
     the regions stay indistinguishable to clients. The US internal receiver
     relies on this EU-side throttling as its only rate limit."""
 
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [permissions.IsAuthenticated, APIScopePermission]
     # Identity-scoped (`/@me/...`): the caller reads their own spend, not data
     # nested under a team or project. `scope_object = "user"` matches the shape
