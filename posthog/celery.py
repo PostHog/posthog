@@ -3,12 +3,15 @@ import os
 import time
 import errno
 import threading
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.dispatch import receiver
 
 import structlog
 from celery import Celery
+from celery.exceptions import WorkerShutdown
+from celery.platforms import EX_FAILURE
 from celery.signals import (
     celeryd_init,
     import_modules,
@@ -29,6 +32,9 @@ from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
 from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
+
+if TYPE_CHECKING:
+    from celery.worker.consumer import Consumer
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
@@ -275,6 +281,30 @@ def write_heartbeat_when_worker_is_ready(**kwargs) -> None:
     # until that first run.
     if is_hobby():
         redis_heartbeat()
+
+
+_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS = 30.0
+
+
+@worker_ready.connect
+def stop_worker_when_embedded_scheduler_exits(sender: "Consumer", **kwargs: object) -> None:
+    worker = sender.controller
+    scheduler = worker.beat
+    if scheduler is None:
+        return
+
+    def stop_worker_if_scheduler_exited() -> None:
+        if scheduler.is_alive():
+            return
+        logger.error("embedded_scheduler_exited", exitcode=scheduler.exitcode)
+        raise WorkerShutdown(EX_FAILURE)
+
+    # Celery never restarts an embedded scheduler that exits, so the worker would keep running with
+    # nothing scheduling tasks. Exit instead, the same way the container exits when a separate
+    # scheduler process exits, so that the restart policy starts both again. The check asks the
+    # process object and not the process list, because a scheduler that waits for the RedBeat lock
+    # does not have the "[celery beat]" title yet.
+    worker.timer.call_repeatedly(_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS, stop_worker_if_scheduler_exited)
 
 
 _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0

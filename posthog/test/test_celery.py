@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import posthoganalytics
+from celery.exceptions import WorkerShutdown
+from celery.platforms import EX_FAILURE
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -16,6 +18,7 @@ from posthog.celery import (
     _initialize_worker_metrics,
     freeze_objects_before_pool_forks,
     on_worker_process_shutdown,
+    stop_worker_when_embedded_scheduler_exits,
     write_heartbeat_when_worker_is_ready,
 )
 from posthog.celery_task_names import (
@@ -92,6 +95,36 @@ class TestWorkerReadyHeartbeat(TestCase):
         ):
             write_heartbeat_when_worker_is_ready()
         assert heartbeat.call_count == expected_calls
+
+
+class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
+    def test_worker_without_embedded_scheduler_runs_no_check(self) -> None:
+        worker = MagicMock(beat=None)
+        stop_worker_when_embedded_scheduler_exits(sender=MagicMock(controller=worker))
+        worker.timer.call_repeatedly.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A scheduler that waits for the RedBeat lock is alive, so its worker must keep running.
+            ("scheduler_alive", True, False),
+            ("scheduler_exited", False, True),
+        ]
+    )
+    def test_stops_the_worker_only_when_its_scheduler_exited(
+        self, _name: str, scheduler_alive: bool, expect_shutdown: bool
+    ) -> None:
+        worker = MagicMock(**{"beat.is_alive.return_value": scheduler_alive})
+        stop_worker_when_embedded_scheduler_exits(sender=MagicMock(controller=worker))
+        _interval, check = worker.timer.call_repeatedly.call_args.args
+
+        if not expect_shutdown:
+            check()
+            return
+        # WorkerShutdown is the exception that Celery's own remote shutdown raises inside the event
+        # loop. The loop logs and drops an ordinary Exception, and the worker would keep running.
+        with self.assertRaises(WorkerShutdown) as shutdown:
+            check()
+        assert shutdown.exception.code == EX_FAILURE
 
 
 class TestAnalyticsMetricsConfig(TestCase):
