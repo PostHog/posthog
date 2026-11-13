@@ -1,7 +1,7 @@
 """Wiring tests for ``IntentTopicsWorkflow``: which activities run for which kind."""
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -10,6 +10,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.mcp_analytics.intent_topics.activities import _now
 from posthog.temporal.mcp_analytics.intent_topics.constants import (
     ACTIVITY_RETRY_POLICY,
     ASSIGN_ACTIVITY_TIMEOUT,
@@ -112,3 +113,12 @@ class TestParseInputs:
 def test_workflow_timeout_outlasts_every_activity_attempt(kind: str, activity_timeouts: list[timedelta]) -> None:
     attempts = ACTIVITY_RETRY_POLICY.maximum_attempts or 1
     assert WORKFLOW_EXECUTION_TIMEOUTS[kind] > sum((timeout * attempts for timeout in activity_timeouts), timedelta())
+
+
+@pytest.mark.parametrize(
+    "now",
+    ["2026-10-20T02:00:00", "2026-10-20T02:00:00+00:00", "2026-10-20T04:00:00+02:00"],
+)
+def test_a_requested_time_is_read_as_utc(now: str) -> None:
+    # A naive time compared with the aware window ends of earlier syncs would raise TypeError.
+    assert _now(IntentTopicsWorkflowInputs(team_id=1, kind="sync", now=now)) == datetime(2026, 10, 20, 2, tzinfo=UTC)

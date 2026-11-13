@@ -80,7 +80,8 @@ def build_label_prompt(candidates: list[TopicLabelInput]) -> str:
 
 
 def fallback_label(topic_id: str) -> str:
-    return f"Topic {topic_id[:8]}"
+    # The tail, because a UUIDv7 starts with timestamp bits that topics created together share.
+    return f"Topic {topic_id[-8:]}"
 
 
 def label_topics(team: Team, candidates: list[TopicLabelInput]) -> dict[str, TopicLabel]:
@@ -108,6 +109,8 @@ def label_topics(team: Team, candidates: list[TopicLabelInput]) -> dict[str, Top
             posthog_distinct_id=f"team/{team.id}/mcp-analytics-intent-topics",
             posthog_properties={"ai_product": "mcp_analytics", "ai_feature": "intent-topic-labels"},
             posthog_groups={"project": str(team.id)},
+            # The samples are customer intents, so only token counts reach analytics.
+            posthog_privacy_mode=True,
         )
     except Exception as e:
         logger.exception("mcp_analytics.intent_topics.labeling_failed", team_id=team.id)

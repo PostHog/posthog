@@ -1,8 +1,8 @@
 """Hourly sync, nightly assign and weekly refit schedules for the intent topics coordinator.
 
-Gated behind the same ``mcp-analytics-clustering-schedule`` flag as the legacy snapshot schedule,
-with the same fail-closed semantics: flag off deletes the schedules, a failed flag check leaves
-them as they are.
+Gated behind their own ``mcp-analytics-intent-topics-schedule`` flag, so the legacy snapshot
+schedule's flag does not start them. Same fail-closed semantics: flag off deletes the schedules,
+a failed flag check leaves them as they are.
 """
 
 import asyncio
@@ -37,6 +37,9 @@ from posthog.temporal.mcp_analytics.intent_topics.constants import (
 from posthog.temporal.mcp_analytics.intent_topics.coordinator import IntentTopicsCoordinatorInputs
 
 logger = structlog.get_logger(__name__)
+
+FEATURE_FLAG_KEY = "mcp-analytics-intent-topics-schedule"
+FEATURE_FLAG_DISTINCT_ID = "internal_mcpa_intent_topics_schedule"
 
 
 @dataclass(frozen=True)
@@ -78,7 +81,7 @@ async def create_intent_topics_schedules(client: Client) -> None:
 
     Every product's schedules are set up in one task group, so an error that escaped here would cancel them all.
     """
-    enabled, check_succeeded = await asyncio.to_thread(_schedule_enabled)
+    enabled, check_succeeded = await asyncio.to_thread(_schedule_enabled, FEATURE_FLAG_KEY, FEATURE_FLAG_DISTINCT_ID)
     if not enabled and not check_succeeded:
         logger.info("mcpa.intent_topics.schedule.feature_flag_check_failed_preserving_state")
         return

@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -82,6 +84,17 @@ class TestFetchDistinctIntents(ClickhouseTestMixin, APIBaseTest):
             (DistinctIntent(hash=intent_hash(f"intent {n}"), text=f"intent {n}", calls=5 - n) for n in range(5)),
             key=lambda i: i.hash,
         )
+
+    def test_a_query_cut_short_by_a_limit_raises_instead_of_returning_a_partial_page(self) -> None:
+        # A partial page would read as the last page, and the sync would mark the hour as drained.
+        with patch(
+            "products.mcp_analytics.backend.intent_topics.corpus.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as execute:
+            self._fetch()
+
+        settings = execute.call_args.kwargs["settings"]
+        assert (settings.timeout_overflow_mode, settings.read_overflow_mode) == ("throw", "throw")
 
 
 class TestFetchSeenHashes(ClickhouseTestMixin, APIBaseTest):
@@ -201,3 +214,38 @@ class TestIntentEmbeddingsAccess(ClickhouseTestMixin, APIBaseTest):
         self.organization_membership.save()
         assert rows() == sorted([("fp-1", "TypeError in checkout", 256), (intent, "list flags", 256)], key=str)
         assert [matches(p) for p in predicates] == [1, 1, 1]
+
+    @parameterized.expand(
+        [
+            ("raw", "SELECT tuple(*) FROM raw_document_embeddings"),
+            ("raw_alias", "SELECT tuple(e.*) FROM raw_document_embeddings AS e"),
+            ("model_table", "SELECT tuple(*) FROM posthog.document_embeddings_text_embedding_3_small_256"),
+            ("lazy", f"SELECT tuple(*) FROM document_embeddings WHERE model_name = '{EMBEDDING_MODEL}'"),
+        ]
+    )
+    def test_a_member_denied_the_intent_property_cannot_read_embeddings_through_a_wildcard_argument(
+        self, _name: str, sql: str
+    ) -> None:
+        # A wildcard inside a function argument is not expanded into fields, so the per-column mask cannot apply.
+        sync_execute(DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(replace=True))
+        insert_intent_embedding(self.team.pk, intent_hash("list flags"), "list flags", at=WINDOW_START)
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$mcp_intent", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        try:
+            hidden = str(execute_hogql_query(query=sql, team=self.team, user=self.user).results)
+        except QueryError:
+            hidden = ""
+        assert "list flags" not in hidden and intent_hash("list flags") not in hidden
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        assert intent_hash("list flags") in str(execute_hogql_query(query=sql, team=self.team, user=self.user).results)
