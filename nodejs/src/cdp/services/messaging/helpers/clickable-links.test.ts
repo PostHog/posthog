@@ -138,11 +138,6 @@ describe('clickableHrefs', () => {
             '<a href="https://example.com/bye"></a><frameset></frameset>',
             [],
         ],
-        [
-            'an anchor after a tag with more attributes than the scanner reads',
-            `<div ${manyAttributes}></div><a href="https://example.com/bye">Unsubscribe</a>`,
-            [],
-        ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
     })
@@ -166,5 +161,11 @@ describe('clickableHrefs', () => {
         expect(clickableHrefs('<div>'.repeat(40_000) + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
             'https://example.com/bye',
         ])
+    })
+
+    it('finds no anchor after a tag with more attributes than the scanner reads', () => {
+        expect(
+            clickableHrefs(`<div ${manyAttributes}></div><a href="https://example.com/bye">Unsubscribe</a>`)
+        ).toEqual([])
     })
 })
