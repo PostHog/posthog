@@ -36,6 +36,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
@@ -456,21 +457,6 @@ def _declared_json_path_type(field_type: ast.FieldType, key: str, source: Materi
 _DECLARED_STRING_TYPES = ("String", "LowCardinality(String)")
 
 
-def _starts_with_container(text: ast.Expr) -> ast.Expr:
-    """Whether `text` starts with `[` or `{`.
-
-    Compared by character code so no brace literal reaches callers that str.format the printed SQL.
-    """
-    return ast.Call(
-        name="in",
-        args=[
-            ast.Call(name="ascii", args=[text]),
-            ast.Tuple(exprs=[ast.Constant(value=ord("[")), ast.Constant(value=ord("{"))]),
-        ],
-        type=ast.BooleanType(nullable=False),
-    )
-
-
 def _json_property_text(field_type: ast.FieldType, key: str, *, source: MaterializedPropertySource) -> ast.Expr:
     """The text of one property of a native JSON column, or NULL when the row has no such key.
 
@@ -513,13 +499,12 @@ def _json_property_json_text(field_type: ast.FieldType, key: str, *, source: Mat
         text = ast.TypeCast(expr=path, type_name="Nullable(String)", type=ast.StringType(nullable=True))
         missing = _call("isNull", [clone_expr(path)])
         scalar_json = _call("toJSONString", [clone_expr(path)])
-    is_container = _call("and", [_starts_with_container(clone_expr(text)), _call("isValidJSON", [clone_expr(text)])])
     return ast.Call(
         name="if",
         args=[
             missing,
             ast.Constant(value=None, type=ast.StringType(nullable=True)),
-            _call("if", [is_container, text, scalar_json]),
+            _call("if", [is_json_container_text(text), text, scalar_json]),
         ],
         type=ast.StringType(nullable=True),
     )
@@ -2447,7 +2432,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         )
         declared_type = declared_types.get(prop.key) if prop.source.json_column is None else None
         column = prop.bare_column()
-        if declared_type not in ("String", "LowCardinality(String)"):
+        if declared_type not in _DECLARED_STRING_TYPES:
             # A bare Dynamic comparison converts the constant to each runtime type and can throw.
             column = ast.TypeCast(expr=column, type_name="Nullable(String)", type=ast.StringType(nullable=True))
         value: ast.Expr = (

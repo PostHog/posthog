@@ -26,6 +26,7 @@ from clickhouse_driver import Client
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
+from posthog.hogql.printer.events_json_document import is_container_string_member_sql
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -1285,7 +1286,7 @@ def _json_drop_keys_expr(column: str, keys: list[str], keys_param: str) -> str:
         f"arrayFilter(k -> startsWith(k, concat(kv.1, '.')), %({keys_param})s))"
     )
     # JSONDropKeysPool fails on text that is not JSON, so only a string that parses reaches it.
-    is_candidate = f"notEmpty({keys_below_member}) AND (startsWith(kv.2, '\"{{') OR startsWith(kv.2, '\"[')) AND isValidJSON({text})"
+    is_candidate = f"notEmpty({keys_below_member}) AND {is_container_string_member_sql('kv.2')}"
     rewritten = (
         f"arrayMap(kv -> (kv.1, JSONDropKeysPool({text}, {keys_below_member}), JSONDropKeysPool({text}, emptyArrayString())), "
         f"arrayFilter(kv -> {is_candidate}, {members}))"

@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
+from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
@@ -299,25 +300,13 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
         PERSON_PROPERTIES_JSON_SUBCOLUMNS if isinstance(owner, VirtualTable) else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
     )
     if key in declared_paths:
-        return ast.Call(name="if", args=[_is_json_container_text(read), clone_expr(read), serialized])
+        return ast.Call(name="if", args=[is_json_container_text(read), clone_expr(read), serialized])
     # Events reads a missing key as NULL. An integer key names a key, not a position.
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
     text = ast.Call(name="JSONExtractString", args=[clone_expr(raw)])
     return ast.Call(
-        name="if", args=[_is_json_container_text(text), clone_expr(text), null_if_sentinels(raw, ("", "null"))]
+        name="if", args=[is_json_container_text(text), clone_expr(text), null_if_sentinels(raw, ("", "null"))]
     )
-
-
-def _is_json_container_text(text: ast.Expr) -> ast.Expr:
-    """Whether `text` is the JSON text of an object or an array."""
-    starts_with_container = ast.Call(
-        name="in",
-        args=[
-            ast.Call(name="ascii", args=[clone_expr(text)]),
-            ast.Tuple(exprs=[ast.Constant(value=ord("[")), ast.Constant(value=ord("{"))]),
-        ],
-    )
-    return ast.Call(name="and", args=[starts_with_container, ast.Call(name="isValidJSON", args=[clone_expr(text)])])
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":

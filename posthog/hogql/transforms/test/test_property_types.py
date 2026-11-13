@@ -2774,7 +2774,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 [("x", "x", "2", "1", 2.0), (None, None, None, None, None), (None, None, None, None, None)],
             ),
             (
-                "array_index_on_a_declared_array",
+                "array_index_on_an_exception_list",
                 "SELECT properties.$exception_functions[-1], properties.$exception_functions.1",
                 None,
                 None,

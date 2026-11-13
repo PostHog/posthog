@@ -37,6 +37,16 @@ EVENTS_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(EVENTS_PROPERTIE
 PERSON_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(PERSON_PROPERTIES_JSON_SUBCOLUMNS)
 
 
+def is_container_string_member_sql(raw_sql: str) -> str:
+    """Whether a member's raw JSON is a string that holds a JSON object or array.
+
+    `raw_sql` is a value as `JSONExtractKeysAndValuesRaw` returns it. The quoted prefix is tested first, so only a
+    string that starts like a container is unquoted and parsed.
+    """
+    starts_like_container = f"(startsWith({raw_sql}, '\"[') or startsWith({raw_sql}, '\"{{'))"
+    return f"{starts_like_container} and isValidJSON(JSONExtractString({raw_sql}))"
+
+
 def json_member_pairs_sql(
     document_sql: str,
     *,
@@ -61,8 +71,7 @@ def json_member_pairs_sql(
     members = f"JSONExtractKeysAndValuesRaw(toJSONString({document_sql}))"
     if conditions:
         members = f"arrayFilter(kv -> {' and '.join(conditions)}, {members})"
-    is_container = "(startsWith(kv.2, '\"[') or startsWith(kv.2, '\"{')) and isValidJSON(JSONExtractString(kv.2))"
-    value = f"if({is_container}, JSONExtractString(kv.2), kv.2)"
+    value = f"if({is_container_string_member_sql('kv.2')}, JSONExtractString(kv.2), kv.2)"
     return f"arrayMap(kv -> concat(toJSONString(kv.1), ':', {value}), {members})"
 
 
