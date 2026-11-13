@@ -54,10 +54,13 @@ export function QuillCopyButton({
     value,
     label,
     dataAttr,
+    icon = <IconCopy />,
 }: {
     value: string
     label: string
     dataAttr?: string
+    /** Shown until the copy lands, then swapped for a check. Defaults to the copy icon. */
+    icon?: ReactNode
 }): JSX.Element {
     const [copied, setCopied] = useState(false)
     const timer = useRef<ReturnType<typeof setTimeout>>()
@@ -74,7 +77,7 @@ export function QuillCopyButton({
                 timer.current = setTimeout(() => setCopied(false), COPIED_MS)
             }}
         >
-            {copied ? <IconCheck /> : <IconCopy />}
+            {copied ? <IconCheck /> : icon}
         </QuillFooterButton>
     )
 }

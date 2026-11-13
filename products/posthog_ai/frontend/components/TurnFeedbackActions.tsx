@@ -40,14 +40,26 @@ function LemonTurnFeedbackActions({
         <>
             <div className="group flex items-center ml-1">
                 {turnText && (
-                    <LemonButton
-                        icon={<IconCopy />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Copy answer"
-                        data-attr="posthog-ai-turn-copy"
-                        onClick={() => void copyToClipboard(stripMarkdown(turnText))}
-                    />
+                    <>
+                        <LemonButton
+                            icon={<IconCopy />}
+                            type="tertiary"
+                            size="xsmall"
+                            tooltip="Copy answer"
+                            data-attr="posthog-ai-turn-copy"
+                            onClick={() => void copyToClipboard(stripMarkdown(turnText))}
+                        />
+                        <LemonButton
+                            icon={<IconCopy />}
+                            type="tertiary"
+                            size="xsmall"
+                            tooltip="Copy answer as Markdown"
+                            data-attr="posthog-ai-turn-copy-markdown"
+                            onClick={() => void copyToClipboard(turnText, 'answer as Markdown')}
+                        >
+                            Markdown
+                        </LemonButton>
+                    </>
                 )}
                 {rating !== 'bad' && (
                     <LemonButton

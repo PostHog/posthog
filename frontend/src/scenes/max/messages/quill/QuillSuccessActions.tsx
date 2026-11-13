@@ -2,6 +2,7 @@ import { useActions } from 'kea'
 
 import {
     IconEye,
+    IconMarkdown,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -38,7 +39,12 @@ export function QuillSuccessActions({ retriable, hideRatingAndRetry, content }: 
     return (
         <div className="flex flex-col gap-2">
             <ChatMessageFooter className="min-h-5 items-center gap-1 ps-0">
-                {content && <QuillCopyButton value={stripMarkdown(content)} label="Copy answer" />}
+                {content && (
+                    <>
+                        <QuillCopyButton value={stripMarkdown(content)} label="Copy answer" />
+                        <QuillCopyButton value={content} label="Copy answer as Markdown" icon={<IconMarkdown />} />
+                    </>
+                )}
                 {!hideRatingAndRetry && rating !== 'bad' && (
                     <QuillFooterButton label="Good answer" onClick={() => submitRating('good')}>
                         {rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
