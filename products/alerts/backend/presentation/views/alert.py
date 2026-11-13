@@ -1693,8 +1693,7 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     )
 
 
-# An incident manager's row hears firings and resolves, which delivery turns into its trigger and resolve.
-# Every other destination hears what its HogFunction hears: the firing.
+# A PagerDuty row hears firings and resolves, which delivery turns into its trigger and resolve.
 _ROW_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
     DestinationType.PAGERDUTY: (AlertEventKind.FIRING, AlertEventKind.RESOLVED),
 }
@@ -2669,7 +2668,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "The returned IDs identify the destination."
         ),
     )
-    # The URL is a target the caller supplies, so an alert-only token cannot add one, as for PagerDuty.
     @action(
         detail=True,
         methods=["POST"],
