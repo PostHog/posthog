@@ -30,6 +30,10 @@ const SCOPES = [
     'users:read.email',
 ]
 
+// `SlackIntegrationScopeInReview`: Slack has not approved these for the public app, so only dev asks for them.
+// Empty while no scope waits on review. Keep it for the next scope that needs review.
+const SCOPES_IN_REVIEW: string[] = []
+
 export const slack: ProviderSpec = {
     kind: 'slack',
     label: 'Slack',
@@ -48,6 +52,9 @@ export const slack: ProviderSpec = {
     },
     identityConfigKeys: ['team'],
     tokenInfo: { idPath: 'team.id', namePath: 'team.name' },
+    overrides: {
+        environment: { dev: { authorize: { scope: [...SCOPES, ...SCOPES_IN_REVIEW].join(',') } } },
+    },
     // A bot token without token rotation has no refresh token and no expiry, so it never comes due.
     refresh: { ...OAUTH_REFRESH, mode: 'rotating' },
     resolveExposes: ACCESS_TOKEN_ONLY,

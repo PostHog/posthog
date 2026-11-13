@@ -8,6 +8,7 @@ import secrets
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import timedelta
+from enum import StrEnum
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -246,6 +247,19 @@ class OauthConfig:
 #
 # Every scope here is approved for the public Cloud app, so every instance requests it.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+
+
+# Mirrors SlackIntegrationScopeInReview in frontend/src/types.ts. The schema codegen rejects an empty enum,
+# so this copy is written by hand. Empty while no scope waits on review. Keep it for the next scope that needs review.
+class SlackIntegrationScopeInReview(StrEnum):
+    pass
+
+
+def posthog_slack_scope() -> str:
+    # See SlackIntegrationScopeInReview in frontend/src/types.ts for why only DEV and local request these.
+    if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV":
+        return ",".join([POSTHOG_SLACK_SCOPE, *(scope.value for scope in SlackIntegrationScopeInReview)])
+    return POSTHOG_SLACK_SCOPE
 
 
 def _apple_ads_acl_accounts(access_token: str) -> list[dict[str, Any]]:
@@ -713,7 +727,7 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                scope=POSTHOG_SLACK_SCOPE,
+                scope=posthog_slack_scope(),
                 id_path="team.id",
                 name_path="team.name",
             )

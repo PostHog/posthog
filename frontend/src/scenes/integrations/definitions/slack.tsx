@@ -7,7 +7,7 @@ import { OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/integrationsLogic'
 import { ICONS } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
-import { IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
+import { IntegrationType } from '~/types'
 
 import {
     parseSlackSetupReturnTarget,
@@ -15,6 +15,7 @@ import {
 } from 'products/slack_app/frontend/workspace-setup/slackSetupReturn'
 
 import { SlackIntegration } from '../components/SlackIntegration'
+import { useSlackRequiredScopes } from '../components/slackScopes'
 import { defineIntegration } from '../integrationDefinition'
 import { IntegrationStatus, SettingsSectionComponent } from '../integrationTypes'
 
@@ -22,20 +23,17 @@ import { IntegrationStatus, SettingsSectionComponent } from '../integrationTypes
 // the wrong scope set surfaces it while the user is still in the install flow, instead of
 // hiding it behind a separate trip to Settings → Integrations that they have no reason to take.
 function SlackPostConnect({ integration }: { integration: IntegrationType }): JSX.Element {
-    return (
-        <IntegrationScopesWarning
-            integration={integration}
-            schema={{ requiredScopes: SLACK_INTEGRATION_SCOPES.join(' ') }}
-        />
-    )
+    const requiredScopes = useSlackRequiredScopes()
+    return <IntegrationScopesWarning integration={integration} schema={{ requiredScopes: requiredScopes.join(' ') }} />
 }
 
 // Aggregate status feeding the landing page headline: any install missing required scopes
 // drops the whole page into the "needs attention" state. ``getMissingScopes`` returns []
 // for legacy rows that have no scopes recorded — same fail-open behavior as the banner.
 function useSlackStatus(integrations: IntegrationType[]): IntegrationStatus {
+    const requiredScopes = useSlackRequiredScopes()
     const anyNeedsAttention = integrations.some(
-        (integration) => getMissingScopes(integration, SLACK_INTEGRATION_SCOPES).length > 0
+        (integration) => getMissingScopes(integration, requiredScopes).length > 0
     )
     return anyNeedsAttention ? 'needs_attention' : 'ok'
 }

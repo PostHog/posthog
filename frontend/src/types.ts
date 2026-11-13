@@ -5747,6 +5747,21 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
+// Scopes that wait on Slack app review. Only DEV and local development request them, because the
+// US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
+// Empty while no scope waits on review. Keep it for the next scope that needs review.
+// The schema codegen rejects an empty enum, so `SlackIntegrationScopeInReview` in posthog/models/integration/oauth.py
+// is written by hand. When you add a scope here, add it there too.
+export enum SlackIntegrationScopeInReview {}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = Object.values(SlackIntegrationScopeInReview)
+
+export function slackRequestedScopes(includeInReview: boolean): string[] {
+    return includeInReview
+        ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+        : [...SLACK_INTEGRATION_SCOPES]
+}
+
 export interface IntegrationType {
     id: number
     kind: IntegrationKind
