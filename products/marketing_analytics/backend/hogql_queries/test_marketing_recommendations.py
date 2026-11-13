@@ -411,6 +411,34 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
         assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
 
+    @parameterized.expand(
+        [
+            ("misspelling_is_blocked_too", "NONE", '"example"\n"exampel"'),
+            ("misspelling_bought_on_purpose", "ADDED", '"example"'),
+        ]
+    )
+    def test_brand_leak_negates_the_brand_when_the_top_search_is_a_misspelling(
+        self, _name: str, misspelling_status: str, negatives: str
+    ) -> None:
+        campaign = _campaign(id="generic", name="Generic", cost=2000, conversions=20)
+        terms = (
+            replace(_term("exampel", "generic", cost=600, conversions=1), status=misspelling_status),
+            _term("example pricing", "generic", cost=200, conversions=1),
+            _term("analytics tool", "generic", cost=100, conversions=1),
+            _term("product analytics", "generic", cost=1200, conversions=18),
+        )
+        # A generic search the site ranks first for also counts as brand, but it is no misspelling.
+        organic = (
+            OrganicQueryStats(query="exampel", clicks=100, impressions=200, position=1.0),
+            OrganicQueryStats(query="analytics tool", clicks=90, impressions=200, position=1.0),
+        )
+
+        recs = recommend(_inputs((campaign,), terms, organic))
+
+        leak = next(rec for rec in recs if rec.rule == "brand_leak")
+        assert leak.action == 'Add "example" as a negative keyword'
+        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", negatives]
+
     def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
         good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
         costly = _campaign(id="c2", name="Costly", cost=2000, conversions=2)

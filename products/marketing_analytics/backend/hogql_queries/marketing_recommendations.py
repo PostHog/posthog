@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
+from difflib import SequenceMatcher
 from itertools import groupby
 from typing import Literal
 from urllib.parse import quote
@@ -77,6 +78,9 @@ COMPETITOR_PATTERNS = (
 DOMAIN_SUFFIX = re.compile(r"\.(com|io|co|ai|app|net|org)$")
 SITE_HOST = re.compile(r"^(?:sc-domain:|https?://)([a-z0-9.-]+)")
 MIN_BRAND_LENGTH = 3
+# How close a search must spell the brand to count as a misspelling of it, as a SequenceMatcher ratio.
+MIN_MISSPELLING_SIMILARITY = 0.75
+MAX_BRAND_MISSPELLINGS = 5
 # The bundled public suffix snapshot, so parsing a site never fetches the list over the network.
 DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
@@ -246,6 +250,10 @@ def _site_brand(site_url: str) -> str | None:
     # A URL-prefix property can be app.example.com or blog.example.com, so the brand is the registrable label.
     brand = DOMAIN_PARTS(match.group(1).strip(".")).domain
     return brand if len(brand) >= MIN_BRAND_LENGTH else None
+
+
+def _similarity(brand: str, compact_term: str) -> float:
+    return SequenceMatcher(None, brand, compact_term).ratio()
 
 
 def brands_from_site_urls(site_urls: Iterable[str]) -> frozenset[str]:
@@ -543,7 +551,7 @@ class _Recommender:
     ) -> MarketingAnalyticsRecommendation:
         cost, conversions, top_term = leak.cost, leak.conversions, leak.top_term
         share = cost / max(self._term_cost(campaign.id), 1)
-        brand = next((brand for brand in self.brands if brand in top_term.replace(" ", "")), top_term)
+        brand = self._brand_spelled_by(top_term) or top_term
         check = Step(
             text="After a week, check the campaign's search terms. If misspellings of your brand still show, "
             "add each one the same way.",
@@ -561,6 +569,7 @@ class _Recommender:
             )
         else:
             action = f'Add "{brand}" as a negative keyword'
+            negatives = [brand, *self._brand_misspellings(campaign.id, brand)]
             steps = (
                 self._open_campaign(campaign.name),
                 Step(
@@ -570,8 +579,11 @@ class _Recommender:
                 ),
                 Step(
                     text="Paste this keyword. The quotes make it phrase match, so it blocks searches that contain it "
-                    "spelled this way.",
-                    copyValue=f'"{brand}"',
+                    "spelled this way."
+                    if len(negatives) == 1
+                    else "Paste these keywords, one per line: your brand and the misspellings of it that got clicks. "
+                    "The quotes make them phrase match, so they block searches that contain them spelled this way.",
+                    copyValue="\n".join(f'"{negative}"' for negative in negatives),
                 ),
                 check,
             )
@@ -1056,6 +1068,27 @@ class _Recommender:
     def _names_brand(self, query: str) -> bool:
         compact = query.replace(" ", "")
         return any(brand in compact for brand in self.brands)
+
+    def _brand_spelled_by(self, term: str) -> str | None:
+        compact = term.replace(" ", "")
+        if named := next((brand for brand in sorted(self.brands) if brand in compact), None):
+            return named
+        closest = max(sorted(self.brands), key=lambda brand: _similarity(brand, compact), default=None)
+        return closest if closest and _similarity(closest, compact) >= MIN_MISSPELLING_SIMILARITY else None
+
+    def _brand_misspellings(self, campaign_id: str, brand: str) -> list[str]:
+        cost_by_term: dict[str, float] = defaultdict(float)
+        for row in self.inputs.search_terms:
+            # An added term is a keyword the advertiser bids on, maybe on purpose; an excluded one is blocked already.
+            if (
+                row.campaign_id != campaign_id
+                or row.status in ("ADDED", "EXCLUDED")
+                or row.term not in self.brand_terms
+            ):
+                continue
+            if brand not in row.term.replace(" ", "") and self._brand_spelled_by(row.term) == brand:
+                cost_by_term[row.term] += row.cost
+        return sorted(cost_by_term, key=lambda term: (-cost_by_term[term], term))[:MAX_BRAND_MISSPELLINGS]
 
     def _is_brand(self, term: _Term) -> bool:
         return self._is_brand_query(term.term, term.organic, term.clicks)
