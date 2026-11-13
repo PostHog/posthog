@@ -30,6 +30,7 @@ from products.signals.backend.personal_ranking.candidates import Candidate, gath
 from products.signals.backend.personal_ranking.config import (
     PersonalRankingConfig,
     ReasoningEffort,
+    config_for_user,
     list_limit,
     read_config,
 )
@@ -386,6 +387,7 @@ def check_inputs(
     team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, limit: int | None = None
 ) -> InputCheck:
     """Compare the latest list with the current inputs. A list that still matches counts as fresh again."""
+    config = config_for_user(config, user.id)
     latest = latest_row(team, user)
     candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     summary_version = ready_summary_version(team, user)
@@ -422,6 +424,7 @@ def _client(
             "user_id": str(user.id),
             "prompt_version": str(PROMPT_VERSION),
             "trigger": trigger,
+            "model_arm": config.model_arm,
         },
         distinct_id=PIPELINE_DISTINCT_ID,
     )
@@ -526,6 +529,7 @@ def _capture(
                     "fallback_reason": build.fallback_reason,
                     "model_called": build.model_called,
                     "model": build.model,
+                    "model_arm": config.model_arm,
                     "prompt_version": PROMPT_VERSION,
                     "activity_summary_version": build.activity_summary_version,
                     "has_focus": has_focus,
@@ -598,7 +602,7 @@ def build_personal_ranking(
     trigger: BuildTrigger = "on_demand",
 ) -> PersonalRankingBuild:
     """Rank the person's candidate reports. `dry_run` calls the model but stores no row and records no event."""
-    config = config or read_config()
+    config = config_for_user(config or read_config(), user.id)
     limit = list_limit(config, limit)
     if not config.enabled:
         return PersonalRankingBuild(
