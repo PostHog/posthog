@@ -22,10 +22,15 @@ import {
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 
-const RuntimeIconMap: Record<ErrorTrackingRuntime, React.FC> = {
+const RuntimeIconMap: Record<ErrorTrackingRuntime, React.FC<IconProps>> = {
     python: IconPython,
     web: IconJavascript,
     node: IconNode,
+    convex: (props): JSX.Element => (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <image href="/static/services/convex.png" width="24" height="24" />
+        </svg>
+    ),
     ruby: IconRuby,
     go: IconGo,
     rust: IconRust,
