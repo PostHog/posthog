@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -25,7 +26,8 @@ from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.trial.scouts import trial_scout_runtime
 from products.signals.backend.usage import trial_usage
-from products.skills.backend.api.skill_services import publish_skill_version
+from products.skills.backend.api.archive_guards import SkillPublishRefused
+from products.skills.backend.api.skill_services import create_skill_file, publish_skill_version
 from products.skills.backend.models.skills import LLMSkill
 
 _INBOX_VALIDATION = "signals-scout-inbox-validation"
@@ -288,28 +290,39 @@ class TestTrialPolicy(BaseTest):
 
     @parameterized.expand(
         [
-            ("every_slot_taken", 3, (False, SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT)),
-            ("slot_free", 2, (True, None)),
+            ("body_edit_every_slot_taken", "body", 3, True),
+            ("file_edit_every_slot_taken", "file", 3, True),
+            ("body_edit_slot_free", "body", 2, False),
         ]
     )
-    def test_editing_the_operational_scout_mid_trial_makes_it_take_a_slot(
-        self, _name: str, chosen_count: int, expected: tuple[bool, str | None]
+    def test_editing_the_operational_scout_mid_trial_needs_a_free_slot(
+        self, _name: str, edit: str, chosen_count: int, refused: bool
     ) -> None:
         self._operational_skill("shipped")
         operational = SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
-        chosen = [
-            SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{i}") for i in range(chosen_count)
-        ]
+        for index in range(chosen_count):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}")
         self.claim()
 
-        with self.captureOnCommitCallbacks(execute=True):
-            publish_skill_version(
-                self.team, user=self.user, skill_name=_INBOX_VALIDATION, body="the team's own body", base_version=1
-            )
+        refusal = self.assertRaisesMessage(SkillPublishRefused, "every slot is in use") if refused else nullcontext()
+        with refusal:
+            if edit == "body":
+                publish_skill_version(
+                    self.team, user=self.user, skill_name=_INBOX_VALIDATION, body="the team's own body", base_version=1
+                )
+            else:
+                create_skill_file(
+                    self.team,
+                    user=self.user,
+                    skill_name=_INBOX_VALIDATION,
+                    path="notes.md",
+                    content="the team's own notes",
+                )
 
+        latest = LLMSkill.objects.get(team=self.team, name=_INBOX_VALIDATION, is_latest=True, deleted=False)
+        assert latest.version == (1 if refused else 2)
         operational.refresh_from_db()
-        assert (operational.enabled, operational.pause_reason) == expected
-        assert all(SignalScoutConfig.objects.get(pk=scout.pk).enabled for scout in chosen)
+        assert operational.enabled
 
     def _operational_skill(self, origin: str) -> None:
         skill = LLMSkill.objects.create(team=self.team, name=_INBOX_VALIDATION, description="d", body="shipped body")
