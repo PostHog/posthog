@@ -33,7 +33,12 @@ from products.signals.backend.models import (
 )
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
-from products.tasks.backend.webhooks import _task_run_scope_team_ids, find_task_id_by_pull_request, find_task_run
+from products.tasks.backend.webhooks import (
+    TaskPullRequestMatch,
+    _task_run_scope_team_ids,
+    find_task_by_pull_request,
+    find_task_run,
+)
 
 
 class TestAccountType(SimpleTestCase):
@@ -1958,12 +1963,12 @@ class TestFindTaskRun(TestCase):
         [
             ("pr_url", {"pr_url": "https://github.com/posthog/posthog/pull/9"}, True),
             ("canonical_pr_url", {"pr_url": "https://github.com/PostHog/posthog/pull/9"}, True),
-            ("head_branch", {"branch": "posthog/wizard-abc", "repository": "PostHog/posthog"}, True),
-            ("head_branch_other_repository", {"branch": "posthog/wizard-abc", "repository": "posthog/other"}, False),
-            ("review_hog_pr_url", {"pr_url": "https://github.com/posthog/posthog/pull/10"}, False),
+            ("head_branch", {"branch": "posthog/wizard-abc", "repository": "PostHog/posthog"}, False),
+            ("head_branch_other_repository", {"branch": "posthog/wizard-abc", "repository": "posthog/other"}, None),
+            ("review_hog_pr_url", {"pr_url": "https://github.com/posthog/posthog/pull/10"}, None),
         ]
     )
-    def test_task_column_lookup(self, _name: str, lookup: dict, found: bool) -> None:
+    def test_task_column_lookup(self, _name: str, lookup: dict, by_verified_pr_url: bool | None) -> None:
         Task.objects.filter(pk=self.task.pk).update(
             pr_urls=["https://github.com/posthog/posthog/pull/9"], head_branch="posthog/wizard-abc"
         )
@@ -1977,11 +1982,108 @@ class TestFindTaskRun(TestCase):
             pr_urls=["https://github.com/posthog/posthog/pull/10"],
         )
 
-        task_id = find_task_id_by_pull_request(
+        match = find_task_by_pull_request(
             lookup.get("pr_url"), lookup.get("branch"), lookup.get("repository"), team_ids=[self.team.id]
         )
 
-        self.assertEqual(task_id, self.task.id if found else None)
+        expected = (
+            None
+            if by_verified_pr_url is None
+            else TaskPullRequestMatch(task_id=self.task.id, by_verified_pr_url=by_verified_pr_url)
+        )
+        self.assertEqual(match, expected)
+
+    def test_head_branch_match_keeps_terminal_wizard_runs_out(self):
+        Task.objects.filter(pk=self.task.pk).update(head_branch="posthog-wizard/abc")
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"wizard_head_branch": "posthog-wizard/abc"},
+        )
+
+        self.assertIsNone(
+            find_task_run(
+                team_ids=[self.team.id],
+                pr_url="https://github.com/posthog/posthog/pull/90",
+                branch="posthog-wizard/abc",
+                repository="posthog/posthog",
+            )
+        )
+
+    def test_task_columns_pick_the_live_run_when_no_run_claims_the_pr(self):
+        pr_url = "https://github.com/posthog/posthog/pull/88"
+        Task.objects.filter(pk=self.task.pk).update(pr_urls=[pr_url])
+        live_run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), live_run)
+
+    def test_task_columns_override_another_tasks_run_claim(self):
+        pr_url = "https://github.com/posthog/posthog/pull/89"
+        other_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Other task",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=other_task, team=self.team, status=TaskRun.Status.COMPLETED, state={"verified_pr_urls": [pr_url]}
+        )
+        Task.objects.filter(pk=self.task.pk).update(pr_urls=[pr_url])
+        own_run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), own_run)
+
+    def test_deleted_task_does_not_win_the_pr_url_match(self):
+        pr_url = "https://github.com/posthog/posthog/pull/91"
+        Task.objects.filter(pk=self.task.pk).update(pr_urls=[pr_url])
+        own_run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+        Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Deleted duplicate",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            pr_urls=[pr_url],
+            deleted=True,
+        )
+
+        self.assertEqual(find_task_run(team_ids=[self.team.id], pr_url=pr_url), own_run)
+
+    def test_branch_match_without_an_eligible_run_falls_back_to_the_run_lookup(self):
+        branch = "posthog-wizard/abc"
+        Task.objects.filter(pk=self.task.pk).update(head_branch=branch)
+        TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state={"wizard_head_branch": branch}
+        )
+        other_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Other task",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        other_run = TaskRun.objects.create(
+            task=other_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"head_branches": [{"repository": "posthog/posthog", "branch": branch}]},
+        )
+
+        self.assertEqual(
+            find_task_run(
+                team_ids=[self.team.id],
+                pr_url="https://github.com/posthog/posthog/pull/92",
+                branch=branch,
+                repository="posthog/posthog",
+            ),
+            other_run,
+        )
 
     def test_finds_by_pr_url(self):
         task_run = TaskRun.objects.create(

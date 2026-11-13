@@ -33,6 +33,7 @@ from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
     PinnedTraffic,
+    assigns_nobody_by_split,
     grade_pinned_share,
     pinned_conditions,
     pinned_share_severity,
@@ -68,13 +69,6 @@ class _Pins:
     graded: PinnedConditions
 
 
-def assigns_nobody_by_split(flag: FlagState) -> bool:
-    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
-    return bool(flag.reachable_conditions) and all(
-        condition.pinned_variant is not None for condition in flag.reachable_conditions
-    )
-
-
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     """The overrides in place that SOME_CONDITIONS_PINNED is graded by, or None when it is not graded."""
     flag = flag_to_check(ctx, before_launch=True)
@@ -93,12 +87,16 @@ def forced_variant_values(ctx: HealthContext) -> CheckValues:
     forced = sum(1 for condition in flag.reachable_conditions if condition.pinned_variant is not None)
     values = {ExperimentHealthValueKey.FORCED_CONDITION_COUNT: forced}
     measured = _measured_traffic(ctx)
-    if measured is None:
+    traffic = ctx.condition_set_traffic
+    if measured is None or traffic is None:
         return values
     return {
         **values,
         ExperimentHealthValueKey.MATCHED_COUNT: measured.matched_people,
         ExperimentHealthValueKey.TRAFFIC_SINCE_AT: measured.since.astimezone(UTC).isoformat(),
+        ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: (
+            round(traffic.remotely_evaluated_calls / traffic.calls * 100, 2) if traffic.calls else None
+        ),
     }
 
 

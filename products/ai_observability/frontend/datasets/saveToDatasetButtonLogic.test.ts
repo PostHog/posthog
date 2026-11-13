@@ -8,11 +8,7 @@ import { lemonToast as loaderFailureToast } from 'lib/lemon-ui/LemonToast/LemonT
 
 import { initKeaTests } from '~/test/init'
 
-import type {
-    DatasetItemCreateApi,
-    DatasetReadApi as Dataset,
-    PaginatedDatasetReadListApi,
-} from '../generated/api.schemas'
+import type { DatasetReadApi as Dataset, PaginatedDatasetReadListApi } from '../generated/api.schemas'
 import { datasetsApi } from './datasetsApi'
 import {
     DATASETS_PER_PAGE,
@@ -70,14 +66,24 @@ describe('saveToDatasetButtonLogic', () => {
         user_access_level: 'editor',
     }
 
-    const mockPartialDatasetItem: Partial<DatasetItemCreateApi> = {
-        client_item_id: 'event-1',
-        input: { message: 'Hello' },
-        source_output: { response: 'Hi there' },
-        metadata: { source: 'test' },
-        source_trace_id: 'trace-1',
-        source_event_id: 'event-1',
-        source_timestamp: '2024-01-01T00:00:00Z',
+    const STEP_A: TraceStep = { traceId: 't-1', nodeId: 'n-a', timestamp: '2026-09-01T10:00:00Z' }
+    const STEP_B: TraceStep = { ...STEP_A, nodeId: 'n-b' }
+    const draftA: DatasetItemDraft = {
+        client_item_id: 'n-a',
+        source_trace_id: 't-1',
+        source_event_id: 'n-a',
+        source_timestamp: STEP_A.timestamp,
+        input: { messages: ['step a'] },
+        source_output: { answer: 'a' },
+        metadata: { model: 'model-a' },
+    }
+    const draftB: DatasetItemDraft = {
+        ...draftA,
+        client_item_id: 'n-b',
+        source_event_id: 'n-b',
+        input: { messages: ['step b'] },
+        source_output: { answer: 'b' },
+        metadata: { model: 'model-b' },
     }
 
     const mockDatasetsResponse: PaginatedDatasetReadListApi = {
@@ -101,6 +107,7 @@ describe('saveToDatasetButtonLogic', () => {
 
         mockDatasetsApi.listDatasets.mockResolvedValue(mockDatasetsResponse)
         mockDatasetsApi.createItem.mockResolvedValue({} as never)
+        mockDatasetsApi.getTraceStepItem.mockResolvedValue(draftA)
     })
 
     describe('getStorageKey', () => {
@@ -161,7 +168,7 @@ describe('saveToDatasetButtonLogic', () => {
 
         describe('datasets selector', () => {
             it('returns datasets for matching search key', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // Set search form value first
@@ -178,7 +185,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('returns null when no datasets match search key', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setSearchFormValue('search', 'nonexistent')
@@ -187,7 +194,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('returns datasets for empty search', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // For empty search, the default search form value is ''
@@ -203,7 +210,7 @@ describe('saveToDatasetButtonLogic', () => {
 
         describe('isLoadingDatasets selector', () => {
             it('returns true when datasets is null and loading', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.loadDatasets()
@@ -212,7 +219,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('returns false when datasets exist', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // Load datasets with the correct storage key structure
@@ -225,7 +232,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('returns false when not loading even if datasets is null', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // Wait for any initial loading to complete
@@ -251,7 +258,7 @@ describe('saveToDatasetButtonLogic', () => {
 
         describe('form reset conditions', () => {
             it('resets search form when modal is opened', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setSearchFormValue('search', 'test search')
@@ -261,7 +268,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('resets search form when dropdown is closed', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setSearchFormValue('search', 'test search')
@@ -272,7 +279,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('resets search form after successful dataset selection', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // First set the search form value, then load datasets with matching key
@@ -309,7 +316,7 @@ describe('saveToDatasetButtonLogic', () => {
 
         describe('dataset item creation', () => {
             it('successfully creates dataset item in create mode', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // First set the search form value to match what will be submitted
@@ -328,14 +335,14 @@ describe('saveToDatasetButtonLogic', () => {
 
                 expect(mockDatasetsApi.createItem).toHaveBeenCalledWith({
                     dataset: 'test-dataset-1',
-                    client_item_id: mockPartialDatasetItem.client_item_id,
-                    input: mockPartialDatasetItem.input,
+                    client_item_id: draftA.client_item_id,
+                    input: draftA.input,
                     expected_output: undefined,
-                    source_output: mockPartialDatasetItem.source_output,
-                    metadata: mockPartialDatasetItem.metadata,
-                    source_trace_id: mockPartialDatasetItem.source_trace_id,
-                    source_event_id: mockPartialDatasetItem.source_event_id,
-                    source_timestamp: mockPartialDatasetItem.source_timestamp,
+                    source_output: draftA.source_output,
+                    metadata: draftA.metadata,
+                    source_trace_id: draftA.source_trace_id,
+                    source_event_id: draftA.source_event_id,
+                    source_timestamp: draftA.source_timestamp,
                 })
                 expect(lemonToast.success).toHaveBeenCalledWith('Dataset item has been created successfully', {
                     button: {
@@ -346,7 +353,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('shows the API detail when dataset item creation conflicts', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // First set the search form value to match what will be submitted
@@ -373,7 +380,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('opens modal in edit mode without creating item', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // First set the search form value to match what will be submitted
@@ -396,7 +403,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('does nothing when dataset is not found', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // First set the search form value to match what will be submitted
@@ -418,7 +425,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('loads datasets when no datasetId is provided', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 await expectLogic(logic, () => {
@@ -434,7 +441,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('navigates to dataset page after successful creation', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 // First set the search form value to match what will be submitted
@@ -464,7 +471,7 @@ describe('saveToDatasetButtonLogic', () => {
 
         describe('data loading', () => {
             it('loads datasets on mount if none exist', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 await expectLogic(logic).toFinishAllListeners()
@@ -476,7 +483,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('does not load datasets on mount if they already exist', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.loadDatasetsSuccess({
@@ -491,7 +498,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('loads datasets when search form value changes', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 await expectLogic(logic, () => {
@@ -506,7 +513,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('loads datasets when dropdown becomes visible', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
                 mockDatasetsApi.listDatasets.mockClear()
 
@@ -518,7 +525,6 @@ describe('saveToDatasetButtonLogic', () => {
                     limit: DATASETS_PER_PAGE,
                     offset: 0,
                 })
-                expect(mockDatasetsApi.getTraceStepItem).not.toHaveBeenCalled()
             })
 
             it('drops an in-flight load that resolves after unmount', async () => {
@@ -530,7 +536,7 @@ describe('saveToDatasetButtonLogic', () => {
                     })
                 )
 
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
                 logic.unmount()
 
@@ -542,7 +548,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('uses debounce when loading datasets', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 await expectLogic(logic, () => {
@@ -554,26 +560,6 @@ describe('saveToDatasetButtonLogic', () => {
         })
 
         describe('step mode', () => {
-            const STEP_A: TraceStep = { traceId: 't-1', nodeId: 'n-a', timestamp: '2026-09-01T10:00:00Z' }
-            const STEP_B: TraceStep = { ...STEP_A, nodeId: 'n-b' }
-            const draftA: DatasetItemDraft = {
-                client_item_id: 'n-a',
-                source_trace_id: 't-1',
-                source_event_id: 'n-a',
-                source_timestamp: STEP_A.timestamp,
-                input: { messages: ['step a'] },
-                source_output: { answer: 'a' },
-                metadata: { model: 'model-a' },
-            }
-            const draftB: DatasetItemDraft = {
-                ...draftA,
-                client_item_id: 'n-b',
-                source_event_id: 'n-b',
-                input: { messages: ['step b'] },
-                source_output: { answer: 'b' },
-                metadata: { model: 'model-b' },
-            }
-
             function deferredRead(): {
                 promise: Promise<DatasetItemDraft>
                 resolve: (draft: DatasetItemDraft) => void
@@ -589,7 +575,7 @@ describe('saveToDatasetButtonLogic', () => {
             }
 
             function mountForStep(step: TraceStep): ReturnType<typeof saveToDatasetButtonLogic> {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: null, step })
+                const logic = saveToDatasetButtonLogic({ step })
                 logic.mount()
                 logic.actions.loadDatasetsSuccess({ [getStorageKey('')]: mockDatasetsResponse.results })
                 return logic
@@ -656,7 +642,7 @@ describe('saveToDatasetButtonLogic', () => {
                 const logic = mountForStep(STEP_A)
                 logic.actions.setDropdownVisible(true)
 
-                saveToDatasetButtonLogic({ partialDatasetItem: null, step: STEP_B })
+                saveToDatasetButtonLogic({ step: STEP_B })
                 logic.actions.setDropdownVisible(true)
                 settleA(readA)
                 await new Promise((resolve) => setTimeout(resolve, 0))
@@ -681,7 +667,7 @@ describe('saveToDatasetButtonLogic', () => {
                     logic.actions.setDropdownVisible(true)
                 }).toFinishAllListeners()
 
-                saveToDatasetButtonLogic({ partialDatasetItem: null, step: STEP_B })
+                saveToDatasetButtonLogic({ step: STEP_B })
                 await expectLogic(logic, () => pickDataset(logic)).toFinishAllListeners()
 
                 expect(mockDatasetsApi.createItem).toHaveBeenCalledWith({ dataset: mockDataset1.id, ...draftB })
@@ -751,7 +737,7 @@ describe('saveToDatasetButtonLogic', () => {
 
         describe('state management', () => {
             it('sets modal open state', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setIsModalOpen(true)
@@ -762,7 +748,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('sets edit mode', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setEditMode('edit')
@@ -773,7 +759,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('resets edit mode to create when modal is closed', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setEditMode('edit')
@@ -783,7 +769,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('sets dropdown visibility', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setDropdownVisible(true)
@@ -794,7 +780,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('sets selected dataset', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 logic.actions.setSelectedDataset(mockDataset1)
@@ -805,7 +791,7 @@ describe('saveToDatasetButtonLogic', () => {
             })
 
             it('computes isModalMounted based on edit mode', () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                const logic = saveToDatasetButtonLogic({ step: STEP_A })
                 logic.mount()
 
                 expect(logic.values.isModalMounted).toBe(false)
@@ -821,14 +807,14 @@ describe('saveToDatasetButtonLogic', () => {
         describe('recent datasets functionality', () => {
             describe('recent dataset IDs state management', () => {
                 it('initializes with empty recent dataset IDs', () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     expect(logic.values.recentDatasetIds).toEqual([])
                 })
 
                 it('sets recent dataset IDs and truncates to limit', () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     const ids = ['id1', 'id2', 'id3', 'id4', 'id5']
@@ -839,7 +825,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('preserves order when setting recent dataset IDs', () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     const ids = ['newest', 'middle', 'oldest']
@@ -851,14 +837,14 @@ describe('saveToDatasetButtonLogic', () => {
 
             describe('recent datasets state management', () => {
                 it('initializes with empty recent datasets', () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     expect(logic.values.recentDatasets).toEqual([])
                 })
 
                 it('sets recent datasets and truncates to limit', () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     const mockDataset3: Dataset = { ...mockDataset1, id: 'test-dataset-3', name: 'Test Dataset 3' }
@@ -872,7 +858,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('preserves order when setting recent datasets', () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     const datasets = [mockDataset2, mockDataset1]
@@ -884,7 +870,7 @@ describe('saveToDatasetButtonLogic', () => {
 
             describe('recent datasets loading', () => {
                 it('loads recent datasets by ID', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     logic.actions.setRecentDatasetIds(['test-dataset-1', 'test-dataset-2'])
@@ -901,7 +887,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('returns empty array when no recent dataset IDs exist', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     // Ensure recentDatasetIds is empty first
@@ -918,7 +904,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('handles missing datasets by updating recent dataset IDs', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     logic.actions.setRecentDatasetIds(['test-dataset-1', 'missing-dataset', 'test-dataset-2'])
@@ -932,7 +918,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('preserves original order of recent dataset IDs when loading', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     logic.actions.setRecentDatasetIds(['test-dataset-2', 'test-dataset-1'])
@@ -945,7 +931,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('excludes archived datasets and removes them from recents', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     logic.actions.setRecentDatasetIds(['test-dataset-1', 'test-dataset-2'])
@@ -963,7 +949,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('keeps recent dataset IDs when loading fails', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     logic.actions.setRecentDatasetIds(['test-dataset-1'])
@@ -978,7 +964,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('uses debounce when loading recent datasets', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     logic.actions.setRecentDatasetIds(['test-dataset-1'])
@@ -995,7 +981,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('loads recent datasets on mount when recent dataset IDs exist', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     // Set up recent dataset IDs and verify they're loaded when loadRecentDatasets is called
@@ -1017,7 +1003,7 @@ describe('saveToDatasetButtonLogic', () => {
 
             describe('adding to recent datasets', () => {
                 it('adds dataset to recent when dataset ID is selected and not already recent', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     // Ensure clean state
@@ -1038,7 +1024,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('does not add dataset to recent when dataset ID is already in recent', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     // Ensure clean state first
@@ -1064,7 +1050,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('adds new dataset to front of recent lists', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     // Ensure clean state first
@@ -1089,7 +1075,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('does not add to recent when dataset is not found in datasets', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     // Clear any existing recent datasets
@@ -1111,7 +1097,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
 
                 it('does not add to recent when datasets is null', async () => {
-                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem, step: null })
+                    const logic = saveToDatasetButtonLogic({ step: STEP_A })
                     logic.mount()
 
                     // Clear any existing recent datasets

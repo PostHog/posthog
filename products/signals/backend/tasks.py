@@ -444,6 +444,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
                         SignalReportTrackerIssue.Status.PENDING,
                     ),
                     pr_linked_at__isnull=True,
+                    closed_at__isnull=True,
                 )
                 .exists()
             )

@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import EmailIntegration, Integration
-from posthog.models.integration.email import lock_sender_domain
+from posthog.models.integration.email import lock_organization_sender_domains, lock_sender_domain
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -117,6 +117,70 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             other.rollback()
             other.close()
 
+    @parameterized.expand(
+        [("new_domain", "first@fresh.example.com"), ("domain_already_added", "second@held.example.com")]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_sender_creation_waits_for_another_in_the_same_organization(
+        self, _name, email, mock_create_email_domain, _mock_get_mail_from
+    ):
+        create = lambda address: EmailIntegration.create_native_integration(
+            {"email": address, "name": "Sender", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="first@held.example.com",
+            config={
+                "email": "first@held.example.com",
+                "domain": "held.example.com",
+                "provider": "ses",
+                "verified": False,
+            },
+        )
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_organization_sender_domains(cursor, str(self.organization.id))
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                create(email)
+            mock_create_email_domain.assert_not_called()
+        finally:
+            other.rollback()
+            other.close()
+
+    def test_verification_waits_for_a_create_in_progress_on_the_same_domain(self):
+        sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="hello@verifying.example.com",
+            config={
+                "email": "hello@verifying.example.com",
+                "domain": "verifying.example.com",
+                "provider": "maildev",
+                "verified": False,
+                "organization_proof_token": "token",
+            },
+        )
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, "verifying.example.com")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                EmailIntegration(sender).verify()
+            assert Integration.objects.get(id=sender.id).config["verified"] is False
+        finally:
+            other.rollback()
+            other.close()
+
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_sender_created_during_the_provider_call_is_refused_not_upserted(self, mock_create_email_domain):
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
@@ -137,25 +201,45 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
             )
 
+    @parameterized.expand(
+        [
+            ("verified", "user@example.com", True),
+            ("verified_mixed_case", "user@Example.com", True),
+            ("unverified", "user@example.com", False),
+        ]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
-    def test_duplicate_domain_in_another_organization(self, mock_create_email_domain, mock_verify_email_domain):
-        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
-        mock_verify_email_domain.return_value = {"status": "verified", "domain": "example.com"}
-        # Create an integration with a domain in another organization
+    def test_only_a_domain_verified_by_another_organization_is_refused(
+        self, _name, email, other_organization_verified, _mock_create_email_domain, _mock_get_mail_from
+    ):
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other team")
-        config = {"email": "user@example.com", "name": "Test User"}
         EmailIntegration.create_native_integration(
-            config, team_id=other_team.id, organization_id=str(other_org.id), created_by=self.user
+            {"email": "owner@example.com", "name": "Owner"},
+            team_id=other_team.id,
+            organization_id=str(other_org.id),
+            created_by=self.user,
+        )
+        Integration.objects.filter(team=other_team).update(
+            config={"email": "owner@example.com", "domain": "example.com", "verified": other_organization_verified}
         )
 
-        # Attempt to create the same domain in a different organization should raise ValidationError
-        with pytest.raises(ValidationError) as exc:
+        def add_sender() -> None:
             EmailIntegration.create_native_integration(
-                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+                {"email": email, "name": "Sender"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
             )
-        assert "already exists in another organization" in str(exc.value)
+
+        if other_organization_verified:
+            with pytest.raises(ValidationError) as exc:
+                add_sender()
+            assert "already exists in another organization" in str(exc.value)
+        else:
+            add_sender()
+        assert Integration.objects.filter(team=self.team, kind="email").exists() is not other_organization_verified
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
@@ -200,27 +284,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert "not supported" in str(exc.value)
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_cross_org_guard_blocks_mixed_case_domain(self, mock_create_email_domain):
-        mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
-        other_org = Organization.objects.create(name="other org")
-        other_team = Team.objects.create(organization=other_org, name="other team")
-        EmailIntegration.create_native_integration(
-            {"email": "owner@example.com", "name": "Owner"},
-            team_id=other_team.id,
-            organization_id=str(other_org.id),
-            created_by=self.user,
-        )
-
-        with pytest.raises(ValidationError) as exc:
-            EmailIntegration.create_native_integration(
-                {"email": "attacker@Example.com", "name": "Attacker"},
-                team_id=self.team.id,
-                organization_id=str(self.organization.id),
-                created_by=self.user,
-            )
-        assert "already exists in another organization" in str(exc.value)
-
-    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_stored_domain_is_lowercased(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
         integration = EmailIntegration.create_native_integration(
@@ -250,6 +313,48 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 created_by=self.user,
             )
         assert "not supported" in str(exc.value)
+
+    @parameterized.expand(
+        [
+            ("no_domain_verified", None, False),
+            ("one_domain_verified", "every_sender", True),
+            ("one_domain_verified_in_one_project", "first_project", True),
+        ]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_organization_holds_at_most_three_unverified_domains(
+        self, _name, verified_on, fourth_domain_allowed, _mock_create_email_domain, _mock_get_mail_from
+    ):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+
+        def add_sender(team: Team, email: str) -> None:
+            EmailIntegration.create_native_integration(
+                {"email": email, "name": "Sender"},
+                team_id=team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+
+        for team, email in [(self.team, "a@one.com"), (other_team, "b@two.com"), (self.team, "c@three.com")]:
+            add_sender(team, email)
+        if verified_on:
+            Integration.objects.filter(kind="email", config__domain="one.com").update(
+                config={"email": "a@one.com", "domain": "one.com", "provider": "ses", "verified": True}
+            )
+        if verified_on == "first_project":
+            # A sender added in a second project starts unverified even though the first project verified the domain.
+            add_sender(other_team, "z@one.com")
+
+        add_sender(self.team, "second@two.com")
+        if fourth_domain_allowed:
+            add_sender(self.team, "d@four.com")
+        else:
+            with pytest.raises(ValidationError) as exc:
+                add_sender(self.team, "d@four.com")
+            assert "3 email domains waiting for verification" in str(exc.value)
+        assert Integration.objects.filter(kind="email", config__domain="two.com").count() == 2
+        assert Integration.objects.filter(kind="email", config__domain="four.com").exists() == fourth_domain_allowed
 
 
 class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
@@ -282,19 +387,22 @@ class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
 
         mock_delete_identity.assert_called_once_with("partner.com")
 
+    @patch("posthog.tasks.integrations.remove_ses_tenant_associations")
     @patch("posthog.tasks.integrations.delete_ses_identity")
     @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
     def test_cascade_delete_skips_ses_cleanup_while_domain_still_in_use(
-        self, _mock_get_mail_from, mock_delete_identity
+        self, _mock_get_mail_from, mock_delete_identity, mock_remove_links
     ):
         team = Team.objects.create(organization=self.organization, name="doomed team")
         self._create_email_integration("owner@partner.com", team.id, str(self.organization.id))
         self._create_email_integration("sibling@partner.com", self.team.id, str(self.organization.id))
 
+        team_id = team.id
         with self.captureOnCommitCallbacks(execute=True):
             team.delete()
 
         mock_delete_identity.assert_not_called()
+        mock_remove_links.assert_called_once_with("partner.com", team_ids=[team_id])
 
 
 class TestEmailIntegrationDefaultSender(BaseTest):

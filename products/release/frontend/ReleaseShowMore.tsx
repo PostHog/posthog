@@ -28,7 +28,7 @@ export function ReleaseShowMore({
                     onClick={() => onChange(visible + SHOW_MORE_PAGE)}
                     data-attr={`${dataAttr}-show-more`}
                 >
-                    {`Show ${Math.min(remaining, SHOW_MORE_PAGE)} more of ${remaining}`}
+                    {`Show ${Math.min(remaining, SHOW_MORE_PAGE)} more`}
                 </Button>
             )}
             {visible > limit && (
