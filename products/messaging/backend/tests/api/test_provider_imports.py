@@ -168,3 +168,18 @@ class TestResendImportFlag(APIBaseTest):
         assert [provider["key"] for provider in providers] == ["customerio"]
         assert response.status_code == 400
         assert "Unknown import provider: resend" in str(response.json())
+
+    def test_mailgun_needs_its_flag_and_a_region(self, flag: MagicMock) -> None:
+        url = f"/api/projects/{self.team.id}/messaging_provider_imports/"
+        body = {"provider": "mailgun", "steps": ["bounces"], "api_key": "key"}
+        flag.return_value = False
+        assert "mailgun" not in [row["key"] for row in self.client.get(f"{url}providers/").json()]
+        assert self.client.post(url, body).status_code == 400
+
+        flag.return_value = True
+        mailgun = next(row for row in self.client.get(f"{url}providers/").json() if row["key"] == "mailgun")
+        response = self.client.post(url, body)
+
+        assert [setting["key"] for setting in mailgun["settings"]] == ["region", "template_versions"]
+        assert response.status_code == 400
+        assert "Mailgun region" in response.json()["detail"]

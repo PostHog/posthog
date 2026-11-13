@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import type { ReactNode } from 'react'
 
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -28,6 +28,33 @@ function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): 
                         data-attr={`${provider.key}-import-step-${step.key}`}
                     />
                     <div className="text-xs text-secondary ml-6">{step.description}</div>
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function ImportSettingsPicker({ provider }: { provider: ImportProviderOptionApi }): JSX.Element | null {
+    const { importSettings } = useValues(providerImportLogic)
+    const { setImportSetting } = useActions(providerImportLogic)
+
+    if (!provider.settings?.length) {
+        return null
+    }
+    return (
+        <div className="space-y-3">
+            {provider.settings.map((setting) => (
+                <div key={setting.key} className="space-y-1">
+                    <label className="LemonLabel">{setting.label}</label>
+                    <LemonSelect
+                        fullWidth
+                        placeholder="Choose one"
+                        value={importSettings[setting.key] ?? null}
+                        onChange={(value) => value && setImportSetting(setting.key, value)}
+                        options={setting.choices.map((choice) => ({ value: choice.value, label: choice.label }))}
+                        data-attr={`${provider.key}-import-setting-${setting.key}`}
+                    />
+                    <div className="text-xs text-secondary">{setting.help}</div>
                 </div>
             ))}
         </div>
@@ -103,10 +130,9 @@ function ImportStartButton({
     provider: ImportProviderOptionApi
     hasStoredKey: boolean
 }): JSX.Element {
-    const { importForm, latestImportRun, selectedImportSteps, startedImportRunLoading } = useValues(providerImportLogic)
+    const { importForm, latestImportRun, cannotStartImportReason, startedImportRunLoading } =
+        useValues(providerImportLogic)
     const { submitImportForm, startImport } = useActions(providerImportLogic)
-
-    const noStepsReason = selectedImportSteps.length === 0 ? 'Select at least one thing to import' : undefined
 
     if (hasStoredKey) {
         return (
@@ -114,7 +140,7 @@ function ImportStartButton({
                 type="primary"
                 onClick={() => startImport({ apiKey: null })}
                 loading={startedImportRunLoading}
-                disabledReason={noStepsReason}
+                disabledReason={cannotStartImportReason}
                 data-attr={`${provider.key}-import-run-again`}
             >
                 {latestImportRun ? 'Run again' : 'Start import'}
@@ -126,7 +152,7 @@ function ImportStartButton({
             type="primary"
             onClick={submitImportForm}
             loading={startedImportRunLoading}
-            disabledReason={!importForm.api_key ? 'Enter your API key' : noStepsReason}
+            disabledReason={!importForm.api_key ? 'Enter your API key' : cannotStartImportReason}
             data-attr={`${provider.key}-import-start`}
         >
             Start import
@@ -162,6 +188,8 @@ function ImportForm({
                     stays as it is.
                 </p>
             )}
+
+            <ImportSettingsPicker provider={provider} />
 
             <ImportStepPicker provider={provider} />
 
