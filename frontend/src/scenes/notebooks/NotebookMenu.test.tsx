@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import { type ReactNode } from 'react'
 
@@ -8,6 +8,8 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
+
+import { NotebookPrintControls } from 'products/notebooks/frontend/NotebookPrintControls'
 
 import { notebookLogic } from './Notebook/notebookLogic'
 import { NotebookMenu } from './NotebookMenu'
@@ -65,6 +67,7 @@ describe('NotebookMenu', () => {
     })
 
     afterEach(() => {
+        cleanup()
         logic?.unmount()
         jest.restoreAllMocks()
     })
@@ -74,5 +77,38 @@ describe('NotebookMenu', () => {
 
         expect(screen.getByText('Download .md')).toBeInTheDocument()
         expect(screen.queryByText('Export JSON')).not.toBeInTheDocument()
+    })
+
+    test.each(['afterprint', 'unmount'])('restores the page after notebook printing ends with %s', (end) => {
+        const originalTitle = document.title
+        const print = jest.spyOn(window, 'print').mockImplementation(() => {})
+        const { container, unmount } = render(
+            <>
+                <NotebookMenu shortId={SHORT_ID} />
+                <NotebookPrintControls shortId={SHORT_ID} />
+                <div className="Notebook" data-notebook-short-id={SHORT_ID} />
+                <div className="Notebook" data-notebook-short-id="another-notebook" />
+            </>
+        )
+
+        fireEvent.click(screen.getByText('Print / save PDF'))
+        expect(print).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByText('Print'))
+
+        expect(print).toHaveBeenCalledTimes(1)
+        expect(container.querySelector('.Notebook--printing')).toHaveAttribute('data-notebook-short-id', SHORT_ID)
+        expect(document.querySelectorAll('.Notebook--printing')).toHaveLength(1)
+        expect(document.title).toEqual('Legacy notebook')
+
+        if (end === 'afterprint') {
+            fireEvent(window, new Event('afterprint'))
+            expect(screen.queryByText('Print')).not.toBeInTheDocument()
+        } else {
+            unmount()
+        }
+
+        expect(document.querySelector('.NotebookPrintAncestor')).toBeNull()
+        expect(container.querySelector('.Notebook--printing')).toBeNull()
+        expect(document.title).toEqual(originalTitle)
     })
 })

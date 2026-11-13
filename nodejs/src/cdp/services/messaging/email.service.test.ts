@@ -1338,6 +1338,120 @@ describe('EmailService', () => {
                 )
             })
         })
+
+        describe('team sending budget', () => {
+            let limiter: RateLimiterService
+
+            beforeEach(() => {
+                limiter = createRateLimiter('team-email-budget-test')
+            })
+
+            const budgetedService = (mode: 'shadow' | 'enforce', dailyCap: number): EmailService =>
+                createService(
+                    { teamEmailCapMode: mode, teamEmailTierDailyCaps: [dailyCap] },
+                    { teamEmailRateLimiter: limiter, workflowEmailRateLimiter: limiter }
+                )
+
+            it('shadow mode charges its sends to the budget that enforce mode reads', async () => {
+                await budgetedService('shadow', 3).executeSendEmail(invocation)
+
+                expect(await sendsLeftInTheTeamBudget(budgetedService('enforce', 3))).toBe(2)
+            })
+
+            it('shadow mode sends past an empty budget', async () => {
+                expect(await sendsLeftInTheTeamBudget(budgetedService('enforce', 2))).toBe(2)
+
+                const result = await budgetedService('shadow', 2).executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
+            })
+
+            it.each([
+                { name: 'charges every to, cc and bcc copy', dailyCap: 4, left: 1 },
+                { name: 'charges the whole budget, and sends, when the copies outnumber it', dailyCap: 2, left: 0 },
+            ])('$name', async ({ dailyCap, left }) => {
+                invocation.queueParameters = createEmailParams({ cc: 'cc@example.com', bcc: 'bcc@example.com' })
+                const sender = budgetedService('enforce', dailyCap)
+
+                const result = await sender.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
+                expect(await sendsLeftInTheTeamBudget(sender)).toBe(left)
+            })
+
+            const setSuspendedAt = async (suspendedAt: 'now()' | 'NULL'): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', ${suspendedAt}, 'testing the budget')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = ${suspendedAt}`,
+                    [team.id],
+                    'test-set-email-sending-suspension'
+                )
+            }
+
+            it.each<{
+                gate: string
+                skipMetric: string
+                hold: () => Promise<void> | void
+                release: () => Promise<void> | void
+            }>([
+                {
+                    gate: 'team suspension',
+                    skipMetric: 'email_suspended',
+                    hold: () => setSuspendedAt('now()'),
+                    release: () => setSuspendedAt('NULL'),
+                },
+                {
+                    gate: 'workflow pause',
+                    skipMetric: 'email_paused',
+                    hold: () => {
+                        invocation.hogFunction.metadata!.email_sending_paused_at = '2026-01-01T00:00:00Z'
+                    },
+                    release: () => {
+                        delete invocation.hogFunction.metadata!.email_sending_paused_at
+                    },
+                },
+                {
+                    gate: 'suppression list',
+                    skipMetric: 'email_suppressed',
+                    hold: () =>
+                        new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()).recordHardBounces(
+                            team.id,
+                            ['test@example.com']
+                        ),
+                    release: () => {
+                        invocation.queueParameters = createEmailParams({
+                            to: { email: 'deliverable@example.com', name: 'Deliverable' },
+                        })
+                    },
+                },
+            ])(
+                'a send the $gate skips spends neither the workflow pacing nor the team budget',
+                async ({ skipMetric, hold, release }) => {
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    await hold()
+
+                    const skipped = await budgetedService('enforce', 2).executeSendEmail(invocation)
+                    await release()
+                    const sender = budgetedService('enforce', 2)
+                    const sent = await sender.executeSendEmail(invocation)
+
+                    expect(skipped.error).toBeUndefined()
+                    expect(skipped.metrics.map((metric) => metric.metric_name)).toEqual([skipMetric])
+                    expect(sent.error).toBeUndefined()
+                    expect(sent.finished).toBe(true)
+                    expect(ses.sent).toHaveLength(1)
+                    expect(await sendsLeftInTheTeamBudget(sender)).toBe(1)
+                }
+            )
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -1914,10 +2028,12 @@ describe('EmailService', () => {
                 teamDailyCap,
                 teamConfigDb,
                 attachmentSendDeadlineMs,
+                ownershipCheckTimeoutMs,
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
+                ownershipCheckTimeoutMs?: number
             } = {}): EmailService =>
                 createService(
                     {
@@ -1925,6 +2041,7 @@ describe('EmailService', () => {
                             ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] }
                             : {}),
                         attachmentSendDeadlineMs,
+                        ownershipCheckTimeoutMs,
                     },
                     {
                         workflowEmailRateLimiter: createRateLimiter('workflow-email-test'),
@@ -2184,6 +2301,83 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
+                it('charges it and the workflow limit once, waits before each retry, and sends once the ownership check failed on each of its retries', async () => {
+                    const emailService = sender({ teamDailyCap: 2 })
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    emailService.checkJobOwnershipBeforeSend((checked) =>
+                        checked.id === invocation.id
+                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                            : Promise.resolve(true)
+                    )
+
+                    const stopped: boolean[] = []
+                    let result = await emailService.executeSendEmail(invocation)
+                    while (!result.finished && stopped.length < 10) {
+                        stopped.push(
+                            deliveredTo(ses, recipient).length === 0 &&
+                                result.invocation.queueScheduledAt!.toMillis() > Date.now()
+                        )
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+
+                    expect(stopped).toEqual([true, true, true, true, true])
+                    expect(result.finished).toBe(true)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                    expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
+                })
+
+                it('sends nothing when the ownership check answers that the job is lost after it failed on each of its retries', async () => {
+                    const emailService = sender()
+                    let jobLost = false
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        jobLost
+                            ? Promise.resolve(false)
+                            : Promise.reject(new Error('Connection terminated unexpectedly'))
+                    )
+                    let result = await emailService.executeSendEmail(invocation)
+                    for (let retry = 1; retry < 5; retry++) {
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+                    jobLost = true
+
+                    result = await emailService.executeSendEmail(result.invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toEqual([])
+                })
+
+                it('claims the workflow limit again when the flow loops back to an email whose earlier pass kept its pacing token', async () => {
+                    const emailService = sender()
+                    let ownsJob = false
+                    emailService.checkJobOwnershipBeforeSend(() => Promise.resolve(ownsJob))
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    invocation.state.actionId = 'email-step'
+                    invocation.state.actionStepCount = 2
+                    const stopped = await emailService.executeSendEmail(invocation)
+                    ownsJob = true
+                    stopped.invocation.state.actionStepCount = 3
+
+                    const result = await emailService.executeSendEmail(stopped.invocation)
+
+                    expect(stopped.finished).toBe(false)
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(0)
+                })
+
+                it('claims the workflow limit for an email that carries the pacing marker of another email step', async () => {
+                    const emailService = sender()
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    const paid = await emailService.executeSendEmail(invocation)
+                    invocation.id = new UUIDT().toString()
+                    invocation.queueMetadata = { workflowRateClaimed: 'another-email-step:3' }
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect(paid.finished).toBe(true)
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                })
+
                 it('keeps a retry that pacing denies queued with its budget paid, and sends it once pacing lets it', async () => {
                     const emailService = sender({ teamDailyCap: 2 })
                     invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }
@@ -2262,6 +2456,60 @@ describe('EmailService', () => {
             })
             const sent = { finished: true, error: undefined, retryLater: false }
             const retriedLoad = { finished: false, error: undefined, retryLater: true }
+
+            it.each([
+                ['fails', 'with files', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
+                ['does not answer before the send deadline', 'with files', () => new Promise<boolean>(() => undefined)],
+                ['fails', 'without files', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
+                ['does not answer in time', 'without files', () => new Promise<boolean>(() => undefined)],
+            ])(
+                'when the check that this worker still holds the job %s, a send %s sends nothing and keeps the send for a retry',
+                async (_name, withFiles, stillOwnsJob) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1_000, ownershipCheckTimeoutMs: 1_000 })
+                    emailService.checkJobOwnershipBeforeSend(stillOwnsJob)
+                    const files = withFiles === 'with files' ? [pdf] : []
+                    send(files)
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect({ finished: result.finished, error: result.error }).toEqual({
+                        finished: false,
+                        error: undefined,
+                    })
+                    expect(result.invocation.queueParameters).toMatchObject({
+                        attachments: files.map((file) => file.metadata),
+                    })
+                    expect(deliveredTo(ses, recipient)).toEqual([])
+                }
+            )
+
+            it.each([
+                ['fast', 0],
+                ['slow', 2_000],
+            ])(
+                'sends a send with %s downloads at the retry cap when its ownership check stops answering, within the send deadline',
+                async (_speed, downloadDelayMs) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 3_000, ownershipCheckTimeoutMs: 2_000 })
+                    let checkAnswers = true
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        checkAnswers
+                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                            : new Promise<boolean>(() => undefined)
+                    )
+                    send([pdf])
+                    let result = await emailService.executeSendEmail(invocation)
+                    for (let retry = 1; retry < 5; retry++) {
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+                    checkAnswers = false
+                    bucket.downloadDelayMs = downloadDelayMs
+
+                    result = await emailService.executeSendEmail(result.invocation)
+
+                    expect(outcomeOf(result)).toEqual(sent)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                }
+            )
 
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
