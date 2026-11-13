@@ -492,9 +492,15 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                 name="rl_inline_created_idx",
                 condition=models.Q(origin=ScannerOrigin.INLINE),
             ),
-            # Serves "which scanners watch experiment N" for the experiment page and the launch receiver. Not
-            # partial: callers filter on the id alone, and a kind condition would stop the planner using it.
-            models.Index(KeyTransform("experiment_id", "scope"), name="rl_scope_experiment_idx"),
+            # Serves "which scanners watch experiment N" for the experiment page and the launch receiver.
+            # Partial on `scope` alone, never on a kind: callers filter on the id, and an equality on the id
+            # implies `scope IS NOT NULL`, so the planner still uses it. Most scanners have no scope, which
+            # makes this index a fraction of the full one's size for the same plan.
+            models.Index(
+                KeyTransform("experiment_id", "scope"),
+                name="rl_scope_experiment_idx",
+                condition=models.Q(scope__isnull=False),
+            ),
         ]
 
     _VERSION_TRACKED_FIELDS = (

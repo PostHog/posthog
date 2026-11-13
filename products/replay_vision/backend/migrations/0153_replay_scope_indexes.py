@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
             model_name="replayscanner",
             index=models.Index(
                 django.db.models.fields.json.KeyTransform("experiment_id", "scope"),
+                condition=models.Q(("scope__isnull", False)),
                 name="rl_scope_experiment_idx",
             ),
         ),
