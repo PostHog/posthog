@@ -680,6 +680,7 @@ Product teams own their definitions and control which operations are exposed as 
 
    A custom or detail UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
    The `render-ui` app renders the views it dispatches inside its own iframe, so its CSP also includes the `resource_domains` of every view it dispatches.
+   Hosts apply these sources to scripts and styles as well as images, so scope each one to the path that holds the files, such as `https://us-media.posthog.com/uploaded_media/`.
 
    #### Custom input schemas
 

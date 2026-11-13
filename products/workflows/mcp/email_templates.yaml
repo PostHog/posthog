@@ -10,11 +10,12 @@ ui_apps:
         type: detail
         view_prop: template
         resource_domains:
-            - https://us-media.posthog.com
-            - https://eu-media.posthog.com
-            - https://us.posthog.com
-            - https://eu.posthog.com
-            - https://assets.unlayer.com
+            - https://us-media.posthog.com/uploaded_media/
+            - https://eu-media.posthog.com/uploaded_media/
+            - https://us.posthog.com/uploaded_media/
+            - https://eu.posthog.com/uploaded_media/
+            - https://assets.unlayer.com/projects/275430/
+            - https://cdn.tools.unlayer.com/social/icons/
 tools:
     workflows-create-email-template:
         operation: messaging_templates_create
