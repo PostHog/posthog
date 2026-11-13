@@ -7,10 +7,9 @@ keep the DRF/serializer import chain off config-only import paths.
 
 from __future__ import annotations
 
-import re
 import json
 import operator
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from functools import reduce
 from typing import Any
@@ -18,6 +17,11 @@ from uuid import UUID
 
 from django.db import connection
 from django.db.models import Q, QuerySet
+
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_program
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -92,20 +96,61 @@ def _input_value(inputs: dict[str, Any], key: str) -> Any:
     return entry.get("value") if isinstance(entry, dict) else None
 
 
-# A function keeps its template_id after someone edits its source, so the inputs alone don't prove
-# it still hashes distinct_id. Each template's own hashing statement must survive in the saved source,
-# outside the comment forms the Hog lexer skips. A comment marker inside a string literal can only
-# hide the statement, so a mismatch falls back to allowing the edit, never to refusing it.
-_HOG_COMMENT = re.compile(r"/\*.*?\*/|(?://|--|#)[^\n]*", re.DOTALL)
-_DISTINCT_ID_HASHING_STATEMENTS = {
-    "template-pii-hashing": "returnEvent.distinct_id := sha256Hex",
-    "template-hash-properties": "anonymizedEvent[trimmedFieldName] := hashValue(event[trimmedFieldName]",
+def _is_field(node: ast.Expr, *chain: str) -> bool:
+    return isinstance(node, ast.Field) and node.chain == list(chain)
+
+
+def _is_event_field_access(node: ast.Expr, array: str) -> bool:
+    return (
+        isinstance(node, ast.ArrayAccess)
+        and _is_field(node.array, array)
+        and _is_field(node.property, "trimmedFieldName")
+    )
+
+
+# The statement in each template that hashes distinct_id, matched on the parsed source.
+_DISTINCT_ID_HASHING_STATEMENTS: dict[str, Callable[[ast.VariableAssignment], bool]] = {
+    # returnEvent.distinct_id := sha256Hex(...)
+    "template-pii-hashing": lambda node: (
+        _is_field(node.left, "returnEvent", "distinct_id")
+        and isinstance(node.right, ast.Call)
+        and node.right.name == "sha256Hex"
+    ),
+    # anonymizedEvent[trimmedFieldName] := hashValue(event[trimmedFieldName], ...)
+    "template-hash-properties": lambda node: (
+        _is_event_field_access(node.left, "anonymizedEvent")
+        and isinstance(node.right, ast.Call)
+        and node.right.name == "hashValue"
+        and bool(node.right.args)
+        and _is_event_field_access(node.right.args[0], "event")
+    ),
 }
 
 
+class _AssignmentCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.assignments: list[ast.VariableAssignment] = []
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        self.assignments.append(node)
+        super().visit_variable_assignment(node)
+
+
+def _source_has_statement(hog: str | None, is_statement: Callable[[ast.VariableAssignment], bool]) -> bool:
+    # A function keeps its template_id after someone edits its source, so the inputs alone don't prove
+    # it still hashes distinct_id. Parsing ignores comments and string contents, which text matching can't.
+    try:
+        program = parse_program(hog or "")
+    except BaseHogQLError:
+        return False
+    collector = _AssignmentCollector()
+    collector.visit(program)
+    return any(is_statement(node) for node in collector.assignments)
+
+
 def _hashes_distinct_id(template_id: str | None, inputs: dict[str, Any] | None, hog: str | None) -> bool:
-    statement = _DISTINCT_ID_HASHING_STATEMENTS.get(template_id or "")
-    if statement is None or statement not in _HOG_COMMENT.sub("", hog or ""):
+    is_statement = _DISTINCT_ID_HASHING_STATEMENTS.get(template_id or "")
+    if is_statement is None or not _source_has_statement(hog, is_statement):
         return False
     inputs = inputs or {}
     if template_id == "template-pii-hashing":
