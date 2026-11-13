@@ -57,7 +57,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PROGRESS_MESSAGE_MARKER = "Working on task..."
+PROGRESS_MESSAGE_MARKER = "*On it* :hedgehog:"
+# Cards posted before the copy change still carry this text and must stay editable.
+LEGACY_PROGRESS_MESSAGE_MARKER = "Working on task..."
 UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
@@ -491,7 +493,10 @@ class SlackThreadHandler:
             messages: list[dict[str, Any]] = response.get("messages", [])
 
             for msg in messages:
-                if msg.get("user") == bot_user_id and PROGRESS_MESSAGE_MARKER in msg.get("text", ""):
+                text = msg.get("text", "")
+                if msg.get("user") == bot_user_id and (
+                    PROGRESS_MESSAGE_MARKER in text or LEGACY_PROGRESS_MESSAGE_MARKER in text
+                ):
                     return msg.get("ts")
         except Exception as e:
             logger.warning("slack_find_progress_message_failed", error=str(e))
@@ -730,7 +735,7 @@ class SlackThreadHandler:
         running on and against is a property of the task, and the thread already has
         one place that describes it while it works.
         """
-        text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
+        text = f"{PROGRESS_MESSAGE_MARKER}\n{stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]

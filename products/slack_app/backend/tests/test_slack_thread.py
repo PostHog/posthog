@@ -169,7 +169,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         handler = SlackThreadHandler(context)
 
         handler.post_or_update_progress(
-            "In progress...", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
+            "Working on your request", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
         )
 
         mock_client.chat_postMessage.assert_called_once()
@@ -210,6 +210,34 @@ class TestSlackThreadHandler(SimpleTestCase):
         handler.delete_progress()
 
         mock_client.chat_delete.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("current_card", "*On it* :hedgehog:\nWorking on your request"),
+            ("card_posted_before_copy_change", "*Working on task...* :hourglass_flowing_sand:\nStage: In progress..."),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_delete_progress_finds_the_progress_card(self, _name, card_text, mock_get_client):
+        mock_client = MagicMock()
+        mock_client.auth_test.return_value = {"user_id": "UBOT"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [
+                {"user": "U123", "ts": "1234.5678", "text": "<@UBOT> fix the login bug"},
+                {"user": "UBOT", "ts": "1234.9999", "text": card_text},
+            ]
+        }
+        mock_get_client.return_value = mock_client
+
+        context = SlackThreadContext(
+            team_id=1,
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+        )
+        SlackThreadHandler(context).delete_progress()
+
+        mock_client.chat_delete.assert_called_once_with(channel="C001", ts="1234.9999")
 
     @parameterized.expand(
         [

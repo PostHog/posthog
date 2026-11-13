@@ -197,11 +197,11 @@ def _get_stage_from_status(status: str, stage: str | None = None) -> str:
     from products.tasks.backend.models import TaskRun
 
     status_map: dict[str, str] = {
-        TaskRun.Status.NOT_STARTED: "Starting up...",
-        TaskRun.Status.QUEUED: "Queued...",
-        TaskRun.Status.IN_PROGRESS: "In progress...",
+        TaskRun.Status.NOT_STARTED: "Setting up a sandbox",
+        TaskRun.Status.QUEUED: "Waiting for a free sandbox",
+        TaskRun.Status.IN_PROGRESS: "Working on your request",
     }
-    return status_map.get(status, "In progress...")
+    return status_map.get(status, "Working on your request")
 
 
 def _post_pr_opened_notification_once(
