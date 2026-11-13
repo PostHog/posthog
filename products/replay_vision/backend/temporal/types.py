@@ -348,3 +348,42 @@ class EmitObservationEventInputs(BaseModel, frozen=True):
 
     observation_id: UUID
     model_output: AnyScannerOutput
+
+
+class PrepareObservationInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    team_id: int
+    session_id: str
+    resolve_experiment: bool
+
+
+class PrepareObservationOutput(BaseModel, frozen=True):
+    asset: EnsureSessionAssetOutput
+    experiment_resolution: ResolveExperimentVariantOutput | None = None
+
+
+class FinalizeObservationInputs(BaseModel, frozen=True):
+    team_id: int
+    session_id: str
+    scanner_id: UUID
+    observation_id: UUID
+    scanner_type: ScannerType
+    exported_asset_id: int
+    call_output: ScannerCallOutput
+    experiment_resolution: ResolveExperimentVariantOutput | None = None
+    gemini_file_name: str | None = None
+
+
+def scanner_result(
+    model_output: AnyScannerOutput,
+    signal_summaries: list[EmittedSignal],
+    experiment_resolution: ResolveExperimentVariantOutput | None,
+) -> ScannerResult:
+    return ScannerResult(
+        model_output=model_output,
+        signals_count=len(signal_summaries),
+        signal_problem_types=[signal.problem_type for signal in signal_summaries],
+        signal_summaries=signal_summaries,
+        experiment_variant=experiment_resolution.experiment_variant if experiment_resolution is not None else None,
+        session_duration_s=experiment_resolution.session_duration_s if experiment_resolution is not None else None,
+    )

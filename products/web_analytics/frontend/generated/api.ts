@@ -17,6 +17,8 @@ import type {
     AEOKeywordCreateResultApi,
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
+    AEOKeywordSuggestRequestApi,
+    AEOKeywordSuggestionJobApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
@@ -27,6 +29,9 @@ import type {
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
+    AEOSetupContextApi,
+    AEOSetupJobApi,
+    AEOSetupRequestApi,
     AEOVisibilityDashboardApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
@@ -382,6 +387,46 @@ export const aeoKeywordsReport = async (
     })
 }
 
+export const getAeoKeywordsSuggestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/suggest/`
+}
+
+/**
+ * Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the organization. PostHog ranks keywords from the site, the project's tracked prompts and topics, and the web searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand are left out. Fails with 400 when the list already holds 200 keywords. Returns a pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO keywords
+ */
+export const aeoKeywordsSuggest = async (
+    projectId: string,
+    aEOKeywordSuggestRequestApi: AEOKeywordSuggestRequestApi,
+    options?: RequestInit
+): Promise<AEOKeywordSuggestionJobApi> => {
+    return apiMutator<AEOKeywordSuggestionJobApi>(getAeoKeywordsSuggestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOKeywordSuggestRequestApi),
+    })
+}
+
+export const getAeoKeywordsSuggestionRetrieveUrl = (projectId: string, jobId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/suggest/${jobId}/`
+}
+
+/**
+ * Gets a keyword suggestion job started with POST aeo_keywords/suggest/. status is pending while PostHog works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
+ * @summary Get AEO keyword suggestions
+ */
+export const aeoKeywordsSuggestionRetrieve = async (
+    projectId: string,
+    jobId: string,
+    options?: RequestInit
+): Promise<AEOKeywordSuggestionJobApi> => {
+    return apiMutator<AEOKeywordSuggestionJobApi>(getAeoKeywordsSuggestionRetrieveUrl(projectId, jobId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -645,7 +690,7 @@ export const getAeoPromptsSuggestUrl = (projectId: string) => {
 }
 
 /**
- * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
  * @summary Suggest AEO prompts
  */
 export const aeoPromptsSuggest = async (
@@ -666,7 +711,7 @@ export const getAeoPromptsSuggestionRetrieveUrl = (projectId: string, jobId: str
 }
 
 /**
- * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
+ * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while PostHog works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
  * @summary Get AEO prompt suggestions
  */
 export const aeoPromptsSuggestionRetrieve = async (
@@ -690,6 +735,61 @@ export const getAeoPromptsTopicsUrl = (projectId: string) => {
  */
 export const aeoPromptsTopics = async (projectId: string, options?: RequestInit): Promise<AEOPromptTopicApi[]> => {
     return apiMutator<AEOPromptTopicApi[]>(getAeoPromptsTopicsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoSetupCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/`
+}
+
+/**
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * @summary Set up AI visibility
+ */
+export const aeoSetupCreate = async (
+    projectId: string,
+    aEOSetupRequestApi?: AEOSetupRequestApi,
+    options?: RequestInit
+): Promise<AEOSetupJobApi> => {
+    return apiMutator<AEOSetupJobApi>(getAeoSetupCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOSetupRequestApi),
+    })
+}
+
+export const getAeoSetupRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_setup/${id}/`
+}
+
+/**
+ * Gets a setup job started with POST aeo_setup/, with the state of each step. Jobs expire an hour after their last update.
+ * @summary Get AEO setup job
+ */
+export const aeoSetupRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOSetupJobApi> => {
+    return apiMutator<AEOSetupJobApi>(getAeoSetupRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoSetupContextUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/context/`
+}
+
+/**
+ * Gets what PostHog already knows about the project for AI visibility setup: the domains it may be about, from its own brands, authorized URLs, recording domains and pageview hosts, and how many prompts, keywords and checks it has. Use the first website as the default domain for POST aeo_setup/.
+ * @summary Get AEO setup context
+ */
+export const aeoSetupContext = async (projectId: string, options?: RequestInit): Promise<AEOSetupContextApi> => {
+    return apiMutator<AEOSetupContextApi>(getAeoSetupContextUrl(projectId), {
         ...options,
         method: 'GET',
     })

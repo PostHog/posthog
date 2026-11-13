@@ -3330,9 +3330,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     // Register the in-process general local-tools MCP server. Tools self-gate
     // via the registry (e.g. signed-commit is cloud-only and needs a GH token),
-    // so adding a tool needs no change here. In cloud runs `git commit`/`git
-    // push` are blocked by the PreToolUse guard (and the sandbox git shim), so
-    // the agent commits via the signed-commit tool instead.
+    // so adding a tool needs no change here. In GitHub cloud runs `git commit`/
+    // `git push` are blocked by the PreToolUse guard (and the sandbox git shim),
+    // so the agent commits via the signed-commit tool instead. GitLab runs use
+    // plain git and get the merge request tool.
     //
     // A closure so refresh/self-heal can rebuild a fresh instance (reusing one
     // throws "Already connected to a transport"). Capture only the fields it
@@ -3382,7 +3383,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const localToolsServerNames = Object.keys(initialInProcess);
     if (localToolsServerNames.length === 0 && cloudRun) {
       this.logger.warn(
-        "Cloud run registered no local tools (missing GH_TOKEN/GITHUB_TOKEN?); signed commits unavailable",
+        "Cloud run registered no local tools; signed commits and merge request tools unavailable",
       );
     }
 

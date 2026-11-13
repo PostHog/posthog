@@ -52,10 +52,10 @@ export function useTimestampFormatMenuItems(): LemonMenuItem[] {
 }
 
 export function useLayoutMenuItems(): LemonMenuItem[] {
-    const { watchLayoutOffered, replayLayout, canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
+    const { watchLayoutOffered, replayLayout, canOverrideLayout } = useValues(playerSettingsLogic)
     const { setPreferClassicReplayLayout } = useActions(playerSettingsLogic)
 
-    if (!watchLayoutOffered || (canOverrideLayout && staffLayoutOverride)) {
+    if (!watchLayoutOffered || canOverrideLayout) {
         return []
     }
 

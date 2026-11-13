@@ -276,7 +276,6 @@ event_definitions.EventDefinition posthog.ObjectMediaPreview.event_definition re
 event_definitions.PropertyDefinition access_control.PropertyAccessControl.property_definition reverse-accessor(property_access_controls) 1
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
-experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
 exports.ExportedAsset posthog.ObjectMediaPreview.exported_asset reverse-accessor(object_previews) 1
 exports.ExportedAsset products.exports.backend.facade.api.create_export_asset_async facade-returns 1
 exports.ExportedAsset products.exports.backend.facade.api.get_export_asset facade-returns 1
@@ -575,7 +574,7 @@ product_analytics.Insight products.pulse.backend.sources.anchored_dashboards ins
 product_analytics.Insight products.pulse.backend.sources.anchored_dashboards instance-many(none) 1
 product_analytics.Insight products.pulse.backend.sources.anchored_insights instance-many(distinct) 1
 product_analytics.Insight products.pulse.backend.sources.anchored_insights instance-many(none) 1
-product_analytics.Insight products.pulse.backend.sources.resource_health instance-many(filter) 2
+product_analytics.Insight products.pulse.backend.sources.resource_health instance-many(filter) 1
 product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
 product_analytics.Insight products.subscriptions.backend.logic.subscription_writes instance-many(filter) 2

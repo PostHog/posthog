@@ -16,6 +16,7 @@ export interface PrepareTaskInputOptions {
   repositories?: string[];
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
+  repositoryIntegrationId?: number;
   workspaceMode: WorkspaceMode;
   branch?: string | null;
   allowRemoteBranchCheckout?: boolean;
@@ -69,6 +70,9 @@ export function prepareTaskInput(
     repositories: isCloud ? options.repositories : undefined,
     githubIntegrationId: options.githubIntegrationId,
     githubUserIntegrationId: options.githubUserIntegrationId,
+    repositoryIntegrationId: isCloud
+      ? options.repositoryIntegrationId
+      : undefined,
     workspaceMode: options.workspaceMode,
     branch: options.branch,
     allowRemoteBranchCheckout: options.allowRemoteBranchCheckout,
