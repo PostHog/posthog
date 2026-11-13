@@ -19,7 +19,11 @@ export function AnalyticsDeleteDialog(): JSX.Element {
     const { closeDeleteConfirm, deleteItem } = useActions(analyticsItemActionsLogic)
 
     return (
-        <AlertDialog open={!!deleteTarget} onOpenChange={(open: boolean) => !open && closeDeleteConfirm()}>
+        <AlertDialog
+            open={!!deleteTarget}
+            // Closing mid-request would let another row's confirmation inherit this one's pending state.
+            onOpenChange={(open: boolean) => !open && !deleting && closeDeleteConfirm()}
+        >
             <AlertDialogContent data-attr="analytics-delete-dialog">
                 <AlertDialogHeader>
                     <AlertDialogTitle>{deleteTarget ? `Delete "${deleteTarget.name}"?` : ''}</AlertDialogTitle>

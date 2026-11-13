@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import {
@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 import { InsightShortId } from '~/types'
 
 import { isTaggableAnalyticsType } from './analyticsFeed'
-import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
+import { analyticsItemActionsLogic, analyticsItemKey } from './analyticsItemActionsLogic'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsTagIcon } from './AnalyticsTagIcon'
@@ -37,6 +37,7 @@ import { AnalyticsItem, analyticsOpenHref } from './analyticsUtils'
 export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; backUrl: string }): JSX.Element {
     const { openShareToSpace, moveItem } = useActions(analyticsShareLogic)
     const { openTagEditor } = useActions(analyticsTagsLogic)
+    const { duplicating } = useValues(analyticsItemActionsLogic)
     const { duplicateItem, openDeleteConfirm } = useActions(analyticsItemActionsLogic)
     const target = { type: item.type, ref: item.id, name: item.name }
     const { type } = item
@@ -77,6 +78,7 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
                     {taggable && (
                         <DropdownMenuItem
                             onClick={() => duplicateItem({ ...item, type })}
+                            disabledReason={duplicating[analyticsItemKey(item)] ? 'Duplicating...' : undefined}
                             data-attr="analytics-list-row-duplicate"
                         >
                             <IconCopy />

@@ -26,7 +26,11 @@ export function AnalyticsTagsDialog(): JSX.Element {
         !!target && draftTags.length === target.tags.length && draftTags.every((tag) => target.tags.includes(tag))
 
     return (
-        <Dialog open={!!target} onOpenChange={(open: boolean) => !open && closeTagEditor()}>
+        <Dialog
+            open={!!target}
+            // Closing mid-save would let another row's editor open, which the finished save would then close.
+            onOpenChange={(open: boolean) => !open && !saving && closeTagEditor()}
+        >
             <DialogContent data-attr="analytics-tags-dialog">
                 <DialogHeader>
                     <DialogTitle>Edit tags</DialogTitle>

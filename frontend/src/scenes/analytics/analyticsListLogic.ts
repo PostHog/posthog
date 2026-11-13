@@ -470,6 +470,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         depth: splitPath(folder).length + 1,
                         search: values.filters.search.trim() || undefined,
                         limit: FOLDER_PAGE_SIZE,
+                        // A row's tags seed its tag editor, which would otherwise save over them.
+                        includeTags: true,
                     })
                     breakpoint()
                     return {
@@ -489,6 +491,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         depth: splitPath(current.folder).length + 1,
                         search: values.filters.search.trim() || undefined,
                         limit: FOLDER_PAGE_SIZE,
+                        includeTags: true,
                         offset: current.entries.length,
                     })
                     breakpoint()
