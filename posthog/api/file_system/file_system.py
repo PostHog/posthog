@@ -110,7 +110,6 @@ logger = logging.getLogger(__name__)
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
 UNFILED_WORKFLOW_FOLDERS = ("Unfiled/Workflows", "Unfiled/Email templates")
-UNFILED_WORKFLOW_FOLDER_CANDIDATES = ("Unfiled", *UNFILED_WORKFLOW_FOLDERS)
 
 # One message for every reason a restore is refused (missing, already live, or off-limits), so the
 # endpoint can't be used to learn which refs exist.
@@ -931,37 +930,24 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _workflow_files_enabled(self) -> bool:
         return workflows_list_v2_enabled(self.team, cast(User, self.request.user))
 
-    @cached_property
-    def _unfiled_folders_of_only_workflow_files(self) -> builtins.list[str]:
-        """The Unfiled folders that hold workflow files and nothing else, so they look empty with the flag off.
-
-        Every check matches a constant path prefix, so the database resolves it once in a single query. A check
-        built from each row's own path cannot use an index and scans the project once per row.
-        """
-        files = self._scope_by_project(FileSystem.objects.all())
-        checks = {}
-        for index, folder in enumerate(UNFILED_WORKFLOW_FOLDER_CANDIDATES):
-            under = files.filter(path__startswith=f"{folder}/")
-            checks[f"workflow_{index}"] = Exists(under.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
-            checks[f"other_{index}"] = Exists(
-                under.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(
-                    type="folder", path__in=UNFILED_WORKFLOW_FOLDERS
-                )
-            )
-        found = Team.objects.filter(pk=self.team.pk).values(**checks).get()
-        return [
-            folder
-            for index, folder in enumerate(UNFILED_WORKFLOW_FOLDER_CANDIDATES)
-            if found[f"workflow_{index}"] and not found[f"other_{index}"]
-        ]
-
     def _visible_files(self, queryset: QuerySet) -> QuerySet:
         if self._workflow_files_enabled:
             return queryset
-        queryset = queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
-        if hidden_folders := self._unfiled_folders_of_only_workflow_files:
-            queryset = queryset.exclude(type="folder", path__in=hidden_folders)
-        return queryset
+        # Each check matches a constant path prefix, so Postgres runs it at most once per statement. A prefix built
+        # from the outer row's path cannot use an index and scans the project once per row.
+        files = self._scope_by_project(FileSystem.objects.all())
+        only_workflow_files = Q()
+        for folder in ("Unfiled", *UNFILED_WORKFLOW_FOLDERS):
+            under = files.filter(path__startswith=f"{folder}/")
+            other_files = under.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(
+                type="folder", path__in=UNFILED_WORKFLOW_FOLDERS
+            )
+            only_workflow_files |= (
+                Q(type="folder", path=folder)
+                & Exists(under.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
+                & ~Exists(other_files)
+            )
+        return queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(only_workflow_files)
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         return self._scope_by_project(queryset)
