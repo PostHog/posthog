@@ -4895,6 +4895,38 @@ describe('CDP API', () => {
                 }
             )
 
+            it('replays a retry of a moved code send without a from address after it resolved to another sender', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                const valkey = keys['valkey']!
+                const scope = `scope-${new UUIDT().toString()}`
+                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
+                const keyed = (send: Record<string, unknown>) => ({ ...body, send, idempotency_key: `key-${scope}` })
+                try {
+                    const first = await sendAccepted(hogFlow.id, keyed(addresslessSend))
+                    expect(first.status).toEqual(202)
+                    const moved = await manage('reschedule', first.body.invocation_id, { scheduled_at: inDays(29.9) })
+                    expect(moved.status).toEqual(200)
+                    await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                        for (const stored of await client.keys(`*${scope}*`)) {
+                            const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                            await client.pexpire(storedKey, (await client.pttl(storedKey)) - (DAY_MS + HOUR_MS))
+                        }
+                    })
+
+                    const retry = await sendAccepted(
+                        hogFlow.id,
+                        keyed({ ...addresslessSend, from: { integrationId: codeSend.from.integrationId + 3 } })
+                    )
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    expect(await idsAnEmailWorkerClaims()).toEqual([])
+                } finally {
+                    api['transactionalEmailIdempotencyKeys'] = keys
+                }
+            })
+
             it.each([
                 ['the key store is down', 'failed'],
                 ['no key store is configured', 'unavailable'],
