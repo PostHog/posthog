@@ -32,8 +32,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 )
 from posthog.temporal.data_modeling.workflows.materialize_view import NON_RETRYABLE_ERRORS
 
-from products.data_modeling.backend.facade.api import get_incremental_state
-from products.data_modeling.backend.logic.incremental import set_incremental_state
+from products.data_modeling.backend.facade.api import get_incremental_state, set_incremental_state
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
