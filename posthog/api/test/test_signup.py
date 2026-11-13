@@ -2543,6 +2543,18 @@ class TestInviteSignupAPI(APIBaseTest):
                 },
             )
 
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_invite_signup_attempts_are_limited_by_ip_but_page_loads_are_not(self, _mock_get_ip):
+        cache.clear()
+        invite_url = f"/api/signup/{uuid.uuid4()}/"
+        attempt = {"first_name": "Bob", "password": VALID_TEST_PASSWORD}
+
+        for _ in range(10):
+            assert self.client.post(invite_url, attempt).status_code == status.HTTP_400_BAD_REQUEST
+
+        assert self.client.post(invite_url, attempt).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert self.client.get(invite_url).status_code == status.HTTP_400_BAD_REQUEST
+
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", VALID_TEST_PASSWORD)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
