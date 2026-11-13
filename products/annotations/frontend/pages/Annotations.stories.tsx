@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { expect } from 'storybook/test'
+
 import annotations from './__mocks__/annotations.json'
 
 const meta: Meta = {
@@ -39,16 +41,25 @@ type Story = StoryObj<{}>
 // giving visual-regression coverage of the emoji display.
 export const Annotations: Story = {}
 
-const openNewAnnotationModal: Story['play'] = async ({ canvasElement }) => {
+const openNewAnnotationPanel: Story['play'] = async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(await canvas.findByText('New annotation'))
+    await expect(
+        await within(canvasElement.ownerDocument.body).findByPlaceholderText("What's this annotation about?")
+    ).toBeVisible()
 }
 
-export const NewAnnotationModalLemonUIDatePicker: Story = {
-    play: openNewAnnotationModal,
+export const NewAnnotationPanelLemonUIDatePicker: Story = {
+    parameters: {
+        testOptions: { includeNavigationInSnapshot: true, viewport: { width: 1300, height: 900 } },
+    },
+    play: openNewAnnotationPanel,
 }
 
-export const NewAnnotationModalQuillDatePicker: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.QUILL_DATE_PICKER] },
-    play: openNewAnnotationModal,
+export const NewAnnotationPanelQuillDatePicker: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.QUILL_DATE_PICKER],
+        testOptions: { includeNavigationInSnapshot: true, viewport: { width: 1300, height: 900 } },
+    },
+    play: openNewAnnotationPanel,
 }
