@@ -2,7 +2,7 @@ import type { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 
 /**
  * SESSIONREPLAY producer — the replay-domain Kafka cluster (warpstream-replay), carrying
- * replay events/features plus their DLQ and overflow. Replay-only, so it lives here rather
+ * replay events plus their DLQ and overflow. Replay-only, so it lives here rather
  * than in ingestion common (which only defines the cross-pipeline UPSTREAM/DOWNSTREAM slots).
  * Plaintext, in-cluster.
  */
