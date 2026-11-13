@@ -81,6 +81,9 @@ When the release pull request merges, the workflow runs again:
 4. It builds the extension from the merge commit and checks that the manifest has the new version.
 5. It uploads the zip to the Chrome Web Store and submits it for review. Chrome publishes it when the review passes.
 6. It creates the `toolbar-extension/vX.Y.Z` GitHub release with the zip.
+7. It replies in the Slack approval thread that the version went to the store. It finds the thread through a hidden marker in the release pull request body.
+
+An approval whose changesets another run already released gets a "superseded" reply in its thread.
 
 Changesets that land while a release is open go into the next release.
 Never edit the version or the changelog by hand.

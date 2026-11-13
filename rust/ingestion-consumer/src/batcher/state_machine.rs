@@ -544,10 +544,13 @@ impl ActiveState {
         revoke: RevokeId,
         partitions: &[(String, i32)],
     ) -> Result<Effects, String> {
+        let queued = self.keys.queued_messages();
         let mut effects = Effects {
             evicted_keys: self.keys.purge(partitions),
             ..Effects::default()
         };
+        counter!("ingestion_consumer_batcher_messages_dropped_on_revoke_total")
+            .increment(queued.saturating_sub(self.keys.queued_messages()) as u64);
         // After the purge no new request carries the partitions.
         self.drains
             .on_revoked(revoke, self.in_flight.carrying(partitions));

@@ -16,6 +16,8 @@ from products.logs.backend.native_alerts import (
     native_alert_keys,
     native_alert_view,
     native_alert_views,
+    owned_copy_alert_ids,
+    owned_copy_views,
     update_native,
 )
 
@@ -29,6 +31,8 @@ __all__ = [
     "native_alert_views",
     "on_created",
     "on_updated",
+    "owned_copy_alert_ids",
+    "owned_copy_views",
     "update_native",
 ]
 

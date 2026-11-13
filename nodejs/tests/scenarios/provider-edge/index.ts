@@ -21,7 +21,7 @@ import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 export type { CardFault, FaultRule } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
-export type { TruthAttachment, TruthMessage, TruthPage, TruthRecord } from './truth'
+export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'
 
 export type ProviderEdgeOptions = {
     port: number
@@ -91,7 +91,13 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
         if (fault?.answer.kind === 'status') {
             const { answer } = fault.answer
-            truth.append({ kind: 'ses.send', status: answer.status, fault: fault.name, ...correlation, detail: {} })
+            truth.append({
+                kind: 'ses.send',
+                status: answer.status,
+                fault: fault.name,
+                ...correlation,
+                detail: { errorType: answer.type },
+            })
             return sesError(answer)
         }
         const messageId = `provider-edge-${truth.records.length + 1}`
@@ -114,6 +120,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         switch (`${req.method} ${faultId === undefined ? url.pathname : '/_faults/:id'}`) {
             case `POST ${SEND_EMAIL_PATH}`:
                 return sendEmail(body)
+            case 'GET /_truth/head':
+                return { status: 200, body: truth.head() }
             case 'GET /_health':
                 return { status: 200, body: { ok: true } }
             case 'GET /_truth':
