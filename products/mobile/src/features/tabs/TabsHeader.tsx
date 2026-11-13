@@ -6,6 +6,8 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
+import { PauseIcon } from '@/ui/icons/PauseIcon'
+import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { RefreshHint } from '@/ui/RefreshHint'
@@ -75,6 +77,7 @@ export function TabsHeader({
     const status = slot?.status ?? null
     const hint = editing ? null : (slot?.hint ?? null)
     const filter = slot?.filter ?? null
+    const pause = slot?.pause ?? null
     const withStatus = status !== null
     const solid = withStatus ? SOLID_WITH_STATUS : SOLID
     return (
@@ -138,6 +141,17 @@ export function TabsHeader({
                                 <FilterIcon size={22} />
                                 {filter.active ? <View style={styles.filterDot} testID="inbox-filter-active" /> : null}
                             </View>
+                        </Pressable44>
+                    ) : null}
+                    {pause ? (
+                        <Pressable44
+                            onPress={pause.onPress}
+                            accessibilityLabel={pause.paused ? 'Resume live updates' : 'Pause live updates'}
+                            pressedBackground={colors.background}
+                            style={styles.button}
+                            testID="live-pause"
+                        >
+                            {pause.paused ? <PlayIcon size={20} color={colors.ink} /> : <PauseIcon size={22} />}
                         </Pressable44>
                     ) : null}
                     <Pressable44

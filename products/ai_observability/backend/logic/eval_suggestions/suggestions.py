@@ -26,7 +26,14 @@ from products.ai_observability.backend.models.eval_suggestions import (
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from .config import is_enabled_for_organization
-from .eligibility import StartRun, claim_first_visit_run, queue_first_visit_run, record_visit
+from .eligibility import (
+    StartRun,
+    TemporalUnreachable,
+    claim_first_visit_run,
+    queue_first_visit_run,
+    record_visit,
+    release_first_visit_run,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -78,7 +85,7 @@ def visible_suggestions(team_id: int, access: UserAccessControl | None) -> Query
 def find_suggestion(team_id: int, access: UserAccessControl | None, suggestion_id: uuid.UUID) -> EvalSuggestion | None:
     return (
         visible_suggestions(team_id, access)
-        .select_related("target_evaluation", "similar_evaluation")
+        .select_related("run", "target_evaluation", "similar_evaluation")
         .filter(id=suggestion_id)
         .first()
     )
@@ -103,6 +110,9 @@ def latest_suggestions(
         try:
             queue_first_visit_run(team, start_run)
             pending = True
+        except TemporalUnreachable:
+            release_first_visit_run(team)
+            logger.warning("llma.eval_suggestions_first_visit_temporal_unreachable", team_id=team.pk)
         except Exception:
             # The list still answers. The claim holds for the day, so the next day's visit tries again.
             logger.exception("llma.eval_suggestions_first_visit_start_failed", team_id=team.pk)
@@ -110,9 +120,9 @@ def latest_suggestions(
         visible_suggestions(team.pk, access)
         .filter(run=latest, status=EvalSuggestionStatus.PROPOSED)
         .exclude(STALE_FIX)
-        .select_related("target_evaluation", "similar_evaluation")
+        .select_related("run", "target_evaluation", "similar_evaluation")
         .order_by("-score")
         if latest
-        else EvalSuggestion.objects.none()
+        else EvalSuggestion.objects.unscoped().none()
     )
     return LatestSuggestions(run=latest, pending=pending, suggestions=list(results))

@@ -465,6 +465,9 @@ export interface dataQualityCheckEditorLogicActions {
     setCheckFormValues: (values: DeepPartial<CheckFormValues>) => {
         values: DeepPartial<CheckFormValues>
     }
+    setCheckType: (checkType: CheckTypeEnumApi) => {
+        checkType: CheckTypeEnumApi
+    }
     setCustomSqlEditorError: (error: string | null) => {
         error: string | null
     }
@@ -585,6 +588,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         }),
         applyStarter: (starterKey: MetricStarterKey) => ({ starterKey }),
         setAdvancedOptionsOpen: (open: boolean) => ({ open }),
+        setCheckType: (checkType: CheckTypeEnumApi) => ({ checkType }),
         requestClose: true,
         closeEditor: true,
         setServerError: (serverError: string | null) => ({ serverError }),
@@ -1129,6 +1133,24 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 if (values.isOpen) {
                     ensureSubjectCatalog()
                 }
+            },
+            setCheckType: ({ checkType }) => {
+                // The quill Select reports a re-pick of the selected type too. A reset then would wipe the person's query.
+                if (checkType === values.checkForm.checkType) {
+                    return
+                }
+                // The config fields belong to the type that was selected, so they can't carry over.
+                actions.setCheckFormValues({
+                    checkType,
+                    columnName: EMPTY_CHECK_FORM.columnName,
+                    acceptedValues: EMPTY_CHECK_FORM.acceptedValues,
+                    toSubjectUuid: EMPTY_CHECK_FORM.toSubjectUuid,
+                    toColumn: EMPTY_CHECK_FORM.toColumn,
+                    rowCountMin: EMPTY_CHECK_FORM.rowCountMin,
+                    rowCountMax: EMPTY_CHECK_FORM.rowCountMax,
+                    maxAgeMinutes: EMPTY_CHECK_FORM.maxAgeMinutes,
+                    customSql: EMPTY_CHECK_FORM.customSql,
+                })
             },
             requestClose: () => {
                 if (!values.checkFormChanged) {

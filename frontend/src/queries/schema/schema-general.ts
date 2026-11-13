@@ -7012,6 +7012,7 @@ export type ExperimentExposureHealthFindingActionKind =
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'
+    | 'move_start_date'
 
 /** A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`. */
 export interface ExperimentExposureHealthFinding {
@@ -9173,6 +9174,8 @@ export interface MarketingAnalyticsRecommendationIdentity {
     /** The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject. */
     subject: string
 }
+
+export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
 
 /**
  * The benchmark a recommendation compares a CPA with, in this order of preference:
