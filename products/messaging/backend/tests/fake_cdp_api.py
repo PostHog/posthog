@@ -243,7 +243,8 @@ class FakeCdpApi:
             if stored_fingerprint != fingerprint:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
-        refusal = self.refusal or _opt_out_refusal(url, request)
+        refusal = self.refusal or (_sandbox_refusal(request["send"]) if is_code_send else None)
+        refusal = refusal or _opt_out_refusal(url, request)
         if refusal:
             return _response(refusal[0], {"error": refusal[1]})
         self.queued.append({name: value for name, value in request.items() if name in keys})
@@ -317,6 +318,22 @@ def _code_send_fingerprint(url: str, request: dict[str, Any]) -> str:
     return _json_dumps(
         [url, request["to"], request["distinct_id"], request.get("variables"), {**request["send"], "from": chosen}]
     )
+
+
+def _sandbox_refusal(send: dict[str, Any]) -> tuple[int, str] | None:
+    if not _sender_kind(send):
+        return None
+    sender = send.get("from") or {}
+    fields = (
+        send.get("cc"),
+        send.get("bcc"),
+        send.get("replyTo"),
+        send.get("attachments"),
+        send.get("message_category"),
+    )
+    if any(fields) or sender.get("email") or sender.get("name"):
+        return 400, "sandbox_fields_unsupported"
+    return None
 
 
 def _sender_kind(send: dict[str, Any]) -> dict[str, str]:

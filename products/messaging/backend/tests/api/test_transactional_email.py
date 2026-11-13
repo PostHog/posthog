@@ -965,21 +965,36 @@ class TestTransactionalEmail(APIBaseTest):
         if not sent:
             assert response.json()["code"] == "unsubscribe_link_required"
 
-    def test_a_marketing_code_send_from_the_sandbox_sender_carries_its_category(self, cdp_post, _flag, capture):
+    @parameterized.expand(
+        [
+            ("marketing_category", "code", NEWSLETTER),
+            ("transactional_category", "code", {**NEWSLETTER, "type": "transactional"}),
+            ("template_key_in_a_category", "template_key", None),
+        ]
+    )
+    def test_refuses_a_categorized_code_send_the_sandbox_sender_cannot_send_before_setting_it_up(
+        self, cdp_post, _flag, capture, _name, form, category
+    ):
         self._use_fakes(cdp_post, capture)
         self._without_a_verified_sender(unverified_sender=False)
+        if form == "template_key":
+            receipts = self._category(key="receipts", name="Receipts", category_type=MessageCategoryType.TRANSACTIONAL)
+            MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", message_category=receipts)
+            fields: dict[str, Any] = {"template_key": "password-reset"}
+        else:
+            fields = {"category": category, "html": self.UNSUBSCRIBE_HTML}
 
         response = self._psak_client(["transactional_email:write"]).post(
-            self.send_email_url, self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML), format="json"
+            self.send_email_url, self._code_send(**fields), format="json"
         )
 
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert [warning["code"] for warning in response.json()["warnings"]] == ["sandbox_sender"]
-        (sandbox,) = self._sandbox_senders()
-        newsletter = MessageCategory.objects.get(team=self.team, key="newsletter")
-        assert [(send["from"], send["message_category"]) for send in self.cdp.queued_sends] == [
-            ({"integrationId": sandbox.id}, {"id": str(newsletter.id), "type": "marketing"})
-        ]
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["code"], body["attr"]) == ("sandbox_fields_unsupported", "category")
+        assert self._setup_url(None) in body["detail"]
+        assert self._sandbox_senders() == []
+        assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
+        assert self.cdp.received == []
 
     @parameterized.expand(
         [

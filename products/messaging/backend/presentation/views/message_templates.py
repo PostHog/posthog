@@ -990,7 +990,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         "category past the project's limit (`too_many_categories`), or a marketing email has no link a reader can "
         "click to `{{ unsubscribe_url }}` (`unsubscribe_link_required`) or has `cc` or `bcc` (`copies_not_allowed`). "
         "A code send from a project with no verified sending domain goes out from the sandbox sender, which refuses "
-        "`cc`, `bcc`, `reply_to`, `attachments` and a custom `from`"
+        "`cc`, `bcc`, `reply_to`, `attachments`, a custom `from` and a `category`"
     ),
     403: OpenApiResponse(
         description="The project has no verified sending domain, and the sandbox sender isn't available for its "
