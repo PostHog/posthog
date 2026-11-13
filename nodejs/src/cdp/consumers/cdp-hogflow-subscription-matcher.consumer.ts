@@ -1390,10 +1390,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 }
 
-// Person mutations arrive on clickhouse_person with the full current property set but no triggering
-// analytics event. We synthesize a `$person_updated` event so wakeMatchingWorkflows can run a wait's
-// property condition against the new person.properties. Event-name `events` entries never match this
-// synthetic event name, which is correct: a person change should only satisfy property-based waits.
 function parseEvent(message: Message): RawClickHouseEvent {
     return parseJSON(message.value!.toString()) as RawClickHouseEvent
 }
@@ -1414,6 +1410,10 @@ function isMatchableEvent(clickHouseEvent: RawClickHouseEvent): boolean {
     return true
 }
 
+// Person mutations arrive on clickhouse_person with the full current property set but no triggering
+// analytics event. We synthesize a `$person_updated` event so wakeMatchingWorkflows can run a wait's
+// property condition against the new person.properties. Event-name `events` entries never match this
+// synthetic event name, which is correct: a person change should only satisfy property-based waits.
 function convertClickhousePersonToWakeGlobals(
     data: ClickHousePerson,
     team: Team,
