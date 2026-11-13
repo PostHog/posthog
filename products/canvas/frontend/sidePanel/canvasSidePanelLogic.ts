@@ -29,7 +29,7 @@ export interface canvasSidePanelLogicActions {
         canvasId: string
     ) => {
         canvasId: string
-        tab: CanvasPanelTab
+        tab: 'timeline'
     }
 }
 
