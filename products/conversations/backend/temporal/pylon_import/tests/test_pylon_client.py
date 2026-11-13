@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from products.conversations.backend.temporal.pylon_import.client import (
+    MAX_ATTACHMENT_RATE_LIMIT_RETRIES,
     MAX_MESSAGE_PAGES,
     MAX_RATE_LIMIT_RETRIES,
     PylonAttachmentDownloadError,
@@ -230,17 +231,27 @@ class TestPylonAttachmentDownload:
             client.download_attachment("http://files.example.com/file", max_bytes=100)
         pinned.assert_not_called()
 
-    @pytest.mark.parametrize("status_code,retryable", [(403, False), (404, False), (503, True)])
+    @pytest.mark.parametrize("status_code,retryable", [(403, False), (404, False), (429, True), (503, True)])
     def test_http_error_keeps_the_signed_url_out_of_the_message(self, status_code: int, retryable: bool) -> None:
         client, _ = _client()
         signed = "https://files.example.com/f?signature=secret-sig"
-        with self._pinned([_FakeResponse(status_code=status_code)]):
+        responses = [_FakeResponse(status_code=status_code)] * (MAX_ATTACHMENT_RATE_LIMIT_RETRIES + 1)
+        with self._pinned(responses), patch(f"{M}.time.sleep"):
             with pytest.raises(PylonAttachmentDownloadError) as caught:
                 client.download_attachment(signed, max_bytes=100)
 
         assert "secret-sig" not in str(caught.value)
         assert caught.value.__cause__ is None and caught.value.__context__ is None
         assert is_retryable_error(caught.value) is retryable
+
+    def test_rate_limited_download_waits_for_retry_after_then_succeeds(self) -> None:
+        client, _ = _client()
+        responses = [_FakeResponse(status_code=429, headers={"Retry-After": "2"}), _FakeResponse(chunks=[b"abc"])]
+        with self._pinned(responses), patch(f"{M}.time.sleep") as sleep:
+            attachment = client.download_attachment("https://files.example.com/file", max_bytes=100)
+
+        assert attachment.content == b"abc"
+        assert [c.args[0] for c in sleep.call_args_list] == [2]
 
     def test_transport_error_is_retryable_without_the_signed_url(self) -> None:
         client, _ = _client()

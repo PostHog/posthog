@@ -163,6 +163,8 @@ export const pylonImportLogic = kea<pylonImportLogicType>([
         },
         submitImportFailure: ({ error }) => {
             lemonToast.error(error || 'Failed to start Pylon import')
+            // The server can keep the job when it cannot tell whether the import started.
+            actions.loadImportJob()
         },
         startPolling: () => {
             actions.loadImportJob()

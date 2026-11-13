@@ -1,9 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
-from products.conversations.backend.temporal.pylon_import.starter import pylon_import_workflow_exists
+from products.conversations.backend.temporal.pylon_import.starter import (
+    pylon_import_workflow_exists,
+    pylon_import_workflow_is_running,
+)
 
 M = "products.conversations.backend.temporal.pylon_import.starter"
 
@@ -31,3 +35,29 @@ def _client_raising(exc: BaseException | None) -> MagicMock:
 async def test_only_a_clean_not_found_counts_as_no_workflow(exc: BaseException | None, expected: bool) -> None:
     with patch(f"{M}.async_connect", new_callable=AsyncMock, return_value=_client_raising(exc)):
         assert await pylon_import_workflow_exists(team_id=1, job_id="job-1") is expected
+
+
+def _client_describing(status: WorkflowExecutionStatus) -> MagicMock:
+    handle = MagicMock()
+    handle.describe = AsyncMock(return_value=MagicMock(status=status))
+    client = MagicMock()
+    client.get_workflow_handle.return_value = handle
+    return client
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client,expected",
+    [
+        pytest.param(_client_describing(WorkflowExecutionStatus.RUNNING), True, id="running"),
+        pytest.param(_client_describing(WorkflowExecutionStatus.TERMINATED), False, id="terminated"),
+        pytest.param(_client_describing(WorkflowExecutionStatus.FAILED), False, id="failed"),
+        pytest.param(
+            _client_raising(RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")), False, id="history_expired"
+        ),
+        pytest.param(_client_raising(ConnectionError("down")), True, id="unreachable"),
+    ],
+)
+async def test_only_a_closed_or_missing_workflow_counts_as_stopped(client: MagicMock, expected: bool) -> None:
+    with patch(f"{M}.async_connect", new_callable=AsyncMock, return_value=client):
+        assert await pylon_import_workflow_is_running(team_id=1, job_id="job-1") is expected

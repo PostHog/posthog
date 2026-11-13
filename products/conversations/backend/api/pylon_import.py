@@ -30,17 +30,25 @@ from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.temporal.pylon_import.client import resolve_pylon_credentials
 from products.conversations.backend.temporal.pylon_import.starter import (
     pylon_import_workflow_exists,
+    pylon_import_workflow_is_running,
     start_pylon_import_workflow,
 )
 
 logger = structlog.get_logger(__name__)
 
 WORKFLOW_START_FAILED_MESSAGE = "Failed to start the import. Please try again or contact support if it persists."
-ALREADY_RUNNING_MESSAGE = "An Pylon import is already running for this team"
+WORKFLOW_START_UNCONFIRMED_MESSAGE = (
+    "The import may have started. Check its status here in a few minutes before you try again."
+)
+WORKFLOW_STOPPED_MESSAGE = "The import stopped before it finished. Start it again to import the remaining issues."
+ALREADY_RUNNING_MESSAGE = "A Pylon import is already running for this team"
 PYLON_IMPORT_FLAG = "product-support-pylon-import"
 # A started workflow moves its job to running within seconds, so a pending job with no workflow_id
 # this old is a candidate orphan; Temporal is still checked before releasing it.
 ORPHANED_PENDING_AFTER = timedelta(minutes=10)
+# Every progress update refreshes updated_at, so a running job this quiet may have lost its
+# workflow; Temporal is still checked before failing it.
+QUIET_RUNNING_AFTER = timedelta(minutes=30)
 
 
 class PylonImportStartSerializer(serializers.Serializer):
@@ -170,6 +178,28 @@ class PylonImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 updated_at=now,
             )
 
+    def _fail_running_jobs_without_a_workflow(self) -> None:
+        now = timezone.now()
+        quiet = PylonImportJob.objects.filter(
+            status=PylonImportJob.Status.RUNNING,
+            updated_at__lt=now - QUIET_RUNNING_AFTER,
+        )
+        for job in quiet:
+            still_running = PylonImportJob.objects.filter(id=job.id, status=PylonImportJob.Status.RUNNING)
+            if asyncio.run(pylon_import_workflow_is_running(team_id=job.team_id, job_id=str(job.id))):
+                still_running.update(updated_at=now)
+                continue
+            still_running.update(
+                status=PylonImportJob.Status.FAILED,
+                latest_error=WORKFLOW_STOPPED_MESSAGE,
+                finished_at=now,
+                updated_at=now,
+            )
+
+    def _reconcile_jobs_with_temporal(self) -> None:
+        self._release_orphaned_reservations()
+        self._fail_running_jobs_without_a_workflow()
+
     def _mark_failed_if_pending(self, job: PylonImportJob) -> None:
         PylonImportJob.objects.filter(id=job.id, status=PylonImportJob.Status.PENDING).update(
             status=PylonImportJob.Status.FAILED,
@@ -198,7 +228,7 @@ class PylonImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        self._release_orphaned_reservations()
+        self._reconcile_jobs_with_temporal()
         running = PylonImportJob.objects.filter(
             status__in=[PylonImportJob.Status.PENDING, PylonImportJob.Status.RUNNING],
         ).exists()
@@ -250,6 +280,14 @@ class PylonImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except Exception:
             logger.exception("pylon_import_workflow_start_failed", job_id=str(job.id), team_id=team_id)
+            # The start call can fail after Temporal accepted the workflow, for example when the
+            # response times out. Releasing the reservation then lets a second import run beside
+            # the first, so keep it unless Temporal confirms that no workflow exists. A job kept
+            # for a workflow that never started is released by _release_orphaned_reservations.
+            if asyncio.run(pylon_import_workflow_exists(team_id=team_id, job_id=str(job.id))):
+                return Response(
+                    {"detail": WORKFLOW_START_UNCONFIRMED_MESSAGE}, status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
             self._mark_failed_if_pending(job)
             return Response({"detail": WORKFLOW_START_FAILED_MESSAGE}, status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -293,8 +331,8 @@ class PylonImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def status(self, request: Request, *args, **kwargs) -> Response:
         if not self._flag_enabled(request):
             return Response({"detail": "Pylon import is not available"}, status=drf_status.HTTP_403_FORBIDDEN)
-        # The settings page disables Start while a job is pending, so release orphans here too.
-        self._release_orphaned_reservations()
+        # The settings page disables Start while a job is active, so repair stuck jobs here too.
+        self._reconcile_jobs_with_temporal()
         job = PylonImportJob.objects.order_by("-created_at").first()
         if job is None:
             return Response({"detail": "No Pylon import job found"}, status=drf_status.HTTP_404_NOT_FOUND)

@@ -52,6 +52,7 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 ATTACHMENT_CHUNK_BYTES = 64 * 1024
 MAX_ATTACHMENT_REDIRECTS = 3
+MAX_ATTACHMENT_RATE_LIMIT_RETRIES = 3
 
 
 class PylonRateLimitError(Exception):
@@ -76,14 +77,16 @@ class PylonAttachmentDownloadError(Exception):
     embeds the URL) must not reach logs or Temporal failure history.
     """
 
-    def __init__(self, status_code: int | None) -> None:
+    def __init__(self, status_code: int | None, *, retry_after: int | None = None) -> None:
         self.status_code = status_code
+        self.retry_after = retry_after
         super().__init__(f"Pylon attachment download failed (status={status_code})")
 
     @property
     def retryable(self) -> bool:
-        # A transport error has no status. A deleted link (4xx) won't recover on retry.
-        return self.status_code is None or self.status_code >= 500
+        # A transport error has no status. A rate limit or a server error can pass. A deleted
+        # link (any other 4xx) won't recover on retry.
+        return self.status_code is None or self.status_code == 429 or self.status_code >= 500
 
 
 class PylonNotFoundError(Exception):
@@ -290,11 +293,26 @@ class PylonImportClient:
         Pylon file URLs are signed links that need no Authorization header, so none is sent: the
         workspace token must never leave the API host. Each hop (including redirects) goes
         through pinned_session, which rejects private and internal addresses (SSRF).
+
+        A rate-limited download waits in-thread a few times. Skipping the file instead would
+        lose it for good, because a later import skips the issue as already imported.
         """
-        try:
-            return self._download_attachment(url, max_bytes=max_bytes)
-        except requests.RequestException:
-            raise PylonAttachmentDownloadError(None) from None
+        attempt = 0
+        while True:
+            try:
+                return self._download_attachment(url, max_bytes=max_bytes)
+            except requests.RequestException:
+                raise PylonAttachmentDownloadError(None) from None
+            except PylonAttachmentDownloadError as error:
+                wait = DEFAULT_RATE_LIMIT_SLEEP_SECONDS if error.retry_after is None else max(1, error.retry_after)
+                if (
+                    error.status_code != 429
+                    or attempt >= MAX_ATTACHMENT_RATE_LIMIT_RETRIES
+                    or wait > MAX_RATE_LIMIT_SLEEP_SECONDS
+                ):
+                    raise
+                time.sleep(wait)
+                attempt += 1
 
     def _download_attachment(self, url: str, *, max_bytes: int) -> PylonAttachment:
         current = url
@@ -310,7 +328,9 @@ class PylonImportClient:
                         current = urljoin(current, location)
                         continue
                     if response.status_code >= 400:
-                        raise PylonAttachmentDownloadError(response.status_code)
+                        raise PylonAttachmentDownloadError(
+                            response.status_code, retry_after=_header_int(response, "Retry-After")
+                        )
                     declared = response.headers.get("Content-Length")
                     if declared is not None:
                         try:

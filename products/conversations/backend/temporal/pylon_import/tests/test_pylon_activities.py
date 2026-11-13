@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Tag
 from posthog.models.comment import Comment
@@ -295,11 +300,17 @@ class TestPylonImportBatchActivity(BaseTest):
             "i-403": billing.id,
         }
 
-    def test_rate_limited_fetch_propagates_so_temporal_retries_the_batch(self) -> None:
+    @parameterized.expand(
+        [
+            ("rate_limit", PylonRateLimitError("slow down")),
+            ("database_connection", OperationalError("server closed the connection unexpectedly")),
+        ]
+    )
+    def test_transient_failure_propagates_so_temporal_retries_the_batch(self, _name: str, error: Exception) -> None:
         client = self._client([_issue("i-520")])
-        client.fetch_messages.side_effect = PylonRateLimitError("slow down")
+        client.fetch_messages.side_effect = error
 
-        with patch(f"{M}.PylonImportClient", return_value=client), pytest.raises(PylonRateLimitError):
+        with patch(f"{M}.PylonImportClient", return_value=client), pytest.raises(type(error)):
             _import_issue_batch_sync(
                 ImportBatchInput(job_id=str(self.job.id), team_id=self.team.id, issue_ids=["i-520"])
             )
@@ -407,6 +418,8 @@ class TestPylonImportBatchActivity(BaseTest):
 class TestPylonImportJobProgress(BaseTest):
     def test_replayed_progress_update_does_not_double_count(self) -> None:
         job = PylonImportJob.objects.unscoped().create(team_id=self.team.id, status=PylonImportJob.Status.RUNNING)
+        an_hour_ago = timezone.now() - timedelta(hours=1)
+        PylonImportJob.objects.unscoped().filter(id=job.id).update(updated_at=an_hour_ago)
         progress = UpdateJobProgressInput(
             job_id=str(job.id), total=150, processed=50, imported=40, skipped=8, failed=2, export_cursor="c2"
         )
@@ -423,3 +436,4 @@ class TestPylonImportJobProgress(BaseTest):
             job.failed_issues,
             job.export_cursor,
         ) == (150, 50, 40, 8, 2, "c2")
+        assert job.updated_at > an_hour_ago

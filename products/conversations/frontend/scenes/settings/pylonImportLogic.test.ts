@@ -72,6 +72,24 @@ describe('pylonImportLogic', () => {
         }).toMatchValues({ isImportRunning: running, importProgressLabel: label })
     })
 
+    it('reloads the job after a failed start, because the server may have kept it', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/pylon_imports/status/': () => [200, makeJob('pending')],
+            },
+            post: {
+                '/api/projects/:team_id/conversations/pylon_imports/': () => [500, { detail: 'unconfirmed' }],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setApiToken('fake-token')
+            logic.actions.submitImport()
+        })
+            .toDispatchActions(['submitImportFailure', 'loadImportJobSuccess'])
+            .toMatchValues({ isImportRunning: true })
+    })
+
     it('submits the token without a region and clears it after starting', async () => {
         await expectLogic(logic, () => {
             logic.actions.setApiToken('fake-token')
