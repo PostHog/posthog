@@ -960,7 +960,6 @@ def _fetch_contacts(client: SendGridClient, context: ImportContext) -> Iterator[
     lists = [row for page in client.token_pages("/v3/marketing/lists", None, 1000) for row in page.data]
     contacts = ContactCollector()
     _exported_rows(client, {}, contacts)
-    everyone = contacts.everyone
     contact_lists = []
     for row in lists:
         if not isinstance(row, dict) or not row.get("id"):
@@ -975,6 +974,8 @@ def _fetch_contacts(client: SendGridClient, context: ImportContext) -> Iterator[
                 rows=_exported_rows(client, {"list_ids": [list_id]}, contacts),
             )
         )
+    # Read last, so a contact who joined a list after the account export still becomes a person.
+    everyone = contacts.everyone
     yield ImportPage(
         processed=len(everyone),
         save=partial(
