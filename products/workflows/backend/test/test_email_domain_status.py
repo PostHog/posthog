@@ -48,6 +48,7 @@ class TestFindPublishedRecords(SimpleTestCase):
                 True,
             ),
             ("spf_without_ses_include", SPF, '"v=spf1 include:_spf.google.com ~all"', False),
+            ("spf_version_without_space", SPF, '"v=spf1\tinclude:amazonses.com ~all"', False),
             ("cname_in_upper_case", DKIM, "DK1.DKIM.AMAZONSES.COM.", True),
             ("mx_with_other_priority", MAIL_FROM_MX, "20 feedback-smtp.us-east-1.amazonses.com.", False),
             ("existing_strict_dmarc", DMARC, '"v=DMARC1; p=reject; rua=mailto:dmarc@example.com"', True),

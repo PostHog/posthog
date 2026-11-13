@@ -155,8 +155,8 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
 
 
 def _is_spf(answer: str) -> bool:
-    terms = answer.lower().split()
-    return bool(terms) and terms[0] == "v=spf1"
+    version = answer.lower()
+    return version == "v=spf1" or version.startswith("v=spf1 ")
 
 
 # A domain can publish only one SPF record, so SES's mechanism usually sits next to another
