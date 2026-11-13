@@ -113,6 +113,13 @@ class _FieldRoots(TraversingVisitor):
         if node.chain:
             self.roots.add(str(node.chain[0]))
 
+    # A subquery's fields resolve against its own tables, not the table the filter runs on.
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return
+
 
 def _hogql_reads_event_only_fields(expression: str) -> bool:
     try:
