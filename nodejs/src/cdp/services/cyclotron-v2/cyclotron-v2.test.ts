@@ -314,6 +314,17 @@ async function churnCountForQueue(queue: string): Promise<number> {
     return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
+async function counterValue(name: string, labels: Record<string, string> = {}): Promise<number> {
+    const samples = (await register.getSingleMetric(name)?.get())?.values ?? []
+    return samples
+        .filter((sample) => Object.entries(labels).every(([key, value]) => sample.labels[key] === value))
+        .reduce((sum, sample) => sum + sample.value, 0)
+}
+
+function staleCommitCount(operation: string): Promise<number> {
+    return counterValue('cdp_cyclotron_v2_stale_commits_total', { queue: QUEUE, operation })
+}
+
 const ENQUEUE_PHASE_METRIC = 'cdp_cyclotron_v2_enqueue_phase_duration_seconds'
 
 async function enqueuePhaseCounts(): Promise<Record<string, number>> {
@@ -2992,6 +3003,7 @@ describe('Cyclotron V2', () => {
         it('heartbeat() skips without waiting while another client holds the job row, then renews once it is free', async () => {
             const { id, job } = await seedAndDequeue()
             await makeHeartbeatStale(id)
+            const staleHeartbeatsBefore = await staleCommitCount('heartbeat')
 
             const rowHolder = await assertPool.connect()
             try {
@@ -3010,7 +3022,78 @@ describe('Cyclotron V2', () => {
             await job.heartbeat()
             expect(await heartbeatIsFresh(id)).toBe(true)
             expect((await queryJob(id)).status).toBe('running')
+            expect(await staleCommitCount('heartbeat')).toBe(staleHeartbeatsBefore)
+            await expect(job.stillOwned()).resolves.toBe(true)
         }, 10_000)
+
+        it('heartbeat() that overlaps the worker releasing its own job counts no stale commit', async () => {
+            const { id, job } = await seedAndDequeue()
+            const staleHeartbeatsBefore = await staleCommitCount('heartbeat')
+            let ownershipReadStarted!: () => void
+            const ownershipRead = new Promise<void>((resolve) => (ownershipReadStarted = resolve))
+            let answerOwnershipRead!: () => void
+            const ownershipReadAnswered = new Promise<void>((resolve) => (answerOwnershipRead = resolve))
+            const realQuery = Pool.prototype.query
+            const queries = jest.spyOn(Pool.prototype, 'query').mockImplementation(function (
+                this: Pool,
+                ...args: unknown[]
+            ) {
+                const run = (): unknown => (realQuery as (...a: unknown[]) => unknown).apply(this, args)
+                const sql = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: string }).text
+                if (sql?.startsWith('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')) {
+                    ownershipReadStarted()
+                    return ownershipReadAnswered.then(run)
+                }
+                return run()
+            } as typeof Pool.prototype.query)
+
+            const rowHolder = await assertPool.connect()
+            try {
+                await rowHolder.query('BEGIN')
+                await rowHolder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                const heartbeat = job.heartbeat()
+                await ownershipRead
+                await rowHolder.query('COMMIT')
+                await job.ack()
+                answerOwnershipRead()
+                await heartbeat
+            } finally {
+                queries.mockRestore()
+                await rowHolder.query('ROLLBACK')
+                rowHolder.release()
+            }
+
+            expect((await queryJob(id)).status).toBe('completed')
+            expect(await staleCommitCount('heartbeat')).toBe(staleHeartbeatsBefore)
+        }, 10_000)
+
+        it.each([
+            ['ack', (job: CyclotronV2DequeuedJob) => job.ack()],
+            ['fail', (job: CyclotronV2DequeuedJob) => job.fail()],
+            ['cancel', (job: CyclotronV2DequeuedJob) => job.cancel()],
+            ['reschedule', (job: CyclotronV2DequeuedJob) => job.reschedule({ scheduledAt: new Date() })],
+            ['defer', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+            ['heartbeat', (job: CyclotronV2DequeuedJob) => job.heartbeat()],
+        ])(
+            'a worker whose job the janitor re-queued to another worker cannot %s it, and counts a stale commit',
+            async (operation, write) => {
+                const { id, job: firstClaim } = await seedAndDequeue()
+                const janitor = createJanitor({ stallTimeoutMs: 0 })
+                await janitor.runOnce()
+                await janitor.stop()
+                const [secondClaim] = await dequeueOneBatch(createWorker())
+                const secondLock = (await queryJob(id)).lock_id
+                const staleBefore = await staleCommitCount(operation)
+
+                await write(firstClaim)
+
+                const row = await queryJob(id)
+                expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status: 'running', lock_id: secondLock })
+                expect(await staleCommitCount(operation)).toBe(staleBefore + 1)
+                await expect(firstClaim.stillOwned()).resolves.toBe(false)
+                await expect(secondClaim.stillOwned()).resolves.toBe(true)
+            }
+        )
 
         it('double-release throws on second ack method call', async () => {
             const { job } = await seedAndDequeue()
