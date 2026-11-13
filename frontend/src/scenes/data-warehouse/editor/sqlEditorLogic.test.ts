@@ -707,6 +707,32 @@ describe('sqlEditorLogic', () => {
             }
         })
 
+        it.each([SQLEditorMode.FullScene, SQLEditorMode.BusinessIntelligence])(
+            'recovers unused variable selections with the local draft (%s)',
+            async (mode) => {
+                const editorUrl =
+                    mode === SQLEditorMode.BusinessIntelligence ? urls.businessIntelligence() : urls.sqlEditor()
+                const variables = [{ variableId: 'region-id', code_name: 'region', value: 'West', isNull: false }]
+                mountEditor(mode)
+                await expectLogic(logic, () =>
+                    router.actions.push(editorUrl, { open_query: 'SELECT 1' })
+                ).toFinishAllListeners()
+                logic.actions.setSelectedVariables(variables)
+                expect(logic.values.sourceQuery.source.variables).toBeUndefined()
+                logic.unmount()
+                initKeaTests()
+                mountEditor(mode)
+                await expectLogic(logic, () => router.actions.push(editorUrl)).toFinishAllListeners()
+                expect(logic.values.activeTab?.selectedVariables).toEqual(variables)
+                logic.actions.setSelectedVariables([])
+                logic.unmount()
+                initKeaTests()
+                mountEditor(mode)
+                await expectLogic(logic, () => router.actions.push(editorUrl)).toFinishAllListeners()
+                expect(logic.values.activeTab?.selectedVariables).toEqual([])
+            }
+        )
+
         it('preserves the view revision the recovered edits were based on', async () => {
             serverViewHistoryId = 'original-revision'
             mountEditor()

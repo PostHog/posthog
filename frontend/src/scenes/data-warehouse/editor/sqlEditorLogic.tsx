@@ -81,6 +81,7 @@ import {
     HogQLMetadataResponse,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLVariable,
     NodeKind,
     PredicateQuickfix,
 } from '~/queries/schema/schema-general'
@@ -315,6 +316,7 @@ export interface QueryTab {
     name: string
     description?: string
     sourceQuery?: DataVisualizationNode
+    selectedVariables?: HogQLVariable[]
     insight?: InsightModel
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
@@ -1246,6 +1248,9 @@ export interface sqlEditorLogicActions {
     setSendRawQuery: (sendRawQuery: boolean) => {
         sendRawQuery: boolean
     }
+    setSelectedVariables: (variables: HogQLVariable[]) => {
+        variables: HogQLVariable[]
+    }
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
         sourceQuery: DataVisualizationNode
     }
@@ -1459,6 +1464,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             biEditorState,
         }),
         updateTab: (tab: QueryTab) => ({ tab }),
+        setSelectedVariables: (variables: HogQLVariable[]) => ({ variables }),
 
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
@@ -2000,13 +2006,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             )
             const savedQuery =
                 draft?.query.query ?? view?.query?.query ?? toDataVisualizationNode(insight?.query)?.source.query
-            if (savedQuery !== undefined && values.queryInput === savedQuery) {
+            if (
+                savedQuery !== undefined &&
+                values.queryInput === savedQuery &&
+                !values.activeTab.selectedVariables?.length
+            ) {
                 storage?.set(null)
                 return
             }
             storage?.set({
                 ...getTabHash(values),
                 q: values.queryInput,
+                selected_variables: values.activeTab.selectedVariables,
                 baseline_query: view?.query?.query,
                 edited_history_id: view
                     ? (values.inProgressViewEdits[view.id] ?? view.latest_history_id ?? undefined)
@@ -2292,6 +2303,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // Focus the editor after creating a new tab
                 if (isEditorAlive(props.editor)) {
                     props.editor.focus()
+                }
+            },
+            setSelectedVariables: ({ variables }) => {
+                if (values.activeTab && !equal(values.activeTab.selectedVariables, variables)) {
+                    actions.updateTab({ ...values.activeTab, selectedVariables: variables })
+                    persistEditorDraft()
                 }
             },
             setSourceQuery: ({ sourceQuery }) => {
@@ -4526,8 +4543,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 )
             }
 
-            if (props.monaco || props.mode === SQLEditorMode.BusinessIntelligence) {
+            const openQueryTab = async (): Promise<void> => {
                 await createQueryTab()
+                if (localDraft?.selected_variables) {
+                    actions.setSelectedVariables(localDraft.selected_variables)
+                }
+            }
+
+            if (props.monaco || props.mode === SQLEditorMode.BusinessIntelligence) {
+                await openQueryTab()
             } else {
                 // The newest URL wins. A run that a newer URL replaced drops its target when its wait times out.
                 const urlOpenGeneration = (cache.urlOpenGeneration ?? 0) + 1
@@ -4552,15 +4576,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 try {
                     await waitUntilMonaco()
-                    await createQueryTab()
+                    await openQueryTab()
                 } catch {
                     // Monaco timed out - still try to create tab if monaco loaded late
                     if (props.monaco) {
-                        await createQueryTab()
+                        await openQueryTab()
                     } else if (cache.urlOpenGeneration === urlOpenGeneration) {
                         // A hidden browser tab can delay Monaco past the wait, and nothing runs this handler
                         // again when Monaco loads. propsChanged opens the URL target when Monaco arrives.
-                        cache.pendingUrlOpen = createQueryTab
+                        cache.pendingUrlOpen = openQueryTab
                     }
                 }
             }
