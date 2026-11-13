@@ -629,18 +629,25 @@ describe('hog api tool catalog', () => {
         expect(library.received()).toMatchObject({ tools: [{ name: 'flag-list' }] })
     })
 
-    test('a host that serves no catalog runs the built-in tools, and --debug says why', async () => {
+    test.each([
+        ['serves no catalog', { status: 404, body: { detail: 'Not found' } }, "doesn't serve a tool catalog"],
+        [
+            'redirects the catalog request',
+            { status: 302, body: '', headers: { Location: 'https://elsewhere.example.com/catalog.json' } },
+            'redirected the catalog request',
+        ],
+    ])('a host that %s runs the built-in tools, and --debug says why', async (_name, reply, why) => {
         const library = catalogLibrary()
         const result = await runHog(['api', 'groups', '--debug'], {
             env: { CLAUDECODE: '1', HOG_HOST: 'https://ph.example.com' },
             apiTools: library.build,
-            respond: () => ({ status: 404, body: { detail: 'Not found' } }),
+            respond: () => reply,
         })
 
         expect(result.exitCode).toBe(0)
         expect(library.received()).toBeUndefined()
         expect(result.stderr).toContain(
-            "[debug] api catalog: the tools built into hog, because https://ph.example.com doesn't serve a tool catalog"
+            `[debug] api catalog: the tools built into hog, because https://ph.example.com ${why}`
         )
     })
 
