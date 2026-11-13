@@ -6,6 +6,7 @@ name the model whose rows record when each alert was created.
 
 from collections.abc import Collection, Mapping
 from datetime import datetime
+from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -51,7 +52,7 @@ class PlatformCreatedAtBackfillCommand(BaseCommand):
                 count = match_created_at(
                     source_kind=self.source_kind,
                     team_id=team_id,
-                    created_at_of=lambda ids, team_id=team_id: self.created_at_of(team_id, ids),
+                    created_at_of=partial(self.created_at_of, team_id),
                     dry_run=dry_run,
                 )
             except Exception:
