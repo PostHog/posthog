@@ -1557,6 +1557,59 @@ export function defineResourceCatalogTests(
             expect(cmRead.contents[0]?.uri).toBe(cm.uri)
         })
 
+        // Where the email editor stores images: the media library, on its CDN or on the app host,
+        // PostHog's Unlayer project, and Unlayer's social icons. Most hosts mount the email view
+        // through render-ui, so the umbrella has to advertise them too.
+        const emailImageSources = [
+            'https://us-media.posthog.com/uploaded_media/',
+            'https://eu-media.posthog.com/uploaded_media/',
+            'https://us.posthog.com/uploaded_media/',
+            'https://eu.posthog.com/uploaded_media/',
+            'https://assets.unlayer.com/projects/275430/',
+            'https://cdn.tools.unlayer.com/social/icons/',
+        ]
+
+        const resourceSources = (meta: unknown): { ui: string[]; openai: string[] } => {
+            const csp = meta as {
+                ui: { csp: { resourceDomains: string[] } }
+                'openai/widgetCSP': { resource_domains: string[] }
+            }
+            return { ui: csp.ui.csp.resourceDomains, openai: csp['openai/widgetCSP'].resource_domains }
+        }
+
+        it.each(['ui://posthog/email-template.html', 'ui://posthog/render-ui.html'])(
+            'lets %s load every image the email editor stores',
+            async (uri) => {
+                const { resources } = await client.listResources()
+                const read = await client.readResource({ uri })
+
+                for (const meta of [resources.find((r) => r.uri === uri)?._meta, read.contents[0]?._meta]) {
+                    const { ui, openai } = resourceSources(meta)
+                    expect(ui).toEqual(expect.arrayContaining(emailImageSources))
+                    expect(openai).toEqual(expect.arrayContaining(emailImageSources))
+                }
+            }
+        )
+
+        it('scopes every source render-ui adds to a path, because hosts load scripts from it too', async () => {
+            const renderUi = await client.readResource({ uri: 'ui://posthog/render-ui.html' })
+            const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })
+            const appSources = new Set(resourceSources(debug.contents[0]?._meta).ui)
+
+            const added = resourceSources(renderUi.contents[0]?._meta).ui.filter((source) => !appSources.has(source))
+
+            expect(added.length).toBeGreaterThan(0)
+            expect(added.filter((source) => new URL(source).pathname === '/')).toEqual([])
+        })
+
+        it('keeps the email image sources out of apps that do not render emails', async () => {
+            const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })
+
+            const { ui } = resourceSources(debug.contents[0]?._meta)
+
+            expect(ui.filter((source) => emailImageSources.includes(source))).toEqual([])
+        })
+
         // The prompts list may be empty on some manifest revisions (the
         // context-mill manifest doesn't always ship prompts), so this is a
         // shape check rather than a content check — we don't assert

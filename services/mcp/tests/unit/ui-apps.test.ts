@@ -87,33 +87,6 @@ describe('ui-apps', () => {
             }
         }
 
-        function registeredResourceDomains(
-            server: ReturnType<typeof createMockServer>,
-            uri: string
-        ): { ui: string[]; openai: string[] } {
-            const registration: any = server.registerResource.mock.calls.find((call: unknown[]) => call[1] === uri)![2]
-            const meta = registration._meta
-            return { ui: meta.ui.csp.resourceDomains, openai: meta['openai/widgetCSP'].resource_domains }
-        }
-
-        function cspAllows(sources: string[], url: string): boolean {
-            return sources.some((source) => cspSourceAllows(source, url))
-        }
-
-        function cspSourceAllows(source: string, url: string): boolean {
-            const declared = new URL(source)
-            const requested = new URL(url)
-            if (declared.origin !== requested.origin) {
-                return false
-            }
-            if (declared.pathname === '/' && !source.endsWith('/')) {
-                return true
-            }
-            return declared.pathname.endsWith('/')
-                ? requested.pathname.startsWith(declared.pathname)
-                : requested.pathname === declared.pathname
-        }
-
         it('skips registration when MCP_APPS_BASE_URL is not set', async () => {
             const { registerUiAppResources } = await import('@/resources/ui-apps')
             const server = createMockServer()
@@ -190,69 +163,18 @@ describe('ui-apps', () => {
 
             await registerUiAppResources(server as any, context as any)
 
+            const visualReviewRegistration = server.registerResource.mock.calls.find(
+                (call: unknown[]) => call[1] === URI_MAP['visual-review-snapshots']
+            )
+            const debugRegistration = server.registerResource.mock.calls.find(
+                (call: unknown[]) => call[1] === URI_MAP.debug
+            )
             const artifactSource =
                 'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'
-            const visualReview = registeredResourceDomains(server, URI_MAP['visual-review-snapshots'])
 
-            expect(visualReview.ui).toContain(artifactSource)
-            expect(visualReview.openai).toContain(artifactSource)
-            expect(registeredResourceDomains(server, URI_MAP.debug).ui).not.toContain(artifactSource)
-        })
-
-        // Most hosts mount the email view through render-ui, so its CSP has to allow these too.
-        const emailImages = [
-            'https://us-media.posthog.com/uploaded_media/0d4c3b2a-logo.png',
-            'https://eu-media.posthog.com/uploaded_media/0d4c3b2a-logo.png',
-            'https://us.posthog.com/uploaded_media/0d4c3b2a-logo.png',
-            'https://eu.posthog.com/uploaded_media/0d4c3b2a-logo.png',
-            'https://assets.unlayer.com/projects/275430/1760000000000-hero.png',
-            'https://cdn.tools.unlayer.com/social/icons/circle-black/linkedin.png',
-        ]
-
-        it.each([['email-template' as const], ['render-ui' as const]])(
-            'lets %s load every image the email editor stores',
-            async (appKey) => {
-                const { registerUiAppResources } = await import('@/resources/ui-apps')
-                const server = createMockServer()
-                const context = createMockContext({ MCP_APPS_BASE_URL: 'https://mcp.posthog.com' })
-
-                await registerUiAppResources(server as any, context as any)
-
-                const { ui, openai } = registeredResourceDomains(server, URI_MAP[appKey])
-                for (const image of emailImages) {
-                    expect(cspAllows(ui, image), image).toBe(true)
-                    expect(cspAllows(openai, image), image).toBe(true)
-                }
-            }
-        )
-
-        it.each([
-            'https://assets.unlayer.com/projects/1/1760000000000-payload.js',
-            'https://us.posthog.com/static/array.js',
-        ])('keeps %s out of render-ui and the email template preview', async (url) => {
-            const { registerUiAppResources } = await import('@/resources/ui-apps')
-            const server = createMockServer()
-            const context = createMockContext({ MCP_APPS_BASE_URL: 'https://mcp.posthog.com' })
-
-            await registerUiAppResources(server as any, context as any)
-
-            for (const appKey of ['email-template', 'render-ui'] as const) {
-                const { ui } = registeredResourceDomains(server, URI_MAP[appKey])
-                expect(cspAllows(ui, url)).toBe(false)
-            }
-        })
-
-        it('keeps the email image hosts out of apps that do not render emails', async () => {
-            const { registerUiAppResources } = await import('@/resources/ui-apps')
-            const server = createMockServer()
-            const context = createMockContext({ MCP_APPS_BASE_URL: 'https://mcp.posthog.com' })
-
-            await registerUiAppResources(server as any, context as any)
-
-            const { ui } = registeredResourceDomains(server, URI_MAP.debug)
-            for (const image of emailImages) {
-                expect(cspAllows(ui, image), image).toBe(false)
-            }
+            expect(visualReviewRegistration![2]._meta.ui.csp.resourceDomains).toContain(artifactSource)
+            expect(visualReviewRegistration![2]._meta['openai/widgetCSP'].resource_domains).toContain(artifactSource)
+            expect(debugRegistration![2]._meta.ui.csp.resourceDomains).not.toContain(artifactSource)
         })
 
         it('includes analytics URL in CSP when set', async () => {
