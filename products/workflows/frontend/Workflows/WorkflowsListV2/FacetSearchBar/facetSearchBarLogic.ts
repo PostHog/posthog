@@ -88,10 +88,13 @@ function createQuoteTracker(input: string): (offset: number) => boolean {
     }
 }
 
-/** Takes every complete, known `facet:value` token out of the input. The rest stays as typed. */
+type TakesValue = (facet: FacetDefinition<unknown>, value: string) => boolean
+
+/** Takes every complete `facet:value` token whose facet takes the value out of the input. The rest stays as typed. */
 function extractCompleteFilters(
     input: string,
-    facets: FacetDefinition<unknown>[]
+    facets: FacetDefinition<unknown>[],
+    takesValue: TakesValue
 ): { filters: FacetFilter[]; remaining: string } {
     const filters: FacetFilter[] = []
     const isInsideOpenQuote = createQuoteTracker(input)
@@ -109,7 +112,7 @@ function extractCompleteFilters(
             const facet = findFacet(facets, key)
             const value = facet && normalizeFacetValue(facet, tokenValue(quoted, bare))
             // A token inside a quoted value that is still being typed is part of that value.
-            if (!facet || !value || isInsideOpenQuote(offset)) {
+            if (!facet || !value || isInsideOpenQuote(offset) || !takesValue(facet, value)) {
                 return token
             }
             filters.push({ facet: facet.key, value, negated: minus === '-' })
@@ -147,6 +150,20 @@ function splitLastToken(input: string): { rest: string; token: string } {
         start--
     }
     return { rest: input.slice(0, start), token: input.slice(start) }
+}
+
+function valueKey(value: FacetSearchValue): string {
+    return JSON.stringify([value.filters.map(({ facet, value: v, negated }) => [facet, v, negated]), value.text])
+}
+
+/** Hands a value to the parent and remembers it, so its echo back through the props is not taken for a reset. */
+function emitChange(
+    props: FacetSearchBarLogicProps,
+    cache: { lastEmittedKey?: string },
+    value: FacetSearchValue
+): void {
+    cache.lastEmittedKey = valueKey(value)
+    props.onChange(value)
 }
 
 function textOf(input: string, draft: FacetDraft | null): string {
@@ -209,6 +226,21 @@ function reportFilterChange(
 }
 
 export type CountValuesIn = (scope: FacetSearchValue) => (facetKey: string) => FacetValueCount[]
+
+const EVERY_ITEM: FacetSearchValue = { filters: [], text: '' }
+
+/** A facet takes a free text value, or a value that a loaded item has or the facet pins. */
+function facetTakesValue(countValuesIn: CountValuesIn): TakesValue {
+    return (facet, value) => {
+        if (facet.freeTextValues) {
+            return true
+        }
+        const comparable = (text: string): string => (facet.caseSensitive ? text : text.toLowerCase())
+        const typed = [value, facet.resolveValue?.(value) ?? value].map(comparable)
+        const known = [...(facet.pinnedValues ?? []), ...countValuesIn(EVERY_ITEM)(facet.key).map(({ value: v }) => v)]
+        return known.some((v) => typed.includes(comparable(v)))
+    }
+}
 
 interface SuggestionSource {
     facets: FacetDefinition<unknown>[]
@@ -286,7 +318,11 @@ function valueSuggestions(
             rest: draft.rest,
         })
     }
-    return rows.length ? rows : [noValuesRow(draft, value, facet, counts.length, firstChosenLabel)]
+    if (rows.length) {
+        return rows
+    }
+    const anyItemHasValue = countValuesIn(EVERY_ITEM)(facet.key).length > 0
+    return [noValuesRow(draft, value, facet, anyItemHasValue, firstChosenLabel)]
 }
 
 function matchesPartial(partial: string, label: string, value: string): boolean {
@@ -297,11 +333,11 @@ function noValuesRow(
     draft: FacetDraft,
     value: FacetSearchValue,
     facet: FacetDefinition<unknown>,
-    valueCount: number,
+    anyItemHasValue: boolean,
     firstChosenLabel: string | null
 ): FacetSuggestion {
     const label =
-        valueCount === 0 && facet.emptyLabel
+        !anyItemHasValue && facet.emptyLabel
             ? facet.emptyLabel
             : firstChosenLabel !== null
               ? `${firstChosenLabel} is already a filter`
@@ -624,14 +660,14 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setInput: ({ caret }) => {
             const input = values.input
             // Typed or pasted `facet:value` tokens become pills as soon as they are complete. An input method may
             // still change the value, so during a composition nothing becomes a pill until it ends.
             const { filters, remaining } = values.composing
                 ? { filters: [], remaining: input }
-                : extractCompleteFilters(input, props.facets)
+                : extractCompleteFilters(input, props.facets, facetTakesValue(values.countValuesIn))
             const known = new Set(props.value.filters.map((filter) => resolvedFacetFilterKey(props.facets, filter)))
             const added = filters.filter((filter) => {
                 const key = resolvedFacetFilterKey(props.facets, filter)
@@ -663,7 +699,7 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                 actions.syncInput(nextInput)
             }
             if (added.length || text !== props.value.text) {
-                props.onChange({ filters: [...props.value.filters, ...added], text })
+                emitChange(props, cache, { filters: [...props.value.filters, ...added], text })
             }
             for (const filter of added) {
                 reportFilterChange(props.id, 'added', filter, 'typed')
@@ -683,7 +719,7 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                 actions.setInput(suggestion.nextInput)
             } else if (suggestion.kind === 'value') {
                 const rest = suggestion.rest.trimEnd()
-                props.onChange({ filters: [...props.value.filters, suggestion.filter], text: rest.trim() })
+                emitChange(props, cache, { filters: [...props.value.filters, suggestion.filter], text: rest.trim() })
                 reportFilterChange(props.id, 'added', suggestion.filter, 'suggestion')
                 actions.syncInput(rest ? `${rest} ` : '')
                 actions.setOpen(true)
@@ -703,7 +739,7 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
         },
         removeFilter: ({ filter }) => {
             const removed = facetFilterKey(filter, props.facets)
-            props.onChange({
+            emitChange(props, cache, {
                 filters: props.value.filters.filter((f) => facetFilterKey(f, props.facets) !== removed),
                 text: props.value.text,
             })
@@ -712,14 +748,16 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
         removeLastFilter: () => {
             const last = props.value.filters.at(-1)
             if (last) {
-                props.onChange({ filters: props.value.filters.slice(0, -1), text: props.value.text })
+                emitChange(props, cache, { filters: props.value.filters.slice(0, -1), text: props.value.text })
                 reportFilterChange(props.id, 'removed', last, 'backspace')
             }
         },
     })),
-    propsChanged(({ actions, values, props }) => {
-        // The URL or a "Clear filters" button can change the text without this input.
-        if (props.value.text !== textOf(values.input, values.draft)) {
+    propsChanged(({ actions, props, cache }, oldProps) => {
+        // The URL or a "Clear filters" button can replace the value without this input. Such a value also drops
+        // a half-typed filter, which Enter would otherwise still apply.
+        const key = valueKey(props.value)
+        if (key !== valueKey(oldProps.value) && key !== cache.lastEmittedKey) {
             actions.syncInput(props.value.text)
         }
     }),

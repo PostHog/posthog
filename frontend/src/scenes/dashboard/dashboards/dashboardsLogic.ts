@@ -160,8 +160,12 @@ export interface dashboardsLogicActions {
             onStillSelected: (ids: number[]) => void
         }
     } // dashboardsModel
-    openMoveToModal: (items: FileSystemEntry[]) => {
+    openMoveToModal: (
+        items: FileSystemEntry[],
+        refusal?: import('lib/components/FileSystem/MoveTo/moveToLogic').MoveToRefusal | undefined
+    ) => {
         items: FileSystemEntry[]
+        refusal: null | import('lib/components/FileSystem/MoveTo/moveToLogic').MoveToRefusal
     } // moveToLogic
     movedItem: (
         item: FileSystemEntry,
