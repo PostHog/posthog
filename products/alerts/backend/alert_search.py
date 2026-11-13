@@ -35,9 +35,9 @@ def search_insight_alerts(
     with_access_levels: bool = False,
     include_count: bool = True,
 ) -> tuple[list[dict[str, Any]], int]:
-    rows = access_control.filter_queryset_by_access_level(
-        AlertConfiguration.objects.filter(team__project_id=project_id).exclude(owner=PlatformAlertOwner.PLATFORM)
-    )
+    # nosemgrep: environment-model-scoped-by-project -- core search covers every entity by project, so alerts match it
+    project_rows = AlertConfiguration.objects.filter(team__project_id=project_id)
+    rows = access_control.filter_queryset_by_access_level(project_rows.exclude(owner=PlatformAlertOwner.PLATFORM))
     if query:
         rows = (
             rows.annotate(rank=build_rank({"name": "A"}, query, config="simple"))
