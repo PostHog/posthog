@@ -1,4 +1,4 @@
-Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.
+Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Each row is compact: `trace_id`, `span_id`, `event_name` and empty attribute maps are left out when unset, and a `body` longer than 2000 characters ends with a `…[cut N chars]` marker. Use `customColumns` to read a specific field from a long body.
 
 All parameters go inside `query` — top-level fields are rejected:
 
@@ -123,7 +123,7 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 ## query.excludeAttributes
 
-Set `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
+Set `true` to drop the per-log `attributes` and `resource_attributes` maps from results. These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
 
 # Examples
 
@@ -214,15 +214,7 @@ Set `true` to drop the per-log `attributes` and `resource_attributes` maps from 
 
 # Severity fields in the response
 
-Each returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:
-
-| Field             | What it is                                                      | Use it for                                                            |
-| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |
-| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |
-| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |
-
-`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:
+Each returned log row carries one severity field, `severity_text`. Use it for filtering (`severityLevels`), grouping, and anything you show a user. The OpenTelemetry `severity_number` is left out, but it maps to the `severityLevels` buckets by range:
 
 | Bucket  | `severity_number` range | Canonical `severity_text` |
 | ------- | ----------------------- | ------------------------- |

@@ -391,6 +391,47 @@ describe('credential redaction', () => {
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
     })
 
+    it('compacts query-logs rows and cuts long bodies after redaction', async () => {
+        const token = `phx_${'A'.repeat(30)}`
+        const response = {
+            results: [
+                {
+                    uuid: 'log-1',
+                    timestamp: '2026-01-01T00:00:00Z',
+                    observed_timestamp: '2026-01-01T00:00:00Z',
+                    body: `${'a'.repeat(1990)} ${token}`,
+                    severity_text: 'error',
+                    severity_number: 17,
+                    level: 'error',
+                    trace_id: '00000000000000000000000000000000',
+                    span_id: '0000000000000000',
+                    attributes: {},
+                    resource_attributes: { 'service.name': 'api' },
+                    event_name: '',
+                    resource_fingerprint: '123',
+                    live_logs_checkpoint: '2026-01-01T00:00:00Z',
+                },
+            ],
+            columns: null,
+        }
+        const context = {
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(1) },
+            api: { request: vi.fn().mockResolvedValue(response) },
+        } as unknown as Context
+
+        const result = (await GENERATED_TOOLS['query-logs']!().handler(context, {})) as {
+            results: Record<string, unknown>[]
+        }
+
+        expect(result.results[0]).toEqual({
+            uuid: 'log-1',
+            timestamp: '2026-01-01T00:00:00Z',
+            body: `${'a'.repeat(1990)} phx_[REDA…[cut 5 chars]`,
+            severity_text: 'error',
+            resource_attributes: { 'service.name': 'api' },
+        })
+    })
+
     it('redacts logs-group-by values whose dimension key is credential-named, keeping session ids', async () => {
         const response = {
             groups: [{ value: OTHER_SECRET, values: [OTHER_SECRET, 'checkout', 'sess-1'], log_count: 3 }],
