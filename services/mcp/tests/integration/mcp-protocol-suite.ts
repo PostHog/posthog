@@ -1591,15 +1591,16 @@ export function defineResourceCatalogTests(
             }
         )
 
-        it('scopes every source render-ui adds to a path, because hosts load scripts from it too', async () => {
+        // Hosts load scripts from these sources too, so any source render-ui gains past its own
+        // hosts has to be reviewed here.
+        it('adds only the email image sources to render-ui', async () => {
             const renderUi = await client.readResource({ uri: 'ui://posthog/render-ui.html' })
             const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })
             const appSources = new Set(resourceSources(debug.contents[0]?._meta).ui)
 
             const added = resourceSources(renderUi.contents[0]?._meta).ui.filter((source) => !appSources.has(source))
 
-            expect(added.length).toBeGreaterThan(0)
-            expect(added.filter((source) => new URL(source).pathname === '/')).toEqual([])
+            expect([...added].sort()).toEqual([...emailImageSources].sort())
         })
 
         it('keeps the email image sources out of apps that do not render emails', async () => {
