@@ -107,7 +107,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
 
         response = self.client.post(
             "/admin/console/tools/eval-suggestion-review/label/",
-            {"suggestion": str(suggestion_id), "verdict": "good", "note": "Real failures"},
+            {"team": self.team.pk, "suggestion": str(suggestion_id), "verdict": "good", "note": "Real failures"},
         )
 
         assert response.status_code == expected_status
