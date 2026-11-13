@@ -279,6 +279,7 @@ async def subscriptions_worker(temporal_client: Client):
         yield  # allow the test to run while the worker is active
 
 
+@patch("products.subscriptions.backend.temporal.activities.feature_enabled_or_false", return_value=True)
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.subscriptions.backend.logic.get_metric_meter")
@@ -290,6 +291,7 @@ async def test_subscription_delivery_scheduling(
     mock_metric_meter: MagicMock,
     mock_analytics: MagicMock,
     mock_exporter: MagicMock,
+    mock_dedupe_flag: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -353,6 +355,21 @@ async def test_subscription_delivery_scheduling(
     assert mock_send_email.call_count == 4
     delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
+
+    keys = await sync_to_async(
+        lambda: set(
+            SubscriptionDelivery.objects.filter(subscription__in=subscriptions).values_list(
+                "idempotency_key", flat=True
+            )
+        )
+    )()
+    assert (
+        keys
+        == {
+            f"scheduled:{sub.id}:{sub.next_delivery_date.isoformat()}"  # type: ignore[union-attr]
+            for sub in subscriptions[:2]
+        }
+    )
 
 
 @patch("posthog.temporal.exports.activities.exporter")
@@ -1395,7 +1412,7 @@ async def test_update_delivery_record_none_omits_collection_fields(team, user):
             status=DeliveryStatus.COMPLETED,
             exported_asset_ids=[42],
             recipient_results=[{"recipient": "a@b.com", "status": "success"}],
-            finished=True,
+            finished=False,
         ),
     )
 
@@ -1441,7 +1458,7 @@ async def test_update_delivery_record_empty_lists_persist(team, user):
             status=DeliveryStatus.COMPLETED,
             exported_asset_ids=[1, 2],
             recipient_results=[{"recipient": "x@y.com", "status": "success"}],
-            finished=True,
+            finished=False,
         ),
     )
 
@@ -1459,6 +1476,33 @@ async def test_update_delivery_record_empty_lists_persist(team, user):
     row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
     assert row.exported_asset_ids == []
     assert row.recipient_results == []
+
+
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
+@pytest.mark.asyncio
+async def test_update_delivery_record_skips_row_deleted_with_its_subscription(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="gone01", name="Deleted mid-run")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+            temporal_workflow_id="wf-gone",
+            idempotency_key="idem-gone",
+        ),
+    )
+    await sync_to_async(subscription.delete)()
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(delivery_id=delivery_id, status=DeliveryStatus.COMPLETED, finished=True),
+    )
+
+    assert not await sync_to_async(SubscriptionDelivery.objects.filter(pk=delivery_id).exists)()
 
 
 @patch("posthog.slo.events.posthoganalytics")
@@ -1969,7 +2013,9 @@ async def test_scheduled_delivery_updates_next_delivery_date(
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="sched1", name="Sched Test")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    await sync_to_async(subscription.refresh_from_db)(fields=["next_delivery_date"])
     original_next_delivery = subscription.next_delivery_date
+    assert original_next_delivery is not None
 
     def fake_export(asset_obj, **kwargs):
         asset_obj.content_location = "s3://bucket/sched.png"
@@ -1988,33 +2034,39 @@ async def test_scheduled_delivery_updates_next_delivery_date(
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
-            await env.client.execute_workflow(
-                ProcessSubscriptionWorkflow.run,
-                TrackedSubscriptionInputs(
-                    subscription_id=subscription.id,
-                    team_id=subscription.team_id,
-                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    trigger_type=SubscriptionTriggerType.SCHEDULED,
-                    slo=SloConfig(
-                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
-                        area=SloArea.ANALYTIC_PLATFORM,
+            for _ in range(2):
+                await env.client.execute_workflow(
+                    ProcessSubscriptionWorkflow.run,
+                    TrackedSubscriptionInputs(
+                        subscription_id=subscription.id,
                         team_id=subscription.team_id,
-                        resource_id=str(subscription.id),
                         distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                        trigger_type=SubscriptionTriggerType.SCHEDULED,
+                        scheduled_at=original_next_delivery.isoformat(),
+                        dedupe_scheduled_slot=True,
+                        slo=SloConfig(
+                            operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                            area=SloArea.ANALYTIC_PLATFORM,
+                            team_id=subscription.team_id,
+                            resource_id=str(subscription.id),
+                            distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                        ),
                     ),
-                ),
-                id=str(uuid.uuid4()),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
+                    id=f"process-subscription-{subscription.id}",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
 
     # 2 recipients from factory default
     assert mock_send_email.call_count == 2
     for call in mock_send_email.call_args_list:
         assert call[1]["invite_message"] is None
 
-    # next_delivery_date should be updated for scheduled deliveries
     await sync_to_async(subscription.refresh_from_db)()
-    assert subscription.next_delivery_date != original_next_delivery
+    assert subscription.next_delivery_date == subscription.rrule.after(original_next_delivery, inc=False)
+    statuses = await sync_to_async(
+        lambda: list(SubscriptionDelivery.objects.filter(subscription=subscription).values_list("status", flat=True))
+    )()
+    assert statuses == [SubscriptionDelivery.Status.COMPLETED]
 
 
 def _make_export_counter(fail_count: int, error_factory):
