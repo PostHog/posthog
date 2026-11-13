@@ -3,7 +3,6 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -57,9 +56,6 @@ describe('PromptRelatedTraces', () => {
             query.kind === NodeKind.TracesQuery ? { results: TRACES } : { results: [] }
         )
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: true,
-        })
         panelLayoutLogic.mount()
         router.actions.push(PATH, { tab: 'usage' })
         logic = llmPromptLogic({ promptName: PROMPT_NAME })
