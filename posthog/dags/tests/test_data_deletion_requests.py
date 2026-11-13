@@ -2187,8 +2187,7 @@ def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(
     all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
     assert all("keep" in row_props for row_props in all_props)
     assert sum("secret" in row_props for row_props in all_props) == 1
-    # Cleaned rows carry the bumped _timestamp version, so a replacing merge keeps them over any residual
-    # original. They keep their original inserted_at, so a deletion requested before the removal reaches them.
+    # Cleaned rows keep their original inserted_at, so a deletion requested before the removal reaches them.
     counts = cluster.any_host(partial(_row_counts_against_marker, PROP_TEAM_ID, marker)).result()
     assert counts == (len(events) + 2, len(events), len(events) + 2)
     # Cleanup empties every staged file once the request is verified.
@@ -2362,8 +2361,7 @@ def test_delete_guards_against_source_changes_after_copy(cluster: ClickhouseClus
 
 
 def _surviving_rows_with_secret(team_id: int, client: Client) -> dict[str, tuple[int, int]]:
-    # Per table, (rows, rows that still carry the property). _row_exists = 1 excludes lightweight-deleted
-    # rows, which stay readable until a merge.
+    # _row_exists = 1 excludes lightweight-deleted rows, which stay readable until a merge.
     counts = {}
     for table in ("events", "flag_evaluations"):
         [[rows, with_secret]] = client.execute(
@@ -2440,7 +2438,6 @@ def test_a_property_removal_does_not_hide_rows_from_a_deletion_queued_before_it(
         _run_event_deletion(cluster, _request_context(event_removal))
         assert cluster.any_host(partial(_adhoc_pending_uuids, team.id)).result() == {row_uuid}
 
-    # The property removal strips the property the deferred request's predicate matched on.
     property_removal = DataDeletionRequest.objects.create(
         team_id=team.id,
         request_type=RequestType.PROPERTY_REMOVAL,
