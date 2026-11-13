@@ -23,7 +23,6 @@ const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// The body `Telemetry` sends, which is also all the background worker accepts on its stdin.
 export const TelemetryBatch = z.object({ api_key: z.string(), batch: z.array(JsonObject).min(1) })
 
 export function postBatch(fetch: (url: URL, init: RequestInit) => Promise<Response>, body: string): Promise<Response> {
@@ -150,9 +149,8 @@ export class Telemetry {
             distinct_id: sender.distinctId,
             properties: { ...sender.properties, ...properties },
         }))
-        // A person or agent waits for hog to exit, so a detached hog process sends the batch after
-        // this one ends. CI sends it inline because a CI job can end and kill a detached process
-        // before it sends, and --debug sends it inline to print the result.
+        // CI sends inline because a finished job can kill a detached worker before it sends, and
+        // --debug sends inline to print the result.
         if (
             !debug &&
             !isRunningInCI(this.runtime.env) &&

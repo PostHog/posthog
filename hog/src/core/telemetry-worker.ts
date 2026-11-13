@@ -1,8 +1,7 @@
 import { parseJsonOrUndefined } from './json'
 import { postBatch, SEND_TIMEOUT_MS, TelemetryBatch } from './telemetry'
 
-// `index.ts` checks for this argument before hog parses the command line, so the worker skips config,
-// credentials and its own usage event. No command in `commands/index.ts` may take this name.
+// `index.ts` checks for this before parsing the command line, so no command may take this name.
 export const TELEMETRY_WORKER_ARG = 'telemetry-worker'
 
 export async function runTelemetryWorker(): Promise<void> {

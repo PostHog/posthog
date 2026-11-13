@@ -319,23 +319,20 @@ export function processRuntime(): Runtime {
                         ? [process.execPath, '--no-env-file', Bun.main, TELEMETRY_WORKER_ARG]
                         : [process.execPath, TELEMETRY_WORKER_ARG],
                     {
-                        // No stdout or stderr, so a pipe or an agent reading hog's output sees it end
-                        // when hog exits.
+                        // An inherited stdout would keep an agent reading hog's output waiting for the worker.
                         detached: true,
                         stdin: 'pipe',
                         stdout: 'ignore',
                         stderr: 'ignore',
                         windowsHide: true,
-                        // Not the caller's folder, which the worker would hold open, and not a shared
-                        // temp folder, where bun run from source loads any bunfig.toml it finds.
+                        // Not the caller's folder, which it would hold open, nor a shared temp folder's bunfig.toml.
                         cwd: dirname(process.execPath),
                         // The environment as it is now, so the worker keeps --skip-ssl-verification.
                         env: process.env,
                     }
                 )
                 child.unref()
-                // hog exits once this resolves, and a body larger than the pipe's buffer that is
-                // still being written then reaches the worker cut short.
+                // Without waiting, a body larger than the pipe's buffer reaches the worker cut short.
                 child.stdin.write(body)
                 await child.stdin.end()
                 return true
