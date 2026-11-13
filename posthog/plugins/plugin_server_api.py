@@ -143,7 +143,6 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
-# The scheduler's poll runs in the web tier, which mints the cancel tokens, so it shares their key on its own audience.
 WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
     settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
@@ -152,8 +151,6 @@ WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE = ScopedServiceJwtPurpose(
 
 
 def create_hog_flow_scheduled_invocations(runs: list[dict[str, Any]]) -> requests.Response:
-    """Queue scheduled runs in one request, with a token for their teams. Raises RuntimeError when the
-    signing key is not set. CdpApi.postHogflowScheduledInvocations verifies the token."""
     token = WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.mint({"team_ids": sorted({run["team_id"] for run in runs})})
     return internal_requests.post(
         CDP_API_URL + "/api/hog_flows/scheduled_invocations",

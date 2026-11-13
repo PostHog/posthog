@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 import unittest.mock
 from posthog.test.base import APIBaseTest
 
@@ -759,25 +760,27 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             ("token_from_another_signing_key", 401, True),
             ("cdp_api_without_its_signing_key", 503, True),
             ("queue_insert_may_have_committed", 500, False),
+            ("run_over_the_body_limit", 413, False),
             ("last_occurrence_of_the_schedule", 404, True, True),
         ]
     )
     def test_refused_batch_keeps_its_schedules_due_for_the_next_poll(
         self, _name, status_code, kept_due, last_occurrence=False
     ):
-        latest_occurrence = timezone.now().replace(minute=0, second=0, microsecond=0)
+        latest_occurrence = datetime(2026, 1, 5, 12, tzinfo=UTC)
         rrule = "FREQ=HOURLY;INTERVAL=1"
         if last_occurrence:
             rrule += f";UNTIL={latest_occurrence:%Y%m%dT%H%M%SZ}"
-        schedules = [
-            self._create_workflow_with_schedule(next_run_at=latest_occurrence, rrule=rrule)[1] for _ in range(2)
-        ]
-        schedule_ids = sorted(str(schedule.id) for schedule in schedules)
-        self.cdp.status_code = status_code
+        with time_machine.travel(latest_occurrence + timedelta(minutes=59), tick=False):
+            schedules = [
+                self._create_workflow_with_schedule(next_run_at=latest_occurrence, rrule=rrule)[1] for _ in range(2)
+            ]
+            schedule_ids = sorted(str(schedule.id) for schedule in schedules)
+            self.cdp.status_code = status_code
 
-        refused = self._post().json()
-        self.cdp.status_code = 200
-        retried = self._post().json()
+            refused = self._post().json()
+            self.cdp.status_code = 200
+            retried = self._post().json()
 
         assert sorted(refused["failed"]) == schedule_ids
         assert sorted(retried["processed"]) == (schedule_ids if kept_due else [])

@@ -28,6 +28,7 @@ logger = structlog.get_logger(__name__)
 WRITABLE_SCHEDULE_FIELDS = frozenset({"rrule", "starts_at", "timezone", "variables"})
 SCHEDULED_RUNS_PER_DISPATCH = 100
 SCHEDULED_RUN_BYTES_PER_DISPATCH = 4 * 1024 * 1024
+REFUSED_BEFORE_QUEUEING = frozenset({400, 401, 404, 503})
 
 
 @frozen
@@ -145,8 +146,6 @@ def _resolve_variables(hog_flow: HogFlow, schedule: HogFlowSchedule) -> dict[str
 
 
 class _ScheduledRunDispatch:
-    """Sends claimed runs to the CDP API as they come, in requests far below its JSON body limit."""
-
     def __init__(self) -> None:
         self.dispatched: list[str] = []
         self.failed: list[str] = []
@@ -170,8 +169,7 @@ class _ScheduledRunDispatch:
             response = create_hog_flow_scheduled_invocations(
                 [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk]
             )
-            # These come before anything is queued; a 500 or a gateway timeout can follow a committed insert.
-            if 400 <= response.status_code < 500 or response.status_code == 503:
+            if response.status_code in REFUSED_BEFORE_QUEUEING:
                 _return_to_due(chunk)
             response.raise_for_status()
             outcomes = list(zip(chunk, [result["status"] for result in response.json()["results"]], strict=True))
