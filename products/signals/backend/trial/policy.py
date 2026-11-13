@@ -38,6 +38,10 @@ class TrialRefused(APIException):
         super().__init__(detail or f"Self-driving trial: {reason}. Check the trial and billing status in Inbox.")
 
 
+class TrialResearchDeferred(TrialRefused):
+    """The grant cannot fund one more research run. The report stays a candidate for a later pass."""
+
+
 class TrialExecutionRefused(TrialRefused, NonReportableError):
     def __init__(self) -> None:
         super().__init__(
@@ -242,7 +246,14 @@ class TrialPolicy:
         parent: TrialFunding | None = None,
         report_id: UUID | None = None,
         report_pass_key: str | None = None,
+        new_signal: bool = False,
     ) -> TrialFunding:
+        """Decide the funding of new work under the grant lock.
+
+        A `report_pass_key` marks the start of a research pass. A pass on trial funding must fit the report
+        slots and the research reserve, also when its signal was admitted earlier, because signal admission
+        cannot know how many reports a batch of signals becomes. `new_signal` marks a signal with no receipt.
+        """
         if parent is not None and parent.grant_id is None:
             return parent
         grant = self.admission_grant() if parent is None else self.grant()
@@ -266,16 +277,29 @@ class TrialPolicy:
             with self.locked_grant(grant.id) as grant:
                 if parent is not None and parent.grant_id != grant.id:
                     raise TrialRefused("grant_unavailable")
-                if parent is not None:
+                if parent is not None and report_pass_key is None:
                     funding = parent
                 else:
-                    reason = trial_usage(grant).exhaustion_reason(grant)
-                    if reason:
+                    usage = trial_usage(grant, exclude_report_id=report_id)
+                    exhausted = usage.exhaustion_reason(grant)
+                    if parent is not None:
+                        funding = parent
+                    elif exhausted:
                         if not paid_authorized:
-                            raise TrialRefused(reason)
+                            raise TrialRefused(exhausted)
                         funding = TrialFunding(funding="paid")
+                    elif new_signal and usage.signal_backlog_full:
+                        raise TrialRefused("signal_backlog")
                     else:
                         funding = TrialFunding(funding="trial", grant_id=grant.id)
+                    if report_pass_key is not None and funding.grant_id is not None:
+                        refusal = usage.research_refusal(grant)
+                        # Paid funding takes over only from a finished trial. A full reserve clears when the
+                        # research in flight settles, and the customer did not agree to pay for a burst.
+                        if refusal and usage.finished(grant) and paid_authorized:
+                            funding = replace(funding, funding="paid", grant_id=None)
+                        elif refusal:
+                            raise TrialResearchDeferred(refusal)
                 if report_id is not None:
                     # Task admission must not erase the enclosing report pass's retry identity.
                     previous = TrialFunding.from_dict(report.self_driving_funding)

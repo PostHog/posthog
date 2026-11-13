@@ -7,8 +7,10 @@ from products.signals.backend.models import SignalSpend
 from products.signals.backend.quota import prepare_self_driving_admission
 from products.signals.backend.spend import begin_signal_spend, lock_signal_spend
 from products.signals.backend.trial.funding import TrialFunding, signal_funding
-from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.limits import TRIAL_FIRST_SYNC_RECORD_LIMIT
+from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.trial.reports import context_funding
+from products.signals.backend.usage import trial_usage
 
 
 def admit_signal(*, team: Team, signal_id: str, billing_exempt: bool = False) -> None:
@@ -25,10 +27,18 @@ def admit_signal(*, team: Team, signal_id: str, billing_exempt: bool = False) ->
             if spend.finalization_requested_at is not None or spend.finalized_at is not None:
                 raise TrialRefused("operation_finished")
             return
-        funding = admission.bind()
+        funding = admission.bind(new_signal=parent is None)
         begin_signal_spend(
             team_id=team.id,
             signal_id=signal_id,
             trial_grant_id=str(funding.grant_id) if funding.grant_id else None,
             billing_exempt=funding.funding == "operator",
         )
+
+
+def trial_first_sync_record_limit(team: Team) -> int | None:
+    """How many records a source's first sync may read while the project is on an open trial. None means no cap."""
+    grant = TrialPolicy(team).active_grant()
+    if grant is None or trial_usage(grant).finished(grant):
+        return None
+    return TRIAL_FIRST_SYNC_RECORD_LIMIT

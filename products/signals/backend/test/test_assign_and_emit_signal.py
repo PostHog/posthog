@@ -1682,7 +1682,7 @@ async def test_grouping_leaves_trial_admission_to_report_pass(ateam, kind):
         await database_sync_to_async(exhaust)()
         result = await assign_and_emit_signal_activity(inputs)
         assert result.promoted is True
-        if kind == "unfunded_source":
+        if kind in ("unfunded_source", "trial_source"):
             with pytest.raises(TrialRefused):
                 await database_sync_to_async(prepare_report_pass)(
                     team=ateam, report_id=result.report_id, operation_key="first", signal_id=inputs.signal_id

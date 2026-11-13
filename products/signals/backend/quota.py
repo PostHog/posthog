@@ -108,7 +108,9 @@ class SelfDrivingAdmission:
     def trial_accounting_required(self) -> bool:
         return self.parent.grant_id is not None if self.parent is not None else not self.paid_authorized
 
-    def bind(self, *, report_id: UUID | None = None, report_pass_key: str | None = None) -> TrialFunding:
+    def bind(
+        self, *, report_id: UUID | None = None, report_pass_key: str | None = None, new_signal: bool = False
+    ) -> TrialFunding:
         from products.signals.backend.trial.policy import (  # noqa: PLC0415 -- avoid model registration cycle
             TrialPolicy,
             TrialRefused,
@@ -123,6 +125,7 @@ class SelfDrivingAdmission:
             paid_authorized=self.paid_authorized,
             report_id=report_id,
             report_pass_key=report_pass_key,
+            new_signal=new_signal,
         )
 
 

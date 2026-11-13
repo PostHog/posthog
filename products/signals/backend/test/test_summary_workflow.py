@@ -78,6 +78,24 @@ async def test_admission_refusal_preserves_failure_before_signals_are_fetched() 
     assert failure.source_products == []
 
 
+@pytest.mark.asyncio
+async def test_trial_research_deferral_ends_the_run_without_failing_the_report() -> None:
+    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()), signal_id=str(uuid.uuid4()))
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.workflow.patched",
+            side_effect=lambda name: name in {"signals-spend-explicit-owner", "signals-trial-research-deferral"},
+        ),
+        patch(
+            f"{SUMMARY_MODULE_PATH}.workflow.execute_activity",
+            new_callable=AsyncMock,
+            side_effect=[ApplicationError("cost_limit", type="TrialResearchDeferred", non_retryable=True)],
+        ) as execute_activity,
+    ):
+        assert await SignalReportSummaryWorkflow()._run_once(inputs, Mock()) is False
+    assert execute_activity.await_count == 1
+
+
 @pytest_asyncio.fixture
 async def aorganization():
     organization = await sync_to_async(Organization.objects.create)(

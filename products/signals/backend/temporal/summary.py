@@ -312,6 +312,16 @@ def _is_research_sandbox_unavailable(error: BaseException) -> bool:
     )
 
 
+TRIAL_RESEARCH_DEFERRED_ERROR_TYPE = "TrialResearchDeferred"
+
+
+def _is_trial_research_deferred(error: BaseException) -> bool:
+    cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type == TRIAL_RESEARCH_DEFERRED_ERROR_TYPE
+    )
+
+
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
     def __init__(self) -> None:
@@ -923,6 +933,10 @@ class SignalReportSummaryWorkflow:
                     )
             return has_new_signals
         except Exception as e:
+            # patched() comes first: a history that recorded the failure commands for this error must replay them.
+            if workflow.patched("signals-trial-research-deferral") and _is_trial_research_deferred(e):
+                log.info("Report run deferred: the trial cannot fund one more research run")
+                return False
             startup_failure = research_startup_failure(e)
             await workflow.execute_activity(
                 mark_report_failed_activity,
@@ -1062,15 +1076,19 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     it won't immediately re-promote — it must accumulate 3 new signals beyond the current count
     before the promotion gate passes again.
     """
+    from products.signals.backend.trial.policy import (
+        TrialResearchDeferred,  # noqa: PLC0415 -- avoids eager workflow imports
+    )
+    from products.signals.backend.trial.reports import (
+        close_deferred_research,  # noqa: PLC0415 -- avoids eager workflow imports
+        prepare_report_pass,
+        report_pass_admission,
+    )
+
     team = None
     operation_key = ""
     admission = None
     if input.trial_policy_version or input.operator_rerun:
-        from products.signals.backend.trial.reports import (
-            prepare_report_pass,  # noqa: PLC0415 -- avoids eager workflow imports
-            report_pass_admission,
-        )
-
         team = await Team.objects.select_related("organization").aget(id=input.team_id)
         info = temporalio.activity.info()
         # Internal refreshes share admission; an explicitly restarted workflow gets a new run ID.
@@ -1119,6 +1137,17 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             )
 
         transition = await database_sync_to_async(do_update, thread_sensitive=False)()
+    except TrialResearchDeferred as error:
+        await database_sync_to_async(close_deferred_research, thread_sensitive=False)(
+            team_id=input.team_id, report_id=input.report_id, signal_id=input.signal_id
+        )
+        logger.info(
+            "Deferred report research on the trial",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            reason=error.reason,
+        )
+        raise ApplicationError(str(error), type=TRIAL_RESEARCH_DEFERRED_ERROR_TYPE, non_retryable=True) from error
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as in_progress: {e}",

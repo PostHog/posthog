@@ -17,12 +17,20 @@ from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSpend
 from products.signals.backend.scout_harness.team_limits import max_enabled_scouts_for_team, resolve_team_metadata
+from products.signals.backend.spend import complete_signal_pipeline
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.funding import TrialFunding
-from products.signals.backend.trial.limits import TrialLimits
+from products.signals.backend.trial.limits import (
+    TRIAL_FIRST_SYNC_RECORD_LIMIT,
+    TRIAL_OPEN_SIGNAL_LIMIT,
+    TRIAL_RESEARCH_RESERVE_MICROUSD,
+    TrialLimits,
+)
 from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import TrialPolicy, TrialRefused, TrialResearchDeferred
+from products.signals.backend.trial.reports import prepare_report_pass
 from products.signals.backend.trial.scouts import trial_scout_runtime
+from products.signals.backend.trial.signals import admit_signal, trial_first_sync_record_limit
 from products.signals.backend.usage import trial_usage
 
 
@@ -309,6 +317,92 @@ class TestTrialPolicy(BaseTest):
         report.status = hidden_status
         report.save(update_fields=["status"])
         assert trial_usage(grant).reports == 1
+
+    @parameterized.expand(
+        [("not_actionable", 0), ("immediately_actionable", 1), ("requires_human_input", 1), (None, 1)]
+    )
+    def test_only_a_report_the_customer_can_act_on_uses_a_report_slot(
+        self, actionability: str | None, expected: int
+    ) -> None:
+        grant = self.claim()
+        SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            first_visible_at=timezone.now(),
+            latest_actionability=actionability,
+        )
+        assert trial_usage(grant).reports == expected
+
+    def test_signal_batch_starts_only_the_research_the_allowance_can_fund(self) -> None:
+        grant = self.claim()
+        signal_ids = [str(uuid4()) for _ in range(8)]
+        for signal_id in signal_ids:
+            admit_signal(team=self.team, signal_id=signal_id)
+        started = 0
+        for signal_id in signal_ids:
+            report = SignalReport.objects.create(
+                team=self.team, status=SignalReport.Status.CANDIDATE, triggering_signal_id=signal_id
+            )
+            try:
+                prepare_report_pass(
+                    team=self.team, report_id=str(report.id), operation_key=f"pass-{signal_id}", signal_id=signal_id
+                )
+            except TrialResearchDeferred:
+                continue
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.IN_PROGRESS)
+            started += 1
+        usage = trial_usage(grant)
+        assert started == usage.researching_reports == grant.allowance_microusd // TRIAL_RESEARCH_RESERVE_MICROUSD
+        assert usage.committed_microusd <= grant.allowance_microusd
+
+    def test_research_that_ends_not_actionable_frees_its_place_for_a_waiting_report(self) -> None:
+        self.claim()
+        reports = []
+        for _ in range(6):
+            signal_id = str(uuid4())
+            admit_signal(team=self.team, signal_id=signal_id)
+            reports.append(
+                SignalReport.objects.create(
+                    team=self.team, status=SignalReport.Status.CANDIDATE, triggering_signal_id=signal_id
+                )
+            )
+
+        def start(report: SignalReport) -> None:
+            prepare_report_pass(
+                team=self.team,
+                report_id=str(report.id),
+                operation_key=f"pass-{report.id}",
+                signal_id=str(report.triggering_signal_id),
+            )
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.IN_PROGRESS)
+
+        for report in reports[:5]:
+            start(report)
+        with self.assertRaises(TrialResearchDeferred):
+            start(reports[5])
+        SignalReport.objects.filter(id=reports[0].id).update(
+            status=SignalReport.Status.READY, first_visible_at=timezone.now(), latest_actionability="not_actionable"
+        )
+        start(reports[5])
+
+    def test_open_signal_backlog_refuses_new_signals_until_one_settles(self) -> None:
+        self.claim()
+        signal_ids = [str(uuid4()) for _ in range(TRIAL_OPEN_SIGNAL_LIMIT)]
+        for signal_id in signal_ids:
+            admit_signal(team=self.team, signal_id=signal_id)
+        with self.assertRaisesMessage(TrialRefused, "signal_backlog"):
+            admit_signal(team=self.team, signal_id=str(uuid4()))
+        admit_signal(team=self.team, signal_id=signal_ids[0])
+        complete_signal_pipeline(team_id=self.team.id, signal_id=signal_ids[0])
+        admit_signal(team=self.team, signal_id=str(uuid4()))
+
+    @parameterized.expand([("active", TRIAL_FIRST_SYNC_RECORD_LIMIT), ("no_grant", None), ("exhausted", None)])
+    def test_first_sync_is_capped_only_on_an_open_trial(self, state: str, expected: int | None) -> None:
+        if state != "no_grant":
+            grant = self.claim()
+            if state == "exhausted":
+                self.exhaust(grant, "cost_limit")
+        assert trial_first_sync_record_limit(self.team) == expected
 
     def test_trial_report_count_uses_first_visibility_not_later_funding(self) -> None:
         grant = self.claim()
