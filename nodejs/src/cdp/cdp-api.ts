@@ -51,12 +51,10 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
-import {
-    HOG_FLOW_QUOTA_LIMITED_MESSAGE,
-    shouldBlockHogFlowDueToQuota,
-} from './services/hogflows/hogflow-quota-limiting'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
+import { ScheduledRuns, ScheduledRunsRequestSchema } from './services/hogflows/scheduled-runs'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
@@ -504,6 +502,7 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/scheduled_invocations',
             asyncHandler(this.postHogflowScheduledInvocation)
         )
+        router.post('/api/hog_flows/scheduled_invocations', asyncHandler(this.postHogflowScheduledInvocations))
         router.post(
             '/api/projects/:team_id/hog_flows/:id/manual_invocations',
             asyncHandler(this.postHogFlowManualInvocation)
@@ -1145,103 +1144,66 @@ export class CdpApi {
         }
     }
 
+    private scheduledRuns(): ScheduledRuns {
+        return new ScheduledRuns({
+            siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
+            teams: this.deps.teamManager,
+            hogFlows: this.hogFlowManager,
+            queue: this.hogflowQueue,
+            invocationResults: this.invocationResultsService,
+            quotaLimiting: this.deps.quotaLimiting,
+            workflowsActivationReporter: this.workflowsActivationReporter,
+        })
+    }
+
     private postHogflowScheduledInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { variables } = req.body
-
             logger.info('⚡️', 'Received hogflow scheduled invocation', { id, team_id })
 
-            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
-            if (!team) {
-                return res.status(404).json({ error: 'Team not found' })
+            const [outcome] = await this.scheduledRuns().queue([
+                { teamId: parseInt(team_id), hogFlowId: id, variables: req.body.variables ?? {} },
+            ])
+            switch (outcome.status) {
+                case 'queued':
+                    return res.json({ status: 'queued', invocation_id: outcome.invocationId })
+                case 'team_not_found':
+                    return res.status(404).json({ error: 'Team not found' })
+                case 'workflow_not_found':
+                    return res.status(404).json({ error: 'Workflow not found' })
+                case 'not_a_schedule_trigger':
+                    return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
+                case 'quota_limited':
+                    return res.status(429).json({ error: HOG_FLOW_QUOTA_LIMITED_MESSAGE })
             }
-
-            const hogFlow = await this.hogFlowManager.getHogFlow(id)
-            if (!hogFlow || hogFlow.team_id !== team.id) {
-                return res.status(404).json({ error: 'Workflow not found' })
-            }
-
-            if (hogFlow.trigger?.type !== 'schedule') {
-                return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
-            }
-
-            const quotaLimited = await shouldBlockHogFlowDueToQuota(
-                { teamId: team.id, functionId: hogFlow.id, hogFlow },
-                {
-                    quotaLimiting: this.deps.quotaLimiting,
-                    hogFunctionMonitoringService: this.invocationResultsService.monitoringService,
-                    workflowsActivationReporter: this.workflowsActivationReporter,
-                }
-            )
-            if (quotaLimited) {
-                void this.invocationResultsService.monitoringService.flush().catch((error) => {
-                    logger.error('Error flushing hogflow quota metrics', { error })
-                })
-                return res.status(429).json({ error: HOG_FLOW_QUOTA_LIMITED_MESSAGE })
-            }
-
-            // Build a synthetic event for the scheduled run. Schedule triggers don't have a real
-            // event, but the executor expects one to populate globals.event used by downstream actions.
-            const syntheticEvent: HogFunctionInvocationGlobals['event'] = {
-                uuid: new UUIDT().toString(),
-                event: '$workflow_scheduled',
-                distinct_id: `workflow-${hogFlow.id}`,
-                timestamp: DateTime.now().toISO(),
-                url: '',
-                properties: {},
-                elements_chain: '',
-            }
-
-            const triggerGlobals: HogFunctionInvocationGlobals = {
-                event: syntheticEvent,
-                project: {
-                    id: team.id,
-                    name: team.name,
-                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
-                },
-                variables: variables ?? {},
-            }
-
-            const filterGlobals = convertToHogFunctionFilterGlobal({
-                event: syntheticEvent,
-                person: undefined,
-                groups: {},
-                variables: variables ?? {},
-            })
-
-            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-
-            // Queued before queueInvocations serializes the invocation, so the
-            // `state.firstScheduledAt` stamp reaches cyclotron.
-            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-
-            try {
-                await this.hogflowQueue.queueInvocations([invocation])
-            } catch (error) {
-                this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
-                throw error
-            }
-            this.invocationResultsService.monitoringService.queueAppMetric(
-                {
-                    team_id: team.id,
-                    app_source_id: hogFlow.id,
-                    metric_kind: 'other',
-                    metric_name: 'triggered',
-                    count: 1,
-                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
-                },
-                'hog_flow'
-            )
-            // Not awaited, so a stalled metrics produce cannot time out a run that is already queued.
-            void this.invocationResultsService.monitoringService.flush()
-            // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
-            // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
-            await this.invocationResultsService.invocationResultsRowsService.flush()
-
-            res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocation', { error: e })
+            res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    private postHogflowScheduledInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        const parsed = ScheduledRunsRequestSchema.safeParse(req.body)
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues })
+        }
+        try {
+            const outcomes = await this.scheduledRuns().queue(
+                parsed.data.runs.map((run) => ({
+                    teamId: run.team_id,
+                    hogFlowId: run.hog_flow_id,
+                    variables: run.variables,
+                }))
+            )
+            return res.json({
+                results: outcomes.map((outcome) =>
+                    outcome.status === 'queued'
+                        ? { status: outcome.status, invocation_id: outcome.invocationId }
+                        : { status: outcome.status }
+                ),
+            })
+        } catch (e) {
+            logger.error('Error handling hogflow scheduled invocations', { error: e })
             res.status(500).json({ error: [e.message] })
         }
     }

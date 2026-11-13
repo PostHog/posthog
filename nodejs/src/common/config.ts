@@ -225,6 +225,7 @@ export type CommonConfig = BaseServerConfig & {
     HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
+    HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: number
     // Despite the EXTERNAL_REQUEST_ prefix this one only reaches `internalFetch`, so it is the
     // budget for calls to our own services. Third-party hosts use the sibling below.
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -481,6 +482,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
+        HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: 30_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,

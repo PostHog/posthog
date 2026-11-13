@@ -2111,6 +2111,41 @@ describe('CDP API', () => {
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
+
+        it('queues every admissible run of a batch and answers each run in request order', async () => {
+            const eventHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                trigger: { type: 'event', filters: {} },
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+
+            const res = await supertest(app)
+                .post('/api/hog_flows/scheduled_invocations')
+                .send({
+                    runs: [
+                        { team_id: team.id, hog_flow_id: scheduleHogFlow.id, variables: { greeting: 'Hello' } },
+                        { team_id: team.id, hog_flow_id: new UUIDT().toString() },
+                        { team_id: team.id, hog_flow_id: eventHogFlow.id },
+                        { team_id: team.id, hog_flow_id: scheduleHogFlow.id, variables: { greeting: 'Hi' } },
+                    ],
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.results).toEqual([
+                { status: 'queued', invocation_id: hogflowQueue.queued[0].id },
+                { status: 'workflow_not_found' },
+                { status: 'not_a_schedule_trigger' },
+                { status: 'queued', invocation_id: hogflowQueue.queued[1].id },
+            ])
+            expect(
+                hogflowQueue.queued.map((invocation: any) => [invocation.functionId, invocation.state.variables])
+            ).toEqual([
+                [scheduleHogFlow.id, { greeting: 'Hello' }],
+                [scheduleHogFlow.id, { greeting: 'Hi' }],
+            ])
+        })
     })
 
     describe('hogflow in-flight count', () => {
