@@ -10,11 +10,13 @@ import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { isKeyOf } from 'lib/utils/guards'
-import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
 import { membersLogic } from '~/models/membersLogic'
-import { OrganizationMemberType, RoleType } from '~/types'
+import { OrganizationMemberType } from '~/types'
 
+import type { RoleApi } from 'products/platform_features/frontend/generated/api.schemas'
+
+import { mentionRolesLogic } from './mentionRolesLogic'
 import { EditorRange, RichContentNodeType } from './types'
 
 type MentionsProps = {
@@ -24,7 +26,7 @@ type MentionsProps = {
     onClose?: () => void
     editor: Editor
     /** Roles to offer after the members. Omit to offer members only. */
-    roles?: RoleType[]
+    roles?: RoleApi[]
 }
 
 type MentionsPopoverProps = MentionsProps & {
@@ -33,7 +35,7 @@ type MentionsPopoverProps = MentionsProps & {
     includeRoles?: boolean
 }
 
-type MentionOption = { kind: 'member'; member: OrganizationMemberType } | { kind: 'role'; role: RoleType }
+type MentionOption = { kind: 'member'; member: OrganizationMemberType } | { kind: 'role'; role: RoleApi }
 
 type MentionsRef = {
     onKeyDown: (event: KeyboardEvent) => boolean
@@ -179,9 +181,9 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     )
 })
 
-// Mounts rolesLogic only where roles are offered, so a members-only editor never loads them.
+// Mounts mentionRolesLogic only where roles are offered, so a members-only editor never loads them.
 const MentionsWithRoles = forwardRef<MentionsRef, MentionsProps>(function MentionsWithRoles(props, ref) {
-    const { roles } = useValues(rolesLogic)
+    const { roles } = useValues(mentionRolesLogic)
     return <Mentions ref={ref} {...props} roles={roles} />
 })
 

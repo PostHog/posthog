@@ -1,10 +1,12 @@
 import { Placeholder } from '@tiptap/extensions'
 import { EditorContent } from '@tiptap/react'
+import { useMountedLogic } from 'kea'
 import { useMemo, useRef, useState } from 'react'
 
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/components/RichContentEditor/LemonRichContentEditor'
+import { mentionRolesLogic } from 'lib/components/RichContentEditor/mentionRolesLogic'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import { TTEditor } from 'lib/components/RichContentEditor/types'
 import { cn } from 'lib/utils/css-classes'
@@ -25,6 +27,8 @@ export function ReportNoteEditor({
     placeholder: string
     maxLength: number
 }): JSX.Element {
+    // Keeps roles loaded while the box is open, so each `@` does not refetch them.
+    useMountedLogic(mentionRolesLogic)
     const editorRef = useRef<TTEditor | null>(null)
     // The editor reads its extensions and callbacks once, so they go through refs to see the latest props.
     const onChangeRef = useRef(onChange)
