@@ -227,7 +227,14 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
 
 const ExternalDataSchemasListSchema = () => {
     const ExternalDataSchemasListQueryParams = orvalSchemas.ExternalDataSchemasListQueryParams()
-    return ExternalDataSchemasListQueryParams
+    return ExternalDataSchemasListQueryParams.extend({
+        compact: ExternalDataSchemasListQueryParams.shape['compact']
+            .default(true)
+            .optional()
+            .describe(
+                'Return one short health row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full sync configuration of each table.'
+            ),
+    })
 }
 
 const externalDataSchemasList = (): ToolBase<
@@ -242,6 +249,7 @@ const externalDataSchemasList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/`,
             query: {
+                compact: params.compact,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -283,6 +291,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
+        }
+        if (params.live_query_enabled !== undefined) {
+            body['live_query_enabled'] = params.live_query_enabled
         }
         if (params.sync_type !== undefined) {
             body['sync_type'] = params.sync_type
@@ -840,7 +851,14 @@ const externalDataSourcesEnableCdcCreate = (): ToolBase<
 
 const ExternalDataSourcesListSchema = () => {
     const ExternalDataSourcesListQueryParams = orvalSchemas.ExternalDataSourcesListQueryParams()
-    return ExternalDataSourcesListQueryParams
+    return ExternalDataSourcesListQueryParams.extend({
+        compact: ExternalDataSourcesListQueryParams.shape['compact']
+            .default(true)
+            .optional()
+            .describe(
+                'Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults to true. Set to false for connection settings and full source configuration.'
+            ),
+    })
 }
 
 const externalDataSourcesList = (): ToolBase<
@@ -855,6 +873,8 @@ const externalDataSourcesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
             query: {
+                compact: params.compact,
+                include_schemas: params.include_schemas,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -1052,9 +1072,19 @@ const externalDataSourcesResumeCdcCreate = (): ToolBase<
 
 const ExternalDataSourcesRetrieveSchema = () => {
     const ExternalDataSourcesRetrieveParams = orvalSchemas.ExternalDataSourcesRetrieveParams()
+    const ExternalDataSourcesRetrieveQueryParams = orvalSchemas.ExternalDataSourcesRetrieveQueryParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
         ExternalDataSourcesRetrieveParams.omit({ project_id: true })
+            .extend(ExternalDataSourcesRetrieveQueryParams.shape)
+            .extend({
+                compact: ExternalDataSourcesRetrieveQueryParams.shape['compact']
+                    .default(true)
+                    .optional()
+                    .describe(
+                        'Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults to true. Set to false for connection settings and the full sync configuration of each table.'
+                    ),
+            })
     )
 }
 
@@ -1069,6 +1099,10 @@ const externalDataSourcesRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                compact: params.compact,
+                include_schemas: params.include_schemas,
+            },
         })
         const filtered = omitResponseFields(result, [
             'schemas.*.table.columns',

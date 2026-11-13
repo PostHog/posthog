@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -34,6 +35,63 @@ class TestAILaneOptIn(SimpleTestCase):
 
 
 class TestPrivateScoutCapture(SimpleTestCase):
+    @parameterized.expand([("default", None), ("US", "US"), ("EU", "EU")])
+    def test_sql_query_filters_are_not_captured(self, _name: str, region: str | None) -> None:
+        query: dict[str, Any] = {
+            "kind": "DataVisualizationNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE {filters}",
+                "filters": {"properties": [{"key": "email", "value": ["private@example.com"]}]},
+            },
+        }
+        original = deepcopy(query)
+        client = (
+            get_client(region, send=False, disabled=False, enable_local_evaluation=False)
+            if region
+            else posthoganalytics.Client(
+                "test-key",
+                send=False,
+                enable_local_evaluation=False,
+                before_send=default_before_send(private_scout_capture=False, self_hosted=False),
+            )
+        )
+        assert client is not None
+        messages = []
+        before_send = client.before_send
+
+        def record(message):
+            result = before_send(message)
+            if result is not None:
+                messages.append(result)
+            return result
+
+        client.before_send = record
+        try:
+            for event, query_key, event_query in (
+                ("query executed", "query", query),
+                ("query execution failed", "query", query),
+                ("query duplicate found", "query_json", query["source"]),
+                ("$exception", "query", query),
+                ("$exception", "query_json", query["source"]),
+            ):
+                captured = client.capture(event, distinct_id="synthetic", properties={query_key: event_query})
+                if event == "$exception":
+                    self.assertIsNone(captured)
+                    continue
+                assert captured is not None
+                captured_query = messages[-1]["properties"][query_key]
+                captured_source = captured_query.get("source", captured_query)
+                self.assertNotIn("filters", captured_source)
+                self.assertEqual(captured_source["query"], query["source"]["query"])
+            self.assertEqual(query, original)
+            with tags_context(query=query):
+                self.assertIsNone(client.capture("$exception", distinct_id="synthetic"))
+            with tags_context(query=None):
+                self.assertIsNotNone(client.capture("$exception", distinct_id="synthetic"))
+        finally:
+            client.shutdown()
+
     def test_module_filter_matches_deployment_setting(self) -> None:
         with patch.multiple(
             posthoganalytics,

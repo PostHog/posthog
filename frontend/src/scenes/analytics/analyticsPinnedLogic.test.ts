@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -57,11 +58,11 @@ describe('analyticsPinnedLogic', () => {
         ])
 
         await expectLogic(logic, () =>
-            logic.actions.togglePinned({ type: 'insight', ref: 'abc123', name: 'Signups' })
+            sidebarPinsLogic.actions.togglePinned({ type: 'insight', ref: 'abc123', name: 'Signups' })
         ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
         expect(requests).toEqual(['delete sc-insight'])
         expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual(['folder:Growth', 'dashboard:7'])
-        expect(logic.values.recentlyPinnedKey).toBeNull()
+        expect(sidebarPinsLogic.values.recentlyPinnedKey).toBeNull()
     })
 
     it('marks a new pin for the sidebar to slide in, under the key its sidebar row carries', async () => {
@@ -70,15 +71,20 @@ describe('analyticsPinnedLogic', () => {
         await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
         await expectLogic(logic, () =>
-            logic.actions.togglePinned({ type: 'notebook', ref: 'nb1', name: 'Launch notes', href: '/notebooks/nb1' })
+            sidebarPinsLogic.actions.togglePinned({
+                type: 'notebook',
+                ref: 'nb1',
+                name: 'Launch notes',
+                href: '/notebooks/nb1',
+            })
         ).toDispatchActions(projectTreeDataLogic, ['addShortcutItemSuccess'])
         expect(requests).toEqual(['create notebook:nb1'])
         const added = logic.values.pinnedAnalytics.at(-1)
         expect(added?.key).toBe('notebook:nb1')
-        expect(logic.values.recentlyPinnedKey).toBe(added?.key)
+        expect(sidebarPinsLogic.values.recentlyPinnedKey).toBe(added?.key)
 
-        logic.actions.clearRecentlyPinned()
-        expect(logic.values.recentlyPinnedKey).toBeNull()
+        sidebarPinsLogic.actions.clearRecentlyPinned()
+        expect(sidebarPinsLogic.values.recentlyPinnedKey).toBeNull()
     })
 
     it('moves a pin among the other pins and leaves the shortcuts that are not analytics in place', async () => {
@@ -86,10 +92,9 @@ describe('analyticsPinnedLogic', () => {
         logic.mount()
         await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
-        await expectLogic(logic, () => logic.actions.movePinned('sc-dashboard', 'sc-growth')).toDispatchActions(
-            projectTreeDataLogic,
-            ['reorderShortcutsSuccess']
-        )
+        await expectLogic(logic, () =>
+            sidebarPinsLogic.actions.movePinned('sc-dashboard', 'sc-growth')
+        ).toDispatchActions(projectTreeDataLogic, ['reorderShortcutsSuccess'])
         expect(requests).toEqual(['reorder sc-product,sc-home,sc-dashboard,sc-growth,sc-insight'])
         expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual([
             'dashboard:7',
