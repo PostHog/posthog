@@ -15,16 +15,18 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.emails import exact_email
 from products.workflows.backend.facade.contracts import ProviderContactsResult
-from products.workflows.backend.facade.people_import import import_provider_contacts
+from products.workflows.backend.facade.people_import import MAX_PEOPLE_IMPORT_ROW_BYTES, import_provider_contacts
 
 NEW_PEOPLE_STEP = "new_people"
 # Person properties hold short values, so a provider's longer custom field is left out rather than cut.
 MAX_PROPERTY_VALUE_LENGTH = 1000
 # Contacts plus list memberships one step reads. Every list's contacts stay in memory until the step saves.
 MAX_CONTACT_MEMBERSHIPS = 250_000
+MAX_CONTACT_BYTES = 200 * 1024 * 1024
+MAX_PROPERTY_NAME_LENGTH = 200
 TOO_MANY_CONTACTS_MESSAGE = (
-    f"This account has more than {MAX_CONTACT_MEMBERSHIPS:,} contacts and list memberships, more than one import "
-    "takes. Upload your people as a CSV file instead."
+    "This account has more contacts, list memberships or contact data than one import takes. Upload your people as "
+    "a CSV file instead."
 )
 # The people import reads these names as the person to write to, so a provider field can't use them.
 _IDENTITY_NAMES = frozenset({"email", "id", "distinct_id"})
@@ -64,47 +66,71 @@ def new_people_step(provider_label: str) -> ImportStepSpec:
     )
 
 
-def contact_row(email: Any, properties: Mapping[str, Any]) -> dict[str, str] | None:
-    """The person properties a contact sets, or None without a usable email address. Empty values are left out, so
-    they don't wipe what PostHog already has."""
-    address = exact_email(email)
-    if address is None:
-        return None
-    row = {"email": address}
-    for key, value in properties.items():
-        name = str(key).strip()
-        text = _property_text(value)
-        if text and not name.startswith("$") and _loose_name(name) not in _IDENTITY_NAMES:
-            row[name] = text
-    return row
-
-
 class ContactCollector:
     """Keeps each contact once, by email, so a contact on several lists is one row that every list shares.
 
-    A repeat adds the properties the first entry lacked. The total stops at MAX_CONTACT_MEMBERSHIPS, so one large
-    account can't fill the worker's memory.
+    A repeat adds the properties the first entry lacked. The total stops at MAX_CONTACT_MEMBERSHIPS and
+    MAX_CONTACT_BYTES, so one large account can't fill the worker's memory.
     """
 
     def __init__(self) -> None:
         self._rows: dict[str, dict[str, str]] = {}
         self._memberships = 0
+        self._bytes = 0
 
     def add(self, email: Any, properties: Mapping[str, Any]) -> dict[str, str] | None:
-        row = contact_row(email, properties)
-        if row is None:
+        address = exact_email(email)
+        if address is None:
             return None
         self._memberships += 1
         if self._memberships > MAX_CONTACT_MEMBERSHIPS:
             raise ImportStepError(TOO_MANY_CONTACTS_MESSAGE)
-        existing = self._rows.setdefault(row["email"].lower(), row)
-        for key, value in row.items():
-            existing.setdefault(key, value)
-        return existing
+        row = self._rows.get(address.lower())
+        if row is None:
+            row = self._rows[address.lower()] = {"email": address}
+            self._bytes += _row_bytes(row)
+        self._bytes += _add_properties(row, properties)
+        if self._bytes > MAX_CONTACT_BYTES:
+            raise ImportStepError(TOO_MANY_CONTACTS_MESSAGE)
+        return row
 
     @property
     def everyone(self) -> tuple[dict[str, str], ...]:
         return tuple(self._rows.values())
+
+
+def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
+    """Adds the properties the row lacks while it stays within the people import's row limit, and returns the bytes
+    added."""
+    size = _row_bytes(row)
+    added = 0
+    for key, value in properties.items():
+        name = str(key).strip()
+        text = _property_text(value)
+        if (
+            not text
+            or name in row
+            or len(name) > MAX_PROPERTY_NAME_LENGTH
+            or name.startswith("$")
+            or _loose_name(name) in _IDENTITY_NAMES
+        ):
+            continue
+        cost = _field_bytes(name, text)
+        if size + cost > MAX_PEOPLE_IMPORT_ROW_BYTES:
+            continue
+        row[name] = text
+        size += cost
+        added += cost
+    return added
+
+
+def _row_bytes(row: Mapping[str, str]) -> int:
+    return sum(_field_bytes(name, value) for name, value in row.items())
+
+
+def _field_bytes(name: str, value: str) -> int:
+    # The quotes, colon, comma and space a field adds when the people import writes the row as JSON.
+    return len(name.encode()) + len(value.encode()) + 6
 
 
 def save_contact_lists(context: ImportContext, everyone: ContactList, lists: Iterable[ContactList]) -> SavedPage:
