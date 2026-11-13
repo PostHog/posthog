@@ -155,6 +155,7 @@
     'posthog.tasks.tasks.send_org_usage_reports',
     'posthog.tasks.tasks.start_poll_query_performance',
     'posthog.tasks.tasks.stop_surveys_reached_target',
+    'posthog.tasks.tasks.store_pinned_recording_metadata',
     'posthog.tasks.tasks.sync_all_organization_available_product_features',
     'posthog.tasks.tasks.sync_feature_flag_last_called',
     'posthog.tasks.tasks.sync_user_product_lists_for_new_team',

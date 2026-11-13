@@ -453,7 +453,7 @@ def _resolve_parent_id_maps(
                 parent.data_selector,
                 "offset",
                 MAX_PAGE_SIZE,
-                {},
+                parent.extra_params,
             ):
                 for record in records:
                     parent_id = record.get(parent.id_field)

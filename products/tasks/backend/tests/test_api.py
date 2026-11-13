@@ -5886,6 +5886,35 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_gitlab_task_never_resolves_github_identity(self, mock_workflow):
+        gitlab_integration = Integration.objects.create(
+            team=self.team,
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "posthog/posthog"},
+            sensitive_config={"access_token": "token123"},
+        )
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.repositories = ["posthog/posthog"]
+        task.repository_integration_id = gitlab_integration.id
+        task.created_by = self.user
+        task.save(update_fields=["repository", "repositories", "repository_integration_id", "created_by"])
+        _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "interactive", "branch": "main", "pr_authorship_mode": "user", "run_source": "manual"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pr_authorship_mode"] == "bot"
+        task.refresh_from_db()
+        assert (task.github_integration_id, task.github_user_integration_id) == (None, None)
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_caches_github_user_token_backcompat(self, mock_workflow):
         """Backward-compat: callers that ship ``github_user_token`` have it cached per-run."""
         task = self.create_task()
@@ -8294,19 +8323,6 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
-    @patch("products.tasks.backend.facade.api._resolve_cloud_pr_authorship_mode")
-    def test_gitlab_run_is_rejected_before_github_credentials(self, resolve_authorship):
-        integration = Integration.objects.create(team=self.team, kind="gitlab", integration_id="example/repo")
-        task = self.create_task()
-        task.repository_integration_id = integration.id
-        task.save(update_fields=["repository_integration_id"])
-        result = tasks_facade.run_task(
-            task.id, self.team.id, self.user.id, validated_data={"pr_authorship_mode": "user"}
-        )
-        assert result is not None and result.error is not None
-        assert "GitLab task runs are not available" in result.error.detail
-        resolve_authorship.assert_not_called()
-
     @parameterized.expand([(False,), (True,)])
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_forge_startup_outcomes(self, sandbox_agent: bool, _mock_publish) -> None:
@@ -18645,19 +18661,30 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.json()["attr"], "repository")
         self.assertFalse(Task.objects.filter(title="Forged").exists())
 
-    def test_update_cannot_attach_repository_to_signals_chat_task(self):
+    @parameterized.expand([("github", False), ("gitlab", True)])
+    def test_update_cannot_attach_repository_to_signals_chat_task(self, _name: str, with_gitlab: bool) -> None:
         task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
+        body: dict[str, Any] = {"repository": "posthog/posthog"}
+        if with_gitlab:
+            gitlab_integration = Integration.objects.create(
+                team=self.team,
+                kind="gitlab",
+                config={"hostname": "https://gitlab.com", "path_with_namespace": "posthog/posthog"},
+                sensitive_config={"access_token": "token123"},
+            )
+            body["repository_integration"] = gitlab_integration.id
 
-        response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/",
-            {"repository": "posthog/posthog"},
-            format="json",
-        )
+        with (
+            patch("products.tasks.backend.facade.api.gitlab_tasks_enabled", return_value=True),
+            patch("products.tasks.backend.facade.api.gitlab_repository_error", return_value=None),
+        ):
+            response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/", body, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task.refresh_from_db()
         self.assertIsNone(task.repository)
         self.assertEqual(task.repositories, [])
+        self.assertIsNone(task.repository_integration_id)
         self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
     @parameterized.expand(

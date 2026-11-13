@@ -43,7 +43,14 @@ from ..logic.metrics import (
     update_metric,
     upsert_metric,
 )
-from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview, build_team_pending_review
+from ..logic.pending_review import (
+    PendingGroup,
+    PendingKind,
+    PendingReviewCounts,
+    TeamPendingReview,
+    build_team_pending_review,
+    pending_review_counts,
+)
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.usage_snapshots import (
     is_usage_enabled,
@@ -88,8 +95,10 @@ __all__ = [
     "metric_reads_for_ids",
     "PendingGroup",
     "PendingKind",
+    "PendingReviewCounts",
     "TeamPendingReview",
     "build_team_pending_review",
+    "pending_review_counts",
     "RelationshipProposal",
     "TableCertification",
     "accept_proposal",

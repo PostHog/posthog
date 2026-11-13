@@ -19481,7 +19481,13 @@ export namespace Endpoints {
         path: "/api/projects/{project_id}/external_data_sources/";
         requestFormat: "json";
         parameters: {
-            query: Partial<{ limit: number; offset: number; search: string }>;
+            query: Partial<{
+                compact: boolean;
+                include_schemas: boolean;
+                limit: number;
+                offset: number;
+                search: string;
+            }>;
             path: { project_id: string };
         };
         responses: { 200: Schemas.PaginatedExternalDataSourceSerializersList };
@@ -19511,6 +19517,7 @@ export namespace Endpoints {
         path: "/api/projects/{project_id}/external_data_sources/{id}/";
         requestFormat: "json";
         parameters: {
+            query: Partial<{ compact: boolean; include_schemas: boolean }>;
             path: { id: string; project_id: string };
         };
         responses: { 200: Schemas.ExternalDataSourceSerializers };

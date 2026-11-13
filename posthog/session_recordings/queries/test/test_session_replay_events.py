@@ -11,6 +11,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import (
     SESSION_ID_CLOCK_SKEW_SLACK,
     SessionReplayEvents,
@@ -176,13 +177,11 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         metadata = SessionReplayEvents().get_metadata(session_id="1", team=another_team)
         assert metadata is None
 
-    def test_get_metadata_filters_by_date(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(
-            session_id="1",
-            team=self.team,
-            recording_start_time=self.base_time + relativedelta(days=2),
-        )
-        assert metadata is None
+    def test_load_metadata_ignores_stale_persisted_start_time(self) -> None:
+        # A block that arrived after start_time was stored can start earlier than it
+        recording = SessionRecording(team=self.team, session_id="1", start_time=self.base_time + relativedelta(days=2))
+        assert recording.load_metadata()
+        assert recording.start_time == self.base_time
 
     def test_get_group_metadata(self) -> None:
         metadata_dict = SessionReplayEvents().get_group_metadata(
@@ -260,6 +259,13 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert sessions == {"1", "2", "3"}
         assert min_ts == self.base_time
         assert max_ts == self.base_time + relativedelta(seconds=3)
+
+    def test_get_session_timestamps(self) -> None:
+        found = SessionReplayEvents().get_session_timestamps(["1", "3", "nonexistent"], self.team)
+        assert {session_id: timestamps.min_timestamp for session_id, timestamps in found.items()} == {
+            "1": self.base_time,
+            "3": self.base_time + relativedelta(seconds=1),
+        }
 
     def test_sessions_found_with_timestamps_partial_match(self) -> None:
         result = SessionReplayEvents().sessions_found_with_timestamps(
