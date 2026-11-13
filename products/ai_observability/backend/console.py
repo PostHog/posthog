@@ -164,6 +164,7 @@ class ReviewFilterForm(forms.Form):
 
 
 class LabelSuggestionForm(forms.Form):
+    team = forms.IntegerField(label="Team ID", min_value=1)
     suggestion = forms.UUIDField(label="Suggestion ID")
     verdict = forms.ChoiceField(label="Label", choices=EvalSuggestionReviewVerdict.choices)
     note = forms.CharField(
@@ -174,8 +175,9 @@ class LabelSuggestionForm(forms.Form):
 def label_suggestion(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
     assert form is not None
     verdict = EvalSuggestionReviewVerdict(form.cleaned_data["verdict"])
-    if not label_card(form.cleaned_data["suggestion"], verdict=verdict, note=form.cleaned_data["note"]):
-        messages.error(request, "No suggestion has this ID.")
+    cleaned = form.cleaned_data
+    if not label_card(cleaned["team"], cleaned["suggestion"], verdict=verdict, note=cleaned["note"]):
+        messages.error(request, "This team has no suggestion with this ID.")
         return HttpResponse(status=404)
     messages.success(request, f"Labeled the suggestion {verdict.label.lower()}.")
     return None
@@ -211,7 +213,7 @@ def _examples(card: ReviewCard) -> Cell:
 
 
 def _label(card: ReviewCard) -> Cell:
-    href = f"{REVIEW_TOOL_URL}label/?{urlencode({'suggestion': str(card.id)})}"
+    href = f"{REVIEW_TOOL_URL}label/?{urlencode({'team': card.team_id, 'suggestion': str(card.id)})}"
     if card.review_verdict is None:
         return Cell(text="Label", href=href)
     tone = Tone.SUCCESS if card.review_verdict == EvalSuggestionReviewVerdict.GOOD else Tone.DESTRUCTIVE
@@ -288,7 +290,7 @@ class EvalSuggestionReviewTool(ConsoleTool):
                 label="Label a suggestion",
                 handler=label_suggestion,
                 form_class=LabelSuggestionForm,
-                form_initial={"suggestion": request.GET.get("suggestion", "")},
+                form_initial={"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")},
                 description="Saves a staff label on one card. The customer sees nothing.",
             )
         ]
