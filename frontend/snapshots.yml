@@ -1921,13 +1921,13 @@ snapshots:
     components-integrations-slack--slack-full-page-connect--light:
         hash: v1.k794b7964.43f9ed59c7ada1816c3868080fbed403f9d77b62366cdc4537779e3541e9326b.wItDTj0Z5U5FlAltTgn5YnNgC444wkCDR8yhBDf5KIo
     components-integrations-slack--slack-full-page-connected-all-scopes--dark:
-        hash: v1.k794b7964.3b130834b7417de7dfb5f4d0568a926937ace8723bb4cb77a3671412e05966a7.cMHWcgKFnOQfumiOCpbQqMiiqmv4CZA2NApzb3GyPx0
+        hash: v1.k794b7964.25cf7ea1b757455345a1c4b140e80968322c443b88ceae554f90988c978b15d6.wAhrrmicwDNTypTIsAiTxf7010RUMptmw2plttfZPEk
     components-integrations-slack--slack-full-page-connected-all-scopes--light:
-        hash: v1.k794b7964.77dd222ec563b9aa7810afb4c82888705daa532b1367adc460e7879f72fa61ff.5KNfkH24O9MSKY7T2-_AiV69o-C_L9pY_CMHH1j7uU8
+        hash: v1.k794b7964.0a4dc08898e39db3960e0f81aa58ba2366b353cd4142126de3658cf2d23fa69a.SmicoM0bwEmzPEFbhA_AolDD4Iq_DtraQDRHUIjrwX8
     components-integrations-slack--slack-full-page-connected-missing-scopes--dark:
-        hash: v1.k794b7964.595f1f4786a388c9241b3cbbc782e3d0a2b436c2bef84ebaea50f425c557c298.kxskaDryzAHuppv6Kv8NNI_5jiLyJT_duBhZEoXcoEw
+        hash: v1.k794b7964.f3f383e56eaecad110f2fc67fdc8d57f14ffeba699fcf76fcd122fcb923f517c.S6io_6DmB56_leXTyZ0Wkfn26-psnMl3hl38SoYtLUA
     components-integrations-slack--slack-full-page-connected-missing-scopes--light:
-        hash: v1.k794b7964.dcab274cc879933e82bdfd6c650520b0e0f3f4785b8db4183b76379569294803.fHps8LIi_ogsc_59TKPlYImP49araKsVOKoeM3hlJdQ
+        hash: v1.k794b7964.2540e3fc0185cd4108ec765d22c34231de2ee14ccc23210e884721500a5a97c0.zJCS5dyjrJfuRXplWgsH4lyLSvDvOenuMqQVAv1jyUA
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.1bcb0a5391d8290b0bdc18f53b3a3363dad6c03cfce5ffb28bdc4d8b26185f5d._h-SOFA2XkHyVKX9pGcZQItPw6XVxVXbouougXrIqko
     components-integrations-slack--slack-integration--light:
