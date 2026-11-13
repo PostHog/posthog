@@ -1,18 +1,18 @@
 import { useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
+import { catalogSetupLogic } from '../catalogSetupLogic'
 import { CopyAgentSetupPromptButton } from '../components/CopyAgentSetupPromptButton'
 import { SetupWithPostHogAIButton } from '../components/SetupWithPostHogAIButton'
 
 export function DataCatalogPrimaryAction(): JSX.Element {
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { postHogAISetupAvailable } = useValues(catalogSetupLogic)
 
     const defineFirstMetric = (
         <LemonButton
-            type={isMaxAvailable ? 'secondary' : 'primary'}
+            type={postHogAISetupAvailable ? 'secondary' : 'primary'}
             to={urls.dataCatalogNewMetric()}
             data-attr="data-catalog-new-metric-button"
         >
@@ -22,7 +22,7 @@ export function DataCatalogPrimaryAction(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            {isMaxAvailable ? (
+            {postHogAISetupAvailable ? (
                 <>
                     <SetupWithPostHogAIButton source="empty_state" />
                     {defineFirstMetric}

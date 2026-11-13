@@ -57,10 +57,14 @@ export interface metricsIntroLogicMeta {
             allMetrics: DataCatalogMetricApi[],
             user: UserType | null,
             seenBefore: boolean,
-            stripShownThisVisit: any,
+            stripShownThisVisit: boolean,
             dismissedLocally: boolean
         ) => boolean
-        metricsNotice: (showIntroStrip: boolean, stripShownThisVisit: any, showSetupBanner: any) => MetricsNotice
+        metricsNotice: (
+            showIntroStrip: boolean,
+            stripShownThisVisit: boolean,
+            showSetupBanner: boolean
+        ) => MetricsNotice
     }
 }
 

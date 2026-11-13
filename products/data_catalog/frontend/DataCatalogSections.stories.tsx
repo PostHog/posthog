@@ -504,6 +504,12 @@ export const MetricsNarrow: Story = {
 
 export const MetricsReturningVisit: Story = {
     parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+            // The setup button needs the PostHog AI sandbox runtime.
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ],
         pageUrl: urls.dataCatalog('metrics'),
         msw: {
             mocks: {
@@ -520,6 +526,12 @@ export const MetricsReturningVisit: Story = {
 
 export const MetricsEmpty: Story = {
     parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+            // The setup button needs the PostHog AI sandbox runtime.
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ],
         pageUrl: urls.dataCatalog('metrics'),
         msw: { mocks: { get: { '/api/projects/:team_id/data_catalog/metrics/': { results: [], count: 0 } } } },
     },

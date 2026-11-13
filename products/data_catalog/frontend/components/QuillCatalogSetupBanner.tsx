@@ -4,7 +4,6 @@ import { IconSparkles, IconX } from '@posthog/icons'
 import { Button, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { catalogSetupLogic } from '../catalogSetupLogic'
 import { QuillCopyAgentSetupPromptButton } from './QuillCopyAgentSetupPromptButton'
@@ -12,7 +11,7 @@ import { QuillSetupWithPostHogAIButton } from './QuillSetupWithPostHogAIButton'
 
 /** The metrics section mounts it only when it is the notice to show, so the impression event fires once per showing. */
 export function QuillCatalogSetupBanner(): JSX.Element {
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { postHogAISetupAvailable } = useValues(catalogSetupLogic)
     const { dismissSetupBanner, reportSetupBannerShown } = useActions(catalogSetupLogic)
 
     useOnMountEffect(reportSetupBannerShown)
@@ -24,7 +23,9 @@ export function QuillCatalogSetupBanner(): JSX.Element {
             </ItemMedia>
             <ItemContent className="min-w-60">
                 <ItemTitle>
-                    {isMaxAvailable ? 'Let PostHog AI draft your catalog' : 'Draft your catalog with an AI agent'}
+                    {postHogAISetupAvailable
+                        ? 'Let PostHog AI draft your catalog'
+                        : 'Draft your catalog with an AI agent'}
                 </ItemTitle>
                 <ItemDescription>
                     It proposes metrics from the insights and dashboards your team uses most. Agents can use a proposed
@@ -32,7 +33,7 @@ export function QuillCatalogSetupBanner(): JSX.Element {
                 </ItemDescription>
             </ItemContent>
             <ItemActions className="flex-wrap">
-                {isMaxAvailable && <QuillSetupWithPostHogAIButton source="banner" size="sm" />}
+                {postHogAISetupAvailable && <QuillSetupWithPostHogAIButton source="banner" size="sm" />}
                 <QuillCopyAgentSetupPromptButton source="banner" size="sm" />
                 <Button
                     size="icon-sm"

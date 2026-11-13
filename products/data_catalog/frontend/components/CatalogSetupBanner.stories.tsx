@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { CatalogSetupBanner } from './CatalogSetupBanner'
@@ -15,6 +17,8 @@ const meta: Meta<typeof CatalogSetupBanner> = {
     component: CatalogSetupBanner,
     parameters: {
         viewMode: 'story',
+        // The setup button needs the PostHog AI sandbox runtime.
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE],
         // Used on one scene only, with no layout a regression broke before, so it renders without a baseline.
         testOptions: { snapshotBrowsers: [] },
     },

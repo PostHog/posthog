@@ -14,20 +14,24 @@ import {
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
+import { catalogSetupLogic } from '../catalogSetupLogic'
 import { QuillCopyAgentSetupPromptButton } from '../components/QuillCopyAgentSetupPromptButton'
 import { QuillSetupWithPostHogAIButton } from '../components/QuillSetupWithPostHogAIButton'
 import { metricsIntroLogic } from '../metricsIntroLogic'
 import { MetricsHowItWorksDiagram } from './MetricsHowItWorksDiagram'
 
 export function CatalogMetricsEmptyState(): JSX.Element {
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { postHogAISetupAvailable } = useValues(catalogSetupLogic)
     const { reportIntroShown } = useActions(metricsIntroLogic)
+    const { watchForNewMetrics } = useActions(catalogSetupLogic)
 
     // The diagram explains metrics in full, so the short intro does not show once metrics exist.
-    useOnMountEffect(() => reportIntroShown('empty_state'))
+    useOnMountEffect(() => {
+        reportIntroShown('empty_state')
+        watchForNewMetrics()
+    })
 
     return (
         <Empty className="gap-6" data-attr="data-catalog-metrics-empty">
@@ -44,7 +48,7 @@ export function CatalogMetricsEmptyState(): JSX.Element {
             </EmptyHeader>
             <MetricsHowItWorksDiagram />
             <EmptyContent className="flex-row flex-wrap justify-center">
-                {isMaxAvailable && <QuillSetupWithPostHogAIButton source="empty_state" />}
+                {postHogAISetupAvailable && <QuillSetupWithPostHogAIButton source="empty_state" />}
                 <Button
                     variant="outline"
                     render={<LinkPrimitive to={urls.dataCatalogNewMetric()} />}

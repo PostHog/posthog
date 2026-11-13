@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { catalogSetupLogic } from '../catalogSetupLogic'
 import { CopyAgentSetupPromptButton } from './CopyAgentSetupPromptButton'
@@ -19,7 +18,7 @@ export function CatalogSetupBanner(): JSX.Element | null {
 
 /** Split out so the impression event fires once, when the banner first shows, not on every render. */
 function VisibleCatalogSetupBanner(): JSX.Element {
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { postHogAISetupAvailable } = useValues(catalogSetupLogic)
     const { dismissSetupBanner, reportSetupBannerShown } = useActions(catalogSetupLogic)
 
     useOnMountEffect(reportSetupBannerShown)
@@ -29,7 +28,9 @@ function VisibleCatalogSetupBanner(): JSX.Element {
             <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:justify-between">
                 <div>
                     <div className="font-semibold">
-                        {isMaxAvailable ? 'Let PostHog AI draft your catalog' : 'Draft your catalog with an AI agent'}
+                        {postHogAISetupAvailable
+                            ? 'Let PostHog AI draft your catalog'
+                            : 'Draft your catalog with an AI agent'}
                     </div>
                     <div className="font-normal">
                         It proposes metrics from the insights and dashboards your team uses most. Agents can use a
@@ -37,7 +38,7 @@ function VisibleCatalogSetupBanner(): JSX.Element {
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-2 shrink-0">
-                    {isMaxAvailable && <SetupWithPostHogAIButton source="banner" />}
+                    {postHogAISetupAvailable && <SetupWithPostHogAIButton source="banner" />}
                     <CopyAgentSetupPromptButton source="banner" />
                 </div>
             </div>
