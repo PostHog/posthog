@@ -7,6 +7,8 @@ export interface TodayPreviewCard {
     handle: PreviewCard.Handle<TodayPreviewPayload>
     /** A row's menu reports here, so the card closes while the menu is open and stays shut until it closes. */
     setMenuOpen: (open: boolean) => void
+    dismissFor: (trigger: Element) => void
+    rearm: (trigger: Element) => void
 }
 
 export const TodayPreviewCardContext = createContext<TodayPreviewCard | null>(null)

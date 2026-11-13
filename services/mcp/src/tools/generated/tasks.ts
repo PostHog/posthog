@@ -342,6 +342,7 @@ const TasksCreateSchema = () => {
         origin_product: true,
         repositories: true,
         github_integration: true,
+        repository_integration: true,
         github_user_integration: true,
         signal_report: true,
         signal_report_task_relationship: true,

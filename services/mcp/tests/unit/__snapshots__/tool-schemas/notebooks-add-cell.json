@@ -1,0 +1,281 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+        "after_node_id": {
+            "description": "Insert after this block: any node_id notebooks-get returns, a markdown block included. Defaults to the end of the document. A markdown block id comes from the text, so pass one from the read you are acting on.",
+            "type": "string"
+        },
+        "cell_type": {
+            "description": "Cell kind: 'sql' (HogQL against PostHog data) and 'python' run immediately unless run is false; 'markdown' inserts prose (headings, tables, code/mermaid fences); 'saved_insight' embeds an existing insight; 'component' inserts any other notebook component tag (charts, media, PostHog entities).",
+            "enum": ["sql", "python", "markdown", "saved_insight", "component"],
+            "type": "string"
+        },
+        "code": {
+            "description": "The SQL or Python source. Required for sql/python cells.",
+            "type": "string"
+        },
+        "dataframe_name": {
+            "description": "Name other cells use to reference this cell's result dataframe (e.g. in SQL joins or Python code). Auto-assigned (\"sql_df\", \"df\", …) when omitted for sql/python cells.",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "type": "string"
+        },
+        "insight_short_id": {
+            "description": "Short id of the saved insight to embed. Required for saved_insight cells.",
+            "type": "string"
+        },
+        "markdown": {
+            "description": "Prose to insert. Required for markdown cells.",
+            "type": "string"
+        },
+        "notebook_id": {
+            "description": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+            "type": "string"
+        },
+        "props": {
+            "additionalProperties": {},
+            "description": "Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {\"id\": 123, \"view\": \"summary\"}. For Query: {\"query\": {\"kind\": \"InsightVizNode\", \"source\": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {\"query\": {\"kind\": \"DataTableNode\", \"source\": {\"kind\": \"EventsQuery\", …}}} for event tables. HogQLQuery sources are not accepted here: use cell_type sql, and set visualization to chart its result.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "run": {
+            "description": "SQL and Python cells only. Defaults to true: the cell runs as soon as it is added. Pass false to add the cell without a run, for example to lay out dependent cells before running them in order, or to leave a heavy query for the user to run. Run it later with notebooks-run-cell, or run the whole notebook with notebooks-run.",
+            "type": "boolean"
+        },
+        "tag_name": {
+            "description": "Component cells: the notebook component to insert. Object widgets with named views: FeatureFlag, Survey, Experiment, EarlyAccessFeature, Cohort, Insight, Recording, RecordingPlaylist, Person, Group, ErrorTrackingIssue, LLMTrace, Dashboard, Action, Workflow. Other components include Query (product analytics charts and event tables via its query prop), Image, Embed, Latex, Person, Recording, and RecordingPlaylist. For generated interactive visualizations, search for notebooks-widget-generate to check availability and learn how to insert a Widget tag. Executable cells are not allowed here — use cell_type sql/python.",
+            "pattern": "^[A-Z][A-Za-z0-9]*$",
+            "type": "string"
+        },
+        "title": {
+            "description": "Short label shown in the cell header, e.g. \"Weekly signups by source\". Set it on every cell you add so a reader can skim the notebook without reading the code — say what the cell shows, not that it is SQL or Python. Not accepted for markdown cells; give those a markdown heading instead.",
+            "maxLength": 120,
+            "type": "string"
+        },
+        "visualization": {
+            "additionalProperties": false,
+            "description": "SQL cells only: show the result as a chart instead of the table, like the Visualization tab in the editor. The chart draws from the rows the run returns, so aggregate in SQL to the points you want plotted.",
+            "properties": {
+                "chartSettings": {
+                    "description": "Axes and chart options. Omit an axis to let the chart pick it: the first date column for X, and every numeric column for Y. Every column named here must be a column the query returns, and a Y column must be numeric.",
+                    "properties": {
+                        "seriesBreakdownColumn": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Column that splits a single Y metric into multiple colored series."
+                        },
+                        "showLegend": {
+                            "type": "boolean"
+                        },
+                        "showNullsAsZero": {
+                            "type": "boolean"
+                        },
+                        "stackBars100": {
+                            "type": "boolean"
+                        },
+                        "xAxis": {
+                            "description": "Column used as the X axis, usually a time bucket or category.",
+                            "properties": {
+                                "column": {
+                                    "description": "Name of a column returned by the SQL query.",
+                                    "type": "string"
+                                },
+                                "settings": {
+                                    "properties": {
+                                        "display": {
+                                            "properties": {
+                                                "displayType": {
+                                                    "enum": ["auto", "line", "bar", "area"],
+                                                    "type": "string"
+                                                },
+                                                "label": {
+                                                    "type": "string"
+                                                },
+                                                "yAxisPosition": {
+                                                    "enum": ["left", "right"],
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "formatting": {
+                                            "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                            "properties": {
+                                                "decimalPlaces": {
+                                                    "type": "number"
+                                                },
+                                                "prefix": {
+                                                    "type": "string"
+                                                },
+                                                "style": {
+                                                    "enum": ["none", "number", "short", "percent"],
+                                                    "type": "string"
+                                                },
+                                                "suffix": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "required": ["column"],
+                            "type": "object"
+                        },
+                        "yAxis": {
+                            "description": "Numeric columns plotted as Y series. Include only final metrics the user cares about, not helper columns such as numerators or denominators.",
+                            "items": {
+                                "properties": {
+                                    "column": {
+                                        "description": "Name of a column returned by the SQL query.",
+                                        "type": "string"
+                                    },
+                                    "settings": {
+                                        "properties": {
+                                            "display": {
+                                                "properties": {
+                                                    "displayType": {
+                                                        "enum": ["auto", "line", "bar", "area"],
+                                                        "type": "string"
+                                                    },
+                                                    "label": {
+                                                        "type": "string"
+                                                    },
+                                                    "yAxisPosition": {
+                                                        "enum": ["left", "right"],
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            },
+                                            "formatting": {
+                                                "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                "properties": {
+                                                    "decimalPlaces": {
+                                                        "type": "number"
+                                                    },
+                                                    "prefix": {
+                                                        "type": "string"
+                                                    },
+                                                    "style": {
+                                                        "enum": ["none", "number", "short", "percent"],
+                                                        "type": "string"
+                                                    },
+                                                    "suffix": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "required": ["column"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "display": {
+                    "description": "Chart type. Use ActionsLineGraph or ActionsAreaGraph for a time series, ActionsBar for categories, ActionsPie for shares of a total, BoldNumber for one headline value, and ActionsTable for a formatted table.",
+                    "enum": [
+                        "ActionsLineGraph",
+                        "ActionsTable",
+                        "ActionsPie",
+                        "ActionsBar",
+                        "ActionsStackedBar",
+                        "ActionsAreaGraph",
+                        "ActionsBarValue",
+                        "BoldNumber"
+                    ],
+                    "type": "string"
+                },
+                "tableSettings": {
+                    "properties": {
+                        "columns": {
+                            "description": "Columns to display and their order.",
+                            "items": {
+                                "properties": {
+                                    "column": {
+                                        "description": "Name of a column returned by the SQL query.",
+                                        "type": "string"
+                                    },
+                                    "settings": {
+                                        "properties": {
+                                            "display": {
+                                                "properties": {
+                                                    "displayType": {
+                                                        "enum": ["auto", "line", "bar", "area"],
+                                                        "type": "string"
+                                                    },
+                                                    "label": {
+                                                        "type": "string"
+                                                    },
+                                                    "yAxisPosition": {
+                                                        "enum": ["left", "right"],
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            },
+                                            "formatting": {
+                                                "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                "properties": {
+                                                    "decimalPlaces": {
+                                                        "type": "number"
+                                                    },
+                                                    "prefix": {
+                                                        "type": "string"
+                                                    },
+                                                    "style": {
+                                                        "enum": ["none", "number", "short", "percent"],
+                                                        "type": "string"
+                                                    },
+                                                    "suffix": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "required": ["column"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "pinnedColumns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "transpose": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["display"],
+            "type": "object"
+        }
+    },
+    "required": ["notebook_id", "cell_type"],
+    "type": "object"
+}

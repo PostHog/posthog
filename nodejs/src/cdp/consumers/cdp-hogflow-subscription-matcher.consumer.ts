@@ -57,7 +57,7 @@ import {
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { convertCohortMembershipChangeToGlobals } from './cdp-cohort-membership-trigger.consumer'
-import { CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
+import { CohortMembershipChangeSchema, isCohortMembershipControlRecord } from './cdp-cohort-membership.consumer'
 import { ParseBatchOptions, parseBatch, skipIfMalformed } from './message-parsing'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
@@ -884,7 +884,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     @instrumented('cdpHogflowSubscriptionMatcher.parseCohortMembershipMessages')
     public async _parseCohortMembershipBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.parseMatcherBatch(messages, 'Error parsing cohort membership change', (message) => {
-            const change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
+            const parsed = parseJSON(message.value!.toString())
+            if (isCohortMembershipControlRecord(parsed)) {
+                return null
+            }
+            const change = CohortMembershipChangeSchema.parse(parsed)
             // Seed and reconcile changes restate membership the person already had. They are not a join
             // or a leave, so they must not satisfy a wait or a conversion goal.
             if (change.origin) {
