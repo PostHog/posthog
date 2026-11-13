@@ -146,9 +146,10 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
                 saved_query_id__in=list(parent_views), column_name=""
             )
         }
+        stored_view_names = set(parent_views.values())
         for name in parent_names:
             # A view stored under the exact name wins, as in HogQL. Otherwise `models.<name>` reads the view `<name>`.
-            stored_name = name if name in parent_views.values() else name.removeprefix("models.")
+            stored_name = name if name in stored_view_names else name.removeprefix("models.")
             if stored_name in view_descriptions:
                 descriptions[name] = view_descriptions[stored_name]
 

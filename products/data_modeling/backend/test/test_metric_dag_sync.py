@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.hogql.database.database import Database
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
@@ -38,10 +40,13 @@ class TestSyncMetricToDag(BaseTest):
     def _sources(self) -> set[str]:
         return {edge.source.name for edge in Edge.objects.filter(target=self._node()).select_related("source")}
 
-    def test_sync_creates_a_leaf_node_in_the_default_dag(self):
+    @parameterized.expand(
+        [("view_by_stored_name", "accounts_view"), ("view_under_models_root", "models.accounts_view")]
+    )
+    def test_sync_creates_a_leaf_node_in_the_default_dag(self, _name: str, view_reference: str):
         self._view("accounts_view")
 
-        sync_metric_to_dag(self.team, self.metric_id, "weekly_active_accounts", ["events", "accounts_view"])
+        sync_metric_to_dag(self.team, self.metric_id, "weekly_active_accounts", ["events", view_reference])
 
         node = self._node()
         self.assertEqual(node.type, NodeType.METRIC)

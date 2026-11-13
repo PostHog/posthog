@@ -363,11 +363,11 @@ class TestSyncSavedQueryToDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("read_under_models_root", "models.revenue", NodeType.VIEW),
-            ("the_bare_name_still_reads_the_table", "revenue", NodeType.TABLE),
+            ("read_under_models_root", "models.revenue", True),
+            ("the_bare_name_still_reads_the_table", "revenue", False),
         ]
     )
-    def test_a_model_parent_survives_a_same_named_warehouse_table(self, _name: str, reference: str, parent_type: str):
+    def test_a_model_parent_survives_a_same_named_warehouse_table(self, _name: str, reference: str, reads_model: bool):
         model = DataWarehouseSavedQuery.objects.create(
             name="revenue",
             team=self.team,
@@ -386,7 +386,33 @@ class TestSyncSavedQueryToDag(BaseTest):
         child_node = sync_saved_query_to_dag(child)
 
         sources = [(edge.source.type, edge.source.saved_query_id) for edge in Edge.objects.filter(target=child_node)]
-        self.assertEqual(sources, [(parent_type, model.id if parent_type == NodeType.VIEW else None)])
+        expected_source = (NodeType.VIEW, model.id) if reads_model else (NodeType.TABLE, None)
+        self.assertEqual(sources, [expected_source])
+
+    @parameterized.expand(
+        [
+            ("read_by_its_stored_name", "accounts"),
+            ("read_under_models_root", "models.accounts"),
+        ]
+    )
+    def test_a_view_stored_under_the_models_root_is_a_separate_parent(self, _name: str, stored_name: str):
+        for name in ("accounts", "models.accounts"):
+            parent = DataWarehouseSavedQuery.objects.create(
+                name=name,
+                team=self.team,
+                query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+                columns={"event": "String"},
+            )
+            sync_saved_query_to_dag(parent)
+        child = DataWarehouseSavedQuery.objects.create(
+            name="active_accounts",
+            team=self.team,
+            query={"query": f"SELECT * FROM {stored_name}", "kind": "HogQLQuery"},
+        )
+
+        child_node = sync_saved_query_to_dag(child)
+
+        self.assertEqual([edge.source.name for edge in Edge.objects.filter(target=child_node)], [stored_name])
 
     def test_sync_rolls_back_its_node_when_a_parent_view_has_no_node(self):
         DataWarehouseSavedQuery.objects.create(
