@@ -33,6 +33,8 @@ const job = (overrides: Partial<CyclotronV2JobInit> = {}): CyclotronV2JobInit & 
 
 const wireValue = (message: unknown): Buffer => Buffer.from(JSON.stringify(message))
 
+const nested = (depth: number): unknown => parseJSON('{"x":'.repeat(depth) + '0' + '}'.repeat(depth))
+
 const validWireMessage = {
     v: 1,
     kind: 'transactional-email',
@@ -117,6 +119,12 @@ describe('intake message', () => {
         }
     })
 
+    it('refuses a state nested past the depth limit instead of encoding it', () => {
+        const deep = job({ state: Buffer.from(JSON.stringify({ ...jobState, state: { variables: nested(300) } })) })
+
+        expect(encodeIntakeMessage({ kind: 'workflow-webhook', job: deep })).toEqual({ status: 'invalid' })
+    })
+
     it('refuses a message over the size limit instead of encoding it', () => {
         const padding = 'x'.repeat(INTAKE_MESSAGE_MAX_BYTES)
         const large = job({ state: Buffer.from(JSON.stringify({ ...jobState, queueMetadata: { padding } })) })
@@ -162,6 +170,14 @@ describe('intake message', () => {
         [
             'an indexed text column too long for its index entry',
             wireValue({ ...validWireMessage, job: { ...validWireMessage.job, distinctId: 'x'.repeat(2_700) } }),
+            'schema_invalid',
+        ],
+        [
+            'a state nested past the depth limit',
+            wireValue({
+                ...validWireMessage,
+                job: { ...validWireMessage.job, state: { state: { ...jobState.state, variables: nested(300) } } },
+            }),
             'schema_invalid',
         ],
         [
