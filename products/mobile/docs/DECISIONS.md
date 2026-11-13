@@ -46,7 +46,8 @@ Choices the build contract left open, with the reason for each.
 - **The Inbox tab shows a blue dot** while the inbox had an unread report the last time it loaded.
   `useInboxHasUnread` reads the first page the inbox saves in the query cache (`read-inbox`) and never fetches, so
   there is no dot until the inbox has loaded once, on this launch or an earlier one, and the dot cannot announce a new
-  report. The inbox saves that page only after its read states load, so an all-read copy never hides the dot.
+  report. The inbox saves that page only after the full read-state request succeeds.
+  Opening a report while that request is pending preserves the saved unread states until a full response arrives.
   `mobile_inbox_opened` sends `had_unread`, the dot's state when the Inbox opened. iOS native tabs show the dot as an
   empty badge.
 - **A report opened from a push on a cold start sits above the inbox.** The app would open on Home, so routing
@@ -83,8 +84,8 @@ Choices the build contract left open, with the reason for each.
   match the prototype's wrapping of headlines, ledes, questions, PR titles and quotes.
 - **Focus ring.** Web text fields drop the browser outline; the field container is the affordance.
 - **Disabled chat tools.** Expand renders at 40% opacity because it does nothing yet.
-- **Nav pill** shows Home, Inbox, Chats and Views, then the labelled Chat button. Four 44pt slots and the Chat button
-  fit a 375pt phone (see [Navigation pins](#navigation-pins)).
+- **Nav pill** shows Home, Inbox, Chats and Views, then the Chat button.
+  On narrow screens or with larger system text, Chat shows only its icon so each tab stays at least 44pt wide (see [Navigation pins](#navigation-pins)).
 - **Bottom padding floor.** `bottomOffset()` never returns less than 16pt. The handoff's bottom paddings include the
   34pt home indicator, so on a device with a home button (inset 0) several came out between 0 and 14pt.
 

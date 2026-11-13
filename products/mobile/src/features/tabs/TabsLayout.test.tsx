@@ -350,12 +350,15 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
     })
 
     test.each([
-        { width: 402, height: 874 },
-        { width: 951, height: 669 },
-        { width: 669, height: 951 },
-    ])('switches Home, Inbox, Chats and Views under one bar at $width × $height', async ({ width, height }) => {
+        { width: 320, height: 640, fontScale: 1, chatLabel: false },
+        { width: 402, height: 874, fontScale: 3, chatLabel: false },
+        { width: 402, height: 874, fontScale: 1, chatLabel: true },
+        { width: 951, height: 669, fontScale: 1, chatLabel: false },
+        { width: 669, height: 951, fontScale: 1, chatLabel: true },
+    ])('switches the tabs at $width × $height with text scale $fontScale', async (size) => {
+        const { width, height, fontScale, chatLabel } = size
         const previous = Dimensions.get('window')
-        Dimensions.set({ window: { ...previous, width, height } })
+        Dimensions.set({ window: { ...previous, width, height, fontScale } })
         const capture = jest.fn()
         setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
         const router = await renderRouter(
@@ -372,6 +375,7 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         )
         expect(router.getSegments()).toEqual(['(tabs)', 'live'])
         expect(screen.getByTestId('inbox-nav-home').props.accessibilityState).toEqual({ selected: true })
+        expect(within(screen.getByTestId('inbox-chat')).queryByText('Chat') !== null).toBe(chatLabel)
 
         fireEvent.press(screen.getByTestId('nav-inbox'))
 

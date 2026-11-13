@@ -120,7 +120,7 @@ function freshReadStates(result: UseQueryResult<Record<string, boolean>> | undef
 function mergeReadStates(results: UseQueryResult<Record<string, boolean>>[]): LoadedReadStates {
     return {
         states: Object.assign({}, ...results.map((result) => (freshReadStates(result) ? (result.data ?? {}) : {}))),
-        firstPageLoaded: freshReadStates(results[0]),
+        firstPageLoaded: freshReadStates(results[0]) && results[0]?.isFetching === false,
     }
 }
 
@@ -153,6 +153,7 @@ function useLiveInboxItems(
     const snoozes = useSnoozeEntries()
     const queryClient = useQueryClient()
     const [pulling, setPulling] = useState(false)
+    const [completedReadPages, setCompletedReadPages] = useState<ReadonlySet<string>>(() => new Set())
 
     const list = useInfiniteQuery({
         queryKey: reportKeys.inbox(scope),
@@ -192,6 +193,12 @@ function useLiveInboxItems(
                     const pending = pendingReads.get(queryClient)?.get(readKey(scope, id))
                     if (pending) states[id] = pending.read
                 }
+                if (!signal.aborted) {
+                    const key = JSON.stringify(reportKeys.readStates(scope, ids))
+                    setCompletedReadPages((completed) =>
+                        completed.has(key) ? completed : new Set([...completed, key])
+                    )
+                }
                 return states
             },
             staleTime: 0,
@@ -218,7 +225,10 @@ function useLiveInboxItems(
     )
     // The saved copy feeds the Inbox tab's dot and the next launch, so it waits for real read states: an all-read copy
     // would hide the dot until the inbox loads again.
-    const readStatesLoaded = firstPageLoaded || firstPage?.results.length === 0
+    const firstReadPageKey = pageIds[0] ? JSON.stringify(reportKeys.readStates(scope, pageIds[0])) : undefined
+    const readStatesLoaded =
+        (firstPageLoaded && !!firstReadPageKey && completedReadPages.has(firstReadPageKey)) ||
+        firstPage?.results.length === 0
     useEffect(() => {
         if (!active || !scope || !list.isSuccess || !savedItems || !capturedAt || !readStatesLoaded) return
         const key = inboxCacheKey(scope)

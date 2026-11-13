@@ -1,5 +1,5 @@
 import type { ComponentType, ReactElement } from 'react'
-import { Text, View } from 'react-native'
+import { Text, useWindowDimensions, View } from 'react-native'
 
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
@@ -153,6 +153,10 @@ export function BottomBar({
     const styles = useStyles()
     const insets = useScreenInsets()
     const { rail, railSide, contentWidth } = useAppLayout()
+    const { fontScale } = useWindowDimensions()
+    const navMinWidth = (4 + pins.length) * SLOT_MIN + 14
+    const labeledChatWidth = 40 + iconSizes.navigation + 10 + 40 * fontScale
+    const compactChat = rail || contentWidth < BAR_GUTTER * 2 + navMinWidth + BAR_GAP + labeledChatWidth
     return (
         <View
             style={[
@@ -249,13 +253,13 @@ export function BottomBar({
                     style={[
                         styles.chat,
                         shadows.fab,
-                        rail && { width: 56, paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
+                        compactChat && { width: 56, paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
                     ]}
                     haptic="selection"
                     testID="inbox-chat"
                 >
                     <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
-                    {rail ? null : <Text style={styles.chatText}>Chat</Text>}
+                    {compactChat ? null : <Text style={styles.chatText}>Chat</Text>}
                 </Pressable44>
             ) : null}
         </View>
