@@ -212,12 +212,6 @@ class TestDimensionalReadSelection(SimpleTestCase):
             ("not_ready", _runner(True), False, None),
             ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
             (
-                "overview_pathname_filter_without_v2",
-                _runner(True, kind="WebOverviewQuery", properties=[_event_filter("$pathname", "/pricing")]),
-                False,
-                _JOB_IDS,
-            ),
-            (
                 "event_referring_domain_filter",
                 _runner(True, properties=[_event_filter("$referring_domain", "example.com")]),
                 False,
@@ -280,13 +274,8 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 True,
             ),
             (
-                "overview_pathname_filter_with_v2",
-                _runner(
-                    True,
-                    kind="WebOverviewQuery",
-                    properties=[_event_filter("$pathname", "/pricing")],
-                    modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
-                ),
+                "overview_pathname_filter",
+                _runner(True, kind="WebOverviewQuery", properties=[_event_filter("$pathname", "/pricing")]),
                 None,
                 True,
             ),
