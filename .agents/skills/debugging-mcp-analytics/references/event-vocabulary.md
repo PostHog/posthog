@@ -154,13 +154,25 @@ A frequent source of wrong session math:
 
 ## Library identity
 
-Since TS 0.7.0 events stamp the standard `$lib` = `posthog-node-mcp` (plus `$lib_version`) via
-`applyMcpLibIdentity`. The short-lived 0.6.0 custom `$mcp_lib` / `$mcp_lib_version` properties
-were dropped — any document mentioning them is stale.
+From TS 0.7.0, `applyMcpLibIdentity` relabels the client as `$lib` = `posthog-node-mcp`, with
+`$lib_version` set to the `@posthog/mcp` version. The short-lived 0.6.0 custom `$mcp_lib` /
+`$mcp_lib_version` properties were dropped, so any document that mentions them is stale.
 
-Note that posthog-node sets `$lib` at the client level, so `instrument()` relabels **every**
-event sent by the client you pass it. Give an MCP server a posthog-node client dedicated to its
-analytics rather than sharing the app's.
+posthog-node sets `$lib` at the client level, so that relabel covers **every** event sent by
+the client you pass to `instrument()`, not only the MCP events.
+
+The TypeScript SDK keeps this relabel on posthog-node 6, which reads it for each event at
+`capture()`, so events captured before `instrument()` report `posthog-node`. Give MCP analytics
+its own client.
+
+posthog-python 7.x also relabels the whole client, as `posthog-python-mcp`. posthog-python 8,
+posthog-go v2 and posthog-rs 1.0 label only their MCP events, as `posthog-python-mcp`,
+`posthog-go-mcp` and `posthog-rs-mcp`. In posthog-python 8 that includes the `$exception` the MCP
+pipeline sends for a failed call. In each of these SDKs the app can still change `$lib` in `before_send`,
+and capture v1 fills `$lib` from the `PostHog-Sdk-Info` request header only when an
+event has none. So a label can cover app events, and MCP events can arrive under the base `$lib`:
+find MCP traffic by its `$mcp_*` event names or by `$mcp_source = 'posthog_mcp_analytics'`, not
+by `$lib`.
 
 ## TypeScript SDK behaviour by version
 
