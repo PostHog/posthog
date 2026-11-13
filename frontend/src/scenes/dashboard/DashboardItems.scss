@@ -398,6 +398,15 @@
         cursor: ns-resize;
     }
 
+    // A bottom or right legend sits under the handle's inner strip, so give that strip to the legend and resize from the outer one.
+    &:has([data-legend-position='bottom']) > .react-resizable-handle.react-resizable-handle-s {
+        clip-path: inset(1rem 0 0);
+    }
+
+    &:has([data-legend-position='right']) > .react-resizable-handle.react-resizable-handle-e {
+        clip-path: inset(0 0 0 1rem);
+    }
+
     & > .react-resizable-handle.react-resizable-handle-w {
         top: 0;
         bottom: 2rem;
