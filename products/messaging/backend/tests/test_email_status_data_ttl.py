@@ -17,10 +17,10 @@ class TestEmailStatusDataTTL(ClickhouseTestMixin, BaseTest):
         self.addCleanup(sync_execute, f"TRUNCATE TABLE {EMAIL_STATUS_DATA_TABLE}")
         self.addCleanup(sync_execute, f"ALTER TABLE {EMAIL_STATUS_DATA_TABLE} REMOVE TTL")
 
-    def test_the_ttl_migration_keeps_stored_statuses_61_days(self):
+    def test_the_ttl_migration_keeps_stored_statuses_up_to_60_days_old(self):
         now = datetime.now(UTC)
-        kept = self._store_a_status(now - timedelta(days=40))
-        self._store_a_status(now - timedelta(days=70))
+        kept = self._store_a_status(now - timedelta(days=60))
+        self._store_a_status(now - timedelta(days=61))
         sync_execute(
             f"ALTER TABLE {EMAIL_STATUS_DATA_TABLE} MODIFY TTL toDate(created_at) + INTERVAL {EMAIL_STATUS_TTL_DAYS} DAY "
             "SETTINGS materialize_ttl_after_modify = 0"
