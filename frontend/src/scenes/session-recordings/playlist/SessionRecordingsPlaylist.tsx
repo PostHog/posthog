@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
 
@@ -23,6 +23,7 @@ import { highlightPicksLogic } from 'products/replay_vision/frontend/replay_scan
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
+import { FeedDebugSlotContext } from '../player/watch/FeedDebugPanel'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { isFeedReplayLayout, isNewReplayLayout } from './replayLayout'
 import { ReplayListColumn } from './ReplayListColumn'
@@ -54,14 +55,13 @@ export function SessionRecordingsPlaylist({
         watchLayout,
     }
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
-    const layoutOverridden = canOverrideLayout && !!staffLayoutOverride
+    const { canOverrideLayout } = useValues(playerSettingsLogic)
     useEffect(() => {
         // Opening the Replay page is the exposure. An override is not the flag's arm.
-        if (watchLayout && receivedFeatureFlags && !layoutOverridden) {
+        if (watchLayout && receivedFeatureFlags && !canOverrideLayout) {
             reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)
         }
-    }, [watchLayout, receivedFeatureFlags, featureFlags, layoutOverridden])
+    }, [watchLayout, receivedFeatureFlags, featureFlags, canOverrideLayout])
 
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
@@ -147,6 +147,35 @@ function WatchPlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Elemen
     )
 }
 
+/** In the feed layout the player's debug view takes the place of the recording list until it is closed. */
+function useFeedDebugSlot({ showContent = true, watchLayout }: Pick<LayoutProps, 'showContent' | 'watchLayout'>): {
+    debugSlot: HTMLDivElement | null
+    debugShown: boolean
+    renderListOrDebug: (list: ReactNode) => JSX.Element
+} {
+    const { debugMode, replayLayout } = useValues(playerSettingsLogic)
+    const { activeSessionRecording } = useValues(sessionRecordingsPlaylistLogic)
+    const [debugSlot, setDebugSlot] = useState<HTMLDivElement | null>(null)
+    const debugShown =
+        watchLayout && isFeedReplayLayout(replayLayout) && debugMode && showContent && !!activeSessionRecording
+
+    return {
+        debugSlot,
+        debugShown,
+        renderListOrDebug: (list) => (
+            <>
+                <div
+                    ref={setDebugSlot}
+                    className={debugShown ? 'flex flex-col flex-1 min-h-0' : 'hidden'}
+                    data-attr="replay-feed-debug-slot"
+                />
+                {/* Hidden, not unmounted, so the list keeps its segment and scroll position. */}
+                <div className={debugShown ? 'hidden' : 'contents'}>{list}</div>
+            </>
+        ),
+    }
+}
+
 function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
@@ -198,8 +227,10 @@ function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
 function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const feedRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { isPlaylistCollapsed: listCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const { debugSlot, debugShown, renderListOrDebug } = useFeedDebugSlot(props)
+    const isPlaylistCollapsed = listCollapsed && !debugShown
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-feed',
         containerRef: feedRef,
@@ -213,7 +244,7 @@ function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Eleme
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     return (
-        <>
+        <FeedDebugSlotContext.Provider value={debugSlot}>
             <PlayerWrapper {...props} className="h-full flex-1 shrink" />
             <div
                 ref={feedRef}
@@ -235,21 +266,23 @@ function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Eleme
                 }
                 data-attr="replay-feed-column"
             >
-                <PlaylistColumn {...props} picksInList={picksInList} />
+                {renderListOrDebug(<PlaylistColumn {...props} picksInList={picksInList} />)}
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
             </div>
-        </>
+        </FeedDebugSlotContext.Provider>
     )
 }
 
 function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
+    const { isPlaylistCollapsed: listCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const watchStack = props.watchLayout && isNewReplayLayout(replayLayout)
+    const { debugSlot, debugShown, renderListOrDebug } = useFeedDebugSlot(props)
+    const isPlaylistCollapsed = listCollapsed && !debugShown
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-vertical',
@@ -264,7 +297,7 @@ function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     return (
-        <>
+        <FeedDebugSlotContext.Provider value={debugSlot}>
             <PlayerWrapper
                 {...props}
                 containerRef={playerRef}
@@ -292,9 +325,9 @@ function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
                 className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}
                 data-stacked={watchStack || undefined}
             >
-                <PlaylistColumn {...props} picksInList={picksInList} />
+                {renderListOrDebug(<PlaylistColumn {...props} picksInList={picksInList} />)}
             </div>
-        </>
+        </FeedDebugSlotContext.Provider>
     )
 }
 

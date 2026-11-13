@@ -8,7 +8,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@posthog/q
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { isFeedReplayLayout, playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -28,6 +28,7 @@ import {
 } from './sessionRecordingPlayerLogic'
 import { useLinkedIssuesAvailable } from './sidebar/useLinkedIssuesAvailable'
 import { debugTabKeys } from './watch/DebugTabBar'
+import { FeedDebugPanel } from './watch/FeedDebugPanel'
 import { WATCH_PANEL_COLLAPSED_SIZE, WatchPanel } from './watch/WatchPanel'
 
 export { createPlaybackSpeedKey } from './PurePlayer'
@@ -166,7 +167,8 @@ function SessionRecordingPlayerInternal({
     const debugReplayAction = showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null
 
     if (playerUsesWatchLayout(replayLayout, logicProps)) {
-        const rightDock = debugMode && watchDebugDock === 'right' && !isFullScreen
+        const feed = isFeedReplayLayout(replayLayout)
+        const rightDock = debugMode && !feed && watchDebugDock === 'right' && !isFullScreen
         return (
             <div
                 className={clsx('SessionRecordingPlayerWrapper SessionRecordingPlayerWrapper--watch', {
@@ -193,10 +195,20 @@ function SessionRecordingPlayerInternal({
                         )}
                     >
                         <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+                        {/* Fullscreen shows the player panel alone, so debug moves inside it. */}
+                        {debugMode && isFullScreen && (
+                            <div data-not-quill className="contents">
+                                <PlayerSidebar
+                                    tabs={debugTabKeys(linkedIssuesAvailable)}
+                                    stacking={SessionRecordingSidebarStacking.Horizontal}
+                                />
+                            </div>
+                        )}
                     </ResizablePanel>
                     <ResizableHandle withHandle data-attr="watch-panel-resize-handle" />
                     <WatchPanelResizablePanel />
                 </ResizablePanelGroup>
+                {feed && debugMode && !isFullScreen && <FeedDebugPanel />}
                 {rightDock && (
                     <PlayerSidebar
                         tabs={debugTabKeys(linkedIssuesAvailable)}
