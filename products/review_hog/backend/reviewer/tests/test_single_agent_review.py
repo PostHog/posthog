@@ -233,6 +233,38 @@ def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
     assert "$(" not in prompt
 
 
+@pytest.mark.parametrize(
+    "changed_code_only,discarded",
+    [
+        pytest.param(True, "discards a P2 or P3 finding", id="automatic_follow_up"),
+        pytest.param(False, "discards a P3 finding", id="requested_follow_up"),
+    ],
+)
+def test_a_whole_pr_follow_up_prompt_names_the_lines_changed_since_the_last_review(
+    pr_metadata: PRMetadata, changed_code_only: bool, discarded: str
+) -> None:
+    # Dedup drops a follow-up finding below must-fix that is not near these lines, so a wrong range or a level
+    # that disagrees with the filter makes every session spend output on findings that never post.
+    change = ChangedSinceReview(
+        lines={"a.py": {10, 11, 12, 41}, "b.py": set()},
+        files_without_patch={"data.json"},
+        changed_line_counts={"a.py": 4, "data.json": 3},
+    )
+    prompt = SingleAgentPrompt(
+        repository="o/r",
+        pr_metadata=pr_metadata,
+        pr_files=[_file("a.py", "x = 1"), _file("b.py", "y = 1")],
+        prior_findings=[],
+        guidelines="rubric",
+        changed_since_review=change,
+        changed_code_only=changed_code_only,
+    ).render()
+
+    assert "- `data.json`: the whole file\n- `a.py`: lines 10-12, 41\n" in prompt
+    assert "`b.py`:" not in prompt
+    assert discarded in prompt
+
+
 class TestComposeFlashFindings:
     @pytest.mark.parametrize(
         "main,lens,lens_part_count,expected_ids",

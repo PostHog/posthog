@@ -11,6 +11,8 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNK_TARGET_ADDITIONS,
     FLASH_LENS_CHUNK_MAX_LINES,
     FLASH_LENS_MAX_CHUNKS,
+    PERFORMANCE_LENS_EXTENSIONS,
+    PERFORMANCE_LENS_PATH_WORDS,
     SINGLE_CHUNK_GATE_ADDITIONS,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
@@ -182,6 +184,29 @@ def plan_lens_chunks(pr_files: list[PRFile]) -> LensChunkPlan:
         else:
             low = middle + 1
     return LensChunkPlan(chunks=_pack_by_directory(reviewable, high), capped=True, reviewable_lines=reviewable_lines)
+
+
+_PATH_WORD_SEPARATORS = re.compile(r"[/_.\-]")
+_TEST_PATH = re.compile(r"(^|/)(tests?|__tests__)/|(^|/)test_[^/]*$|_test\.[^/]+$|\.(test|spec)\.[^/]+$")
+
+
+def touches_performance_surface(path: str) -> bool:
+    """Whether a changed file is code the performance lens reviews: queries, storage, background work, or infrastructure."""
+    if _TEST_PATH.search(path) or not is_reviewable_path(path):
+        return False
+    lowered = path.lower()
+    if posixpath.splitext(lowered)[1] in PERFORMANCE_LENS_EXTENSIONS:
+        return True
+    return not PERFORMANCE_LENS_PATH_WORDS.isdisjoint(_PATH_WORD_SEPARATORS.split(lowered))
+
+
+def performance_lens_parts(plan: LensChunkPlan) -> list[int]:
+    """The 1-based lens parts the performance lens reviews: the parts with a file on its surface."""
+    return [
+        chunk_id
+        for chunk_id, files in enumerate(plan.chunks, start=1)
+        if any(touches_performance_surface(path) for path in files)
+    ]
 
 
 def generate_chunking_prompt(

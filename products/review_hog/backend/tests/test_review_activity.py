@@ -23,6 +23,7 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_ARM,
     FLASH_LENS_MAX_CHUNKS,
     FLASH_LENSES,
+    PERFORMANCE_LENS_NAME,
     REVIEW_HOG_FINDING_MARKER,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
@@ -516,6 +517,40 @@ async def test_devex_lens_session_sends_its_guidelines_scoped_to_the_files_the_f
     assert unrouted.value.non_retryable is True
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed_file,delta_since_head_sha,reviews",
+    [
+        pytest.param("posthog/hogql/printer.py", None, True, id="hot_path_part"),
+        pytest.param("frontend/src/scenes/Insight.tsx", None, False, id="frontend_part"),
+        pytest.param("posthog/hogql/printer.py", "sha0", True, id="delta_turn_on_a_hot_path_pr"),
+        pytest.param("frontend/src/scenes/Insight.tsx", "sha0", False, id="delta_turn_on_a_frontend_pr"),
+    ],
+)
+async def test_performance_lens_session_runs_only_on_a_part_with_hot_or_infrastructure_code(
+    changed_file: str, delta_since_head_sha: str | None, reviews: bool
+) -> None:
+    pr_files = [PRFile(filename=changed_file, status="modified", additions=5, deletions=0)]
+    mock_review = AsyncMock(return_value=SingleAgentReview(findings=[]))
+    lens_input = LensReviewInput(
+        **_single_agent_stage(
+            lens=PERFORMANCE_LENS_NAME, chunk_id=1, delta_since_head_sha=delta_since_head_sha, run_index=2
+        )
+    )
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot(pr_files)),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}.persist_perspective_results"),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        fell_back = await ActivityEnvironment().run(lens_review_activity, lens_input)
+
+    assert fell_back is False
+    assert mock_review.called is reviews
+
+
 @pytest.mark.parametrize("devex_lens", [False, True])
 def test_combine_reads_a_persisted_devex_lens_result_only_on_a_turn_that_runs_the_lens(devex_lens: bool) -> None:
     done = SingleAgentResults(
@@ -764,6 +799,12 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
     ]
 
 
+_TWO_LENS_PARTS = [
+    PRFile(filename="posthog/hogql/printer.py", status="modified", additions=500, deletions=0),
+    PRFile(filename="z/view.py", status="modified", additions=500, deletions=0),
+]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failed_task,malformed_task,duplicated_task,expect_raise",
@@ -798,6 +839,7 @@ async def test_coordinator_persists_each_sub_agent_under_its_session_key(
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_perspective_results", return_value={(2001, 2): IssuesReview(issues=[])}),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot(_TWO_LENS_PARTS)),
         patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
         patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
@@ -827,6 +869,31 @@ async def test_coordinator_persists_each_sub_agent_under_its_session_key(
         ]
         if task not in (failed_task, malformed_task, duplicated_task)
     }
+
+
+@pytest.mark.asyncio
+async def test_coordinator_starts_no_performance_sub_agent_for_a_part_without_hot_or_infrastructure_code() -> None:
+    frontend_only = [PRFile(filename="frontend/src/scenes/Insight.tsx", status="modified", additions=5, deletions=0)]
+    mock_review = AsyncMock(
+        return_value=CoordinatorReview(results=[CoordinatorResult(task="main_1", status="ok", findings=[])])
+    )
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot(frontend_only)),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
+        patch(f"{_MODULE}.persist_perspective_results"),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        await ActivityEnvironment().run(
+            coordinator_review_activity, CoordinatorReviewInput(**_single_agent_stage(lens_chunk_count=1))
+        )
+
+    assert [file.name for file in mock_review.call_args.kwargs["files"]] == [
+        "main_1.prompt.md",
+        "contracts_security_1.prompt.md",
+    ]
 
 
 def _comment(comment_id: int, line: int | None) -> PRComment:
