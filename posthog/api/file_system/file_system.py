@@ -1692,6 +1692,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
                 )
                 rows |= Q(path__startswith=f"{instance.path}/", pk__in=list(visible.values_list("pk", flat=True)))
+            elif instance.ref and not instance.shortcut:
+                # The default surface matches both NULL and "web" rows, so one item can have two entries.
+                # Moving only this one would leave the item listed in two folders.
+                entries = self._filter_by_access_control(
+                    FileSystem.objects.filter(
+                        surface_q(self.file_system_surface),
+                        team_id=instance.team_id,
+                        type=instance.type,
+                        ref=instance.ref,
+                    ).exclude(shortcut=True)
+                )
+                rows |= Q(pk__in=list(entries.values_list("pk", flat=True)))
             locked, _ = self._lock_and_authorize_workflow_files(rows)
             moved = next((row for row in locked if row.pk == instance.pk), None)
             if moved is None:
@@ -1730,6 +1742,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 instance.path = new_path
                 instance.depth = len(split_path(instance.path))
                 instance.save()
+                folder_segments = split_path(new_path)[:-1]
+                for entry in locked:
+                    if entry.pk == instance.pk or (entry.type, entry.ref, entry.shortcut) != (
+                        instance.type,
+                        instance.ref,
+                        instance.shortcut,
+                    ):
+                        continue
+                    entry.path = join_path([*folder_segments, split_path(entry.path)[-1]])
+                    entry.depth = len(folder_segments) + 1
+                    entry.save(update_fields=["path", "depth"])
 
         # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
         leftovers = self._without_hidden_workflow_files(
