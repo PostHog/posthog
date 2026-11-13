@@ -2122,6 +2122,49 @@ impl TestContext {
         Ok(())
     }
 
+    /// Seed a team's definitions v2 entry. A `None` part is not written.
+    pub async fn populate_definitions_v2_entry_on(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        payload: Option<String>,
+        etag: Option<&str>,
+    ) -> Result<(), Error> {
+        let cache_key =
+            format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts_v2.json");
+        if let Some(payload) = payload {
+            redis_client
+                .set(cache_key.clone(), payload)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
+        }
+        if let Some(etag) = etag {
+            let pickled_etag =
+                serde_pickle::to_vec(&etag, Default::default()).expect("Failed to pickle ETag");
+            redis_client
+                .set_bytes(format!("{cache_key}:etag"), pickled_etag, None)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to set ETag: {e}"))?;
+        }
+        Ok(())
+    }
+
+    pub async fn populate_definitions_v2_entry(
+        &self,
+        team_id: i32,
+        flags_data: &serde_json::Value,
+        etag: &str,
+    ) -> Result<(), Error> {
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.populate_definitions_v2_entry_on(
+            redis_client,
+            team_id,
+            Some(serde_json::to_string(flags_data)?),
+            Some(etag),
+        )
+        .await
+    }
+
     /// Generates a unique test email address with an optional prefix
     pub fn generate_test_email(prefix: &str) -> String {
         let unique_id = &uuid::Uuid::new_v4().to_string()[..8];

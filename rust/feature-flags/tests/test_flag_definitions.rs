@@ -1723,6 +1723,38 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     let response = get_definitions(&client, &other_url, &other_secret_token, None).await;
     assert_eq!(response.status(), 200);
 
+    // A third team holds a definitions v2 entry and the second team does not. No other test
+    // in this binary sends this SDK name, so the feed series asserted below belong to it.
+    let (feed_team, feed_secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context
+        .populate_flag_definitions_cache(redis_client.clone(), feed_team.id)
+        .await
+        .unwrap();
+    context
+        .populate_definitions_v2_entry(feed_team.id, &v2_definitions(), V2_ETAG)
+        .await
+        .unwrap();
+    let sdk_client = reqwest::Client::builder()
+        .user_agent("posthog-elixir/1.2.3")
+        .build()
+        .unwrap();
+    for (token, secret, query) in [
+        (&feed_team.api_token, &feed_secret_token, ""),
+        (&feed_team.api_token, &feed_secret_token, "&v=2"),
+        (&feed_team.api_token, &feed_secret_token, "&v=2"),
+        (&other_team.api_token, &other_secret_token, "&v=2"),
+    ] {
+        let feed_url = format!(
+            "http://{}/flags/definitions?token={token}{query}",
+            server.addr
+        );
+        let response = get_definitions(&sdk_client, &feed_url, secret, None).await;
+        assert_eq!(response.status(), 200);
+    }
+
     // Fetch metrics from /metrics endpoint
     let metrics_response = client
         .get(format!("http://{}/metrics", server.addr))
@@ -1770,6 +1802,26 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
         team_count("flags_flag_definitions_rate_limited_total", "conditional"),
         Some(1.0),
         "429s from the conditional limiter should count under the conditional budget. Metrics: {metrics_text}"
+    );
+
+    let feed_count = |requested: &str, served: &str| {
+        metric_value(
+            "flags_flag_definitions_feed_total{",
+            &[
+                r#"library="posthog-elixir""#,
+                &format!(r#"requested="{requested}""#),
+                &format!(r#"served="{served}""#),
+            ],
+        )
+    };
+    assert_eq!(
+        (
+            feed_count("legacy", "legacy"),
+            feed_count("v2", "v2"),
+            feed_count("v2", "legacy")
+        ),
+        (Some(1.0), Some(2.0), Some(1.0)),
+        "Each request should count once under the feed it asked for and the entry that answered. Metrics: {metrics_text}"
     );
 
     // Runbook step 2 picks which cluster to query from this gauge, so assert the series and
@@ -3719,5 +3771,434 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         !members.contains(&team.id.to_string()),
         "team {} must not be enqueued when self-heal is disabled",
         team.id
+    );
+}
+
+const LEGACY_ETAG: &str = "legacyetag000001";
+const V2_ETAG: &str = "v2etag0000000001";
+
+fn legacy_definitions() -> serde_json::Value {
+    serde_json::json!({
+        "flags": [{"key": "legacy-flag", "active": true, "filters": {"groups": []}}],
+        "group_type_mapping": {},
+        "cohorts": {},
+    })
+}
+
+fn v2_definitions() -> serde_json::Value {
+    let mut definitions = legacy_definitions();
+    definitions["flags"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "key": "rules-flag",
+            "active": true,
+            "filters": {"version": 2, "return_type": "boolean", "default_value": false, "rules": []},
+        }));
+    definitions
+}
+
+#[derive(Debug, PartialEq)]
+struct DefinitionsReply {
+    status: u16,
+    etag: Option<String>,
+    body: String,
+}
+
+async fn definitions_reply(
+    server: &common::ServerHandle,
+    path_and_query: &str,
+    secret_token: &str,
+    if_none_match: Option<&str>,
+) -> DefinitionsReply {
+    let response = get_definitions(
+        &reqwest::Client::new(),
+        &format!("http://{}{path_and_query}", server.addr),
+        secret_token,
+        if_none_match,
+    )
+    .await;
+    DefinitionsReply {
+        status: response.status().as_u16(),
+        etag: response
+            .headers()
+            .get("etag")
+            .map(|value| value.to_str().unwrap().to_string()),
+        body: response.text().await.unwrap(),
+    }
+}
+
+fn weak(etag: &str) -> String {
+    format!("W/\"{etag}\"")
+}
+
+async fn team_with_definitions(
+    config: &feature_flags::config::Config,
+    with_v2_entry: bool,
+) -> (
+    feature_flags::utils::test_utils::TestContext,
+    feature_flags::team::team_models::Team,
+    String,
+) {
+    let context = feature_flags::utils::test_utils::TestContext::new(Some(config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context
+        .populate_cache_for_team_with_flags_and_etag(team.id, legacy_definitions(), LEGACY_ETAG)
+        .await
+        .unwrap();
+    if with_v2_entry {
+        context
+            .populate_definitions_v2_entry(team.id, &v2_definitions(), V2_ETAG)
+            .await
+            .unwrap();
+    }
+    (context, team, secret_token)
+}
+
+#[rstest::rstest]
+#[case::flags_definitions("/flags/definitions")]
+#[case::flags_definitions_trailing_slash("/flags/definitions/")]
+#[case::local_evaluation("/api/feature_flag/local_evaluation")]
+#[case::local_evaluation_trailing_slash("/api/feature_flag/local_evaluation/")]
+#[tokio::test]
+async fn test_v2_request_without_a_v2_entry_equals_the_unversioned_response(#[case] route: &str) {
+    let config = feature_flags::config::Config::default_test_config();
+    let (_context, team, secret_token) = team_with_definitions(&config, false).await;
+    let server = common::ServerHandle::for_config(config).await;
+    let unversioned = format!("{route}?token={}", team.api_token);
+    let versioned = format!("{unversioned}&v=2");
+
+    let full = definitions_reply(&server, &unversioned, &secret_token, None).await;
+    assert_eq!(full.status, 200);
+    assert_eq!(full.etag, Some(weak(LEGACY_ETAG)));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&full.body).unwrap(),
+        legacy_definitions()
+    );
+    assert_eq!(
+        definitions_reply(&server, &versioned, &secret_token, None).await,
+        full
+    );
+
+    let etag = weak(LEGACY_ETAG);
+    let not_modified = definitions_reply(&server, &unversioned, &secret_token, Some(&etag)).await;
+    assert_eq!(not_modified.status, 304);
+    assert_eq!(not_modified.etag, Some(weak(LEGACY_ETAG)));
+    assert_eq!(
+        definitions_reply(&server, &versioned, &secret_token, Some(&etag)).await,
+        not_modified
+    );
+}
+
+#[rstest::rstest]
+#[case::flags_definitions("/flags/definitions")]
+#[case::flags_definitions_trailing_slash("/flags/definitions/")]
+#[case::local_evaluation("/api/feature_flag/local_evaluation")]
+#[case::local_evaluation_trailing_slash("/api/feature_flag/local_evaluation/")]
+#[tokio::test]
+async fn test_v2_request_with_a_v2_entry_gets_that_entry_and_its_etag(#[case] route: &str) {
+    let config = feature_flags::config::Config::default_test_config();
+    let (_context, team, secret_token) = team_with_definitions(&config, true).await;
+    let server = common::ServerHandle::for_config(config).await;
+    let unversioned = format!("{route}?token={}", team.api_token);
+    let versioned = format!("{unversioned}&v=2");
+
+    let full = definitions_reply(&server, &versioned, &secret_token, None).await;
+    assert_eq!(full.status, 200);
+    assert_eq!(full.etag, Some(weak(V2_ETAG)));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&full.body).unwrap(),
+        v2_definitions()
+    );
+
+    let not_modified =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(V2_ETAG))).await;
+    assert_eq!(not_modified.status, 304);
+    assert_eq!(not_modified.etag, Some(weak(V2_ETAG)));
+    assert_eq!(not_modified.body, "");
+
+    // Each feed validates against its own ETag.
+    let other_feed_etag =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(LEGACY_ETAG))).await;
+    assert_eq!(other_feed_etag, full);
+
+    let legacy = definitions_reply(&server, &unversioned, &secret_token, None).await;
+    assert_eq!(legacy.status, 200);
+    assert_eq!(legacy.etag, Some(weak(LEGACY_ETAG)));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&legacy.body).unwrap(),
+        legacy_definitions()
+    );
+    assert_eq!(
+        definitions_reply(&server, &unversioned, &secret_token, Some(&weak(V2_ETAG))).await,
+        legacy
+    );
+}
+
+/// The full matrix is on `requests_definitions_v2`. These cases check the handler: a repeated
+/// `v` must stay a 200 from the legacy entry, where a typed query field would answer 400.
+#[rstest::rstest]
+#[case::version_1("v=1")]
+#[case::version_3("v=3")]
+#[case::leading_zero("v=02")]
+#[case::empty("v=")]
+#[case::repeated("v=2&v=2")]
+#[case::uppercase_name("V=2")]
+#[tokio::test]
+async fn test_other_v_values_keep_the_legacy_response(#[case] query: &str) {
+    let config = feature_flags::config::Config::default_test_config();
+    let (_context, team, secret_token) = team_with_definitions(&config, true).await;
+    let server = common::ServerHandle::for_config(config).await;
+    let unversioned = format!("/flags/definitions?token={}", team.api_token);
+
+    let legacy = definitions_reply(&server, &unversioned, &secret_token, None).await;
+    assert_eq!(legacy.status, 200);
+    assert_eq!(legacy.etag, Some(weak(LEGACY_ETAG)));
+
+    let reply = definitions_reply(
+        &server,
+        &format!("{unversioned}&{query}"),
+        &secret_token,
+        None,
+    )
+    .await;
+    assert_eq!(reply, legacy);
+}
+
+#[rstest::rstest]
+#[case::v2_entry(true, V2_ETAG)]
+#[case::legacy_entry(false, LEGACY_ETAG)]
+#[tokio::test]
+async fn test_v2_request_is_billed_once(#[case] with_v2_entry: bool, #[case] served_etag: &str) {
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::setup_redis_client;
+
+    let config = feature_flags::config::Config::default_test_config();
+    let (_context, team, secret_token) = team_with_definitions(&config, with_v2_entry).await;
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let full_key = get_team_request_key(team.id, FlagRequestType::FlagDefinitions);
+    let not_modified_key =
+        get_team_request_key(team.id, FlagRequestType::FlagDefinitionsNotModified);
+    redis.del(full_key.clone()).await.unwrap();
+    redis.del(not_modified_key.clone()).await.unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+    let versioned = format!("/flags/definitions?token={}&v=2", team.api_token);
+
+    let bucket_before = current_bucket();
+    let full = definitions_reply(&server, &versioned, &secret_token, None).await;
+    assert_eq!(full.status, 200);
+    assert_eq!(full.etag, Some(weak(served_etag)));
+    let not_modified =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(served_etag))).await;
+    assert_eq!(not_modified.status, 304);
+    let bucket_after = current_bucket();
+
+    for key in [&full_key, &not_modified_key] {
+        let counter = common::poll_for_billing_counter_across_buckets(
+            &redis,
+            key,
+            bucket_before,
+            bucket_after,
+        )
+        .await;
+        assert_eq!(counter, "1", "{key} should hold one record");
+    }
+}
+
+#[rstest::rstest]
+#[case::v2_entry(true, V2_ETAG)]
+#[case::legacy_entry(false, LEGACY_ETAG)]
+#[tokio::test]
+async fn test_v2_requests_share_the_rate_limit_budgets(
+    #[case] with_v2_entry: bool,
+    #[case] served_etag: &str,
+) {
+    let mut config = feature_flags::config::Config::default_test_config();
+    let (_context, team, secret_token) = team_with_definitions(&config, with_v2_entry).await;
+    let one_per_minute = format!(r#"{{"{}": "1/minute"}}"#, team.id);
+    config.flag_definitions_rate_limits = one_per_minute.parse().unwrap();
+    config.flag_definitions_conditional_rate_limits = one_per_minute.parse().unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+    let unversioned = format!("/flags/definitions?token={}", team.api_token);
+    let versioned = format!("{unversioned}&v=2");
+
+    let full = definitions_reply(&server, &versioned, &secret_token, None).await;
+    assert_eq!(full.status, 200);
+    let refused = definitions_reply(&server, &unversioned, &secret_token, None).await;
+    assert_eq!(
+        refused.status, 429,
+        "the v=2 response should have spent the team's full-response budget"
+    );
+
+    let not_modified =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(served_etag))).await;
+    assert_eq!(not_modified.status, 304);
+    let refused = definitions_reply(
+        &server,
+        &unversioned,
+        &secret_token,
+        Some(&weak(LEGACY_ETAG)),
+    )
+    .await;
+    assert_eq!(
+        refused.status, 429,
+        "the v=2 revalidation should have spent the team's conditional budget"
+    );
+}
+
+#[tokio::test]
+async fn test_v2_stale_etag_200_spends_both_budgets() {
+    let mut config = feature_flags::config::Config::default_test_config();
+    let (_context, team, secret_token) = team_with_definitions(&config, true).await;
+    let one_per_minute = format!(r#"{{"{}": "1/minute"}}"#, team.id);
+    config.flag_definitions_rate_limits = one_per_minute.parse().unwrap();
+    config.flag_definitions_conditional_rate_limits = one_per_minute.parse().unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+    let versioned = format!("/flags/definitions?token={}&v=2", team.api_token);
+
+    let stale = definitions_reply(&server, &versioned, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(stale.status, 200);
+    assert_eq!(stale.etag, Some(weak(V2_ETAG)));
+
+    let conditional =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(V2_ETAG))).await;
+    assert_eq!(conditional.status, 429);
+    let full = definitions_reply(&server, &versioned, &secret_token, None).await;
+    assert_eq!(full.status, 429);
+}
+
+#[rstest::rstest]
+#[case::etag_without_payload(None, Some(V2_ETAG))]
+#[case::payload_without_etag(Some(v2_definitions().to_string()), None)]
+#[case::missing_marker(Some("__missing__".to_string()), Some(V2_ETAG))]
+#[tokio::test]
+async fn test_incomplete_v2_entry_is_answered_from_the_legacy_entry(
+    #[case] payload: Option<String>,
+    #[case] etag: Option<&str>,
+) {
+    use feature_flags::utils::test_utils::setup_redis_client;
+
+    let config = feature_flags::config::Config::default_test_config();
+    let (context, team, secret_token) = team_with_definitions(&config, false).await;
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_definitions_v2_entry_on(redis, team.id, payload, etag)
+        .await
+        .unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+    let unversioned = format!("/flags/definitions?token={}", team.api_token);
+
+    let legacy = definitions_reply(&server, &unversioned, &secret_token, None).await;
+    assert_eq!(legacy.status, 200);
+    assert_eq!(
+        definitions_reply(&server, &format!("{unversioned}&v=2"), &secret_token, None).await,
+        legacy
+    );
+}
+
+#[tokio::test]
+async fn test_v2_request_does_not_request_a_rebuild_for_a_missing_v2_entry() {
+    use feature_flags::config::FlexBool;
+    use feature_flags::utils::test_utils::{
+        dummy_s3_client, read_flag_definitions_rebuild_requests, read_s3_rebuild_requests,
+        remove_flag_definitions_rebuild_request,
+    };
+
+    let mut config = feature_flags::config::Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(true);
+    let (_context, team, secret_token) = team_with_definitions(&config, false).await;
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+
+    let reply = definitions_reply(
+        &server,
+        &format!("/flags/definitions?token={}&v=2", team.api_token),
+        &secret_token,
+        None,
+    )
+    .await;
+    assert_eq!(reply.status, 200);
+
+    // Give an erroneous background enqueue time to land, then assert it did not.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let team_id = team.id.to_string();
+    assert!(!read_flag_definitions_rebuild_requests(&config.redis_url)
+        .await
+        .contains(&team_id));
+    assert!(!read_s3_rebuild_requests(&config.redis_url)
+        .await
+        .contains(&team_id));
+}
+
+#[tokio::test]
+async fn test_v2_request_without_any_entry_gets_the_503_and_rebuild_of_an_unversioned_request() {
+    use feature_flags::config::FlexBool;
+    use feature_flags::utils::test_utils::{
+        dummy_s3_client, remove_flag_definitions_rebuild_request, TestContext,
+    };
+
+    let mut config = feature_flags::config::Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let unversioned = format!("/flags/definitions?token={}", team.api_token);
+
+    let reply =
+        definitions_reply(&server, &format!("{unversioned}&v=2"), &secret_token, None).await;
+
+    assert_eq!(reply.status, 503);
+    assert_eq!(
+        definitions_reply(&server, &unversioned, &secret_token, None).await,
+        reply
+    );
+    assert!(poll_for_rebuild_enqueue(&config.redis_url, team.id, false).await);
+}
+
+#[tokio::test]
+async fn test_dedicated_redis_serves_the_v2_entry() {
+    use feature_flags::utils::test_utils::setup_redis_client;
+
+    let (config, context, team, secret_token) = dedicated_context_and_team().await;
+    let dedicated = setup_redis_client(Some(DEDICATED_REDIS_URL.to_string())).await;
+    context
+        .populate_cache_for_team_with_etag_on(dedicated.clone(), team.id, LEGACY_ETAG)
+        .await
+        .unwrap();
+    context
+        .populate_definitions_v2_entry_on(
+            dedicated,
+            team.id,
+            Some(v2_definitions().to_string()),
+            Some(V2_ETAG),
+        )
+        .await
+        .unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+
+    let reply = definitions_reply(
+        &server,
+        &format!("/flags/definitions?token={}&v=2", team.api_token),
+        &secret_token,
+        None,
+    )
+    .await;
+
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.etag, Some(weak(V2_ETAG)));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&reply.body).unwrap(),
+        v2_definitions()
     );
 }
