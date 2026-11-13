@@ -232,7 +232,13 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: str, search: str | None = None, owned_copies: bool = False
+    *,
+    team_id: int,
+    source_kind: str,
+    search: str | None = None,
+    owned_copies: bool = False,
+    source_config_contains: Mapping[str, Any] | None = None,
+    created_by_id: int | None = None,
 ) -> tuple[NativeConfigurationMatch, ...]:
     """Every configuration of a kind with no source row, and with `owned_copies` also the copies the
     platform owns, or with `search` only the ones whose name matches it, both tiers included. A source
@@ -241,6 +247,10 @@ def native_configuration_matches(
     if owned_copies:
         wanted |= Q(owner=PlatformAlertOwner.PLATFORM)
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(wanted, source_kind=source_kind)
+    if source_config_contains:
+        rows = rows.filter(source_config__contains=dict(source_config_contains))
+    if created_by_id is not None:
+        rows = rows.filter(created_by_id=created_by_id)
     columns = ("id", "created_at", "created_by_id", "source_config", "legacy_configuration_id")
     if not search:
         return tuple(

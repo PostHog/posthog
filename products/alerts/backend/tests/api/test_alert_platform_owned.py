@@ -587,24 +587,39 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert (listed(matching), listed(missing)) == ([str(self.alert.id)], [])
 
-    @parameterized.expand([("list", True), ("retrieve", True), ("list_without_insight_access", False)])
-    def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(self, action: str, can_view: bool) -> None:
+    @parameterized.expand(
+        [
+            ("list", "list", None),
+            ("retrieve", "retrieve", None),
+            ("threshold_insight_hidden", "list", "threshold"),
+            ("alert_moved_to_a_hidden_insight", "list", "alert"),
+        ]
+    )
+    def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(
+        self, _name: str, action: str, hidden: str | None
+    ) -> None:
         assert self.alert.threshold is not None
+        threshold_insight_id = self.alert.insight_id
         AlertConfiguration.objects.filter(id=self.alert.id).update(name="Drifted")
         copy_threshold = self.alert.threshold.configuration
         row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
         Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
-        if not can_view:
+        if hidden is not None:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
             ]
             self.organization.save()
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
+            hidden_insight_id = threshold_insight_id
+            if hidden == "alert":
+                # An edit can move an alert to another insight and keep its threshold.
+                hidden_insight_id = Insight.objects.create(team=self.team, query=self.alert.insight.query).id
+                AlertConfiguration.objects.filter(id=self.alert.id).update(insight_id=hidden_insight_id)
             AccessControl.objects.create(
-                resource="insight", resource_id=self.alert.insight_id, team=self.team, access_level="none"
+                resource="insight", resource_id=hidden_insight_id, team=self.team, access_level="none"
             )
-        url = f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/"
+        url = f"/api/projects/{self.team.id}/insights/{threshold_insight_id}/thresholds/"
 
         response = self.client.get(url if action != "retrieve" else f"{url}{self.alert.threshold_id}/")
 
@@ -614,7 +629,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
             for threshold in thresholds
             for alert in threshold["alerts"]
-        ] == ([(row_threshold, self.alert.name, copy_threshold, "Revenue bound")] if can_view else [])
+        ] == ([(row_threshold, self.alert.name, copy_threshold, "Revenue bound")] if hidden is None else [])
 
     @parameterized.expand(
         [

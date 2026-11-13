@@ -171,12 +171,23 @@ def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
 
 
 def native_insight_alert_matches(
-    team_id: int, *, search: str | None, owned_copies: bool = False
+    team_id: int,
+    *,
+    search: str | None,
+    owned_copies: bool = False,
+    insight_id: int | None = None,
+    created_by_id: int | None = None,
 ) -> tuple[NativeConfigurationMatch, ...]:
     """Every insight alert with no insight row, and with `owned_copies` the copies the platform owns,
-    or with `search` the ones whose name matches it."""
+    or with `search` the ones whose name matches it. With `insight_id` or `created_by_id`, only the
+    ones on that insight or by that creator."""
     return native_configuration_matches(
-        team_id=team_id, source_kind=SourceKind.INSIGHT, search=search, owned_copies=owned_copies
+        team_id=team_id,
+        source_kind=SourceKind.INSIGHT,
+        search=search,
+        owned_copies=owned_copies,
+        source_config_contains={"insight_id": insight_id} if insight_id is not None else None,
+        created_by_id=created_by_id,
     )
 
 

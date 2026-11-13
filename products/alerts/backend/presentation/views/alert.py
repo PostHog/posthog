@@ -2243,12 +2243,25 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """The insight alerts with no insight row, and the copies the platform owns, that pass the
         list's filters and read gates on the platform's values, as `safely_get_queryset` and
         `_filtered_rows` apply them to rows."""
-        matches = native_insight_alert_matches(self.team_id, search=search, owned_copies=True)
-        if not matches:
-            return []
         filters = self.request.query_params
         list_filters = AlertListFiltersSerializer(data=filters)
         list_filters.is_valid(raise_exception=True)
+        created_by = filters.get("created_by")
+        creator_id = User.objects.filter(uuid=created_by).values_list("id", flat=True).first() if created_by else None
+        if created_by and creator_id is None:
+            return []
+        insight_filter = next(
+            (filters[name] for name in ("insight", "insight_id") if filters.get(name) is not None), None
+        )
+        matches = native_insight_alert_matches(
+            self.team_id,
+            search=search,
+            owned_copies=True,
+            insight_id=int(insight_filter) if insight_filter is not None else None,
+            created_by_id=creator_id,
+        )
+        if not matches:
+            return []
         insights = self._viewable_insights().filter(id__in={match.source_config.get("insight_id") for match in matches})
         for name in ("insight", "insight_id"):
             if filters.get(name) is not None:
@@ -2266,8 +2279,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         allowed = set(insights.values_list("id", flat=True))
         has_detector = list_filters.validated_data.get("has_detector")
-        created_by = filters.get("created_by")
-        creator_id = User.objects.filter(uuid=created_by).values_list("id", flat=True).first() if created_by else None
         return [
             match
             for match in matches
@@ -2276,7 +2287,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 has_detector is None
                 or bool((match.source_config.get(SOURCE_CONDITION_KEY) or {}).get("detector")) == has_detector
             )
-            and (not created_by or (creator_id is not None and match.created_by_id == creator_id))
         ]
 
     def destroy(self, request, *args, **kwargs):
@@ -2835,8 +2845,7 @@ class ThresholdWithAlertSerializer(ThresholdSerializer):
 
 class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "alert"
-    # Prefetched, so the page's alerts are the same objects its thresholds then serialize.
-    queryset = Threshold.objects.prefetch_related("alertconfiguration_set")
+    queryset = Threshold.objects.all()
     serializer_class = ThresholdWithAlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -2847,4 +2856,12 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # The embedded alerts carry the insight's results, as the alert API's do, so the same gate on
         # viewer access to the insight applies.
         viewable = _viewable_insights(self.user_access_control, self.team_id)
-        return queryset.filter(insight_id__in=viewable.values("id"))
+        # An alert can move to another insight and keep its threshold, so each embedded alert passes
+        # the same gates on its own insight. Prefetched, so the page's alerts are the same objects its
+        # thresholds then serialize.
+        alerts = AlertConfiguration.objects.filter(insight_id__in=viewable.values("id"))
+        if _token_lacks_metrics_scope(self.request):
+            alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
+        return queryset.filter(insight_id__in=viewable.values("id")).prefetch_related(
+            Prefetch("alertconfiguration_set", queryset=alerts)
+        )
