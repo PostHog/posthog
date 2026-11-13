@@ -63,6 +63,8 @@ export function FacetSearchBar<TItem>({
         inputRef.current?.focus()
     }
 
+    const noValues = suggestions.find((suggestion) => suggestion.kind === 'none')
+    const listboxShown = open && suggestions.some((suggestion) => suggestion.kind !== 'none')
     const listboxId = `${dataAttr}-listbox`
     const optionId = (index: number): string => `${listboxId}-option-${index}`
     const activeOptionId = open && highlightedSuggestion ? optionId(highlightedIndex) : undefined
@@ -116,53 +118,55 @@ export function FacetSearchBar<TItem>({
         // Suggestions carry search terms and facet values in their text and titles, so autocapture must skip them.
         <div className="ph-no-capture w-96 max-w-full" onMouseDown={(event) => event.preventDefault()}>
             <div className="px-2 py-1 text-xs font-semibold text-secondary">{title}</div>
-            <div role="listbox" id={listboxId} aria-label={title} className="max-h-96 overflow-y-auto">
-                {suggestions.map((suggestion, index) =>
-                    suggestion.kind === 'none' ? (
-                        <div key={suggestion.id} className="px-2 py-1 text-secondary break-words">
-                            {suggestion.label}
-                        </div>
-                    ) : (
-                        <LemonButton
-                            key={suggestion.id}
-                            id={optionId(index)}
-                            role="option"
-                            aria-selected={index === highlightedIndex}
-                            active={index === highlightedIndex}
-                            tabIndex={-1}
-                            fullWidth
-                            size="small"
-                            data-attr={`${dataAttr}-suggestion-${suggestion.kind}`}
-                            onClick={() => applySuggestion(suggestion)}
-                        >
-                            <span className="flex items-center gap-2 w-full min-w-0">
-                                <span
-                                    className={suggestion.kind === 'facet' ? 'shrink-0 font-mono' : 'truncate'}
-                                    title={suggestion.kind === 'facet' ? undefined : suggestion.label}
-                                >
-                                    {suggestion.label}
-                                </span>
-                                {suggestion.detail && (
-                                    <span
-                                        className="text-secondary font-normal truncate shrink-[2]"
-                                        title={suggestion.detail}
-                                    >
-                                        {suggestion.detail}
-                                    </span>
-                                )}
-                                {suggestion.count !== undefined && (
-                                    <span
-                                        className="ml-auto shrink-0 text-secondary font-normal tabular-nums"
-                                        translate="no"
-                                    >
-                                        {suggestion.count}
-                                    </span>
-                                )}
-                            </span>
-                        </LemonButton>
-                    )
-                )}
+            {/* The region stays mounted while the popover is open, so a screen reader announces each new message. */}
+            <div role="status" className={noValues ? 'px-2 py-1 text-secondary break-words' : undefined}>
+                {noValues?.label}
             </div>
+            {listboxShown && (
+                <div role="listbox" id={listboxId} aria-label={title} className="max-h-96 overflow-y-auto">
+                    {suggestions.map((suggestion, index) =>
+                        suggestion.kind === 'none' ? null : (
+                            <LemonButton
+                                key={suggestion.id}
+                                id={optionId(index)}
+                                role="option"
+                                aria-selected={index === highlightedIndex}
+                                active={index === highlightedIndex}
+                                tabIndex={-1}
+                                fullWidth
+                                size="small"
+                                data-attr={`${dataAttr}-suggestion-${suggestion.kind}`}
+                                onClick={() => applySuggestion(suggestion)}
+                            >
+                                <span className="flex items-center gap-2 w-full min-w-0">
+                                    <span
+                                        className={suggestion.kind === 'facet' ? 'shrink-0 font-mono' : 'truncate'}
+                                        title={suggestion.kind === 'facet' ? undefined : suggestion.label}
+                                    >
+                                        {suggestion.label}
+                                    </span>
+                                    {suggestion.detail && (
+                                        <span
+                                            className="text-secondary font-normal truncate shrink-[2]"
+                                            title={suggestion.detail}
+                                        >
+                                            {suggestion.detail}
+                                        </span>
+                                    )}
+                                    {suggestion.count !== undefined && (
+                                        <span
+                                            className="ml-auto shrink-0 text-secondary font-normal tabular-nums"
+                                            translate="no"
+                                        >
+                                            {suggestion.count}
+                                        </span>
+                                    )}
+                                </span>
+                            </LemonButton>
+                        )
+                    )}
+                </div>
+            )}
             <div
                 data-attr="facet-search-bar-hints"
                 className="flex flex-wrap gap-x-3 px-2 pt-1 mt-1 border-t text-xs text-secondary"
@@ -192,8 +196,8 @@ export function FacetSearchBar<TItem>({
                     role="combobox"
                     aria-label={placeholder}
                     aria-autocomplete="list"
-                    aria-expanded={open}
-                    aria-controls={open ? listboxId : undefined}
+                    aria-expanded={listboxShown}
+                    aria-controls={listboxShown ? listboxId : undefined}
                     aria-activedescendant={activeOptionId}
                     className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_.LemonInput__input]:min-w-40"
                     value={input}

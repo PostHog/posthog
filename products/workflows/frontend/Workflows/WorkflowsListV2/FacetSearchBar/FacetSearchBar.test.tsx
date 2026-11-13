@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 
 import { initKeaTests } from '~/test/init'
@@ -51,8 +51,8 @@ function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
                 placeholder="Search"
                 dataAttr="test-search"
             />
-            <output data-attr="query">{serializeFacetQuery(value.filters)}</output>
-            <output data-attr="text">{value.text}</output>
+            <div data-attr="query">{serializeFacetQuery(value.filters)}</div>
+            <div data-attr="text">{value.text}</div>
         </div>
     )
 }
@@ -310,13 +310,15 @@ describe('FacetSearchBar', () => {
         expect(listbox()).not.toBeNull()
     })
 
-    it('shows the no-values message as text, not as an option', () => {
+    it('announces the no-values message as a status, with no list of options', () => {
         setup()
         clickInput()
         typeText('status:zzz')
-        expect(document.querySelectorAll('[role="option"]')).toHaveLength(0)
-        expect(listbox()).toHaveTextContent('No value matches "zzz"')
-        expect(input()).not.toHaveAttribute('aria-activedescendant')
+        expect(screen.getByRole('status')).toHaveTextContent('No value matches "zzz"')
+        expect(screen.queryByRole('listbox')).toBeNull()
+        expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-controls')
+        expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-activedescendant')
     })
 
     it('keeps focus in the input after a pill is removed with the keyboard', () => {
