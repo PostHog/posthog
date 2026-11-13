@@ -1,9 +1,18 @@
 import { describe, expect, test } from 'bun:test'
+import { execFileSync } from 'node:child_process'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { CATALOG_SCHEMA, CATALOG_TOOLS_JSON, compiledFiles, findCatalogGaps, type GapResult } from './catalog-gap'
+import {
+    CATALOG_SCHEMA,
+    CATALOG_TOOLS_JSON,
+    compiledFiles,
+    findCatalogGaps,
+    type GapResult,
+    readAt,
+    untriggeredFiles,
+} from './catalog-gap'
 
 const GENERATED = 'services/mcp/src/tools/generated/actions.ts'
 
@@ -102,4 +111,46 @@ test('reads compiled files from metafiles relative to the folder each build ran 
     const files = compiledFiles([{ path: metafile, root: '/repo/services/mcp' }], '/repo')
 
     expect([...files].sort()).toEqual(['hog/src/version.ts', 'services/mcp/src/cli/library.ts'])
+})
+
+test('reads a file larger than the default subprocess buffer, and only a missing path as missing', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'hog-git-'))
+    const git = (...args: string[]): void => {
+        execFileSync('git', ['-c', 'user.name=hog', '-c', 'user.email=hog@example.com', ...args], { cwd: repo })
+    }
+    const definitions = JSON.stringify({ 'exec-tool': { summary: 'x'.repeat(2 * 1024 * 1024) } })
+    git('init', '-q')
+    await writeFile(join(repo, 'tool-definitions.json'), definitions)
+    git('add', '.')
+    git('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'definitions')
+
+    const read = readAt(repo)
+
+    expect(read('HEAD')('tool-definitions.json')).toBe(definitions)
+    expect(read('HEAD')('missing.json')).toBeUndefined()
+    expect(() => read('no-such-commit')('tool-definitions.json')).toThrow()
+})
+
+test('lists compiled files the workflow trigger paths miss', () => {
+    const workflow = [
+        'on:',
+        '    pull_request:',
+        '        paths:',
+        "            - 'hog/**'",
+        "            - 'products/*/mcp/**'",
+        "            - 'products/notebooks/*'",
+        "            - '!products/notebooks/*.md'",
+    ].join('\n')
+    const compiled = new Set([
+        'hog/src/cli.ts',
+        'products/product_analytics/mcp/apps/chart.ts',
+        'products/notebooks/notebook-widget-catalog.json',
+        'products/notebooks/README.md',
+        'products/notebooks/frontend/widget.ts',
+    ])
+
+    expect(untriggeredFiles(compiled, workflow)).toEqual([
+        'products/notebooks/README.md',
+        'products/notebooks/frontend/widget.ts',
+    ])
 })

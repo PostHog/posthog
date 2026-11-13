@@ -5,12 +5,14 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { posix, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import { parseJsonOrUndefined } from '../src/core/json'
 
 export const CATALOG_TOOLS_JSON = 'services/mcp/schema/cli-catalog-tools.json'
 export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
+const WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
 // Generated, but code rather than catalog data: the barrel, the hook registry and the query wrappers.
 const GENERATED_CODE = new Set(['index.ts', 'hooks.ts', 'query-wrappers.ts'])
@@ -39,6 +41,7 @@ export interface GapInput {
 
 const JsonObject = z.record(z.string(), z.unknown())
 const Metafile = z.object({ inputs: z.record(z.string(), z.unknown()) })
+const Workflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
 
 function jsonObject(text: string | undefined): Record<string, unknown> {
     return (text && parseJsonOrUndefined(text, JsonObject)) || {}
@@ -126,6 +129,36 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     return files
 }
 
+// Patterns apply in order, and a later `!pattern` excludes again, as GitHub applies them.
+export function untriggeredFiles(compiled: Set<string>, workflow: string): string[] {
+    const patterns = Workflow.parse(parseYaml(workflow)).on.pull_request.paths
+    return [...compiled].filter(
+        (file) =>
+            !patterns.reduce((matched, pattern) => {
+                const negated = pattern.startsWith('!')
+                return new Bun.Glob(negated ? pattern.slice(1) : pattern).match(file) ? !negated : matched
+            }, false)
+    )
+}
+
+// Generated schema files are larger than execFileSync's default 1 MiB output buffer.
+const GIT_OUTPUT_LIMIT = 512 * 1024 * 1024
+
+// Only a path the commit lacks reads as missing. Any other git failure throws, so it can't hide a change.
+export function readAt(repoRoot: string): (ref: string) => (path: string) => string | undefined {
+    return (ref) => (path) =>
+        git(repoRoot, 'ls-tree', ref, '--', path).trim() ? git(repoRoot, 'show', `${ref}:${path}`) : undefined
+}
+
+function git(repoRoot: string, ...args: string[]): string {
+    return execFileSync('git', args, {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: GIT_OUTPUT_LIMIT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+    })
+}
+
 if (import.meta.main) {
     const repoRoot = resolve(import.meta.dir, '../..')
     const { values } = parseArgs({
@@ -134,7 +167,11 @@ if (import.meta.main) {
             'hog-metafile': { type: 'string', default: resolve(repoRoot, 'hog/dist/hog.metafile.json') },
             'mcp-metafile': {
                 type: 'string',
-                default: resolve(repoRoot, 'services/mcp/dist/cli-library.metafile.json'),
+                multiple: true,
+                default: [
+                    resolve(repoRoot, 'services/mcp/dist/cli-library.metafile.json'),
+                    resolve(repoRoot, 'services/mcp/dist/cli-skills.metafile.json'),
+                ],
             },
         },
     })
@@ -143,18 +180,9 @@ if (import.meta.main) {
         process.exit(1)
     }
 
-    const git = (...args: string[]): string =>
-        execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-    const readAt = (ref: string) => (path: string) => {
-        try {
-            return git('show', `${ref}:${path}`)
-        } catch {
-            return undefined
-        }
-    }
     const metafiles = [
         { path: values['hog-metafile'], root: resolve(repoRoot, 'hog') },
-        { path: values['mcp-metafile'], root: resolve(repoRoot, 'services/mcp') },
+        ...values['mcp-metafile'].map((path) => ({ path, root: resolve(repoRoot, 'services/mcp') })),
     ]
     for (const { path } of metafiles) {
         if (!existsSync(path)) {
@@ -163,11 +191,14 @@ if (import.meta.main) {
         }
     }
 
+    const read = readAt(repoRoot)
+    const compiled = compiledFiles(metafiles, repoRoot)
     const result = findCatalogGaps({
-        changed: git('diff', '--name-only', `${values.base}...HEAD`).split('\n').filter(Boolean),
-        compiled: compiledFiles(metafiles, repoRoot),
-        readBase: readAt(values.base),
-        readHead: readAt('HEAD'),
+        changed: git(repoRoot, 'diff', '--name-only', `${values.base}...HEAD`).split('\n').filter(Boolean),
+        compiled,
+        readBase: read(values.base),
+        readHead: read('HEAD'),
     })
-    process.stdout.write(`${JSON.stringify(result)}\n`)
+    const untriggered = untriggeredFiles(compiled, readFileSync(resolve(repoRoot, WORKFLOW), 'utf8'))
+    process.stdout.write(`${JSON.stringify({ ...result, untriggered })}\n`)
 }
