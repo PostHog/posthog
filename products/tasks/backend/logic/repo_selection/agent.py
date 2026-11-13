@@ -144,6 +144,24 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
     )
 
 
+def _first_reaching_repositories(
+    adapters: Iterable[GitHubIntegration], repositories: Collection[str]
+) -> GitHubIntegration | None:
+    """The first adapter whose stored repository list reaches one of ``repositories``, else the first adapter.
+
+    Reads only the stored list, so a stale or unsynced cache never triggers a GitHub refresh here.
+    """
+    wanted = {repository.lower() for repository in repositories}
+    first: GitHubIntegration | None = None
+    for adapter in adapters:
+        if not wanted or any(
+            repo["full_name"].lower() in wanted for repo in adapter.list_all_cached_repositories(allow_refresh=False)
+        ):
+            return adapter
+        first = first or adapter
+    return first
+
+
 def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
     account_type = (row.config.get("account") or {}).get("type")
     return (account_type is None, account_type or "")
@@ -156,6 +174,7 @@ def resolve_team_github_integration(
     team_only: bool = False,
     *,
     include_unavailable: bool = False,
+    preferred_repositories: Collection[str] = (),
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -176,6 +195,11 @@ def resolve_team_github_integration(
     ``team_only=True`` disables both personal-connection fallbacks. Use it when the resolved
     source's repository names are shown to other team members, or when the work runs under the
     team installation's bot identity — a personal connection is a cross-account leak there.
+
+    ``preferred_repositories`` are ``owner/repo`` names the team configured, for example its
+    self-driving base branches. When the team has several usable installations, the first one whose
+    cached repository list reaches one of them wins over the default order. Without this, an old
+    installation can shadow the one that reaches the configured repositories.
     """
     candidates = sorted(
         (
@@ -193,17 +217,15 @@ def resolve_team_github_integration(
         key=_account_type_sort_key,
     )
     # Skip integrations whose installation has been synced and confirmed empty (0 repos). The SDK
-    # defers the repository cache, so check it only until the first match.
-    github = next(
-        (
-            adapter
-            for adapter in (
-                GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
-            )
-            if not adapter.repository_cache_confirmed_empty()
-        ),
-        None,
+    # defers the repository cache, so without preferred repositories check it only until the first match.
+    usable = (
+        adapter
+        for adapter in (
+            GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
+        )
+        if not adapter.repository_cache_confirmed_empty()
     )
+    github = _first_reaching_repositories(usable, preferred_repositories)
     # Prefer the first GitHub integration from the team
     if github is not None:
         return github
