@@ -154,6 +154,7 @@ def _verdict(
     *,
     commit_sha: str = "a" * 40,
     note: str = "Document the new retention option.",
+    docs_content_root: str | None = None,
 ):
     report = MergeCheckReport(
         commit_sha=commit_sha,
@@ -168,6 +169,7 @@ def _verdict(
         change_kind=DocsChangeKind.UPDATE,
         page_urls=suggested_page_urls,
         evidence=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
+        docs_content_root=docs_content_root,
     )
     inputs = MergeCheckInputs(
         commit_sha=None,
@@ -573,6 +575,34 @@ def test_with_pull_requests_off_a_finished_run_is_logged_and_its_branch_deleted_
     event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
     assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [SECTION_PAGE])
     assert properties["files"] == [{**patched_file, "is_patch_truncated": False}]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "changed_path, expected_outcome",
+    [("docs/session-replay/retention.md", "logged"), (DOCS_PAGE_PATH, "refused")],
+)
+def test_without_configured_docs_paths_publish_allows_only_the_docs_folder_the_merge_check_found(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch, changed_path, expected_outcome
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
+    with (
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(docs_content_root="docs/"), team_id=team.id)
+    assert started.task_id is not None
+    with (
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
+        patch(f"{GITHUB}.delete_branch", return_value={"success": True}),
+        patch(CAPTURE_DRAFT) as scoped_capture,
+    ):
+        _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=(changed_path,))
+
+    capture = scoped_capture.return_value.__enter__.return_value
+    assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == [expected_outcome]
 
 
 @pytest.mark.django_db

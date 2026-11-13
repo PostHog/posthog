@@ -302,12 +302,9 @@ def docs_source_path_by_suffix(tree_paths: list[str]) -> dict[str, str]:
 def merge_time_tree_pages(
     sitemap_pages: list[DocsPage], docs_tree_paths: list[str], docs_url_prefix: str
 ) -> list[DocsPage]:
-    content_roots = Counter(
-        content_root for page in sitemap_pages if (content_root := page_content_root(page)) is not None
-    )
-    if not content_roots:
+    content_root = docs_content_root(sitemap_pages)
+    if content_root is None:
         return []
-    content_root = content_roots.most_common(1)[0][0]
     known_page_keys = {page.key for page in sitemap_pages}
     tree_pages: list[DocsPage] = []
     for path in docs_tree_paths:
@@ -323,6 +320,13 @@ def merge_time_tree_pages(
         version = major_version(page_key.split("/", 1)[0])
         tree_pages.append(DocsPage(url=f"{docs_url_prefix}{page_key}", key=page_key, source_path=path, version=version))
     return tree_pages
+
+
+def docs_content_root(pages: list[DocsPage] | tuple[DocsPage, ...]) -> str | None:
+    content_roots = Counter(content_root for page in pages if (content_root := page_content_root(page)) is not None)
+    if not content_roots:
+        return None
+    return content_roots.most_common(1)[0][0]
 
 
 def page_content_root(page: DocsPage) -> str | None:

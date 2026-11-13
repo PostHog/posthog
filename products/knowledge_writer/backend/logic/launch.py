@@ -16,6 +16,7 @@ from ..task_profiles import WRITER
 from .caps import WriterRerunTaken, claim_section
 from .records import (
     BRANCH_REFUSALS,
+    DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
     JOIN_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
@@ -134,7 +135,8 @@ def start_writer(
 ) -> UUID:
     head_branch = issued_head_branch(joining, rerun_task_id, team.id)
     state_entries = {
-        REQUEST_STATE_KEY: request_json.dump_python(request, mode="json"),
+        REQUEST_STATE_KEY: request_json.dump_python(request, mode="json", exclude={"docs_content_root"}),
+        DOCS_CONTENT_ROOT_STATE_KEY: request.docs_content_root,
         SECTION_STATE_KEY: routing.section,
         JOIN_STATE_KEY: pull_request_json.dump_python(joining, mode="json") if joining is not None else None,
         HEAD_BRANCH_STATE_KEY: head_branch,

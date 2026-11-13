@@ -6,7 +6,7 @@ from ..backend.settings import DocsSource
 from .deadline import CheckDeadline
 from .facts import MergeFacts, extract_facts, verify_quotes
 from .gates import decide_with_rules, fact_gates, gate_row, rule_gates, with_existing_docs_pull_requests
-from .gather import DocsPage, MergeEvidence, gather_merge
+from .gather import DocsPage, MergeEvidence, docs_content_root, gather_merge
 from .judge import Decision, Variant, decide_with_judge, single_line
 from .sources import (
     GitHubReader,
@@ -188,6 +188,7 @@ def decided_report(
         change_kind=decision.change_kind,
         page_urls=tuple(page_by_key[key].url for key in decision.page_keys if key in page_by_key),
         evidence="\n".join([evidence.url, *finding_lines(page_by_key, facts, decision)]),
+        docs_content_root=docs_content_root(evidence.editable_pages),
     )
     return with_existing_docs_pull_requests(report, evidence)
 
