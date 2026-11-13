@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
 import type {
@@ -320,13 +320,17 @@ export function processRuntime(): Runtime {
                         : [process.execPath, TELEMETRY_WORKER_ARG],
                     {
                         // No stdout or stderr, so a pipe or an agent reading hog's output sees it end
-                        // when hog exits. tmpdir() keeps the worker from holding the caller's folder open.
+                        // when hog exits.
                         detached: true,
                         stdin: 'pipe',
                         stdout: 'ignore',
                         stderr: 'ignore',
                         windowsHide: true,
-                        cwd: tmpdir(),
+                        // Not the caller's folder, which the worker would hold open, and not a shared
+                        // temp folder, where bun run from source loads any bunfig.toml it finds.
+                        cwd: dirname(process.execPath),
+                        // The environment as it is now, so the worker keeps --skip-ssl-verification.
+                        env: process.env,
                     }
                 )
                 child.unref()

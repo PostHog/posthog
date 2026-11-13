@@ -8,20 +8,32 @@ import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
 import { detectCi, isRunningInCI } from './ci'
-import { parseJsonOrUndefined } from './json'
+import { JsonObject, parseJsonOrUndefined } from './json'
 import type { Runtime } from './runtime'
 import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
 
-export const TELEMETRY_BATCH_URL = new URL('/batch/', INGESTION_HOSTS.us)
+const TELEMETRY_BATCH_URL = new URL('/batch/', INGESTION_HOSTS.us)
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
 export const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'
 const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
+
+// The body `Telemetry` sends, which is also all the background worker accepts on its stdin.
+export const TelemetryBatch = z.object({ api_key: z.string(), batch: z.array(JsonObject).min(1) })
+
+export function postBatch(fetch: (url: URL, init: RequestInit) => Promise<Response>, body: string): Promise<Response> {
+    return fetch(TELEMETRY_BATCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    })
+}
 
 interface QueuedEvent {
     event: string
@@ -218,12 +230,7 @@ export class Telemetry {
 
     private async post(batch: BatchEvent[], debug: boolean): Promise<boolean> {
         try {
-            const response = await this.runtime.fetch(TELEMETRY_BATCH_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: this.body(batch),
-                signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-            })
+            const response = await postBatch(this.runtime.fetch, this.body(batch))
             if (debug) {
                 this.runtime.writeStderr(`[debug] telemetry: sent ${batch.length} events, ${response.status}\n`)
             }

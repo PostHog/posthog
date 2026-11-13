@@ -2,13 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { z } from 'zod'
 
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
 import { detectCi } from './ci'
-import { JsonObject, parseJsonOrUndefined } from './json'
+import { parseJsonOrUndefined } from './json'
+import { TelemetryBatch } from './telemetry'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
 const ON = { telemetryToken: 'phc_test' }
@@ -137,6 +137,7 @@ describe('telemetry', () => {
         ],
         ['a run in CI sends usage events itself', ['commands'], { GITHUB_ACTIONS: 'true' }, true, 'inline'],
         ['a run with --debug sends usage events itself', ['commands', '--debug'], {}, true, 'inline'],
+        ['a run with --debug that fails to parse sends usage events itself', ['nope', '--debug'], {}, true, 'inline'],
         ['a run whose background process fails to start sends usage events itself', ['commands'], {}, false, 'inline'],
     ])('%s', async (_name, argv, env, started, expected) => {
         const background: string[] = []
@@ -144,16 +145,13 @@ describe('telemetry', () => {
             ...ON,
             env: { ...AGENT, ...env },
             respond: () => ({ status: 200, body: {} }),
-            backgroundTelemetry: async (body) => {
+            sendTelemetryInBackground: async (body) => {
                 background.push(body)
                 return started
             },
         })
 
-        const handedOff = background.flatMap(
-            (body) =>
-                parseJsonOrUndefined(body, z.object({ api_key: z.string(), batch: z.array(JsonObject) }))?.batch ?? []
-        )
+        const handedOff = background.flatMap((body) => parseJsonOrUndefined(body, TelemetryBatch)?.batch ?? [])
         if (expected === 'background') {
             expect(handedOff).toEqual([expect.objectContaining({ event: 'posthog cli command run' })])
             expect(events(result)).toEqual([])
