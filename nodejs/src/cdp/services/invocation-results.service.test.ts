@@ -129,9 +129,10 @@ const realSinks = (): {
     const pool = new Pool({ connectionString: CYCLOTRON_DATABASE_URL })
     const runIds = (runs: CyclotronJobInvocationResult[]): string[] => runs.map((run) => run.invocation.id)
     const delivered = async (runs: CyclotronJobInvocationResult[]): Promise<Record<string, unknown[]>> => {
-        const watchers = await pool.query('SELECT run_id FROM conversion_watchers WHERE run_id = ANY($1)', [
-            runIds(runs),
-        ])
+        const watchers = await pool.query(
+            'SELECT run_id FROM conversion_watchers WHERE run_id = ANY($1) ORDER BY distinct_id',
+            [runIds(runs)]
+        )
         return {
             [APP_METRICS_OUTPUT]: recording.produced(APP_METRICS_OUTPUT),
             [LOG_ENTRIES_OUTPUT]: recording.produced(LOG_ENTRIES_OUTPUT),
@@ -267,37 +268,33 @@ describe('InvocationResultsService', () => {
         it('delivers every queued run through every sink', async () => {
             const { service: realService, delivered, cleanup } = realSinks()
             const runs = [failedTransactionalEmailRun('person-a'), failedTransactionalEmailRun('person-b')]
-            const eachRun = (record: (run: CyclotronJobInvocationResult) => object): unknown =>
-                expect.arrayContaining(runs.map((run) => expect.objectContaining(record(run))))
+            const eachRun = (records: (run: CyclotronJobInvocationResult) => object[]): unknown[] =>
+                runs.flatMap((run) => records(run).map((record) => expect.objectContaining(record)))
 
             try {
                 await realService.queueInvocationResults(runs)
                 await realService.flush()
 
                 expect(await delivered(runs)).toEqual({
-                    [APP_METRICS_OUTPUT]: eachRun((run) => ({
-                        app_source_id: run.invocation.functionId,
-                        metric_name: 'failed',
-                    })),
-                    [LOG_ENTRIES_OUTPUT]: eachRun((run) => ({
-                        instance_id: run.invocation.id,
-                        message: 'Template not found',
-                    })),
-                    [HOG_INVOCATION_RESULTS_OUTPUT]: eachRun((run) => ({
-                        invocation_id: run.invocation.id,
-                        status: 'failed',
-                    })),
-                    [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: eachRun((run) => ({
-                        schema_id: run.warehouseWebhookPayloads[0].schema_id,
-                        payload: JSON.stringify({ id: 1 }),
-                    })),
-                    [MESSAGE_ASSETS_OUTPUT]: eachRun((run) => ({ invocation_id: run.invocation.id, subject: 'Hello' })),
-                    [EMAIL_STATUS_OUTPUT]: eachRun((run) => ({ message_id: run.invocation.id, status: 'failed' })),
-                    capture: eachRun((run) => ({
-                        api_key: team.api_token,
-                        distinct_id: run.capturedPostHogEvents[0].distinct_id,
-                    })),
-                    conversion_watchers: eachRun((run) => ({ run_id: run.invocation.id })),
+                    [APP_METRICS_OUTPUT]: eachRun((run) => [
+                        { app_source: 'hog_flow', app_source_id: run.invocation.functionId, metric_name: 'failed' },
+                        { app_source: 'hog_flow_version', metric_name: 'failed' },
+                    ]),
+                    [LOG_ENTRIES_OUTPUT]: eachRun((run) => [
+                        { instance_id: run.invocation.id, message: 'Template not found' },
+                    ]),
+                    [HOG_INVOCATION_RESULTS_OUTPUT]: eachRun((run) => [
+                        { invocation_id: run.invocation.id, status: 'failed' },
+                    ]),
+                    [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: eachRun((run) => [
+                        { schema_id: run.warehouseWebhookPayloads[0].schema_id, payload: JSON.stringify({ id: 1 }) },
+                    ]),
+                    [MESSAGE_ASSETS_OUTPUT]: eachRun((run) => [{ invocation_id: run.invocation.id, subject: 'Hello' }]),
+                    [EMAIL_STATUS_OUTPUT]: eachRun((run) => [{ message_id: run.invocation.id, status: 'failed' }]),
+                    capture: eachRun((run) => [
+                        { api_key: team.api_token, distinct_id: run.capturedPostHogEvents[0].distinct_id },
+                    ]),
+                    conversion_watchers: eachRun((run) => [{ run_id: run.invocation.id }]),
                 })
             } finally {
                 await cleanup(runs)
