@@ -45,10 +45,6 @@ class ImportProviderUnavailable(ImportStepError):
     """The provider did not respond or returned a server error. A later retry can succeed."""
 
 
-class ImportTooLarge(ImportStepError):
-    """The provider holds more data than one import can read. A retry does not fix this."""
-
-
 class UnknownImportStep(ImportStepError):
     """The provider has no step with this key."""
 
