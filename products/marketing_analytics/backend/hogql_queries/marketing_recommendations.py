@@ -620,7 +620,11 @@ class _Recommender:
         conversions = sum(leak.conversions for _, leak in group)
         names = [campaign.name for campaign, _ in group]
         steps = (
-            Step(text="In Google Ads, open Tools, then Shared library, and create a negative keyword list."),
+            Step(
+                text="Open Negative keywords and create a negative keyword list.",
+                url=ADS_NEGATIVE_KEYWORDS_URL,
+                linkText="Negative keywords",
+            ),
             self._paste_brand_negatives(brand, {campaign.id for campaign, _ in group}),
             Step(
                 text=f"Apply the list to these {len(names)} campaigns, one name per line.",
