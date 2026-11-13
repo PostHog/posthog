@@ -51,8 +51,8 @@ export interface todayMonitorLogicValues {
     collapsedSections: TodayMonitorSection[]
     isSearching: boolean
     isSectionOpen: (section: TodayMonitorSection) => boolean
-    matchingProducts: MonitorProduct[]
     matchingPinnedRows: TodayMonitorPin[]
+    matchingProducts: MonitorProduct[]
     matchingRecentRows: TodayMonitorRecent[]
     matchingTools: MonitorProduct[]
     pinnedRows: TodayMonitorPin[]
