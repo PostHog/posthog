@@ -1,14 +1,13 @@
 from typing import Any
 
-from django.utils.text import Truncator
-
 from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
-
-MAX_NAME_LENGTH = 200
+from products.marketing_analytics.backend.models.recommendation_resolution import (
+    RecommendationResolution,
+    RecommendationRule,
+)
 
 
 @mutable_receiver(model_activity_signal, sender=RecommendationResolution)
@@ -34,12 +33,7 @@ def handle_recommendation_resolution_change(
         activity=activity,
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
-            name=Truncator(
-                resolution.name
-                or resolution.subject
-                or resolution.campaign_id
-                or resolution.customer_id
-                or resolution.rule
-            ).chars(MAX_NAME_LENGTH),
+            # Only the rule: the identity copies warehouse data, and the activity log does not check warehouse access.
+            name=RecommendationRule(resolution.rule).label.capitalize(),
         ),
     )

@@ -2838,6 +2838,16 @@ export const RecommendationResolutionStateEnumApi = {
     Applied: 'applied',
 } as const
 
+export interface RecommendationResolutionRequestApi {
+    /** The recommendation's `identity` from the recommendations query, sent as is. */
+    identity: RecommendationIdentityApi
+    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+     *
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied */
+    resolution: RecommendationResolutionStateEnumApi
+}
+
 export interface RecommendationResolverApi {
     /** The user's id. */
     id: number
@@ -2863,8 +2873,6 @@ export interface RecommendationResolutionApi {
     identity: RecommendationIdentityApi
     /** Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query. */
     key: string
-    /** The display label sent with the last resolution, such as the campaign name. Empty when none was sent. */
-    name: string
     /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
      *
      * * `dismissed` - Dismissed
@@ -2876,30 +2884,6 @@ export interface RecommendationResolutionApi {
     resolved_at: string
     /** When the recommendation was first resolved. */
     created_at: string
-}
-
-export interface PaginatedRecommendationResolutionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: RecommendationResolutionApi[]
-}
-
-export interface RecommendationResolutionRequestApi {
-    /** The recommendation's `identity` from the recommendations query, sent as is. */
-    identity: RecommendationIdentityApi
-    /**
-     * A display label for the recommendation, such as the campaign name or the search term. The activity log shows it. It is not part of the identity.
-     * @maxLength 400
-     */
-    name?: string
-    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
-     *
-     * * `dismissed` - Dismissed
-     * * `applied` - Applied */
-    resolution: RecommendationResolutionStateEnumApi
 }
 
 export type MarketingAnalyticsDataSourcesRetrieveParams = {
@@ -2993,16 +2977,4 @@ export type MarketingAnalyticsUtmAuditRetrieveParams = {
      * @nullable
      */
     date_to?: string | null
-}
-
-export type MarketingAnalyticsRecommendationResolutionsListParams = {
-    /**
-     * Number of results to return per page.
-     * @maximum 1000
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
