@@ -94,6 +94,8 @@ class FakeSendGridState:
         self.rate_limits: dict[str, tuple[int, int]] = {}
         self._windows: dict[str, tuple[float, int]] = {}
         self.next_url_host = "https://api.sendgrid.com"
+        # Serves export files cut short, as a dropped connection would leave them.
+        self.truncate_exports = False
         # Export id -> (contacts it holds, status checks so far).
         self.exports: dict[str, tuple[list[dict[str, Any]], int]] = {}
         self.lock = threading.Lock()
@@ -219,6 +221,8 @@ class _Handler(BaseHTTPRequestHandler):
                 }
             )
         payload = gzip.compress(rows.getvalue().encode())
+        if self.server.state.truncate_exports:
+            payload = payload[: len(payload) - 12]
         self.send_response(200)
         self.send_header("Content-Type", "application/gzip")
         self.send_header("Content-Length", str(len(payload)))
@@ -242,6 +246,9 @@ class _Handler(BaseHTTPRequestHandler):
                         "authorization": self.headers.get("Authorization", ""),
                     }
                 )
+                status = self._forced_status("/__exports")
+            if status:
+                return self._send(status, {"errors": [{"message": "injected"}]}, {"Location": "https://example.com/"})
             return self._send_export_file(match.group(1))
         query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
         authorization = self.headers.get("Authorization", "")

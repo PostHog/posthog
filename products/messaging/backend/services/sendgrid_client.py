@@ -8,6 +8,7 @@ import json
 import time
 import zlib
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -16,6 +17,7 @@ from django.conf import settings
 import requests
 
 from posthog.dataclasses import frozen
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
 # SendGrid's documented maximum for the suppression lists.
 SUPPRESSION_PAGE_SIZE = 500
@@ -36,6 +38,8 @@ RESPONSE_CHUNK_BYTES = 1024 * 1024
 MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 DOWNLOAD_TOO_LARGE_MESSAGE = "SendGrid's contact export is too large to import in one go."
+DAMAGED_DOWNLOAD_MESSAGE = "SendGrid's contact export arrived incomplete. Import again."
+UNFOLLOWED_LINK_MESSAGE = "SendGrid sent a download link PostHog won't follow."
 GZIP_MAGIC = b"\x1f\x8b"
 USER_AGENT = "posthog-messaging-import/1.0"
 
@@ -139,24 +143,33 @@ class SendGridClient:
     def download(self, url: str) -> bytes:
         """A file SendGrid links to, such as a contact export on S3. The key never goes with it, and a gzipped file
         comes back unpacked."""
-        parsed = urlparse(url)
         # SendGrid's links are https. The same host as the API is allowed too, for a local stand-in of SendGrid.
-        if parsed.scheme != "https" and not url.startswith(f"{self._base_url}/"):
-            raise SendGridAPIError("SendGrid sent a download link PostHog won't follow.")
+        local = url.startswith(f"{self._base_url}/")
+        if urlparse(url).scheme != "https" and not local:
+            raise SendGridAPIError(UNFOLLOWED_LINK_MESSAGE)
+        for retry in range(MAX_TRANSIENT_RETRIES + 1):
+            try:
+                return _unpacked(self._fetch_file(url, pinned=not local))
+            except _DownloadInterrupted:
+                if retry == MAX_TRANSIENT_RETRIES:
+                    raise SendGridAPIError("Couldn't download SendGrid's contact export.") from None
+                time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (retry + 1))
+        raise AssertionError("unreachable")
+
+    def _fetch_file(self, url: str, pinned: bool) -> bytes:
         try:
-            with requests.get(url, timeout=self._timeout, allow_redirects=False, stream=True) as response:
-                if not response.ok:
-                    raise SendGridAPIError(f"SendGrid's file returned HTTP {response.status_code}.")
-                content = _read_capped(response.iter_content(DOWNLOAD_CHUNK_BYTES))
-        except requests.RequestException as e:
-            raise SendGridAPIError(f"Couldn't download SendGrid's file ({type(e).__name__}).") from None
-        if not content.startswith(GZIP_MAGIC):
-            return content
-        unpacker = zlib.decompressobj(wbits=zlib.MAX_WBITS | 16)
-        unpacked = unpacker.decompress(content, MAX_DOWNLOAD_BYTES + 1)
-        if len(unpacked) > MAX_DOWNLOAD_BYTES or unpacker.unconsumed_tail:
-            raise SendGridAPIError(DOWNLOAD_TOO_LARGE_MESSAGE)
-        return unpacked
+            with _download_session(url, pinned) as session:
+                with session.get(url, timeout=self._timeout, allow_redirects=False, stream=True) as response:
+                    if response.status_code >= 500:
+                        raise _DownloadInterrupted
+                    # A redirect isn't followed, and its body isn't the file.
+                    if not 200 <= response.status_code < 300:
+                        raise SendGridAPIError(f"SendGrid's file returned HTTP {response.status_code}.")
+                    return _read_capped(response.iter_content(DOWNLOAD_CHUNK_BYTES))
+        except SSRFBlockedError:
+            raise SendGridAPIError(UNFOLLOWED_LINK_MESSAGE) from None
+        except requests.RequestException:
+            raise _DownloadInterrupted from None
 
     def _request(
         self, method: str, path: str, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None
@@ -236,6 +249,36 @@ def connect(
     except SendGridKeyRejected:
         eu_client = SendGridClient(api_key, settings.MESSAGING_SENDGRID_EU_API_URL, timeout, max_rate_limit_waits)
         return eu_client, eu_client.scopes()
+
+
+class _DownloadInterrupted(Exception):
+    """A timeout, a dropped connection or a server error, which another try can get past."""
+
+
+@contextmanager
+def _download_session(url: str, pinned: bool) -> Iterator[requests.Session]:
+    if pinned:
+        with pinned_session(url) as session:
+            yield session
+    else:
+        with requests.Session() as session:
+            yield session
+
+
+def _unpacked(content: bytes) -> bytes:
+    if not content.startswith(GZIP_MAGIC):
+        return content
+    unpacker = zlib.decompressobj(wbits=zlib.MAX_WBITS | 16)
+    try:
+        unpacked = unpacker.decompress(content, MAX_DOWNLOAD_BYTES + 1)
+    except zlib.error:
+        raise SendGridAPIError(DAMAGED_DOWNLOAD_MESSAGE) from None
+    if len(unpacked) > MAX_DOWNLOAD_BYTES or unpacker.unconsumed_tail:
+        raise SendGridAPIError(DOWNLOAD_TOO_LARGE_MESSAGE)
+    # A cut-off file unpacks without an error, so only the end marker shows that every contact arrived.
+    if not unpacker.eof:
+        raise SendGridAPIError(DAMAGED_DOWNLOAD_MESSAGE)
+    return unpacked
 
 
 def _read_capped(chunks: Iterator[bytes]) -> bytes:

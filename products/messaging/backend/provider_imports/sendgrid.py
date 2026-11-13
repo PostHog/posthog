@@ -47,8 +47,8 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.contacts import (
     CONTACT_COUNT_LABELS,
+    ContactCollector,
     ContactList,
-    contact_row,
     new_people_page,
     new_people_step,
     save_contact_lists,
@@ -958,7 +958,9 @@ def _save_lists(lists: list[dict[str, Any]], contacts: int) -> SavedPage:
 def _fetch_contacts(client: SendGridClient, context: ImportContext) -> Iterator[ImportPage]:
     # SendGrid only hands over a whole list as an export, so every list's cohort fills in one go after all are read.
     lists = [row for page in client.token_pages("/v3/marketing/lists", None, 1000) for row in page.data]
-    everyone = _exported_rows(client, {})
+    contacts = ContactCollector()
+    _exported_rows(client, {}, contacts)
+    everyone = contacts.everyone
     contact_lists = []
     for row in lists:
         if not isinstance(row, dict) or not row.get("id"):
@@ -970,7 +972,7 @@ def _fetch_contacts(client: SendGridClient, context: ImportContext) -> Iterator[
                 cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from SendGrid)",
                 cohort_description=f"Imported from SendGrid list {list_id}.",
                 source=f'the SendGrid list "{name}"',
-                rows=_exported_rows(client, {"list_ids": [list_id]}),
+                rows=_exported_rows(client, {"list_ids": [list_id]}, contacts),
             )
         )
     yield ImportPage(
@@ -989,7 +991,9 @@ def _fetch_contacts(client: SendGridClient, context: ImportContext) -> Iterator[
     )
 
 
-def _exported_rows(client: SendGridClient, export: dict[str, Any]) -> tuple[dict[str, str], ...]:
+def _exported_rows(
+    client: SendGridClient, export: dict[str, Any], contacts: ContactCollector
+) -> tuple[dict[str, str], ...]:
     started = client.post("/v3/marketing/contacts/exports", {**export, "file_type": "csv"})
     export_id = started.get("id") if isinstance(started, dict) else None
     if not isinstance(export_id, str) or not export_id:
@@ -1010,10 +1014,13 @@ def _exported_rows(client: SendGridClient, export: dict[str, Any]) -> tuple[dict
         raise SendGridAPIError("SendGrid sent an export without download links.")
     rows: list[dict[str, str]] = []
     for url in urls:
-        text = client.download(str(url)).decode("utf-8-sig", errors="replace")
-        for record in csv.DictReader(io.StringIO(text)):
+        # Reading the bytes as text line by line keeps one copy of the file in memory, not three.
+        lines = io.TextIOWrapper(
+            io.BytesIO(client.download(str(url))), encoding="utf-8-sig", errors="replace", newline=""
+        )
+        for record in csv.DictReader(lines):
             fields = {str(key).strip().lower(): value for key, value in record.items() if key}
-            row = contact_row(
+            row = contacts.add(
                 fields.get("email"), {"first_name": fields.get("first_name"), "last_name": fields.get("last_name")}
             )
             if row:
