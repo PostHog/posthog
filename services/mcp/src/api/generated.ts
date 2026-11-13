@@ -15052,6 +15052,7 @@ export namespace Schemas {
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
      * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      * * `email` - Email
      * * `in_app` - In-app notification
      */
@@ -15064,6 +15065,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       Teams: 'teams',
       Pagerduty: 'pagerduty',
+      IncidentIo: 'incident_io',
       Email: 'email',
       InApp: 'in_app',
     } as const;
@@ -15083,6 +15085,7 @@ export namespace Schemas {
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
        * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io
        * * `email` - Email
        * * `in_app` - In-app notification */
       type: DestinationTypeEnum;
