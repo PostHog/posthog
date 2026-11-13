@@ -195,7 +195,6 @@ export const analyticsItemActionsLogic = kea<analyticsItemActionsLogicType>([
                 await deleteInsightWithUndo({
                     object: insight,
                     endpoint: `projects/${teamLogic.values.currentProjectId}/insights`,
-                    // The callback runs only after the request succeeds, and again after an undo.
                     callback: (undo) => {
                         actions.itemChanged()
                         if (!undo) {
