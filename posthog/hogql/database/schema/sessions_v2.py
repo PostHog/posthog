@@ -440,19 +440,10 @@ def select_from_sessions_table_v2(
         # Every argMin state in a stored row holds the values of that row's earliest event, so the
         # channel type of the row with the lowest min_timestamp is the channel type of the session.
         # This keeps one aggregate state per session instead of one per channel type input.
-        # The tuple stops argMin from skipping a row whose channel type is NULL.
+        # argMin skips NULL values, which is safe because a channel type always has a value.
         aggregate_fields["$channel_type"] = ast.Call(
-            name="tupleElement",
-            args=[
-                ast.Call(
-                    name="argMin",
-                    args=[
-                        ast.Call(name="tuple", args=[channel_type_from(arg_min_row_field)]),
-                        ast.Field(chain=[table_name, "min_timestamp"]),
-                    ],
-                ),
-                ast.Constant(value=1),
-            ],
+            name="argMin",
+            args=[channel_type_from(arg_min_row_field), ast.Field(chain=[table_name, "min_timestamp"])],
         )
     else:
         aggregate_fields["$channel_type"] = channel_type_from(arg_min_merge_field)
