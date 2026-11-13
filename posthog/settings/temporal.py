@@ -508,12 +508,6 @@ if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
     )
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
-# The XGBoost-based session surfacing scoring sweep runs on the session-replay
-# worker (it's the only OpenMP user there; that worker sets OMP_NUM_THREADS=1).
-# Sharing the queue means start_temporal_worker aggregates its workflow +
-# activities onto the replay worker and warmup() runs on replay-worker boot —
-# no dedicated pod needed (see surfacing_scoring_sweep/README.md).
-SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 # The digest workflow's webhook in the US project, and the Authorization value it requires. Both regions post
 # there. Without both, the send sends no digest and fails the run.

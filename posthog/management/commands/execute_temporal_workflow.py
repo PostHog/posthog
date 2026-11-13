@@ -22,7 +22,6 @@ from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRIC
 from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
@@ -161,7 +160,6 @@ class Command(BaseCommand):
             + WA_DIGEST_WORKFLOWS
             + DATA_CATALOG_DIGEST_WORKFLOWS
             + ERROR_TRACKING_WORKFLOWS
-            + SURFACING_SCORING_SWEEP_WORKFLOWS
             + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         )
         try:

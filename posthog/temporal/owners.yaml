@@ -62,8 +62,6 @@ rules:
           - '/tests/session_replay/enforce_max_replay_retention/test_*.py'
           - '/tests/session_replay/rasterize_recording/test_*.py'
           - '/tests/session_replay/replay_count_metrics/test_*.py'
-          - '/tests/session_replay/surfacing_score_export_sweep/test_*.py'
-          - '/tests/session_replay/surfacing_scoring_sweep/test_*.py'
       owners: team-replay
     - match:
           - '/tests/warehouse_sources_queue_partition_management/test_*.py'
