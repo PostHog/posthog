@@ -9,11 +9,11 @@ It is in alpha: the first release is 0.1.0-alpha.1.
 ## Install
 
 ```bash
-curl -fsSL https://releases.posthog.com/hog/install.sh | sh        # macOS and Linux
-irm https://releases.posthog.com/hog/install.ps1 | iex              # Windows PowerShell
-brew install posthog/tap/hog                                        # Homebrew
-npm install -g @posthog/hog                                         # or pnpm add -g, bun add -g
-npx @posthog/hog setup                                              # run once without installing
+curl -fsSL https://releases.posthog.com/hog/install.sh | sh   # macOS and Linux
+irm https://releases.posthog.com/hog/install.ps1 | iex        # Windows PowerShell
+brew install posthog/tap/hog                                  # Homebrew
+npm install -g @posthog/hog                                   # or pnpm add -g, bun add -g
+npx @posthog/hog setup                                        # run once without installing
 ```
 
 - The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
@@ -422,5 +422,5 @@ A release takes two merges, the changeset and then the release pull request, and
 
 ```bash
 bun release/compile.ts --version 0.1.0-alpha.9 --target darwin-arm64   # a release build for this machine
-bun test release/                                                       # the install script and launcher tests
+bun test release/                                                      # the install script and launcher tests
 ```
