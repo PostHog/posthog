@@ -21,6 +21,13 @@ var dedicatedSecretKeys = []string{
 	"OBJECT_STORAGE_SECRET_ACCESS_KEY",
 }
 
+// The shared object storage keys from the public compose file. An .env edited by hand can
+// still hold them, so an upgrade replaces them like a missing key.
+var sharedObjectStorageValues = map[string]string{
+	"OBJECT_STORAGE_ACCESS_KEY_ID":     "object_storage_root_user",
+	"OBJECT_STORAGE_SECRET_ACCESS_KEY": "object_storage_root_password",
+}
+
 type EnvConfig struct {
 	PosthogSecret        string
 	DedicatedSecrets     map[string]string
@@ -183,14 +190,14 @@ func UpdateEnvForUpgrade(version string) error {
 	}
 
 	for _, key := range dedicatedSecretKeys {
-		if existing[key] != "" {
+		if current := existing[key]; current != "" && current != sharedObjectStorageValues[key] {
 			continue
 		}
 		value, err := GenerateSecret()
 		if err != nil {
 			return err
 		}
-		if err := AppendToEnv(key, value); err != nil {
+		if err := UpdateEnvValue(key, value); err != nil {
 			return err
 		}
 	}

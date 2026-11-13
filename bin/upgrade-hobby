@@ -131,6 +131,10 @@ if [[ -f ".env" ]] && [ -z "$(read_env_value CADDY_TLS_BLOCK)" ]; then
 fi
 
 if [[ -f ".env" ]]; then
+    # An .env edited by hand can still hold the shared object storage keys from the public
+    # compose file. Drop them so the secrets loop below generates new ones. This runs before
+    # the export, because compose prefers an exported value to the one in .env.
+    sed -i -E "/^OBJECT_STORAGE_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)=[\"']?object_storage_root_(user|password)[\"']?$/d" .env
     set -a           # auto-export all variables
     . ./.env         # or: source .env
     set +a

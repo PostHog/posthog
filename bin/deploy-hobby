@@ -138,7 +138,9 @@ fi
 if [ -f .env ]; then
     echo "Existing .env found, preserving configuration"
     # The compose file requires these keys, and an .env from before they existed has none.
-    # bin/upgrade-hobby adds them the same way.
+    # An .env edited by hand can also hold the shared keys from the public compose file, so
+    # drop those first. bin/upgrade-hobby handles both the same way.
+    sed -i -E "/^OBJECT_STORAGE_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)=[\"']?object_storage_root_(user|password)[\"']?$/d" .env
     for key in OBJECT_STORAGE_ACCESS_KEY_ID OBJECT_STORAGE_SECRET_ACCESS_KEY; do
         if ! grep -qE "^$key=.+" .env; then
             echo "$key=$(openssl rand -hex 32)" >> .env
