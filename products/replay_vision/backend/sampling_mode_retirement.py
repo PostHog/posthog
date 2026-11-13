@@ -8,7 +8,6 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.session_recordings.queries.session_recording_list_from_query import UNSCORED_SURFACING_SCORE
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
 from products.replay_vision.backend.queries.scanner_candidate_query import (
@@ -22,6 +21,9 @@ from products.replay_vision.backend.session_limits import (
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
 )
+
+# The candidate query read an unscored session as this mid-pack score, so the filter kept it.
+UNSCORED_SURFACING_SCORE = 0.36
 
 # Scores only exist for sessions from the last seven days, so a longer window adds unscored sessions.
 PASS_SHARE_LOOKBACK_DAYS = 7
