@@ -38,6 +38,8 @@ const ITEMS: Item[] = [
     { name: 'Promo', status: 'archived', subjects: [] },
 ]
 
+const matchesText = (item: Item, text: string): boolean => item.name.toLowerCase().includes(text.toLowerCase())
+
 function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
     const [value, setValue] = useState(initial)
     return (
@@ -47,7 +49,7 @@ function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
                 items={ITEMS}
                 value={value}
                 onChange={setValue}
-                matchesText={(item, text) => item.name.toLowerCase().includes(text.toLowerCase())}
+                matchesText={matchesText}
                 placeholder="Search"
                 dataAttr="test-search"
             />
