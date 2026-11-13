@@ -1232,6 +1232,20 @@ describe('cloud controller', () => {
             '',
         ],
         [
+            'a minute after T0 whose maximum CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                    { minute: 3, avg: 9 },
+                ],
+            },
+            () => undefined,
+            'passed',
+            '',
+        ],
+        [
             'a complete minute before T0 above 1 ACU',
             {
                 readerAcu: [

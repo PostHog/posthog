@@ -146,8 +146,10 @@ async function keepEnhancedMonitoring(
 
 function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<string, number | null>; reason?: string } {
     const t0Minute = minuteOf(t0)
-    const maxima = minutes.flatMap(({ at, avg, max = avg }) => (max === undefined ? [] : [{ at, max }]))
-    const before = maxima.filter(({ at }) => at < t0Minute)
+    const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
+    const before = minutes.flatMap(({ at, avg, max = avg }) =>
+        at < t0Minute && max !== undefined ? [{ at, max }] : []
+    )
     const after = maxima.filter(({ at }) => at >= t0Minute)
     const peak = after.reduce<{ at: number; max: number } | undefined>(
         (top, minute) => (top && top.max >= minute.max ? top : minute),
