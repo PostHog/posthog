@@ -302,8 +302,8 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                 ranges={[]}
                                 showHeader={false}
                                 showTime={fixedRangeWithTime}
-                                // The picker caps at today by default; the Lemon calendar it replaces allows future dates
-                                maxDate={dayjs().add(10, 'year').toDate()}
+                                // The Lemon calendar this replaces has no upper limit
+                                maxDate={null}
                                 weekStartsOn={weekStartsOn}
                                 value={{
                                     start: (rangeDateFrom ?? dayjs()).toDate(),
