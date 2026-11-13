@@ -836,9 +836,10 @@ describe('DashboardItems', () => {
         )
 
         it.each([
-            { layout: 'bands', overrides: {}, item: 'Rename group' },
-            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab' },
-        ])('renames a group from the group menu in $layout', async ({ overrides, item }) => {
+            { layout: 'bands', overrides: {}, item: 'Rename group', opener: 'menu' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab', opener: 'menu' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab', opener: 'right-click' },
+        ])('renames a group from the $opener in $layout', async ({ overrides, item, opener }) => {
             showBands(overrides)
             const bandValues = mockedUseValues.getMockImplementation()!
             mockedUseValues.mockImplementation((logic) =>
@@ -849,8 +850,14 @@ describe('DashboardItems', () => {
                 logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
             )
 
-            const { container, findByText, findByDisplayValue, rerender, unmount } = render(<DashboardItems />)
-            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            const { container, getByText, findByText, findByDisplayValue, rerender, unmount } = render(
+                <DashboardItems />
+            )
+            if (opener === 'right-click') {
+                fireEvent.contextMenu(getByText('Plans'))
+            } else {
+                fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            }
             fireEvent.click(await findByText(item))
             expect(mockSetRenamingTileGroupKey).toHaveBeenCalledWith('plans')
 
