@@ -3964,7 +3964,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")
-        validate_file_system_placement(data.get("_create_in_folder"), data.get("name"))
+        validate_file_system_placement(
+            data.get("_create_in_folder"), data.get("name", instance.name if instance else None)
+        )
 
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
@@ -6019,22 +6021,29 @@ class HogFlowViewSet(
             # existing raw-API automation is unaffected.
             route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
+        # Filing into a requested folder asks the flag service, so it has to answer before the save takes its locks.
+        creator = serializer.instance.created_by
         try:
-            result = update_workflow(
-                team_id=self.team_id,
-                user_id=self._actor_id(),
-                hog_flow_id=serializer.instance.id,
-                validated_data=serializer.validated_data,
-                route_to_draft=route_to_draft,
-                base_updated_at=self.request.data.get("base_updated_at"),
-                base_live_updated_at=self.request.data.get("base_live_updated_at"),
-                includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
-                and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
-                validated_status=serializer.instance.status,
-                validated_disabled_from_active=serializer.instance.disabled_from_active,
-                requested_exit_condition=serializer.initial_data.get("exit_condition"),
-                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
-            )
+            with (
+                resolved_workflows_list_v2(self.team, [creator])
+                if creator is not None and "_create_in_folder" in serializer.validated_data
+                else nullcontext()
+            ):
+                result = update_workflow(
+                    team_id=self.team_id,
+                    user_id=self._actor_id(),
+                    hog_flow_id=serializer.instance.id,
+                    validated_data=serializer.validated_data,
+                    route_to_draft=route_to_draft,
+                    base_updated_at=self.request.data.get("base_updated_at"),
+                    base_live_updated_at=self.request.data.get("base_live_updated_at"),
+                    includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
+                    and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
+                    validated_status=serializer.instance.status,
+                    validated_disabled_from_active=serializer.instance.disabled_from_active,
+                    requested_exit_condition=serializer.initial_data.get("exit_condition"),
+                    before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+                )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
         serializer.instance = self._written_workflow(result)
