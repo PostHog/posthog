@@ -2787,6 +2787,21 @@ describe('CDP API', () => {
                 expect(res.status).toEqual(202)
                 expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
             })
+
+            it('still refuses a marketing send over quota when its other refusal checks do not answer in time', async () => {
+                jest.spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockReturnValue(
+                    new Promise(() => {})
+                )
+                jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+
+                const res = await send(marketingFlow.id, {
+                    Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+                })
+
+                expect(res.status).toEqual(429)
+                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+            })
         })
 
         it('queues one run on the email fast lane with the recipient and the data', async () => {

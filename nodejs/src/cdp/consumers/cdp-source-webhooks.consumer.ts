@@ -392,9 +392,22 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
+                const answerQuotaLimited = (): HogFlowTriggerOutcome => {
+                    addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
+                    functionResult.finished = false
+                    if (hogFlow.trigger?.type !== 'tracking_pixel') {
+                        functionResult.execResult = {
+                            httpResponse: { status: 429, body: { error: HOG_FLOW_QUOTA_LIMITED_MESSAGE } },
+                        }
+                    }
+                    return { result: functionResult, queuedInvocationId: null }
+                }
+
                 if (this.runIntake.modeOf(hogFlow.team_id) === 'async') {
                     return await this.produceRun(run, functionResult, {
                         answerDuplicate,
+                        answerQuotaLimited,
+                        isQuotaLimited: () => this.isHogFlowQuotaLimited(hogFlow),
                         addLog,
                         addMetric,
                     })
@@ -450,14 +463,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 })
                 if (quotaLimited) {
                     await releaseReservation()
-                    addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
-                    functionResult.finished = false
-                    if (hogFlow.trigger?.type !== 'tracking_pixel') {
-                        functionResult.execResult = {
-                            httpResponse: { status: 429, body: { error: HOG_FLOW_QUOTA_LIMITED_MESSAGE } },
-                        }
-                    }
-                    return { result: functionResult, queuedInvocationId: null }
+                    return answerQuotaLimited()
                 }
 
                 let committed: Committed
@@ -527,6 +533,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         functionResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         hooks: {
             answerDuplicate: () => HogFlowTriggerOutcome
+            answerQuotaLimited: () => HogFlowTriggerOutcome
+            isQuotaLimited: () => Promise<boolean>
             addLog: (level: LogEntryLevel, message: string) => void
             addMetric: (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => void
         }
@@ -537,6 +545,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             if (recalled.status !== 'absent') {
                 return hooks.answerDuplicate()
             }
+        }
+        if (await hooks.isQuotaLimited()) {
+            return hooks.answerQuotaLimited()
         }
         // A retry can produce a run again before the consumer deduplicates it, so the worker counts the run instead.
         run.invocation.state.triggerMetricPending = true

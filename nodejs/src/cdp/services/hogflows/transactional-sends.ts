@@ -584,7 +584,8 @@ export class TransactionalSends {
         return invocation
     }
 
-    // In async mode a slow lookup fails open: the email worker repeats every check before it sends.
+    // In async mode a slow lookup fails open, because the email worker repeats those checks before it sends. The
+    // quota is the exception: the worker does not check it, so it is still checked when the others fail open.
     private async refusalWithinBudget(
         teamId: number,
         hogFlow: HogFlow,
@@ -610,7 +611,9 @@ export class TransactionalSends {
         } finally {
             clearTimeout(timer)
         }
-        return null
+        return (await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)).isLimited
+            ? 'quota_limited'
+            : null
     }
 
     // The email worker skips a send for these reasons too, but only after the caller has its answer. Checking them

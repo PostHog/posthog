@@ -694,33 +694,45 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
             })
 
-            it('refuses to start a run when the team is over its workflow quota', async () => {
-                const billableHogFlow = await insertHogFlow(hub.postgres, {
-                    ...hogFlow,
-                    id: new UUIDT().toString(),
-                    billable_action_types: ['function'],
-                })
-                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
-
-                const res = await doPostRequest({
-                    webhookId: billableHogFlow.id,
-                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
-                })
-
-                expect(res.status).toEqual(429)
-                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
-                expect(getQueuedHogFlowIds()).toEqual([])
-                await waitForBackgroundTasks()
-                expect(getLogs()).toContain('[Action:trigger] Started no run: The project is over its workflow quota')
-                expect(getMetrics()).toContainEqual(
-                    expect.objectContaining({
-                        app_source_id: billableHogFlow.id,
-                        metric_kind: 'failure',
-                        metric_name: 'quota_limited',
-                        count: 1,
+            it.each([
+                ['synchronous', false],
+                ['intake async', true],
+            ])(
+                'refuses to start a run when the team is over its workflow quota, in %s mode',
+                async (_mode, isAsync) => {
+                    hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = isAsync ? String(team.id) : ''
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...hogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
                     })
-                )
-            })
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+
+                    const res = await doPostRequest({
+                        webhookId: billableHogFlow.id,
+                        body: { event: 'my-event', distinct_id: 'test-distinct-id' },
+                    })
+
+                    expect(res.status).toEqual(429)
+                    expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                    expect(getQueuedHogFlowIds()).toEqual([])
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
+                    ).toEqual([])
+                    await waitForBackgroundTasks()
+                    expect(getLogs()).toContain(
+                        '[Action:trigger] Started no run: The project is over its workflow quota'
+                    )
+                    expect(getMetrics()).toContainEqual(
+                        expect.objectContaining({
+                            app_source_id: billableHogFlow.id,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            count: 1,
+                        })
+                    )
+                }
+            )
 
             it.each([
                 ['queues a run under the workflow quota', false, 1],
