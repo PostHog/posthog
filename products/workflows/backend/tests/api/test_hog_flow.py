@@ -373,6 +373,7 @@ class TestHogFlowAPI(APIBaseTest):
         TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
         flow_id = self._create_simple_flow()
         flow = HogFlow.objects.get(id=flow_id)
+        actions_without_email = flow.actions
         flow.actions = [*flow.actions, {**flow.actions[-1], "id": "email", "type": "function_email"}]
         flow.email_sending_rate_limit = {"count": 60, "period": "hour"}
         flow.save()
@@ -384,6 +385,16 @@ class TestHogFlowAPI(APIBaseTest):
             )
             assert response.status_code == 400, response.json()
             assert response.json()["attr"] == "email_sending_rate_limit"
+
+        # Removing the email step first must not unlock the rate in a second edit.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": actions_without_email}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
 
         HogFlowBatchJob.objects.filter(id=batch_job.id).update(status=HogFlowBatchJob.State.CANCELLED)
         response = self.client.patch(

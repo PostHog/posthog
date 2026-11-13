@@ -23,7 +23,7 @@ from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import batch_job_audience_filters
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.batch_audience_cohorts import realtime_cohort_is_ready, sole_audience_cohort_id
-from products.workflows.backend.utils.batch_trigger_limit import hog_flow_sends_email, resolve_batch_audience_limit
+from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 
 logger = structlog.get_logger(__name__)
 
@@ -62,17 +62,15 @@ def create_batch_job(
     return to_batch_job(job)
 
 
-def rate_limit_change_unpaces_batch(
-    *, team_id: int, hog_flow_id: UUID, actions: object, current: object, new: object
-) -> bool:
+def rate_limit_change_unpaces_batch(*, team_id: int, hog_flow_id: UUID, current: object, new: object) -> bool:
     """Whether replacing a workflow's sending rate limit could leave a batch run's raised audience unpaced.
     The worker paces each send with the live rate limit, so the rate a raised cap relied on must hold
     until the run's sends can have drained."""
     if new == current:
         return False
-    sends_email = hog_flow_sends_email(actions)
-    raised = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=current).limit
-    if raised <= resolve_batch_audience_limit(team_id, sends_email=sends_email).limit:
+    # Sized as an email sender whatever the live steps are, so removing the email step first can't unlock the rate.
+    raised = resolve_batch_audience_limit(team_id, email_rate_limit=current).limit
+    if raised <= resolve_batch_audience_limit(team_id).limit:
         return False
     # The resolver completes a run once it enqueues the audience, so age, not status, bounds the drain.
     # The extra day covers a run that waits for its realtime cohort before it sends.

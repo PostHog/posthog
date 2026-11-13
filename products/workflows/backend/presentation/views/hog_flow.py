@@ -4004,7 +4004,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and rate_limit_change_unpaces_batch(
                 team_id=instance.team_id,
                 hog_flow_id=instance.id,
-                actions=instance.actions,
                 current=instance.email_sending_rate_limit,
                 new=data["email_sending_rate_limit"],
             )
