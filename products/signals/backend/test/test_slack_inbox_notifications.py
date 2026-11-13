@@ -658,7 +658,7 @@ def test_dispatch_posts_state_buttons_as_a_thread_reply_only_when_enabled(org_an
         followup = fake_client.chat_postMessage.call_args.kwargs
         assert followup["thread_ts"] == "1700000000.000100"
         action_ids = [e["action_id"] for e in followup["blocks"][1]["elements"]]
-        assert action_ids == ["signals_resolve_report", "signals_dismiss_report"]
+        assert action_ids == ["signals_resolve_report", "signals_dismiss_report", "signals_remove_report_reviewer"]
         value = json.loads(followup["blocks"][1]["elements"][0]["value"])
         assert value == {"integration_id": integration.id, "report_id": str(report.id), "team_id": team.id}
 

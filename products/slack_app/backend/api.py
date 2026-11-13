@@ -66,6 +66,7 @@ from products.slack_app.backend.logic.feature_tips import interactivity as featu
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.inbox_report_actions import (
+    SIGNALS_REMOVE_REVIEWER_ACTION_ID,
     SIGNALS_REPORT_STATE_ACTION_IDS,
     SIGNALS_RESOLVE_REPORT_ACTION_ID,
 )
@@ -6027,6 +6028,13 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+_REMOVE_REVIEWER_FEEDBACK = {
+    "removed": "You're no longer a suggested reviewer on this report.",
+    "not_reviewer": "You aren't a suggested reviewer on this report.",
+    "failed": "PostHog couldn't remove you from this report. Try again from the inbox.",
+}
+
+
 def _signals_report_state_action(payload: dict) -> tuple[str, dict] | None:
     """The Resolve or Dismiss click on an inbox report's follow-up message, with its decoded value."""
     action = next(
@@ -6042,7 +6050,7 @@ def _signals_report_state_action(payload: dict) -> tuple[str, dict] | None:
 
 
 def _extract_dismiss_hints(payload: dict) -> int | None:
-    """Integration id carried by a signals 'Resolve' or 'Dismiss' button, used for region-ownership routing."""
+    """Integration id carried by a signals report follow-up button, used for region-ownership routing."""
     clicked = _signals_report_state_action(payload)
     if not clicked:
         return None
@@ -6051,9 +6059,10 @@ def _extract_dismiss_hints(payload: dict) -> int | None:
 
 
 def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
-    """Resolve or suppress a signals inbox report when a reviewer clicks 'Mark resolved' or 'Dismiss' in Slack."""
+    """Act on a signals inbox report when a reviewer clicks 'Mark resolved', 'Dismiss' or 'Remove me' in Slack."""
     from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
         dismiss_report_from_slack,
+        remove_reviewer_from_slack,
         resolve_report_from_slack,
     )
 
@@ -6092,6 +6101,15 @@ def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
             "signals_report_state_not_org_member",
             integration_id=integration.id,
             slack_user_id=slack_user_id,
+        )
+        return HttpResponse(status=200)
+
+    if action_id == SIGNALS_REMOVE_REVIEWER_ACTION_ID:
+        outcome = remove_reviewer_from_slack(report_team_id, str(report_id), user_id=org_member.id)
+        # Only the clicker stepped off, so the buttons stay for everyone else and only they see the outcome.
+        inbox_interactivity.post_response_url(
+            payload.get("response_url", ""),
+            {"response_type": "ephemeral", "replace_original": False, "text": _REMOVE_REVIEWER_FEEDBACK[outcome]},
         )
         return HttpResponse(status=200)
 
@@ -6147,7 +6165,7 @@ def _post_signals_report_state_feedback(payload: dict, *, resolving: bool, chang
         actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
         text = f"✅ {verb} by {actor}"
     else:
-        text = f"This report could not be {verb.lower()} — it may already be closed or removed."
+        text = f"This report couldn't be {verb.lower()}. It may already be closed or removed, so check it in PostHog."
 
     # keep_link_buttons=False: messages posted before the follow-up carried "Review PR"/"Open in
     # PostHog" link buttons in the same actions block as Dismiss, so dropping the whole block here

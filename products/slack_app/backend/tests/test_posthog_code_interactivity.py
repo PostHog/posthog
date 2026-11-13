@@ -622,6 +622,50 @@ class TestSignalsDismissReport(TestCase):
         assert sent["replace_original"] is True
         assert "Resolved by <@U777>" in sent["text"]
 
+    @parameterized.expand(
+        [
+            ("reviewer", ["U777"], "You're no longer a suggested reviewer on this report.", []),
+            ("not_reviewer", [], "You aren't a suggested reviewer on this report.", []),
+        ]
+    )
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_remove_me_takes_only_the_clicker_off_the_reviewers(
+        self, _name, on_report, expected_text, expected_left, mock_config, mock_requests_post, mock_is_org_member
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+        if on_report:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+
+        response = self._post_interactivity(
+            self._dismiss_payload(str(report.id), action_id="signals_remove_report_reviewer")
+        )
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if on_report:
+            assert [e.get("user_uuid") for e in json.loads(latest.content)] == expected_left
+        sent = mock_requests_post.call_args.kwargs["json"]
+        assert sent == {"response_type": "ephemeral", "replace_original": False, "text": expected_text}
+
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")

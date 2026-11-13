@@ -647,14 +647,17 @@ def _build_reviewer_routes(
 def _post_state_buttons_followup(
     slack: SlackIntegration, report: SignalReport, route: _ChannelRoute, *, channel: str, thread_ts: str
 ) -> None:
-    """Reply under the notification with Resolve and Dismiss buttons, keeping them off the message itself.
+    """Reply under the notification with Resolve, Dismiss and Remove me buttons, keeping them off the message itself.
 
     Best-effort: the notification is already delivered, so a failed reply only costs the buttons.
     """
     if not organization_inbox_slack_state_buttons_enabled(report.team.organization_id):
         return
     blocks = slack_report_state_followup_blocks(
-        integration_id=route.integration.id, report_id=str(report.id), team_id=report.team_id
+        integration_id=route.integration.id,
+        report_id=str(report.id),
+        team_id=report.team_id,
+        offer_remove_reviewer=bool(route.users or route.owner_users),
     )
     try:
         slack.client.chat_postMessage(
