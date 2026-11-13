@@ -116,10 +116,8 @@ export namespace Schemas {
          */
         key: CustomBotField;
         matcher: CustomBotMatcher;
-        /**
-         * Matched against the property named by `key`.
-         */
-        pattern: string;
+        pattern?: (string | null) | undefined;
+        patterns?: (Array<string> | null) | undefined;
     };
     export type CustomBotRule = {
         category?: (string | null) | undefined;
