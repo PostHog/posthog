@@ -161,7 +161,6 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             ("another_projects_send", "message_id", True),
             ("not_a_uuid", "not-a-uuid", False),
             ("an_id_from_the_future", "ffffffff-ffff-4fff-bfff-ffffffffffff", False),
-            ("older_than_the_retention", "old", False),
         ]
     )
     def test_answers_404_for_an_email_it_cannot_report(self, _flag, _name, message_id, other_project):
@@ -169,11 +168,7 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             self._status_rows([("sent", 2, "")], team=Team.objects.create(organization=self.organization, name="Other"))
         if message_id == "unknown_status":
             self._status_rows([("deferred", 0, "")])
-        ids = {
-            "message_id": self.message_id,
-            "unknown_status": self.message_id,
-            "old": self._message_id(datetime.now(UTC) - timedelta(days=61)),
-        }
+        ids = {"message_id": self.message_id, "unknown_status": self.message_id}
 
         response = self.client.get(self._url(ids.get(message_id, message_id)))
 
@@ -257,12 +252,19 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected_status
 
-    def test_reads_a_send_up_to_60_days_old(self, _flag):
-        self.queued_at = datetime.now(UTC).replace(microsecond=0) - timedelta(days=59)
-        self.message_id = self._message_id(self.queued_at)
+    @parameterized.expand(
+        [
+            ("uuidt_59_days_old", False, 59, status.HTTP_200_OK),
+            ("uuidt_61_days_old", False, 61, status.HTTP_404_NOT_FOUND),
+            ("keyed_59_days_old", True, 59, status.HTTP_200_OK),
+            ("keyed_61_days_old", True, 61, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_reads_a_stored_send_only_within_60_days(self, _flag, _name, keyed, age_days, expected_status):
+        self.queued_at = datetime.now(UTC).replace(microsecond=0) - timedelta(days=age_days)
+        self.message_id = str(uuid5(NAMESPACE_URL, "a-key")) if keyed else self._message_id(self.queued_at)
         self._status_rows([("scheduled", 0, ""), ("sent", 30 * 24 * 3600, "")])
 
         response = self.client.get(self._url(self.message_id))
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["status"] == "sent"
+        assert response.status_code == expected_status, response.json()
