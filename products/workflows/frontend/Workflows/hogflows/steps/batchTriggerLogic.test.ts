@@ -1,13 +1,15 @@
+import { act, cleanup, render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { createElement } from 'react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
+
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
 const emailAction = (toEmail: string | null): HogFlowAction =>
     ({
@@ -219,8 +221,13 @@ describe('batchTriggerLogic', () => {
                     ],
                 },
             })
-            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            const reportedExceptions: unknown[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error)
+                return undefined as any
+            })
+            toast.dismiss()
+            render(createElement(ToastContainer))
             initKeaTests()
             const logic = batchTriggerLogic({
                 id: 'test-unfinished-filter',
@@ -231,12 +238,16 @@ describe('batchTriggerLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadBlastRadiusSuccess'])
                     .toMatchValues({ blastRadius: null, blastRadiusError: rejection })
-                expect(captureException).not.toHaveBeenCalled()
-                expect(toastError).not.toHaveBeenCalled()
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedExceptions,
+                }).toEqual({ toasts: [], reportedExceptions: [] })
             } finally {
                 logic.unmount()
+                cleanup()
+                toast.dismiss()
                 captureException.mockRestore()
-                toastError.mockRestore()
             }
         })
     })

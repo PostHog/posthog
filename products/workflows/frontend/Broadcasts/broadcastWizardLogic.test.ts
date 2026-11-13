@@ -1,13 +1,14 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { act, cleanup, render } from '@testing-library/react'
 import { decodeParams, router } from 'kea-router'
 import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -74,6 +75,8 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         email_sending_resumed_at: null,
     }
 }
+
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
 describe('broadcastWizardLogic', () => {
     let logic: ReturnType<typeof broadcastWizardLogic.build>
@@ -989,38 +992,54 @@ describe('broadcastWizardLogic', () => {
             answer: 'the rejection of an unfinished filter',
             response: [400, { type: 'validation_error', code: 'invalid', detail: 'An audience filter is incomplete.' }],
             settledBy: 'loadBlastRadiusSuccess',
-            reported: false,
+            toasts: [],
+            reportedStatuses: [],
         },
         {
             answer: 'a server error',
             response: [500, { detail: 'Simulated outage' }],
             settledBy: 'loadBlastRadiusFailure',
-            reported: true,
+            toasts: [expect.stringContaining('Simulated outage')],
+            reportedStatuses: [500],
         },
-    ])('settles the audience size without a count on $answer', async ({ response, settledBy, reported }) => {
-        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-        const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
-        try {
-            await expectLogic(logic).toFinishAllListeners().clearHistory()
-            useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => response } })
-            logic.actions.setAudienceProperties([
-                { type: PropertyFilterType.Person, key: 'plan', operator: PropertyOperator.Exact } as AnyPropertyFilter,
-            ])
-
-            await expectLogic(logic, () => {
-                logic.actions.loadBlastRadius()
+    ])(
+        'settles the audience size without a count on $answer',
+        async ({ response, settledBy, toasts, reportedStatuses }) => {
+            const reportedExceptions: { status?: number }[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error as { status?: number })
+                return undefined as any
             })
-                .toDispatchActions([settledBy])
-                .toMatchValues({ blastRadius: null })
-            expect({
-                reported: captureException.mock.calls.length > 0,
-                toasted: toastError.mock.calls.length > 0,
-            }).toEqual({ reported, toasted: reported })
-        } finally {
-            captureException.mockRestore()
-            toastError.mockRestore()
+            toast.dismiss()
+            render(createElement(ToastContainer))
+            try {
+                await expectLogic(logic).toFinishAllListeners().clearHistory()
+                useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => response } })
+                logic.actions.setAudienceProperties([
+                    {
+                        type: PropertyFilterType.Person,
+                        key: 'plan',
+                        operator: PropertyOperator.Exact,
+                    } as AnyPropertyFilter,
+                ])
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadBlastRadius()
+                })
+                    .toDispatchActions([settledBy])
+                    .toMatchValues({ blastRadius: null })
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedStatuses: [...new Set(reportedExceptions.map((error) => error.status))],
+                }).toEqual({ toasts, reportedStatuses })
+            } finally {
+                cleanup()
+                toast.dismiss()
+                captureException.mockRestore()
+            }
         }
-    })
+    )
 
     const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
     it.each([
