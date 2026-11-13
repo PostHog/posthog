@@ -178,6 +178,7 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "wizard_pr_ready": "01a16471-c17b-0000-8ee5-eb254065b7a1",
     "loop_run_summary": "01a16473-9c4d-0000-99d8-958c03b0f1a0",
     "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
+    "report_note_mentioned": "01a1d219-2b68-0000-c323-fc36fde319d2",
 }
 
 WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"

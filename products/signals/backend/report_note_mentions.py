@@ -24,7 +24,7 @@ from celery import shared_task
 from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.scoping import with_team_scope
@@ -360,16 +360,19 @@ def _send_email(message: _MentionMessage, recipients: Collection[MentionRecipien
         if not memberships:
             return 0
         email = EmailMessage(
+            # Sends through Workflows when it is configured, and through SMTP otherwise.
+            use_http=True,
             # One campaign per note version, so a retry does not send twice and a later edit can.
             campaign_key=f"signals_report_note_mention_{artefact_id}_{message.digest}",
             subject=f"{message.author_name} mentioned you on a report in {report.team.name}",
             template_name="report_note_mentioned",
+            # The Workflows template reads these as `variables.*`; the SMTP template reads the same names.
             template_context={
                 "author_name": message.author_name,
                 "report_title": report.title or "Untitled report",
-                "content": message.text,
-                "team": report.team,
-                "href": build_report_url(report.team_id, report.id, ReportLinkSource.NOTE_MENTION),
+                "note_excerpt": message.text,
+                "report_url": build_report_url(report.team_id, report.id, ReportLinkSource.NOTE_MENTION),
+                **get_email_team_and_org_context(team=report.team),
             },
         )
         for membership in memberships:
