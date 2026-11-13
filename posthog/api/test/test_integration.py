@@ -697,6 +697,8 @@ class TestEmailIntegration:
             "reply_to": "support@posthog.com",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by_id == self.user.id
@@ -770,6 +772,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -812,6 +816,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": True,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
