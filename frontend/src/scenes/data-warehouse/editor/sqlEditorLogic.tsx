@@ -70,6 +70,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { getVariablesFromQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery, queryExportContext } from '~/queries/query'
 import {
     DataTableNode,
@@ -4433,6 +4434,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.setSourceQuery(insightSource)
                     }
                     actions.editInsight(queryToOpen, insight, biEditorStateFromUrl ?? undefined)
+                    if (localDraft?.selected_variables) {
+                        const variableNames = getVariablesFromQuery(queryToOpen)
+                        actions.setSourceQuery({
+                            ...values.sourceQuery,
+                            source: {
+                                ...values.sourceQuery.source,
+                                variables: Object.fromEntries(
+                                    localDraft.selected_variables
+                                        .filter((variable) => variableNames.includes(variable.code_name))
+                                        .map((variable) => [variable.variableId, variable])
+                                ),
+                            },
+                        })
+                    }
                     if (hasEngineOverride) {
                         actions.setSourceQuery({
                             ...values.sourceQuery,

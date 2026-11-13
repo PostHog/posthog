@@ -733,6 +733,56 @@ describe('sqlEditorLogic', () => {
             }
         )
 
+        it('uses recovered variable values on the first run of an unchanged saved insight', async () => {
+            const query = 'SELECT {variables.region}'
+            const selectedVariable = { variableId: 'region-id', code_name: 'region', value: 'West', isNull: false }
+            useMocks({
+                post: { '/api/environments/:team_id/query/:query_kind/': queryEndpointMock },
+                get: {
+                    '/api/environments/:team_id/insights/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    ...MOCK_INSIGHT,
+                                    query: {
+                                        ...MOCK_INSIGHT_QUERY,
+                                        source: {
+                                            ...MOCK_INSIGHT_QUERY.source,
+                                            query,
+                                            variables: { 'region-id': { ...selectedVariable, value: 'East' } },
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+            sqlEditorDraftStorage(
+                MOCK_DEFAULT_USER.uuid,
+                MOCK_DEFAULT_TEAM.id,
+                `insight:${MOCK_INSIGHT_SHORT_ID}`
+            )?.set({
+                q: query,
+                selected_variables: [selectedVariable],
+            })
+            mountEditor()
+            await expectLogic(logic, () =>
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+            )
+                .toDispatchActions(['runQuery'])
+                .toFinishAllListeners()
+            const dataLogic = dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!
+            await expectLogic(dataLogic).toDispatchActions(['loadDataSuccess'])
+            const requestBodies = await Promise.all(queryEndpointMock.mock.calls.map(([{ request }]) => request.json()))
+            const queryRequests = requestBodies
+                .map((body) => body.query)
+                .filter((request) => request.kind === NodeKind.HogQLQuery)
+            expect(queryRequests).toHaveLength(1)
+            expect(queryRequests[0].variables).toEqual({ 'region-id': selectedVariable })
+        })
+
         it('preserves the view revision the recovered edits were based on', async () => {
             serverViewHistoryId = 'original-revision'
             mountEditor()
