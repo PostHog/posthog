@@ -1274,13 +1274,7 @@ impl FeatureFlagMatcher {
         // `biased` polls the lookup first, so when both hit the persons DB deadline together, the
         // canonical log records the lookup's operation, as it did when the lookup ran first.
         let mut db_prep_flags_map = HashMap::new();
-        let (
-            HashKeyOverrideLookupResult {
-                overrides: hash_key_overrides,
-                failed: hash_key_override_error,
-            },
-            db_prep_errors,
-        ) = tokio::join!(
+        let (hash_key_lookup, db_prep_errors) = tokio::join!(
             biased;
             hash_key_lookup,
             async {
@@ -1297,10 +1291,10 @@ impl FeatureFlagMatcher {
                 group_type_mapping_errors | db_prep_errors
             },
         );
-        errors_while_computing_flags |= hash_key_override_error | db_prep_errors;
+        errors_while_computing_flags |= hash_key_lookup.failed | db_prep_errors;
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
-        if hash_key_override_error && hash_key_overrides.is_none() {
+        if hash_key_lookup.failed && hash_key_lookup.overrides.is_none() {
             let hash_key_error = FlagError::HashKeyOverrideError;
             for flag in flags.iter().filter(|flag| {
                 !self.filtered_out_flag_ids.contains(&flag.id)
@@ -1331,7 +1325,7 @@ impl FeatureFlagMatcher {
                     &mut evaluated_flags_map,
                     &overrides.person_property_overrides,
                     &overrides.group_property_overrides,
-                    &hash_key_overrides,
+                    &hash_key_lookup.overrides,
                     &overrides.request_hash_key_override,
                     &flags_with_missing_deps,
                 )
