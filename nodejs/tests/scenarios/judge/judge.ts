@@ -9,16 +9,21 @@ import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey } from './invariants'
 
+export type IntakeAnswer =
+    | { accepted: true }
+    | { accepted: false; transportError: string }
+    | { accepted: false; status: number; outcome?: string }
+
+export type FollowUpAnswer = IntakeAnswer | { notSent: string }
+
 export type JournalEntry = {
     unitId: string
     kind: 'event' | 'transactional'
     teamId: number
     offeredAt: number
-    answer:
-        | { accepted: true }
-        | { accepted: false; transportError: string }
-        | { accepted: false; status: number; outcome?: string }
+    answer: IntakeAnswer
     expect: { deliveries: string[] }
+    followUp?: FollowUpAnswer
 }
 
 export type Convergence = { converged: boolean; unfinishedJobs: number; unrecorded: string[]; tookMs: number }
@@ -37,12 +42,18 @@ export interface Judge {
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
     check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
-    evidence(): { journal: JournalEntry[]; truth: TruthRecord[] }
+    evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number }
 }
 
-export type JudgeOptions = { edgeUrl: string; probe: CyclotronProbe; pollMs?: number; now?: () => number }
+export type JudgeOptions = {
+    edgeUrl: string
+    probe: Pick<CyclotronProbe, 'unfinishedJobs'>
+    fetchRetries: number
+    pollMs?: number
+    now?: () => number
+}
 
-export function createJudge({ edgeUrl, probe, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
+export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
@@ -120,10 +131,10 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000, now = Date.now }: J
                 if (!definition) {
                     throw new Error(`No invariant ${name}`)
                 }
-                return { name, gate: gates[name], ...definition.check({ journal, truth }, gates[name]) }
+                return { name, gate: gates[name], ...definition.check({ journal, truth, fetchRetries }, gates[name]) }
             })
         },
 
-        evidence: () => ({ journal: [...journal], truth: [...truth] }),
+        evidence: () => ({ journal: [...journal], truth: [...truth], fetchRetries }),
     }
 }
