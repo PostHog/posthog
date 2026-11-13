@@ -56,6 +56,13 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## SQL heatmaps
+
+For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
+**Query order** keeps the order in which values first appear in the results.
+Clicking a column header sorts rows by that column's values independently of the X-axis order.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
@@ -63,6 +70,7 @@ Scalar subqueries can still read data, so column inference shares the organizati
 API-key requests and background jobs retain the query runner's existing exemptions from that limit.
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
+SQL and Business intelligence drafts also retain selected variables and their values when you navigate away, including variables not yet referenced in the query. Saved queries include only referenced variables.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
