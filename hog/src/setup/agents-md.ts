@@ -50,6 +50,11 @@ const USE_CASES: readonly UseCase[] = [
         products: [],
         command: '`hog query run "<HogQL>"` (see `hog skills search query data` for how to write HogQL)',
     },
+    {
+        text: "Sending PostHog's browser requests through the app's own domain (reverse proxy)",
+        products: [],
+        command: '`hog skills read instrument-reverse-proxy`',
+    },
     { text: 'AI observability (LLM analytics)', products: ['llm-analytics'], onlyWhenChosen: true },
 ]
 
