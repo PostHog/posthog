@@ -660,7 +660,8 @@ class ReviewRunSerializer(DataclassSerializer):
     def get_output(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
         # Explicit allowlist: never echo reviewer_raw / pr / files / policy_files out of the API.
         raw = obj.output or {}
-        return {key: raw[key] for key in contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS if key in raw}
+        allowlisted = {key: raw[key] for key in contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS if key in raw}
+        return _ReviewOutputSummarySerializer(allowlisted).data
 
     @extend_schema_field(_GateResultSummarySerializer)
     def get_gate_result(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
