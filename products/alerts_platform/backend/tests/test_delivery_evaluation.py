@@ -55,6 +55,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
+from products.alerts_platform.backend.logic.platform_alert_events import AnnouncementRead, AnnouncementStatus
 from products.alerts_platform.backend.logic.platform_lifecycle import record_outcomes
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
@@ -189,6 +190,12 @@ def _transition(
     )
 
 
+def _read(announced: EvaluationAnnouncement | None, *, recorded: bool = True) -> AnnouncementRead:
+    if announced is not None:
+        return AnnouncementRead(status=AnnouncementStatus.FOUND, announcement=announced)
+    return AnnouncementRead(status=AnnouncementStatus.EMPTY if recorded else AnnouncementStatus.MISSING)
+
+
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
         source=SourceKind.LOGS,
@@ -228,8 +235,7 @@ class TestDeliverEvaluation(APIBaseTest):
             return by_event.get(allowed_event_ids[0], [])
 
         with (
-            patch(f"{_EVENTS}.announcement", return_value=announced),
-            patch(f"{_EVENTS}._evaluation_recorded", return_value=True),
+            patch(f"{_EVENTS}._read_evaluation", return_value=_read(announced)),
             patch(f"{_MODULE}.announced_kinds", return_value=kinds or {}),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
@@ -690,7 +696,7 @@ class TestDeliverEvaluation(APIBaseTest):
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
                 side_effect=flag,
             ),
-            patch(f"{_EVENTS}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_EVENTS}._read_evaluation", return_value=_read(_announcement(_transition(AlertEventKind.FIRING)))),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK), _group(SECOND_WEBHOOK)]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
             # The path is covered by `TestDeliveryPath`. Without an emitter every alert delivers natively.
@@ -844,7 +850,7 @@ class TestDeliveryPath(APIBaseTest):
         real_thread_store: bool = False,
     ) -> Any:
         with ExitStack() as stack:
-            stack.enter_context(patch(f"{_EVENTS}.announcement", return_value=announced))
+            stack.enter_context(patch(f"{_EVENTS}._read_evaluation", return_value=_read(announced)))
             stack.enter_context(
                 patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups or [HOG_FUNCTION_SLACK])
             )
@@ -1093,12 +1099,11 @@ class TestMissingAnnouncement(ClickhouseTestMixin, APIBaseTest):
                 owner=PlatformAlertOwner.PLATFORM,
             )
 
-    def _deliver(self, *, announcements: list[Any] | None = None, recorded: bool | None = None) -> Any:
+    def _deliver(self, *, announcements: list[Any] | None = None) -> Any:
         with ExitStack() as stack:
             if announcements is not None:
-                stack.enter_context(patch(f"{_EVENTS}.announcement", side_effect=announcements))
-            if recorded is not None:
-                stack.enter_context(patch(f"{_EVENTS}._evaluation_recorded", return_value=recorded))
+                reads = [_read(announced, recorded=announced is not None) for announced in announcements]
+                stack.enter_context(patch(f"{_EVENTS}._read_evaluation", side_effect=reads))
             self.sleep = stack.enter_context(patch(f"{_EVENTS}.sleep"))
             self.metrics = stack.enter_context(recorded_metrics())
             stack.enter_context(patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]))
@@ -1116,9 +1121,7 @@ class TestMissingAnnouncement(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_missing_announcement_retries_then_sends(self) -> None:
-        outcome = self._deliver(
-            announcements=[None, None, _announcement(_transition(AlertEventKind.FIRING))], recorded=False
-        )
+        outcome = self._deliver(announcements=[None, None, _announcement(_transition(AlertEventKind.FIRING))])
 
         assert len(RecordingTransport.sends) == 1
         assert outcome.sent == 1
@@ -1126,7 +1129,7 @@ class TestMissingAnnouncement(ClickhouseTestMixin, APIBaseTest):
         assert self._counted("announcement_missing") == 0
 
     def test_missing_announcement_retries_then_counts(self) -> None:
-        outcome = self._deliver(announcements=[None, None, None], recorded=False)
+        outcome = self._deliver(announcements=[None, None, None])
 
         assert outcome.sent == 0
         assert RecordingTransport.sends == []
