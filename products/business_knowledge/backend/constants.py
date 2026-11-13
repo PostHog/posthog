@@ -194,6 +194,12 @@ BK_RERANK_MODEL = "claude-haiku-4-5"
 # Max chars of chunk content included in the rerank prompt per candidate.
 BK_RERANK_SNIPPET_CHARS = 500
 BK_RERANK_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
+BK_RERANK_MAX_RETRIES = 3
+# Rerank budget for a search a caller waits on. Every attempt at the default budget
+# can add up to more than an MCP or HTTP client waits for one request, and then the
+# caller times out before the fused-order fallback returns.
+BK_RERANK_REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+BK_RERANK_REQUEST_MAX_RETRIES = 1
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
