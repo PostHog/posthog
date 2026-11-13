@@ -21,7 +21,7 @@ import { reportScopeError } from '@/features/views/useViewsAccess'
 import { sleep } from '@/lib/sleep'
 import { useDelayedReconnecting } from '@/lib/useDelayedReconnecting'
 import { liveUsersOnlineFromQuery, liveUsersOnlineFromStats } from '@/model/adapters/live'
-import { EMPTY_LIVE_SNAPSHOT, type LiveSnapshot } from '@/model/live'
+import { EMPTY_LIVE_SNAPSHOT, type LiveSnapshot, type LiveWorld } from '@/model/live'
 
 import {
     type LiveErrorKind,
@@ -39,7 +39,8 @@ import {
     type LiveStatus,
     liveStatus,
 } from './liveController'
-import { type LiveQueryRunner, readLiveSnapshot } from './liveRead'
+import { type LiveQueryRunner, readLiveSnapshot, readLiveWorld } from './liveRead'
+import { useLiveWorldShare } from './liveWorldStore'
 
 /** The web's HogQL reload interval. */
 const READ_INTERVAL_MS = 30_000
@@ -405,6 +406,55 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         pull,
         pause,
         resume,
+        retry,
+    }
+}
+
+export interface LiveWorldFeed {
+    world: LiveWorld | null
+    status: LiveStatus
+    screenActive: boolean
+    loadFailed: boolean
+    reading: boolean
+    retry: () => void
+}
+
+/**
+ * The countries screen's data. It starts from the countries Live's map card shared and reads the `geo` job alone on
+ * Live's cadence, while Live's own read is stopped because Live lost focus. It reads nothing while Live is paused.
+ * Mount it keyed by the session and project identity, like `useLiveFeed`.
+ */
+export function useLiveWorld(): LiveWorldFeed {
+    const mode = useDataMode()
+    const scope = useProjectScope()
+    const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
+    const shared = useLiveWorldShare()
+    const read = useCallback(
+        async (signal: AbortSignal): Promise<LiveReadResult<LiveWorld>> => {
+            if (!source) {
+                throw new Error('Live has no data source yet.')
+            }
+            return readLiveWorld({ run: source.run, now: Date.now(), signal })
+        },
+        [source]
+    )
+    const poller = usePoller<LiveWorld>({
+        enabled: source !== null && !shared.paused,
+        read,
+        intervalMs: READ_INTERVAL_MS,
+        slowdown: READ_SLOWDOWN,
+    })
+    const world = poller.state.data ?? shared.world
+    const { controller } = poller
+    const retry = useCallback((): void => {
+        void controller?.refresh()
+    }, [controller])
+    return {
+        world,
+        status: liveStatus({ ...poller.state, data: world, paused: shared.paused }),
+        screenActive: poller.screenActive,
+        loadFailed: poller.state.failures > 0 && world === null,
+        reading: poller.state.reading,
         retry,
     }
 }

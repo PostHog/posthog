@@ -8,6 +8,9 @@ export type LiveErrorKind = 'load_failed' | 'refresh_failed'
 export type LivePauseTrigger = 'button' | 'background'
 export type LiveResumeTrigger = 'button' | 'foreground'
 export type LiveEventAction = 'view_person' | 'watch_recording' | 'copy_distinct_id'
+/** `card`: a tap on the map card. `map_country`: a tap on a country of the card's map, which opens it selected. */
+export type LiveMapOpenedFrom = 'card' | 'map_country'
+export type LiveCountrySource = 'map' | 'row'
 
 export function trackLiveOpened(props: { from: ViewEntry; chrome: NavChrome }): void {
     track('mobile_live_opened', { from: props.from, chrome: props.chrome })
@@ -43,4 +46,16 @@ export function trackLiveEventSheetOpened(props: { kind: LiveEventKind }): void 
 
 export function trackLiveEventActionTaken(props: { action: LiveEventAction }): void {
     track('mobile_live_event_action_taken', { action: props.action })
+}
+
+export function trackLiveMapOpened(props: { from: LiveMapOpenedFrom }): void {
+    track('mobile_live_map_opened', { from: props.from })
+}
+
+export function trackLiveCountrySelected(props: { source: LiveCountrySource }): void {
+    track('mobile_live_country_selected', { source: props.source })
+}
+
+export function trackLiveCountryCleared(): void {
+    track('mobile_live_country_cleared')
 }

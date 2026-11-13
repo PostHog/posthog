@@ -167,6 +167,7 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 | Web analytics      | `/views/web-analytics?from={entry}`                                                                   |
 | Web analytics list | `/views/web-analytics/list?tile={pages, sources, devices or locations}&breakdown={WebStatsBreakdown}` |
 | Live               | `/views/live?from={entry}`                                                                            |
+| Live countries     | `/views/live-countries[?country={ISO 3166-1 alpha-2 code}]`, Visitors by country (see LIVE.md)        |
 | Pinned tabs        | `/web-analytics`, `/live` (`app/(tabs)/web-analytics/`, `app/(tabs)/live/`)                           |
 | Full-screen chart  | `/views/chart/{short_id}[?key={cache key}]`                                                           |
 | Browse lists       | `/views/browse/dashboards`, `/views/browse/insights`                                                  |
@@ -176,7 +177,7 @@ A pinned tab opens with `from: tab`, which never travels in a route.
 `mobile_view_opened` also sends `chrome`: `tab` for the pinned Web analytics tab, `stack` for every pushed view.
 The tab routes are reached only through the bar, the start page and `openNavTarget`; deep links open the pushed screens.
 A home screen widget opens a dashboard or insight with `from=widget&family=<small|medium|large>`, which also sends `mobile_widget_opened` (`kind`, `family`).
-Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `liveHref`, `chartHref`), never by hand.
+Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `liveHref`, `liveCountriesHref`, `chartHref`), never by hand.
 An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
 Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`, `posthog://views/live`.
 

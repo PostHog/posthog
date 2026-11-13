@@ -44,6 +44,14 @@ export interface LiveBreakdown {
     rows: LiveBreakdownRow[]
 }
 
+/** Every country with visitors, most first, for the world map. The Countries breakdown keeps only the top six. */
+export interface LiveWorld {
+    total: number
+    countries: LiveBreakdownRow[]
+    /** Visitors per ISO 3166-1 alpha-2 code, as the map reads them. */
+    counts: Readonly<Record<string, number>>
+}
+
 export type LiveEventKind = 'pageview' | 'screen' | 'other'
 
 export interface LiveEventRow {
@@ -68,6 +76,7 @@ export interface LiveSnapshot {
     devices: LiveBreakdown | null
     browsers: LiveBreakdown | null
     countries: LiveBreakdown | null
+    world: LiveWorld | null
     events: LiveEventRow[] | null
     usersOnline: number | null
 }
@@ -79,6 +88,7 @@ export const EMPTY_LIVE_SNAPSHOT: LiveSnapshot = {
     devices: null,
     browsers: null,
     countries: null,
+    world: null,
     events: null,
     usersOnline: null,
 }

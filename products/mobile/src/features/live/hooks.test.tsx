@@ -1,16 +1,29 @@
-import { act, cleanup, renderHook } from '@testing-library/react-native'
+import { act, cleanupAsync, renderHook } from '@testing-library/react-native'
+import type { Context, ReactElement, ReactNode } from 'react'
 
 import { LIVE_DEMO_READ_MS, LiveDemo } from '@/demo/live'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
 
-import { useLiveFeed, useLiveUsersOnline } from './hooks'
+import { useLiveFeed, useLiveUsersOnline, useLiveWorld } from './hooks'
+import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )
 let mockFocused = true
 let mockAppActive = true
-jest.mock('expo-router', () => ({ useIsFocused: () => mockFocused }))
+// A hook under `MockFocus` reads its own focus, so a test can blur Live while another screen stays focused.
+jest.mock('expo-router', () => {
+    const { createContext, useContext } = jest.requireActual<typeof import('react')>('react')
+    const MockFocus = createContext<boolean | null>(null)
+    return { MockFocus, useIsFocused: () => useContext(MockFocus) ?? mockFocused }
+})
+const { MockFocus } = jest.requireMock<{ MockFocus: Context<boolean | null> }>('expo-router')
+let liveFocused = true
+
+function LiveFocus({ children }: { children: ReactNode }): ReactElement {
+    return <MockFocus.Provider value={liveFocused}>{children}</MockFocus.Provider>
+}
 jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual<typeof import('@/demo/demoMode')>('@/demo/demoMode'),
     useDataMode: () => 'demo',
@@ -27,12 +40,14 @@ async function advance(ms: number): Promise<void> {
 describe('useLiveFeed', () => {
     beforeEach(() => {
         mockFocused = true
+        liveFocused = true
         mockAppActive = true
         jest.useFakeTimers()
     })
 
-    afterEach(() => {
-        cleanup()
+    afterEach(async () => {
+        await cleanupAsync()
+        clearLiveWorldShare()
         jest.useRealTimers()
         jest.restoreAllMocks()
     })
@@ -62,6 +77,34 @@ describe('useLiveFeed', () => {
         expect(result.current.updatedAt).not.toBe(updatedAt)
         unmount()
     })
+
+    test.each([
+        ['live', false, ['geo', 'geo', 'geo']],
+        ['paused', true, []],
+    ] as const)(
+        'with Visitors by country focused and Live %s, Live sends nothing and the screen sends only geo reads',
+        async (status, paused, keys) => {
+            const live = renderHook(() => useLiveFeed(() => undefined), { wrapper: LiveFocus })
+            await advance(5000)
+            if (paused) {
+                act(() => live.result.current.pause())
+            }
+            const { world } = live.result.current.snapshot
+            // The map card shares Live's countries and Pause as it pushes the screen, which takes Live's focus.
+            act(() => useLiveWorldShare.setState({ world, paused }))
+            liveFocused = false
+            live.rerender({})
+            const respond = jest.spyOn(LiveDemo.prototype, 'respond')
+            const countries = renderHook(() => useLiveWorld())
+            expect(countries.result.current).toMatchObject({ status, world })
+
+            await advance(65_000)
+            expect(respond.mock.calls.map(([key]) => key)).toEqual(keys)
+            expect(countries.result.current.status).toBe(status)
+            countries.unmount()
+            live.unmount()
+        }
+    )
 
     test('the Live chip counts users online alone, once every 30 seconds', async () => {
         const respond = jest.spyOn(LiveDemo.prototype, 'respond')

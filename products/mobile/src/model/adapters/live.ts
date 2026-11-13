@@ -9,6 +9,7 @@ import type {
     LiveEventRow,
     LiveMinute,
     LiveRankedRow,
+    LiveWorld,
 } from '@/model/live'
 
 import { countryFlag, countryName } from './webAnalyticsBreakdowns'
@@ -21,6 +22,7 @@ const BREAKDOWN_TOP_ROWS = 6
 export const DIRECT_REFERRER = '$direct'
 const OTHER = 'Other'
 const BREAKDOWN_PLACEHOLDER = '$$_posthog_breakdown_'
+const COUNTRY_CODE = /^[A-Z]{2}$/
 
 function rowsOf(response: unknown): unknown[][] {
     const results = isRecord(response) ? (response as HogQLResponseApi).results : undefined
@@ -122,14 +124,34 @@ const STAT_LABELS: Record<LiveBreakdownKind, string> = {
     countries: 'unique visitors',
 }
 
-/** Browsers and countries keep their top six and add the rest up as "Other", which always comes last. */
-export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveBreakdown {
+interface Counted {
+    key: string
+    count: number
+}
+
+/** A breakdown job's `[[[[key, count], …]]]` answer, most first. */
+function breakdownCounts(response: unknown): Counted[] {
     const counts = rowsOf(response)[0]?.[0]
-    const counted = (Array.isArray(counts) ? counts : [])
+    return (Array.isArray(counts) ? counts : [])
         .filter((entry): entry is [string, unknown] => Array.isArray(entry) && typeof entry[0] === 'string')
         .map(([key, count]) => ({ key, count: numberOf(count) }))
         .filter((entry) => entry.count > 0)
         .sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1))
+}
+
+function countryRow({ key, count }: Counted, total: number): LiveBreakdownRow {
+    return {
+        key,
+        label: countryName(key),
+        flag: countryFlag(key) || null,
+        count,
+        percent: total > 0 ? (count / total) * 100 : 0,
+    }
+}
+
+/** Browsers and countries keep their top six and add the rest up as "Other", which always comes last. */
+export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveBreakdown {
+    const counted = breakdownCounts(response)
     const total = counted.reduce((sum, entry) => sum + entry.count, 0)
     const limited =
         kind === 'devices' || counted.length <= BREAKDOWN_TOP_ROWS
@@ -142,15 +164,23 @@ export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveB
                   },
               ]
     const rows = limited.map(
-        ({ key, count }): LiveBreakdownRow => ({
-            key,
-            label: kind === 'countries' && key !== OTHER ? countryName(key) : key,
-            flag: kind === 'countries' && key !== OTHER ? countryFlag(key) || null : null,
-            count,
-            percent: total > 0 ? (count / total) * 100 : 0,
-        })
+        (entry): LiveBreakdownRow =>
+            kind === 'countries' && entry.key !== OTHER
+                ? countryRow(entry, total)
+                : { ...entry, label: entry.key, flag: null, percent: total > 0 ? (entry.count / total) * 100 : 0 }
     )
     return { statLabel: STAT_LABELS[kind], total, rows }
+}
+
+/** Every country of the `geo` job, with no "Other" row, so the map colors each one. */
+export function liveWorld(response: unknown): LiveWorld {
+    const counted = breakdownCounts(response).filter(({ key }) => COUNTRY_CODE.test(key))
+    const total = counted.reduce((sum, entry) => sum + entry.count, 0)
+    return {
+        total,
+        countries: counted.map((entry) => countryRow(entry, total)),
+        counts: Object.fromEntries(counted.map(({ key, count }) => [key, count])),
+    }
 }
 
 const EVENT_LABELS: Record<string, string> = {
