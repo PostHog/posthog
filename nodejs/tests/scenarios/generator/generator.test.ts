@@ -159,6 +159,21 @@ describe('drive', () => {
         })
     })
 
+    it('keeps the window open until the drive duration ends, after its last unit was offered', async () => {
+        const { driving } = startDrive(cardWith({ ratePerSecond: 1, driveFor: '2s' }), ACKNOWLEDGED)
+        let summary: Summary | undefined
+        void driving.then((ended) => (summary = ended))
+
+        await jest.advanceTimersByTimeAsync(1999)
+        const beforeTheEnd = summary
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect({ beforeTheEnd, summary }).toEqual({
+            beforeTheEnd: undefined,
+            summary: { targetUnits: 2, offeredUnits: 2 },
+        })
+    })
+
     it('ends at an interrupt between units without waiting for the next unit', async () => {
         const interrupt = new AbortController()
         const { driving, journal } = startDrive(cardWith({ ratePerSecond: 1, driveFor: '1m' }), ACKNOWLEDGED, {
