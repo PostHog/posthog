@@ -359,7 +359,10 @@ class TestTrialExecution(BaseTest):
             team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id, internal=True
         )
         research = research_task.create_run(extra_state={"ai_stage": "research"})
-        queued = research_task.create_run(extra_state={"ai_stage": "research"})
+        queued_task = Task.objects.create(
+            team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id, internal=True
+        )
+        queued = queued_task.create_run(extra_state={"ai_stage": "research"})
         implementation = self.make_run()
         research.status = TaskRun.Status.IN_PROGRESS
         research.save(update_fields=["status"])
@@ -439,6 +442,7 @@ class TestTrialExecution(BaseTest):
         receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
         assert receipt.trial_grant_id == grant.id and receipt.billing_exempt
         self.flag_mock.return_value = True
+        task.runs.update(status=TaskRun.Status.COMPLETED)
         with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
             with self.assertRaisesMessage(TrialRefused, "cost_limit"):
                 task.create_run()

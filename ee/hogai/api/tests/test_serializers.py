@@ -17,7 +17,7 @@ from posthog.schema import (
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.tasks.backend.facade.contracts import TaskDetailDTO, TaskRunDetailDTO
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 from ee.hogai.api.serializers import (
     ConversationMinimalSerializer,
@@ -451,7 +451,8 @@ class TestConversationSerializerTaskField(APIBaseTest):
 
     def test_task_latest_run_is_latest_run_id_when_task_has_runs(self):
         task = self._task()
-        task.create_run(mode="interactive")
+        first = task.create_run(mode="interactive")
+        TaskRun.objects.filter(id=first.id).update(status=TaskRun.Status.COMPLETED)
         task.create_run(mode="interactive")
 
         data = self._serialize(self._sandbox_conversation(task))
@@ -471,7 +472,11 @@ class TestTaskLatestRun(APIBaseTest):
             origin_product=Task.OriginProduct.POSTHOG_AI,
             created_by=self.user,
         )
-        runs = [task.create_run(mode="interactive") for _ in range(count)]
+        runs: list[TaskRun] = []
+        for _ in range(count):
+            if runs:
+                TaskRun.objects.filter(id=runs[-1].id).update(status=TaskRun.Status.COMPLETED)
+            runs.append(task.create_run(mode="interactive"))
         return task, runs
 
     def test_non_prefetched_fast_path_single_query(self):

@@ -251,6 +251,13 @@ class SandboxSession(BaseSandboxService):
                 user_id=self.user.pk,
             )
             return None
+        except tasks_facade.TaskRunAlreadyLiveError:
+            logger.info(
+                "sandbox_warm_run_in_progress",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
+            return None
 
         return SandboxRouteResult(
             task_id=str(task_id),
@@ -465,7 +472,7 @@ class SandboxSession(BaseSandboxService):
 
             try:
                 new_run = task.create_run(mode="interactive", extra_state=extra_state)
-            except tasks_facade.TaskDoneError as error:
+            except (tasks_facade.TaskDoneError, tasks_facade.TaskRunAlreadyLiveError) as error:
                 raise Conflict(str(error)) from error
 
         # Same write scopes as the first message — the resumed agent keeps creating

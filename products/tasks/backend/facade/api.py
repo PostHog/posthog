@@ -204,6 +204,7 @@ from products.tasks.backend.models import (
     TaskOwnershipChangedError,
     TaskPin,
     TaskRun,
+    TaskRunAlreadyLiveError as TaskRunAlreadyLiveError,
     TaskSearchDocument,
     TaskSession,
     TaskThreadMessage,
@@ -319,6 +320,7 @@ __all__ = [
     "TaskRuntime",
     "TaskStatus",
     "TaskDoneError",
+    "TaskRunAlreadyLiveError",
     "check_wake",
     "check_wake_by_task_id",
     "close_task",
@@ -2690,6 +2692,25 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
         _observe_claimed_terminal(run, error_type=error_type)
         resume_workflow_step_for_run(run)
     return True
+
+
+def _fail_run_whose_workflow_is_gone(run: TaskRun) -> None:
+    claimed = TaskRun.objects.filter(
+        id=run.id,
+        team_id=run.team_id,
+        status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+    ).update(status=TaskRun.Status.FAILED)
+    if not claimed:
+        return
+
+    def finalize() -> None:
+        if run.mark_failed(
+            "This run stopped before it finished, so a new run replaced it.", error_type="workflow_gone"
+        ):
+            _observe_claimed_terminal(run, error_type="workflow_gone")
+            resume_workflow_step_for_run(run)
+
+    transaction.on_commit(finalize)
 
 
 def _observe_claimed_terminal(run: TaskRun, *, error_type: str | None) -> None:
@@ -6963,6 +6984,12 @@ def bootstrap_task_run(
                 kind="validation_error", code="task_done", detail=str(error), attr="status"
             )
         )
+    except TaskRunAlreadyLiveError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="run_in_progress", detail=str(error), attr="status"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
 
@@ -7138,7 +7165,7 @@ def resume_task_run_in_cloud(
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
     ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
-    ``"task_done"`` (409), ``"auth_error:<detail>"``
+    ``"task_done"`` (409), ``"run_in_progress"`` (409), ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -7203,6 +7230,10 @@ def resume_task_run_in_cloud(
         )
         if is_cloud_active:
             return "already_active", None, None
+        try:
+            task.refuse_run_beside_live_run(source="cloud_resume", exclude_run_id=run.id)
+        except TaskRunAlreadyLiveError:
+            return "run_in_progress", None, None
 
         if (
             task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}
@@ -10246,6 +10277,7 @@ def warm_task_resume_sandbox(
         WarmSourceChanged,
         TaskOwnershipChangedError,
         TaskDoneError,
+        TaskRunAlreadyLiveError,
     ):
         # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
         # locked create_run, keeping this best-effort endpoint from returning a server error.
@@ -10925,6 +10957,12 @@ def run_task(
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(
                 kind="validation_error", code="task_done", detail=str(error), attr="status"
+            )
+        )
+    except TaskRunAlreadyLiveError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="run_in_progress", detail=str(error), attr="status"
             )
         )
     except TaskOwnershipChangedError:
@@ -13308,7 +13346,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     transaction and dispatches its processing workflow on commit with
     ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done``.
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done`` /
+    ``run_in_progress``.
     """
     from products.signals.backend.facade.self_driving import (
         self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
@@ -13373,6 +13412,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
+            if not (run.state or {}).get("cancel_requested_at"):
+                _fail_run_whose_workflow_is_gone(run)
         if quota_gate is not None:
             enforce_self_driving_pr_quota(
                 task.team,
@@ -13380,9 +13421,12 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 stage="canvas_fix",
                 gate=quota_gate,
             )
-        task_run = task.create_run(
-            mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
-        )
+        try:
+            task_run = task.create_run(
+                mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
+            )
+        except TaskRunAlreadyLiveError:
+            return "run_in_progress"
         from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,

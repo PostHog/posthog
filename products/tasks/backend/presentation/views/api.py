@@ -394,6 +394,13 @@ def _task_done_response() -> Response:
     )
 
 
+def _run_in_progress_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskRunAlreadyLiveError())}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -1625,7 +1632,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
             404: OpenApiResponse(description="Task not found"),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -2061,6 +2071,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
         if error.code == "task_done":
             return _task_done_response()
+        if error.code == "run_in_progress":
+            return _run_in_progress_response()
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2426,6 +2438,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": error.detail}, status=status.HTTP_400_BAD_REQUEST)
         if error.code == "task_done":
             return _task_done_response()
+        if error.code == "run_in_progress":
+            return _run_in_progress_response()
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2440,7 +2454,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -4396,7 +4413,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -4435,6 +4455,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if outcome == "task_done":
             return _task_done_response()
+        if outcome == "run_in_progress":
+            return _run_in_progress_response()
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,

@@ -270,6 +270,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
     assert isinstance(stored_request, dict)
     assert stored_request["dedupe_id"] == verdict.request.dedupe_id
+    TaskRun.objects.filter(task_id=task.id).update(status=TaskRun.Status.COMPLETED)
     Task.objects.get(id=task.id).create_run()
     run_states = TaskRun.objects.filter(task_id=task.id).values_list("state", flat=True)
     assert len(run_states) == 2

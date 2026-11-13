@@ -162,6 +162,11 @@ A done task refuses new runs, cloud resumes, and follow-up messages with `409`.
 A task can become done only while its profile is set to `enforce` in the `tasks-task-done` feature flag payload.
 Every profile is off until the payload names it.
 
+A task with a cloud run in progress refuses another run or a cloud resume with `409`.
+A run that is waiting for its first message or is being canceled does not count.
+Neither does a run with no writes for 24 hours, which is marked failed when the next run starts.
+A scheduled run that comes due while another run is in progress still starts.
+
 ## MCP tools
 
 - `tasks-create` creates an idle task. It does not accept run-start inputs.

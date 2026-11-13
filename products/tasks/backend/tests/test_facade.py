@@ -457,9 +457,9 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNone(resumed_run)
 
     @override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True)
-    def test_resume_in_cloud_logs_a_restart_beside_a_live_run(self):
+    def test_resume_in_cloud_refuses_a_restart_beside_a_live_run(self):
         task = self._make_task()
-        live = TaskRun.objects.create(
+        TaskRun.objects.create(
             task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.QUEUED
         )
         run = TaskRun.objects.create(
@@ -470,13 +470,11 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"pr_authorship_mode": "bot"},
         )
 
-        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
-            outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+        outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
 
-        self.assertEqual(outcome, "resumed")
-        log_started.assert_called_once_with(run, [live.id])
+        self.assertEqual(outcome, "run_in_progress")
         run.refresh_from_db()
-        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
 
     @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT,), (Task.OriginProduct.SIGNALS_SCOUT,)])
     def test_resume_in_cloud_cannot_reopen_automated_spend(self, origin_product: str) -> None:
