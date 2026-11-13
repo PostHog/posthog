@@ -12,13 +12,14 @@ import time
 import asyncio
 import hashlib
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.core.cache import cache
 
 import structlog
 from asgiref.sync import async_to_sync
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import team_distinct_id
@@ -252,9 +253,10 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team", path: str) -> None
         outcome = "budget_exhausted"
     elif uncached:
         asked = uncached
-        answers, outcome = _ask_once(team, [(index, pending[index]) for index in asked])
-        picks.update({index: field_name for index, field_name in answers.items() if field_name})
-        _cache_set_many({keys[index]: field_name for index, field_name in answers.items()})
+        call = _ask_once(team, [(index, pending[index]) for index in asked])
+        outcome = call.outcome
+        picks.update({index: field_name for index, field_name in call.answers.items() if field_name})
+        _cache_set_many({keys[index]: field_name for index, field_name in call.answers.items()})
 
     changed = sum(_apply_pick(pending[index], field_name) for index, field_name in picks.items())
     summary = {
@@ -342,7 +344,16 @@ def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     }
 
 
-def _ask_once(team: "Team", tables: list[tuple[int, SourceSchema]]) -> tuple[Mapping[int, str], str]:
+@frozen
+class _ModelCall:
+    """The picks per table index from one model call, and how the call ended."""
+
+    answers: Mapping[int, str]
+    outcome: Literal["ok", "timeout", "failed", "error"]
+    status_code: int | None = None
+
+
+def _ask_once(team: "Team", tables: list[tuple[int, SourceSchema]]) -> _ModelCall:
     """One model call under the deadline. Returns the picks and the call outcome."""
     client = build_system_one_client(
         model=MODEL,
@@ -355,33 +366,31 @@ def _ask_once(team: "Team", tables: list[tuple[int, SourceSchema]]) -> tuple[Map
     assert isinstance(client, GatewaySystemOneClient)
     columns = sum(len(_candidates(schema)) for _, schema in tables)
     started = time.monotonic()
-    answers, outcome, status_code = async_to_sync(_ask_with_deadline)(client, tables)
+    call = async_to_sync(_ask_with_deadline)(client, tables)
     logger.info(
         "incremental_field_model_call",
         team_id=team.pk,
         tables=len(tables),
         columns=columns,
         latency_ms=round((time.monotonic() - started) * 1000),
-        outcome=outcome,
-        status_code=status_code,
+        outcome=call.outcome,
+        status_code=call.status_code,
     )
-    return answers, outcome
+    return call
 
 
-async def _ask_with_deadline(
-    client: GatewaySystemOneClient, tables: list[tuple[int, SourceSchema]]
-) -> tuple[Mapping[int, str], str, int | None]:
+async def _ask_with_deadline(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSchema]]) -> _ModelCall:
     try:
-        return await asyncio.wait_for(_ask(client, tables), timeout=TIMEOUT_SECONDS), "ok", None
+        return _ModelCall(answers=await asyncio.wait_for(_ask(client, tables), timeout=TIMEOUT_SECONDS), outcome="ok")
     except TimeoutError:
-        return {}, "timeout", None
+        return _ModelCall(answers={}, outcome="timeout")
     except SystemOneRequestFailed as error:
-        return {}, "failed", error.status_code
+        return _ModelCall(answers={}, outcome="failed", status_code=error.status_code)
     except SystemOneNotConfigured:
-        return {}, "failed", None
+        return _ModelCall(answers={}, outcome="failed")
     except Exception as error:
         capture_exception(error)
-        return {}, "error", None
+        return _ModelCall(answers={}, outcome="error")
 
 
 async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSchema]]) -> Mapping[int, str]:
