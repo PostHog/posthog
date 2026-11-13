@@ -124,14 +124,34 @@ export function sourceServesLiveQueries(source: ExternalDataSource | null): bool
     return !!source?.direct_query_enabled && supportsDirectQuery(source.source_type)
 }
 
-export function liveQueryDisabledReason(schema: ExternalDataSourceSchema): string | null {
-    return (
-        schema.live_query_unavailable_reason ?? (schema.should_sync ? 'Synced tables can always be queried live' : null)
-    )
-}
-
 export function isQueryableLive(schema: ExternalDataSourceSchema): boolean {
     return !schema.live_query_unavailable_reason && (schema.should_sync || !!schema.live_query_enabled)
+}
+
+export function isSchemaEnabled(schema: ExternalDataSourceSchema, servesLiveQueries: boolean): boolean {
+    return schema.should_sync || (servesLiveQueries && isQueryableLive(schema))
+}
+
+export type SchemaAvailability = 'synced' | 'live' | 'off'
+
+export function schemaAvailability(schema: ExternalDataSourceSchema): SchemaAvailability {
+    return schema.should_sync ? 'synced' : isQueryableLive(schema) ? 'live' : 'off'
+}
+
+export type AvailabilityChange =
+    | { kind: 'sync'; active: boolean; extra: Pick<ExternalDataSourceSchema, 'live_query_enabled'> }
+    | { kind: 'live'; enabled: boolean }
+
+// Anything that touches syncing goes through the sync toggle, so its confirm dialogs and
+// sync-method redirect still apply; leaving sync carries the live choice in the same save.
+export function availabilityChange(schema: ExternalDataSourceSchema, target: SchemaAvailability): AvailabilityChange {
+    if (target === 'synced') {
+        return { kind: 'sync', active: true, extra: {} }
+    }
+    if (schema.should_sync) {
+        return { kind: 'sync', active: false, extra: { live_query_enabled: target === 'live' } }
+    }
+    return { kind: 'live', enabled: target === 'live' }
 }
 
 // Enabling skips tables that can't be live; disabling skips synced tables, which stay live.
@@ -1104,9 +1124,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 let schemas = source.schemas
                 if (showEnabledSchemasOnly) {
                     const servesLiveQueries = sourceServesLiveQueries(source)
-                    schemas = schemas.filter(
-                        (schema) => schema.should_sync || (servesLiveQueries && isQueryableLive(schema))
-                    )
+                    schemas = schemas.filter((schema) => isSchemaEnabled(schema, servesLiveQueries))
                 }
                 if (schemaNameFilter) {
                     const filter = schemaNameFilter.toLowerCase()

@@ -4,6 +4,7 @@ import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { allowedCdcSyncFrequencies, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import {
+    availabilityChange,
     buildBulkEnablePayloads,
     buildLiveQueryPayloads,
     bulkSyncMethodDisabledReason,
@@ -12,6 +13,7 @@ import {
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
+    schemaAvailability,
     schemasEligibleForSync,
     schemasNeedingLookbackResync,
 } from './sourceSettingsLogic'
@@ -323,6 +325,37 @@ describe('live query selection', () => {
         ['a synced table the backend excludes is not live', { should_sync: true, ...unavailable }, false],
     ])('%s', (_, overrides, expected) => {
         expect(isQueryableLive(makeSchema(overrides as Partial<ExternalDataSourceSchema>))).toBe(expected)
+    })
+
+    it.each([
+        ['synced', { should_sync: true }, 'synced'],
+        ['synced even when the backend excludes it from live queries', { should_sync: true, ...unavailable }, 'synced'],
+        ['live only', { live_query_enabled: true }, 'live'],
+        ['off when the flag is on but the backend excludes it', { live_query_enabled: true, ...unavailable }, 'off'],
+        ['off', {}, 'off'],
+    ])('shows a table as %s', (_, overrides, expected) => {
+        expect(schemaAvailability(makeSchema(overrides as Partial<ExternalDataSourceSchema>))).toBe(expected)
+    })
+
+    it.each([
+        ['off to synced', {}, 'synced', { kind: 'sync', active: true, extra: {} }],
+        ['live to synced', { live_query_enabled: true }, 'synced', { kind: 'sync', active: true, extra: {} }],
+        [
+            'synced to live only, in one save',
+            { should_sync: true },
+            'live',
+            { kind: 'sync', active: false, extra: { live_query_enabled: true } },
+        ],
+        [
+            'synced to off, clearing the live flag',
+            { should_sync: true, live_query_enabled: true },
+            'off',
+            { kind: 'sync', active: false, extra: { live_query_enabled: false } },
+        ],
+        ['off to live only', {}, 'live', { kind: 'live', enabled: true }],
+        ['live only to off', { live_query_enabled: true }, 'off', { kind: 'live', enabled: false }],
+    ] as const)('routes %s', (_, overrides, target, expected) => {
+        expect(availabilityChange(makeSchema(overrides as Partial<ExternalDataSourceSchema>), target)).toEqual(expected)
     })
 
     const selection = [
