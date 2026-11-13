@@ -168,10 +168,8 @@ class AnomalyScoringConfig:
     # Per-tick picks of each pass when the split is on. Score steps are cheap, so the score pass gets most slots.
     max_score_insights_per_tick: int = 20
     max_train_insights_per_tick: int = 2
-    # Train pass slots, per shard, that the tick first offers to projects with no trained daily model, so a new
-    # project does not wait behind the train backlog of older projects. A slot the lane does not use goes to the
-    # rest of the train pass. Zero turns the lane off. The lane takes at most `first_train_insights_per_project`
-    # daily insights of each project, so one project cannot fill it.
+    # Train pass slots per shard that go first to projects with no trained daily model. Zero turns the lane off.
+    # The lane takes at most `first_train_insights_per_project` insights of a project, so one project cannot fill it.
     first_train_insights_per_tick: int = 1
     first_train_insights_per_project: int = 2
     # An insight is scored only while one of its activity signals falls in this many days, see `queue.active_insights`.

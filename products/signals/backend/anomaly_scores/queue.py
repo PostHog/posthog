@@ -143,9 +143,7 @@ _MAX_DUE_ROWS = 5000
 # mostly the oldest due rows. They get at most this many of the rows that one plan reads. Without this limit, a train
 # backlog larger than the read fills every plan, and no scored row reaches the score pass.
 _MAX_NEVER_SCORED_DUE_ROWS = _MAX_DUE_ROWS // 2
-# The never-scored daily rows of each project with no trained daily model that one plan reads, most used first.
-# Selection takes the first-train lane picks from them. More than the lane picks, so that rows in a cooldown or over
-# a budget leave enough rows to pick from.
+# More rows than the lane picks, so that rows in a cooldown or over a budget leave rows to pick from.
 _FIRST_TRAIN_ROWS_PER_TEAM = 10
 _MAX_FIRST_TRAIN_DUE_ROWS = 500
 # The score pass keeps one in this many of its slots for stale models, so ready picks cannot take every slot.
@@ -205,7 +203,7 @@ class InsightPick:
     too_expensive: int = 0
     # Consecutive train picks with no series before this pick.
     empty_train: int = 0
-    # A daily insight of a project with no trained daily model. Its first trained model sends the first train event.
+    # A daily insight of a project with no trained daily model.
     first_train: bool = False
 
 
@@ -220,6 +218,17 @@ class TeamCensus:
 
 
 @frozen
+class FirstTrainReport:
+    """What the first-train lane saw and did in one plan, for the tick event."""
+
+    # Projects with due daily insights and no trained daily model, also the projects past the read cap of the plan.
+    waiting_teams: int = 0
+    picked: int = 0
+    # Due rows that never scored, also the rows past the read cap. None when the tick does not plan from the due list.
+    never_scored_due: int | None = None
+
+
+@frozen
 class Selection:
     picks: list[InsightPick]
     # Due insights, picked or not. More than the picks means the tick cap or a budget cut the queue.
@@ -229,9 +238,6 @@ class Selection:
     # Picks of the score pass and of the train pass. With the split off, every pick is a train pass pick.
     picked_score: int = 0
     picked_train: int = 0
-    # Train pass picks of the first-train lane, and the projects with due daily insights and no trained daily model.
-    picked_first_train: int = 0
-    first_train_teams: int = 0
     # Score pass picks that score with a model due for a soft retrain.
     scored_stale_model: int = 0
     # Due insights with a stale model that the train pass did not pick. More than `scored_stale_model` means
@@ -260,9 +266,7 @@ class Selection:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
-    # Due rows that never scored, also the rows past the read cap of the plan. `train_backlog_hard` counts only the
-    # rows that the plan read. None when the tick does not plan from the due list.
-    never_scored_due: int | None = None
+    first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
 
 
@@ -1017,8 +1021,7 @@ def select_insights(
         now,
     )[: min(config.first_train_insights_per_tick * shards, train_cap)]
     in_lane = set(lane)
-    # The lane leads the one walk of the pass, so its picks charge the same budgets, and a lane slot that its
-    # insight cannot fit goes to the next insight of the pass.
+    # The lane leads the one walk of the pass, so it charges the same budgets and a slot it cannot fill goes to the rest.
     train_order = [*lane, *(insight_id for insight_id in _take_turns(team_orders, now) if insight_id not in in_lane)]
     # A stale model plans as a train step here. With the split off, every pick charges the train budgets.
     train_picked, train_skipped = walk(train_order, ScoringRun.TRAIN, train_cap)
@@ -1060,10 +1063,6 @@ def select_insights(
         skipped_for_budget=score_skipped + train_skipped + stale_skipped,
         picked_score=len(score_picked),
         picked_train=len(train_picked),
-        picked_first_train=len(in_lane & train_picked.keys()),
-        first_train_teams=len({team_ids[insight_id] for insight_id in first_train_ids})
-        if due_list is None
-        else due_list.first_train_waiting,
         scored_stale_model=len(stale_picked),
         stale_candidates=len(stale_candidates),
         train_backlog_soft=sum(insight_id in stale_ready for insight_id in backlog),
@@ -1080,7 +1079,13 @@ def select_insights(
         due_insights=None if due_list is None else len(due_list.insights),
         oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
         oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
-        never_scored_due=None if due_list is None else due_list.never_scored_due,
+        first_train=FirstTrainReport(
+            waiting_teams=len({team_ids[insight_id] for insight_id in first_train_ids})
+            if due_list is None
+            else due_list.first_train_waiting,
+            picked=len(in_lane & train_picked.keys()),
+            never_scored_due=None if due_list is None else due_list.never_scored_due,
+        ),
         cpu=CpuSpendReport(
             status=gate.status,
             fleet_cpu_seconds=gate.fleet_cpu_seconds,

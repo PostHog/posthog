@@ -60,6 +60,7 @@ from products.signals.backend.anomaly_scores.queue import (
     SKIP_COOLDOWN,
     ActiveInsight,
     ActivityReason,
+    FirstTrainReport,
     InsightPick,
     QueryBudget,
     TeamCensus,
@@ -221,7 +222,6 @@ class TestTickConfig(SimpleTestCase):
             IntervalType.MONTH: 3,
         }
         assert config.active_window_days == 90
-        # Zero turns the first-train lane off, and a lane cannot take zero insights of a project.
         assert (config.first_train_insights_per_tick, config.first_train_insights_per_project) == (0, 2)
 
     @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
@@ -1366,8 +1366,9 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
 
         [pick] = selection.picks
         assert (pick.insight_id == new_insight.id, pick.first_train) == (new_project_first, new_project_first)
-        assert (selection.picked_first_train, selection.first_train_teams) == (int(new_project_first), 1)
-        assert selection.never_scored_due == 4
+        assert selection.first_train == FirstTrainReport(
+            waiting_teams=1, picked=int(new_project_first), never_scored_due=4
+        )
 
     @time_machine.travel(NOW, tick=False)
     def test_the_first_trained_daily_model_of_a_project_sends_one_first_train_event(self) -> None:

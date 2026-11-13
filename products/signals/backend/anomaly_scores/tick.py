@@ -57,6 +57,7 @@ from products.signals.backend.anomaly_scores.metrics import record_candidates, r
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
+    FirstTrainReport,
     InsightPick,
     TeamCensus,
     analytics_source_enabled_at,
@@ -114,7 +115,6 @@ _CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
 TICK_BUDGET = datetime.timedelta(minutes=10)
 # A census key lives past its UTC day, so a tick at the end of the day still reads it.
 _CENSUS_TTL = datetime.timedelta(days=2)
-# One first train event per project. The key outlives the wait of a project that the lane reaches.
 _FIRST_TRAIN_SENT_TTL = datetime.timedelta(days=30)
 # The last batch can start at the budget, and the summary capture runs after it.
 TICK_TIMEOUT = _PLAN_TIMEOUT + TICK_BUDGET + _INSIGHT_TIMEOUT + _CAPTURE_TIMEOUT
@@ -142,8 +142,6 @@ class AnomalyScoringTickPlan:
     stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
-    picked_first_train: int = 0
-    first_train_teams: int = 0
     active: int = 0
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
@@ -156,7 +154,7 @@ class AnomalyScoringTickPlan:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
-    never_scored_due: int | None = None
+    first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
 
 
@@ -205,9 +203,6 @@ class AnomalyScoringTickResult:
     stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
-    # Planned picks of the first-train lane, and the projects with due daily insights and no trained daily model.
-    picked_first_train: int = 0
-    first_train_teams: int = 0
     # Active insights of the eligible teams, and how many of them have each activity reason.
     active: int = 0
     active_reasons: dict[str, int] | None = None
@@ -232,8 +227,7 @@ class AnomalyScoringTickResult:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
-    # Due rows that never scored, with no read cap. None when the plan does not read the due list.
-    never_scored_due: int | None = None
+    first_train: FirstTrainReport | None = None
     # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
     cpu: CpuSpendReport | None = None
     # Shards that started picks, the most picks that one shard started, and the time of the slowest shard.
@@ -278,8 +272,6 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         stale_candidates=selection.stale_candidates,
         train_backlog_soft=selection.train_backlog_soft,
         train_backlog_hard=selection.train_backlog_hard,
-        picked_first_train=selection.picked_first_train,
-        first_train_teams=selection.first_train_teams,
         active=selection.active,
         active_reasons=selection.active_reasons,
         enrolled_teams=selection.enrolled_teams,
@@ -292,7 +284,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
-        never_scored_due=selection.never_scored_due,
+        first_train=selection.first_train,
         cpu=selection.cpu,
     )
 
@@ -623,8 +615,6 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         stale_candidates=result.stale_candidates,
         train_backlog_soft=result.train_backlog_soft,
         train_backlog_hard=result.train_backlog_hard,
-        picked_first_train=result.picked_first_train,
-        first_train_teams=result.first_train_teams,
         active=result.active,
         active_reasons=result.active_reasons,
         enrolled_teams=result.enrolled_teams,
@@ -640,13 +630,14 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         due_insights=result.due_insights,
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
-        never_scored_due=result.never_scored_due,
+        first_train=result.first_train,
         shards=result.shards,
         max_shard_picks=result.max_shard_picks,
         longest_shard_ms=result.longest_shard_ms,
         cpu=result.cpu,
     )
     cpu = result.cpu
+    first_train = result.first_train
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
         event="anomaly scoring tick",
@@ -670,8 +661,6 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "stale_candidates": result.stale_candidates,
             "train_backlog_soft": result.train_backlog_soft,
             "train_backlog_hard": result.train_backlog_hard,
-            "picked_first_train": result.picked_first_train,
-            "first_train_teams": result.first_train_teams,
             "active_insights": result.active,
             **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
             "enrolled_teams": result.enrolled_teams,
@@ -687,7 +676,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "due_insights": result.due_insights,
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
-            "never_scored_due": result.never_scored_due,
+            "first_train_waiting_teams": first_train.waiting_teams if first_train else None,
+            "picked_first_train": first_train.picked if first_train else None,
+            "never_scored_due": first_train.never_scored_due if first_train else None,
             "shards": result.shards,
             "max_shard_picks": result.max_shard_picks,
             "longest_shard_ms": result.longest_shard_ms,
@@ -784,8 +775,6 @@ class AnomalyScoringTickWorkflow:
             stale_candidates=plan.stale_candidates,
             train_backlog_soft=plan.train_backlog_soft,
             train_backlog_hard=plan.train_backlog_hard,
-            picked_first_train=plan.picked_first_train,
-            first_train_teams=plan.first_train_teams,
             active=plan.active,
             active_reasons=plan.active_reasons,
             enrolled_teams=plan.enrolled_teams,
@@ -799,7 +788,7 @@ class AnomalyScoringTickWorkflow:
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
-            never_scored_due=plan.never_scored_due,
+            first_train=plan.first_train,
             shards=len(shards),
             max_shard_picks=max((len(shard.started) for shard in shards), default=0),
             longest_shard_ms=max((shard.duration_ms for shard in shards), default=0),
