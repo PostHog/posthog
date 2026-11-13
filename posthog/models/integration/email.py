@@ -272,7 +272,9 @@ class EmailIntegration:
         mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
 
         if provider not in ("ses", "maildev") or (provider == "maildev" and not settings.DEBUG):
-            raise ValueError(f"Invalid provider: must be 'ses'")
+            raise ValidationError(
+                "This sender uses an email provider that cannot be updated. Create a new sender instead."
+            )
 
         if mail_from_changed:
             # The identity at the provider is shared by every organization that added the domain, so a claim that has

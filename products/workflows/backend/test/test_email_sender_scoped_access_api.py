@@ -527,6 +527,20 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
         assert self.config().get("email", NO_ADDRESS) == stored_email
         assert self.config()["name"] == ("Acme" if expected_status == status.HTTP_200_OK else "Example")
 
+    @parameterized.expand([("session",), ("pak",)])
+    def test_sender_stored_with_another_provider_is_refused_not_a_server_error(self, authentication: str) -> None:
+        Integration.objects.filter(id=self.sender).update(config={**self.config(), "provider": "mailjet"})
+        config_before = self.config()
+
+        with email_from_code(True):
+            response = self.update_sender({"name": "Acme"}, **self.credentials(authentication))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == (
+            "This sender uses an email provider that cannot be updated. Create a new sender instead."
+        )
+        assert self.config() == config_before
+
     @parameterized.expand(
         [
             ("token_moving_mail_from", "pak", {"mail_from_subdomain": "bounce"}, status.HTTP_403_FORBIDDEN, "feedback"),
