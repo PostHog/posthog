@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
 
 import type {
@@ -10,7 +10,10 @@ import type {
     ApiToolSummary,
 } from '@posthog/mcp/src/cli/library-types'
 
-import { readJson, runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
+import * as providers from '@/ci/providers/registry'
+import { FAKE_WORKLOAD_PROVIDER, readJson, runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
+
+mock.module('@/ci/providers/registry', () => ({ ...providers, WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER] }))
 
 const tool = (
     name: string,
@@ -590,6 +593,13 @@ describe('hog api tool catalog', () => {
             {},
             { ...LOGIN_UNDER_PATH, '/work/posthog.json': JSON.stringify({ host: `${SELF_HOSTED}/other` }) },
             'https://ph.example.com/posthog/api/cli/catalog.json',
+        ],
+        [
+            'the CI job, which exchanges its OIDC token before hog reads stored logins',
+            [],
+            { FAKE_CI: 'true', FAKE_CI_TOKEN: 'header.payload.signature', HOG_PROJECT_ID: '42' },
+            LOGIN_UNDER_PATH,
+            CATALOG_URL,
         ],
         [
             'US Cloud, when only posthog.json names a self-hosted host',
