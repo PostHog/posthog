@@ -434,7 +434,7 @@ describe('scenario environment', () => {
             expect(ports['cdp-api']).toBe('6738')
         })
 
-        it("runs each replica a profile asks for on its own port and connection name, replica 0 on the role's own", () => {
+        it("runs each replica a profile asks for on its own port under its role's connection name, replica 0 on the role's port", () => {
             const replicated = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, {}, undefined, {
                 'cdp-cyclotron-worker-hogflow': 3,
                 'cdp-processed-events': 2,
@@ -462,21 +462,21 @@ describe('scenario environment', () => {
                     replica: 1,
                     port: 6860,
                     listens: '6860',
-                    connects: 'scenario-cdp-processed-events-1',
+                    connects: 'scenario-cdp-processed-events',
                 },
                 {
                     role: 'cdp-cyclotron-worker-hogflow',
                     replica: 1,
                     port: 6861,
                     listens: '6861',
-                    connects: 'scenario-cdp-cyclotron-worker-hogflow-1',
+                    connects: 'scenario-cdp-cyclotron-worker-hogflow',
                 },
                 {
                     role: 'cdp-cyclotron-worker-hogflow',
                     replica: 2,
                     port: 6961,
                     listens: '6961',
-                    connects: 'scenario-cdp-cyclotron-worker-hogflow-2',
+                    connects: 'scenario-cdp-cyclotron-worker-hogflow',
                 },
             ])
             expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))

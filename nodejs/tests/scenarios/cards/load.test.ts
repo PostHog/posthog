@@ -270,6 +270,12 @@ describe('load', () => {
             'profile.settings.toString: not a setting the roles or the load producer read',
         ],
         [
+            'a second cdp-api, which no offer would reach',
+            card,
+            { ...profile, replicas: { 'cdp-api': 2 } },
+            'profile.replicas.cdp-api: cdp-api runs once, since every intake offer goes to replica 0',
+        ],
+        [
             'a profile that uses a YAML alias',
             card,
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',

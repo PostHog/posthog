@@ -4,7 +4,7 @@ import { getDefaultCdpConfig } from '~/cdp/config'
 import { overrideConfigWithEnv } from '~/common/config/config'
 
 import { CdpRole, Profile } from '../cards'
-import { ReplicaOf, nameOf } from './identity'
+import { ReplicaOf } from './identity'
 import { MARKER_KEY } from './processes'
 
 export type Role = z.infer<typeof CdpRole>
@@ -86,7 +86,7 @@ export function roleSpecs(
             WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
             PLUGIN_SERVER_MODE: id.role,
             HTTP_SERVER_PORT: String(portOf(id)),
-            PGAPPNAME: `scenario-${nameOf(id)}`,
+            PGAPPNAME: `scenario-${id.role}`,
             [MARKER_KEY]: stateDir,
         },
     }))

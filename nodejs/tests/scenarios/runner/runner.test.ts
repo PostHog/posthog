@@ -653,7 +653,11 @@ describe('runner through seed, drive and judge', () => {
         },
     })
 
-    const shortSmoke = (valves: ValveEntry[] = [], traffic = 'event_email'): LoadedCard => {
+    const shortSmoke = (
+        valves: ValveEntry[] = [],
+        traffic = 'event_email',
+        { replicas = {}, parks = 0 }: { replicas?: Profile['replicas']; parks?: number } = {}
+    ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
@@ -669,7 +673,8 @@ describe('runner through seed, drive and judge', () => {
             profile,
             stringify({
                 name: SMOKE.profile.name,
-                traffic: { [traffic]: { ratePerSecond: 2 } },
+                traffic: { [traffic]: { ratePerSecond: 2, parks } },
+                replicas,
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -894,6 +899,37 @@ describe('runner through seed, drive and judge', () => {
             ),
             units: { targetUnits: 4, offeredUnits: 4 },
         })
+    }, 30_000)
+
+    it('samples every replica the profile starts and seeds flows that park as often as it asks', async () => {
+        const result = await createRunner(environmentOf('none'), env).run(
+            shortSmoke([], 'event_email', { replicas: { 'cdp-cyclotron-worker-email': 2 }, parks: 1 }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        const teams = (evidenceOf(result, 'journal.json') as JournalEntry[]).map(({ teamId }) => teamId)
+        const flows = await withPostgres(
+            async (client) =>
+                (
+                    await client.query<{ actions: { type: string }[] }>(
+                        'SELECT actions FROM posthog_hogflow WHERE team_id = ANY($1)',
+                        [teams]
+                    )
+                ).rows,
+            defaultConfig.DATABASE_URL
+        )
+        const { samples } = evidenceOf(result, 'metrics.json') as { samples: { role: string; replica: number }[] }
+        expect({
+            parksPerFlow: [
+                ...new Set(flows.map(({ actions }) => actions.filter(({ type }) => type === 'delay').length)),
+            ],
+            emailReplicas: [
+                ...new Set(
+                    samples.filter(({ role }) => role === 'cdp-cyclotron-worker-email').map(({ replica }) => replica)
+                ),
+            ].sort(),
+        }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
     }, 30_000)
 
     const KILL_EMAIL_WORKER: ValveEntry = {
