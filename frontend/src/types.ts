@@ -113,6 +113,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApi,
     ExternalDataSchemaApiAvailableColumnsItem,
     ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
@@ -6757,6 +6758,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     /** The requesting user's effective access level for this table (inherits the source). */
     user_access_level?: AccessControlLevel
+    live_query_enabled?: ExternalDataSchemaApi['live_query_enabled']
+    live_query_unavailable_reason?: ExternalDataSchemaApi['live_query_unavailable_reason']
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6764,6 +6767,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     access_method?: ExternalDataSource['access_method']
+    direct_query_enabled?: boolean
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     requires_exact_column_metadata?: boolean
