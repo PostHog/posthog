@@ -17,6 +17,7 @@ from products.posthog_ai.eval_harness.scorers import (
     ToolMatch,
     ToolOrder,
 )
+from products.posthog_ai.eval_harness.scorers.contract import Scorer
 from products.posthog_ai.evals.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     QUERY_ISSUE_EVENTS_TOOL,
@@ -426,6 +427,8 @@ _V3_INSPECTION = ("execute-sql", {"query": "SELECT count() FROM crm_deals_v3"}, 
         ([_V3_INSPECTION, _SQL_ANSWER], None, 0.0),
         ([_SQL_ANSWER, _V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 1.0),
         ([_V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 0.0),
+        # A query that reads no table cannot be the clean query that answers.
+        ([("execute-sql", {"query": "SELECT 1"}, "1"), _V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 0.0),
         ([_SQL_ANSWER], None, 1.0),
         # A run that read nothing avoided nothing, in either scope.
         ([_METRIC_LIST], None, None),
@@ -467,3 +470,13 @@ def test_sources_avoided_rejects_malformed_tables(tables: list[object]) -> None:
     )
 
     assert (score.score, score.metadata["reason"]) == (0.0, "invalid expected metadata")
+
+
+@pytest.mark.parametrize(
+    "scorer",
+    [SourcesAvoided(), SourcesConsulted(), ServerUsed()],
+    ids=["sources_avoided", "sources_consulted", "server_used"],
+)
+def test_a_malformed_scorer_entry_is_a_scorer_error(scorer: Scorer) -> None:
+    with pytest.raises(ValueError, match="must be a dict"):
+        scorer._run_eval_sync({"raw_log": _raw_tool_log([_V3_INSPECTION])}, {scorer._name(): ["crm_deals_v3"]})
