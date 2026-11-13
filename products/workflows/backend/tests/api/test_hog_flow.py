@@ -6235,6 +6235,12 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+        entry = ActivityLog.objects.get(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert entry.user == self.user
+        assert entry.detail["context"] == {
+            "batch_job_id": response.json()["id"],
+            "filters": response.json()["filters"],
+        }
 
     @parameterized.expand([("on_realtime_pipeline", "all", 200), ("off_realtime_pipeline", "none", 400)])
     @patch(

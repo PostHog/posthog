@@ -154,6 +154,7 @@ from products.tasks.backend.facade.workflow_tasks import (
 from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
+    log_workflow_batch_run_activity,
     log_workflow_schedule_activity,
     log_workflow_test_run,
     record_workflow_test_run_origins,
@@ -7925,6 +7926,14 @@ class HogFlowViewSet(
                 # caller-supplied filters are never what actually runs.
                 filters=hog_flow.trigger_filters,
             )
+            log_workflow_batch_run_activity(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id,
+                name=hog_flow.name,
+                activity="batch_run_started",
+                batch_job_id=batch_job.id,
+                filters=batch_job.filters,
+            )
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
@@ -8002,6 +8011,14 @@ class HogFlowViewSet(
             )
 
         batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
+        if data["done"] and batch_job.status == HogFlowBatchJobState.CANCELLED:
+            log_workflow_batch_run_activity(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id,
+                name=hog_flow.name,
+                activity="batch_run_stopped",
+                batch_job_id=batch_job.id,
+            )
         self._report_workflow_action(
             "hog_flow_batch_job_cancel_requested",
             hog_flow,
