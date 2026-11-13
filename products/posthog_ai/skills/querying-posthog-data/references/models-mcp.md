@@ -60,7 +60,7 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 | `$mcp_conversation_id`            | SDK    | Stable, agent-echoed identifier that survives reconnects. See "Three identifiers" below. Only present when the server has `enableConversationId` turned on.                                                                                                                                                                                                                                                                                                                                                                      |
 | `$mcp_parameters`                 | SDK    | Arguments passed to the tool call. Large strings and sensitive keys are redacted before capture.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `$mcp_response`                   | SDK    | The response the MCP server returned, redacted the same way as `$mcp_parameters`. Stays empty on PostHog's hosted server.                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `$mcp_client_name`                | SDK    | Raw client string (e.g. `claude-code/1.2.3`). Bucketed into harnesses **server-side** by `products/mcp_analytics/backend/mcp_harness.py` (`HARNESS_TOKEN_SQL` / `harness_label_sql`) — the single source of truth. The frontend only maps the resolved label to a logo. There is no `category` column.                                                                                                                                                                                                                           |
+| `$mcp_client_name`                | SDK    | Raw client string (e.g. `claude-code/1.2.3`). Bucketed into harnesses **server-side** by `products/mcp_analytics/backend/mcp_harness.py` (`HARNESS_TOKEN_SQL` / `harness_label_sql`) — the single source of truth. The frontend only maps the resolved label to a logo. There is no `category` column: select `properties.$virt_mcp_harness` for the label.                                                                                                                                                                      |
 | `$mcp_client_version`             | SDK    | Version of the MCP client that initiated the connection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `$mcp_llm_model`                  | SDK    | Model identifier captured for the tool call. Recognized client metadata takes priority; otherwise the SDK can inject an `llm_model` argument for the agent to self-report. MCP does not attest model identity, so use this for analytics rather than billing or access control.                                                                                                                                                                                                                                                  |
 | `$mcp_llm_model_source`           | SDK    | How the model was obtained: `client_metadata` from recognized client metadata, or `self_reported` from the injected `llm_model` argument. Both sources are unverified.                                                                                                                                                                                                                                                                                                                                                           |
@@ -156,112 +156,27 @@ A "harness" is the friendly product label for the MCP client that made a call �
 
 **Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `posthog:query-mcp-harness-breakdown` tool. It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. It also accepts an optional `toolName` to scope the breakdown to one effective tool — but note that scoping **also restricts the result to new-SDK events** (`$mcp_source = 'posthog_mcp_analytics'`), so old-SDK and third-party calls for that tool are excluded and a harness can be undercounted. For a one-tool harness cut across all SDK sources, use `execute-sql`. Anything the typed tools don't express drops to `execute-sql` below.
 
-**For custom cuts in `execute-sql`, select `properties.$virt_mcp_harness`.** It returns the same label as the dashboard, as a string on `$mcp_*` events and `NULL` on other events. It also applies the custom harness names a team sets in Settings > MCP analytics. The hand-written SQL below does not know those names, so use it only when you need the token or the bucketing steps themselves.
+**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Select `properties.$virt_mcp_harness` for the harness. It returns the same label as the dashboard, as a string on `$mcp_*` events and `NULL` on other events. It also applies the custom harness names a team sets in Settings > MCP analytics. Do not rebuild the bucketing in SQL: a hand-written copy does not know the custom names, and it goes out of date when PostHog adds a harness.
 
-**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals, over exactly three properties — the `x-anthropic-client` header (`$mcp_vendor_client`, with the legacy `mcp_vendor_client` coalesced for historical rows) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design / Claude Artifacts); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent (`$mcp_client_user_agent`, also the generic last fallback); and `clientInfo.name` arrives as `$mcp_client_name`. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+The label comes from three raw properties, strongest signal first. The `x-anthropic-client` header (`$mcp_vendor_client`, with the legacy `mcp_vendor_client` for historical rows) is the only property that separates Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design / Claude Artifacts). The User-Agent (`$mcp_client_user_agent`) carries Claude Code's build (cli / sdk / vscode / desktop) and is also the last fallback for other clients. `clientInfo.name` arrives as `$mcp_client_name`. When a label looks wrong, select these three properties next to `properties.$virt_mcp_harness` to see which signal won.
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
 ```sql
 SELECT
-    harness,
-    uniq(distinct_id) AS users,
-    round(uniq(distinct_id) * 100.0 / (
-        SELECT uniq(distinct_id) FROM events
+    properties.$virt_mcp_harness AS harness,
+    uniq(person_id) AS users,
+    round(uniq(person_id) * 100.0 / (
+        SELECT uniq(person_id) FROM events
         WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     ), 1) AS pct_of_users
-FROM (
-    SELECT
-        distinct_id,
-        multiIf(
-            h = 'claude-code claude-desktop', 'Claude Desktop',
-            h = 'claude-code claude-vscode', 'Claude Code (VS Code)',
-            startsWith(h, 'claude-code sdk'), 'Claude Agent SDK',
-            startsWith(h, 'claude-code'), 'Claude Code',
-            h IN ('claude-ai', 'anthropic/claudeai', 'claude-user'), 'Claude.ai',
-            h = 'anthropic/api', 'Anthropic API',
-            h = 'cowork', 'Cowork',
-            h = 'claude-design', 'Claude Design',
-            h = 'claude-artifacts', 'Claude Artifacts',
-            h = 'openai-mcp chatgpt', 'ChatGPT',
-            h = 'openai-mcp agent builder', 'OpenAI Agent Builder',
-            h = 'openai-mcp responses api', 'OpenAI Responses API',
-            -- Codex has two spellings: the `codex-mcp-client` clientInfo.name caught by
-            -- the prefix below, and this User-Agent surface. This branch must precede the
-            -- generic `openai-mcp` prefix, which would otherwise report it as "OpenAI".
-            h = 'openai-mcp codex', 'OpenAI Codex',
-            startsWith(h, 'openai-mcp'), 'OpenAI',
-            startsWith(h, 'codex'), 'OpenAI Codex',
-            startsWith(h, 'grok'), 'Grok',
-            startsWith(h, 'cursor'), 'Cursor',
-            startsWith(h, 'visual studio code'), 'VS Code',
-            h = 'windsurf', 'Windsurf',
-            startsWith(h, 'replit'), 'Replit',
-            startsWith(h, 'lovable'), 'Lovable',
-            h = 'manus', 'Manus',
-            h = 'coderabbit', 'CodeRabbit',
-            startsWith(h, 'notion'), 'Notion',
-            startsWith(h, 'linear'), 'Linear',
-            position(h, 'librechat') > 0, 'LibreChat',
-            startsWith(h, 'pi-client'), 'Pi',
-            startsWith(h, 'kimchi'), 'Kimchi',
-            startsWith(h, 'antigravity'), 'Antigravity',
-            h = 'poke', 'Poke',
-            h = 'opencode', 'opencode',
-            startsWith(h, 'kiro'), 'Kiro',
-            startsWith(h, 'desktop-commander'), 'Desktop Commander',
-            h = 'posthog-cli', 'PostHog CLI',
-            -- Ranked top-N lists name an unrecognized client verbatim instead
-            -- (`harness_label_or_token_sql`); "Other" is for callers that need the label
-            -- confined to the bounded set, e.g. one aggregated into a per-row array.
-            'Other'
-        ) AS harness
-    FROM (
-        SELECT
-            distinct_id,
-            trim(replaceRegexpAll(lower(
-                coalesce(
-                    -- Vendor header: the SDKs emit $mcp_vendor_client; the unprefixed
-                    -- mcp_vendor_client is the legacy name on historical rows from
-                    -- PostHog's own server. Both spellings of the value occur.
-                    multiIf(
-                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudecode', 'claude-code'), 'claude-code',
-                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudeai', 'claude-ai'), 'claude-ai',
-                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) = 'cowork', 'cowork',
-                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudedesign', 'claude-design'), 'claude-design',
-                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudeartifacts', 'claude-artifacts'), 'claude-artifacts',
-                        NULL
-                    ),
-                    if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
-                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
-                       NULL),
-                    -- grok.com Connectors carries `grok-` only in the UA; its clientInfo.name
-                    -- is the generic "connectors-manager", so promote the grok UA above it.
-                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'grok'),
-                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
-                       NULL),
-                    -- Kimchi likewise names itself only in the UA (clientInfo.name is pi-mcp's generic one).
-                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'kimchi'),
-                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
-                       NULL),
-                    nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
-                    nullIf(trim(concat(
-                        extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
-                        ' ',
-                        extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
-                    )), ''),
-                    ''
-                )
-            ), '\\s*\\(via mcp-remote[^)]*\\)\\s*', '')) AS h
-        FROM events
-        WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
-    )
-)
+FROM events
+WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY harness
 ORDER BY users DESC
 ```
 
-The `multiIf` above is the canonical bucket list. The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). Swap the outer aggregate for other harness cuts — `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, pass the inner `multiIf(...)` over the normalized client name as a **HogQL breakdown** to get the same buckets in a trends series.
+The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). Swap the aggregate for other harness cuts: `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, use `properties.$virt_mcp_harness` as a **HogQL breakdown** to get the same labels in a trends series.
 
 **Tool co-occurrence** (which tool tends to run right before a given tool, within a session) — prefer `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`); this SQL is the recipe behind it, for custom window logic:
 
