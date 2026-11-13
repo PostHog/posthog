@@ -425,18 +425,22 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
         assert response.json()["is_impersonated"] is False
 
-    def test_me_with_a_key_scoped_to_one_organization_hides_the_others(self) -> None:
+    @parameterized.expand([("scoped_organizations",), ("scoped_teams",)])
+    def test_me_with_a_key_scoped_to_one_organization_hides_the_others(self, scope_field: str) -> None:
         other_organization, _, other_team = Organization.objects.bootstrap(self.user)
         self.user.current_team = other_team
         self.user.current_organization = other_organization
         self.user.save()
         token = generate_random_token_personal()
+        scope = {"scoped_organizations": [str(self.organization.id)]}
+        if scope_field == "scoped_teams":
+            scope = {"scoped_teams": [self.team.id]}
         PersonalAPIKey.objects.create(
             user=self.user,
-            label="Organization-scoped key",
+            label="Scoped key",
             secure_value=hash_key_value(token),
             scopes=["user:read"],
-            scoped_organizations=[str(self.organization.id)],
+            **scope,
         )
         self.client.logout()
 

@@ -66,6 +66,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
+from posthog.api.user_settings_viewset import CurrentUserLookupMixin
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
     action,
@@ -1112,6 +1113,7 @@ def refuse_pending_email_promotion() -> NoReturn:
     ),
 )
 class UserViewSet(
+    CurrentUserLookupMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -1166,31 +1168,11 @@ class UserViewSet(
             return ["user:read"] if request.method == "GET" else ["user:write"]
         return None
 
-    def get_object(self) -> User:
-        lookup_value = self.kwargs[self.lookup_field]
-        request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
-        if lookup_value == "@me":
-            self.check_object_permissions(self.request, request_user)
-            return request_user
-
-        if not request_user.is_staff:
-            raise exceptions.PermissionDenied(
-                "As a non-staff user you're only allowed to access the `@me` user instance."
-            )
-
-        return super().get_object()
-
     def get_authenticators(self):
         if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
             return [SessionAuthentication()]
 
         return super().get_authenticators()
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(id=self.request.user.id)
-        return queryset
 
     def get_serializer_context(self):
         return {

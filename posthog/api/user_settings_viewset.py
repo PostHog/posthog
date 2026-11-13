@@ -4,15 +4,17 @@ Staff may name another user by UUID. A subclass reaches the user's current proje
 `_current_team_id`, which refuses a credential confined to other organizations, because
 `APIScopePermission` skips the tenant check for `scope_object = "user"`.
 
-The base class carries no docstring: drf-spectacular reads a view's docstring through its MRO, so
-one here would become the published description of every subclass's endpoints.
+`CurrentUserLookupMixin` resolves `@me`, and `UserViewSet` shares it. Neither class carries a
+docstring: drf-spectacular reads a view's docstring through its MRO, so one here would become the
+published description of every subclass's endpoints.
 """
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.db.models import QuerySet
 
 from rest_framework import exceptions, serializers, viewsets
+from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.auth import (
@@ -25,20 +27,13 @@ from posthog.models import User
 from posthog.permissions import APIScopePermission, check_team_within_credential_organizations
 from posthog.rate_limit import UserAuthenticationThrottle
 
+if TYPE_CHECKING:
+    _LookupBase = GenericAPIView
+else:
+    _LookupBase = object
 
-class UserSettingsViewSet(viewsets.GenericViewSet):
-    scope_object = "user"
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
-    throttle_classes = [UserAuthenticationThrottle]
-    queryset = User.objects.filter(is_active=True)
-    lookup_field = "uuid"
 
+class CurrentUserLookupMixin(_LookupBase):
     def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
         request_user = cast(User, self.request.user)
@@ -59,6 +54,20 @@ class UserSettingsViewSet(viewsets.GenericViewSet):
         if not self.request.user.is_staff:
             queryset = queryset.filter(id=self.request.user.id)
         return queryset
+
+
+class UserSettingsViewSet(CurrentUserLookupMixin, viewsets.GenericViewSet):
+    scope_object = "user"
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    throttle_classes = [UserAuthenticationThrottle]
+    queryset = User.objects.filter(is_active=True)
+    lookup_field = "uuid"
 
     def _current_team_id(self, instance: User, missing_message: str) -> int:
         team_id = instance.current_team_id
