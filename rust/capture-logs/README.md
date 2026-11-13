@@ -26,6 +26,10 @@ The service is configured using environment variables:
 | FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
 | MAX_EXPANDED_REQUEST_BYTES | 268435456 | Rejects a logs, traces, metrics or Firehose request with 413 when the rows it builds would pass this estimated size. Each row copies its resource, scope or common attributes, so the body cap does not bound this |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
+| UNKNOWN_TOKEN_MODE | off | `off`, `shadow` or `reject`. Tokens that the ingestion consumer found to belong to no team are counted in `capture_logs_unknown_token_total` (`shadow`) or answered 401 (`reject`). Off while `UNKNOWN_TOKEN_REDIS_URL` is unset |
+| UNKNOWN_TOKEN_REDIS_URL | (none) | Redis holding the `capture_logs:unknown_tokens` sorted set the consumer writes. Connected lazily, so it being down never blocks ingestion |
+| UNKNOWN_TOKEN_REFRESH_INTERVAL_SECS | 30 | How often the in-memory copy of that set is refreshed |
+| UNKNOWN_TOKEN_FAIL_OPEN_AFTER_SECS | 600 | A snapshot older than this is ignored, so a long Redis outage stops blocking tokens |
 | MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
 
 ## Authentication

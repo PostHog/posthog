@@ -45,6 +45,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DashboardTemplateCopy = 'DashboardTemplateCopy',
+    DataDeletionRequestNew = 'DataDeletionRequestNew',
     DataManagement = 'DataManagement',
     DataPipelinesNew = 'DataPipelinesNew',
     DataOps = 'DataOps',
