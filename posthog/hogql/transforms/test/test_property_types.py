@@ -669,8 +669,16 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             )
             stored = [native_stored_document(document) for document in documents] if native else documents
             rows = sync_execute(prefix + sql, {**context.values, "documents": stored})
-            results.append(rows)
-        assert results[0] == results[1]
+            results.append({row[0]: list(row[1:]) for row in rows})
+        legacy, native = results
+        if len(keys) > 1:
+            # The cleaner stores `2.0` inside an object as `2`, so the two type-dependent functions see an integer.
+            distinct_id = str(1 + values.index("2.0"))
+            for function, legacy_value, native_value in [("JSONExtractBool", 0, 1), ("JSONType", "Double", "Int64")]:
+                column = expressions.index(f"{function}(properties, {path})")
+                assert (legacy[distinct_id][column], native[distinct_id][column]) == (legacy_value, native_value)
+                legacy[distinct_id][column] = native_value
+        assert legacy == native
 
     @parameterized.expand(
         [

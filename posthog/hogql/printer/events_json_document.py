@@ -82,8 +82,13 @@ def stored_document_sql(document_sql: str, *, object_key: str | None = None) -> 
 
     A reader that edits a rebuilt document, where those values are objects and arrays again, casts the result back
     into the JSON column through this. `object_key` names the one key the cleaner keeps as an object, the
-    `$feature_flags` map of event properties. This mirrors `parseNestedAsString` in the cleaner UDF
-    (clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go), so update both.
+    `$feature_flags` map of event properties.
+
+    The cleaner (`parseNestedAsString` in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go)
+    stores each value compact, with sorted keys, in the spelling `JSONExtractRaw` prints. A value rebuilt from a
+    stored string is already sorted, and `JSONExtractKeysAndValuesRaw` prints it in that spelling and keeps its
+    order, so the text written here is the text the cleaner would store. A value built any other way has to be
+    sorted before it reaches this function.
     """
     is_container = "(startsWith(kv.2, '[') or startsWith(kv.2, '{'))"
     if object_key is not None:

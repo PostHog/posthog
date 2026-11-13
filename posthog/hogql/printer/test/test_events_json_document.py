@@ -5,6 +5,7 @@ import pytest
 from django.test import SimpleTestCase
 
 from posthog.hogql.printer.events_json_document import event_document_sql, person_document_sql
+from posthog.hogql.test.utils import native_stored_document
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
@@ -12,8 +13,7 @@ from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON
 
 # The event properties and person properties an SDK sent, then the rebuilt documents where they differ from what was
 # sent. A sent empty value under a dynamic key stays; a declared string path reads '' whether sent empty or absent,
-# so the document leaves it out. A property sent as null is left out. A null inside an object stays, because the
-# cleaner stores the object as the text that was sent.
+# so the document leaves it out. A property sent as null is left out. A null inside an object stays.
 SENT_DOCUMENTS: list[tuple[dict, dict, dict | None, dict | None]] = [
     (
         {"$browser": "Chrome", "pathname": "/docs", "empty": "", "list": [], "nested": {"child": ""}},
@@ -89,3 +89,12 @@ class TestEventsJsonDocument(SimpleTestCase):
             )
             for event, person, expected_event, expected_person in SENT_DOCUMENTS
         ]
+
+    def test_native_stored_document_matches_the_cleaner(self) -> None:
+        sent = (
+            '{"plan": {"tier": "pro", "seats": 5, "trial": null, "price": 2.0, "ratio": 1e-7, '
+            '"id": 123456789012345678901234567890, "tier": "duplicate"}, '
+            '"tags": ["b", null, {"z": 1E3, "a": "caf\\u00e9 a\\/b \\u001f"}], "count": 2.0, "name": "x"}'
+        )
+        [[cleaned]] = sync_execute(f"SELECT {EVENTS_JSON_CLEANER}(%(sent)s, '{{}}').properties", {"sent": sent})
+        assert json.loads(cleaned) == json.loads(native_stored_document(sent))

@@ -303,7 +303,8 @@ Numeric and Boolean properties on the native table compare as text when a string
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
 DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
-The native table stores every object and array as a string of the JSON text that was sent.
+The native table stores every object and array as a string of JSON text with no whitespace and with the keys of every object sorted.
+Two events that hold the same object therefore hold the same string, so grouping by the property or comparing it compares the content.
 A single-property read returns that text, and a constant starting with `[` or `{` compares with it like any other constant.
 A read of a value inside an object or an array extracts it from the property's text, as the legacy table extracts it from the raw document.
 `IS NULL` and `IS NOT NULL` on a String or untyped property test the path without reading its value.

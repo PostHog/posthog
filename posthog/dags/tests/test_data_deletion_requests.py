@@ -3702,7 +3702,7 @@ def test_json_property_presence_expr_treats_empty_values_as_absent(document: str
     ],
 )
 def test_json_drop_keys_expr_reaches_a_key_inside_a_stored_object(keys: list[str], expected: dict) -> None:
-    sent = {"plain": "x", "nested": {"secret": "s", "visible": "ok"}, "tags": ["a"], "$feature_flags": {"beta": "on"}}
+    sent = {"plain": "x", "nested": {"visible": "ok", "secret": "s"}, "tags": ["a"], "$feature_flags": {"beta": "on"}}
     [(stored, document)] = sync_execute(
         f"""SELECT toJSONString(cleaned),
             {json_document_sql("cleaned", declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS)}
@@ -3713,7 +3713,8 @@ def test_json_drop_keys_expr_reaches_a_key_inside_a_stored_object(keys: list[str
         {"raw": native_stored_document(json.dumps(sent)), "json_type": EVENTS_PROPERTIES_JSON_TYPE(), "keys": keys},
     )
 
-    assert json.loads(document) == {**expected, "$feature_flags": {"beta": "on"}}
-    cleaned = json.loads(stored)
-    assert isinstance(cleaned["nested"], str) and isinstance(cleaned["tags"], str)
-    assert cleaned["$feature_flags"] == {"beta": "on"}
+    remaining = {**expected, "$feature_flags": {"beta": "on"}}
+    assert json.loads(document) == remaining
+    rewritten = json.loads(stored)
+    as_the_cleaner_stores_it = json.loads(native_stored_document(json.dumps(remaining)))
+    assert {key: rewritten[key] for key in as_the_cleaner_stores_it} == as_the_cleaner_stores_it
