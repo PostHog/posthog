@@ -123,7 +123,7 @@ function DriftGroup({
 function OutlierRow({ outlier }: { outlier: MCPIntentOutlierItem }): JSX.Element {
     return (
         <li className="text-sm">
-            <div className="break-words">{outlier.intent_text}</div>
+            <div className="ph-no-capture break-words">{outlier.intent_text}</div>
             <div className="text-xs text-secondary">
                 <span translate="no">{formatNumber(outlier.calls)}</span>
                 <span> calls</span>

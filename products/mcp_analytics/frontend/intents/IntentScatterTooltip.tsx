@@ -29,7 +29,7 @@ export function IntentScatterTooltip({ point }: { point: ScatterPointDatum<Inten
                 <TooltipSwatch color={point.color} />
                 <span className="truncate">{meta.isOutlier ? 'Outlier' : point.seriesLabel}</span>
             </div>
-            <div className="max-w-xs whitespace-normal break-words">{meta.label}</div>
+            <div className="ph-no-capture max-w-xs whitespace-normal break-words">{meta.label}</div>
             <div className="opacity-60">
                 {formatNumber(meta.calls)} calls{meta.tool ? ` · ${meta.tool}` : ''}
             </div>

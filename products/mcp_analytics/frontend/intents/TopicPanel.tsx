@@ -76,7 +76,7 @@ export function TopicPanel(): JSX.Element {
                     ) : (
                         visibleTopicPoints.map((point) => (
                             <li key={point.intent_hash} className="rounded border px-2 py-1 text-sm">
-                                <div className="break-words">{point.intent_text}</div>
+                                <div className="ph-no-capture break-words">{point.intent_text}</div>
                                 <div className="flex flex-wrap items-center gap-1 text-xs text-secondary">
                                     <span>
                                         <span translate="no">{formatNumber(point.calls)}</span>
