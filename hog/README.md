@@ -1,10 +1,25 @@
 # hog
 
-`hog` is the PostHog command line, version 1.
-It replaces `posthog-cli` (version 0, in `cli/`), which keeps working until `hog` covers everything it does.
+`hog` is the PostHog command line.
+It replaces `posthog-cli` (in `cli/`), which keeps working until `hog` covers everything it does.
 
 `hog` is written in TypeScript and compiles to a single binary with [Bun](https://bun.sh).
-It is not published yet.
+It is in alpha: the first release is 0.1.0-alpha.1.
+
+## Install
+
+```bash
+curl -fsSL https://releases.posthog.com/hog/install.sh | sh   # macOS and Linux
+irm https://releases.posthog.com/hog/install.ps1 | iex        # Windows PowerShell
+brew install posthog/tap/hog                                  # Homebrew
+npm install -g @posthog/hog                                   # or pnpm add -g, bun add -g
+npx @posthog/hog setup                                        # run once without installing
+```
+
+- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
+- `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0-alpha.3`.
+- Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
+- The npm package `@posthog/hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
 
 ## Commands
 
@@ -57,7 +72,8 @@ First, settle the CLI:
 
 Then ship it:
 
-- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, and CI on Linux and Windows.
+- [x] Distribution: a binary for each platform, macOS signing and notarization, the npm package and the Homebrew formula. See [Releases](#releases).
+- [ ] CI on Linux and Windows: run the tests on Windows, and the install scripts on each platform.
 
 Then move everyone over:
 
@@ -369,3 +385,43 @@ pnpm --filter @posthog/hog compile          # build dist/hog for this machine
 ```
 
 hog reads credentials only from the sources above. Runs from source keep their keychain items under their own name, so they never read or replace an installed hog's login. Bun would otherwise load a `.env` or `bunfig.toml` from the working folder, so the scripts turn that off. Older Bun versions ignore those flags, hence the minimum version.
+
+## Releases
+
+hog releases the way posthog-cli does: a sampo changeset says what changed, and a person approves each release.
+The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `release/` holds its scripts.
+
+To release a change, add a changeset to your pull request from `hog/`:
+
+```bash
+sampo add --package npm/@posthog/hog --bump patch --message "Describe the change for the changelog"
+```
+
+Use `minor` or `major` instead of `patch` when it fits. While the version is a prerelease, such as `0.1.0-alpha.3`, every bump raises the prerelease number. Commit the file sampo writes under `hog/.sampo/changesets/`.
+
+After the pull request merges to master, the workflow:
+
+1. Posts an approval request in the hog releases Slack channel.
+2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that changed what the build ships since the last release can approve: `hog/`, `services/mcp/`, the workspace packages and product files the MCP library bundles, the root `package.json`, the lockfile, `patches/`, the install actions and this workflow. The workflow's `HOG_SOURCE_PATHS` lists them.
+3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
+
+Merging the release pull request runs the workflow again, which:
+
+4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on what merged while the release pull request waited. When an approver opened, merged or pushed commits to one of those changes, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
+5. Compiles every target, with the version and the release commit's date as the build date.
+6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
+7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
+8. Creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages. One release at a time does this step.
+
+A release takes two merges, the changeset and then the release pull request, and one approval.
+
+- Re-run the failed jobs to finish a release that stopped. Files under a version never change: once a version's upload is complete, a rerun reuses its files instead of signing again. An upload that stopped halfway starts over. GitHub, npm and the formula skip what they already have.
+- Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.
+- Changesets that merge while a release pull request waits start the next release when it merges.
+- To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
+- Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.1.0-alpha.0`. The check runs as that tag has it, so the tag must be on a commit with `hog/release/check-approvers.sh`.
+
+```bash
+bun release/compile.ts --version 0.1.0-alpha.9 --target darwin-arm64   # a release build for this machine
+bun test release/                                                      # the install script and launcher tests
+```

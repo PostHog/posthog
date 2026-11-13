@@ -58,7 +58,7 @@ Port the behavior, not the code. The two CLIs are laid out differently.
 
 - hog: read `hog/AGENTS.md` before the first edit. It holds the command, output, error and typed-boundary rules.
 - Uploads: hog must send the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. Read `hog/test/parity/README.md` before changing anything that reaches an upload. When a Rust change alters what posthog-cli uploads, regenerate the goldens from the new binary as that README describes, and review the diff.
-- posthog-cli: every user-visible change needs a sampo changeset in `cli/.sampo/changesets/`, as `cli/.sampo/README.md` describes. hog has no changesets yet.
+- Releases: every user-visible change needs a sampo changeset on each side it touches, in `cli/.sampo/changesets/` (`--package cargo/posthog-cli`) and in `hog/.sampo/changesets/` (`--package npm/@posthog/hog`). A merged changeset starts a release that a person approves. `cli/.sampo/README.md` and the Releases section of `hog/README.md` have the commands.
 
 ## Test both sides
 
@@ -84,6 +84,7 @@ When agent output (`-o json`) changed, show that too.
 
 - Copy the mockup from a real run, such as `pnpm --filter @posthog/hog hog <command>` or `cargo run --manifest-path cli/Cargo.toml -- <command>`. Write one by hand only for a state you can't reach locally, and say which.
 - Put each in a `console` code block that starts with the command, and give the exit code when it isn't 0.
+- Every new error code, and every case a review fix adds or changes, gets its mockup in the same push.
 - Reviewers judge wording, order and hints from the mockup, so they don't have to check out the branch to see what users get.
 
 ## Before you report done
@@ -91,5 +92,5 @@ When agent output (`-o json`) changed, show that too.
 - The PR description shows the terminal for each changed case.
 - Both CLIs carry the change, or the PR says why one does not need it.
 - Both test suites pass, and `hog/test/parity/` is green.
-- `cli/` has a changeset when its behavior changed.
+- `cli/` and `hog/` each have a changeset when their behavior changed.
 - Use the `cli` scope in the PR title, as in `fix(cli): ...`, for a change to either CLI.
