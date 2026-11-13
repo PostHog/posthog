@@ -30,7 +30,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     apply_saved_query_frequency_anchor,
     apply_saved_query_frequency_target,
     bootstrap_dag_to_tiers,
-    clamp_targets_to_plan_floor,
+    clamp_dag_targets_to_plan_floor,
     convert_dag_to_tiers,
     delete_dag_schedules,
     delete_team_data_modeling_schedules,
@@ -593,7 +593,7 @@ class TestMaybeReconcileDag(BaseTest):
             ("managed_view_keeps_its_provider_cadence", M15, True, True, M15),
         ]
     )
-    def test_plan_floor_sweep_rewrites_only_user_set_cadences_finer_than_the_floor(
+    def test_plan_floor_clamp_rewrites_only_user_set_cadences_finer_than_the_floor(
         self, _name, saved, flag_on, managed, expected
     ):
         _grant_refresh_interval(self.organization, 360)
@@ -611,11 +611,11 @@ class TestMaybeReconcileDag(BaseTest):
         with (
             mock.patch(FLOOR_FLAG, return_value=flag_on),
             mock.patch(f"{RECONCILE}.reconcile_dag_schedules") as reconcile,
-            mock.patch(f"{RECONCILE}.ph_scoped_capture") as scoped_capture,
+            mock.patch(f"{RECONCILE}.ph_background_capture") as background_capture,
         ):
-            rewritten = clamp_targets_to_plan_floor()
+            rewritten = clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
 
-        capture = scoped_capture.return_value.__enter__.return_value
+        capture = background_capture.return_value
         node.refresh_from_db()
         self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
         self.assertEqual((rewritten, reconcile.call_count), (1, 1) if expected != saved else (0, 0))
@@ -626,7 +626,7 @@ class TestMaybeReconcileDag(BaseTest):
                 {"saved_query_id": str(node.saved_query_id), "previous_cadence": "15min", "plan_floor": "6hour"},
             )
 
-    def test_plan_floor_sweep_keeps_a_cadence_saved_during_its_reconcile(self):
+    def test_plan_floor_clamp_keeps_a_cadence_saved_during_its_reconcile(self):
         _grant_refresh_interval(self.organization, 360)
         dag = DAG.get_or_create_default(self.team)
         node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
@@ -638,9 +638,9 @@ class TestMaybeReconcileDag(BaseTest):
         with (
             mock.patch(FLOOR_FLAG, return_value=True),
             mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=save_during_reconcile),
-            mock.patch(f"{RECONCILE}.ph_scoped_capture"),
+            mock.patch(f"{RECONCILE}.ph_background_capture"),
         ):
-            rewritten = clamp_targets_to_plan_floor()
+            rewritten = clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
 
         node.refresh_from_db()
         self.assertEqual((rewritten, get_declared_target(node)), (0, H1))
@@ -657,7 +657,7 @@ class TestMaybeReconcileDag(BaseTest):
             ),
         ]
     )
-    def test_plan_floor_sweep_keeps_the_cadence_until_its_reconcile_succeeds(
+    def test_plan_floor_clamp_keeps_the_cadence_until_its_reconcile_succeeds(
         self, _name, failing_call, error, expected
     ):
         _grant_refresh_interval(self.organization, 360)
@@ -681,11 +681,14 @@ class TestMaybeReconcileDag(BaseTest):
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.{failing_call}", new=mock.AsyncMock(side_effect=error)),
-            mock.patch(f"{RECONCILE}.ph_scoped_capture") as scoped_capture,
+            mock.patch(f"{RECONCILE}.ph_background_capture") as background_capture,
         ):
-            rewritten = clamp_targets_to_plan_floor()
+            try:
+                rewritten = clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
+            except Exception:
+                rewritten = 0
 
-        capture = scoped_capture.return_value.__enter__.return_value
+        capture = background_capture.return_value
         node.refresh_from_db()
         self.assertEqual((rewritten, get_declared_target(node)), expected)
         self.assertEqual(capture.call_count, expected[0])

@@ -98,7 +98,6 @@ from products.conversations.backend.tasks.teams import poll_teams_shared_channel
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
 from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
-    clamp_targets_to_plan_floor,
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
 )
@@ -907,13 +906,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="30"),
         cleanup_deleted_saved_query_nodes.s(),
         name="cleanup deleted saved query nodes",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="23"),
-        clamp_targets_to_plan_floor.s(),
-        name="clamp data modeling targets to plan floor",
     )
 
     # Reopen snoozed conversation tickets whose snooze period has expired

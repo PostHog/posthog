@@ -154,6 +154,50 @@ async def test_preempt_only_touches_the_runs_own_engine(
 
 
 @pytest.mark.parametrize(
+    "engine,clamp_error,expected_calls,expected_status",
+    [
+        pytest.param(
+            DataModelingJobEngine.CLICKHOUSE, None, 1, DataModelingJobStatus.FAILED, id="clickhouse_run_clamps"
+        ),
+        pytest.param(
+            DataModelingJobEngine.CLICKHOUSE,
+            RuntimeError("temporal down"),
+            1,
+            DataModelingJobStatus.FAILED,
+            id="failed_clamp_still_preempts",
+        ),
+        pytest.param(
+            DataModelingJobEngine.MANAGED_WAREHOUSE, None, 0, DataModelingJobStatus.RUNNING, id="trino_run_skips_clamp"
+        ),
+    ],
+)
+async def test_a_clickhouse_run_clamps_its_dag_to_the_plan_floor(
+    engine: DataModelingJobEngine,
+    clamp_error: Exception | None,
+    expected_calls: int,
+    expected_status: DataModelingJobStatus,
+    ateam,
+) -> None:
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        status=DataModelingJobStatus.RUNNING,
+        engine=engine,
+        workflow_id=_child_workflow_id(NODE_HOURLY),
+        parent_workflow_id=PARENT_HOURLY,
+    )
+
+    with unittest.mock.patch(
+        "posthog.temporal.data_modeling.activities.preempt_dag_run.clamp_dag_targets_to_plan_floor",
+        side_effect=clamp_error,
+    ) as clamp:
+        await _run_activity(ateam.pk, [NODE_HOURLY], engine=engine)
+
+    await database_sync_to_async(job.refresh_from_db)()
+    assert clamp.call_args_list == [unittest.mock.call(ateam.pk, DAG_ID)] * expected_calls
+    assert job.status == expected_status
+
+
+@pytest.mark.parametrize(
     "engine,workflow_status,expect_cancelled,expected_status,expected_error",
     [
         pytest.param(

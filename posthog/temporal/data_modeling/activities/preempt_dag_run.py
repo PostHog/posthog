@@ -12,6 +12,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
+from products.data_modeling.backend.facade.api import clamp_dag_targets_to_plan_floor
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 
 LOGGER = get_logger(__name__)
@@ -127,6 +128,15 @@ def _mark_jobs_failed(job_ids: list[str], error: str) -> int:
     )
 
 
+@database_sync_to_async_pool
+def _clamp_to_plan_floor(team_id: int, dag_id: str) -> None:
+    try:
+        clamp_dag_targets_to_plan_floor(team_id, dag_id)
+    except Exception as e:
+        capture_exception(e)
+        LOGGER.exception("Plan floor clamp failed", team_id=team_id, dag_id=dag_id)
+
+
 @activity.defn
 async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     """Preempt in-flight materializations of the nodes this run is about to materialize, and
@@ -146,6 +156,9 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
+
+    if inputs.engine == DataModelingJobEngine.CLICKHOUSE:
+        await _clamp_to_plan_floor(inputs.team_id, inputs.dag_id)
 
     running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id, inputs.engine)
     partitioned = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)

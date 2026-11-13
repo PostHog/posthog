@@ -4,7 +4,7 @@ Billing sets the floor per plan as the `limit`, in minutes, of the `data_modelin
 feature. An organization without that feature has no floor. The `data-modeling-refresh-floor` flag rolls the
 floor out, and no floor applies while it is off for an organization or can't be read.
 
-The floor refuses new and faster cadences. An hourly task rewrites a cadence saved finer than the floor to the floor.
+The floor refuses new and faster cadences. Each DAG run rewrites a cadence saved finer than the floor to the floor.
 """
 
 from datetime import timedelta

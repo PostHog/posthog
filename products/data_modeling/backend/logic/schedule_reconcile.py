@@ -37,9 +37,8 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.ph_client import ScopedCapture, ph_scoped_capture
+from posthog.ph_client import ph_background_capture
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
@@ -75,7 +74,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
     stage_declared_target,
 )
-from products.data_modeling.backend.logic.refresh_floor import MAX_PLAN_REFRESH_FLOOR, organization_plan_refresh_floor
+from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -378,45 +377,24 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None, st
     )
 
 
-def clamp_targets_to_plan_floor() -> int:
-    """Rewrite every saved cadence finer than its organization's plan floor to the floor.
+def clamp_dag_targets_to_plan_floor(team_id: int, dag_id: str) -> int:
+    """Rewrite this DAG's saved cadences finer than its organization's plan floor to the floor.
 
-    Saving refuses a cadence finer than the floor, so only a cadence saved before the floor applied, or
-    before a plan downgrade, is finer than it. Each DAG's schedules move to the floor before its saved
-    cadences do, so a failed reconcile leaves the cadences as they were and the next run retries. The
-    rewrite is permanent: an upgrade or the flag turning off leaves the floor in place, and the person
-    picks a faster cadence again. A pin stays. Managed views keep the cadence their provider declares.
+    Every DAG run calls this before it materializes, so a flag or plan change reaches a view on its
+    next run. Saving refuses a cadence finer than the floor, so only a cadence saved before the floor
+    applied, or before a plan downgrade, is finer than it. The DAG's schedules move to the floor before
+    its saved cadences do, so a failed reconcile leaves the cadences as they were and the next run
+    retries. The rewrite is permanent: an upgrade or the flag turning off leaves the floor in place, and
+    the person picks a faster cadence again. A pin stays. Managed views keep the cadence their provider
+    declares.
 
     Returns how many nodes it rewrote.
     """
-    candidates = _user_set_targets_finer_than(MAX_PLAN_REFRESH_FLOOR)
-    clamped = 0
-    with ph_scoped_capture() as capture:
-        for organization in Organization.objects.filter(id__in=candidates.values("team__organization_id")):
-            try:
-                dags = _dags_with_targets_finer_than_plan_floor(organization)
-            except Exception as error:
-                logger.exception("Plan floor clamp failed", organization_id=str(organization.id))
-                capture_exception(error)
-                continue
-            for dag in dags:
-                try:
-                    clamped += _clamp_dag_targets_to_plan_floor(dag, capture)
-                except Exception as error:
-                    logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
-                    capture_exception(error)
-    return clamped
-
-
-def _dags_with_targets_finer_than_plan_floor(organization: Organization) -> list[DAG]:
-    floor = organization_plan_refresh_floor(organization)
-    if floor is None:
-        return []
-    return list(
-        DAG.objects.filter(team__organization_id=organization.id, node__in=_user_set_targets_finer_than(floor))
-        .distinct()
-        .select_related("team")
-    )
+    floor = read_plan_refresh_floor(team_id)
+    if floor is None or not _user_set_targets_finer_than(floor).filter(team_id=team_id, dag_id=dag_id).exists():
+        return 0
+    dag = DAG.objects.select_related("team").get(team_id=team_id, id=dag_id)
+    return _clamp_dag_targets_to_plan_floor(dag)
 
 
 def _user_set_targets_finer_than(interval: timedelta) -> QuerySet[Node]:
@@ -427,7 +405,7 @@ def _user_set_targets_finer_than(interval: timedelta) -> QuerySet[Node]:
     )
 
 
-def _clamp_dag_targets_to_plan_floor(dag: DAG, capture: ScopedCapture) -> int:
+def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
     graph = build_frequency_graph(dag)
     floor = graph.plan_floor
     if floor is None:
@@ -463,6 +441,7 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG, capture: ScopedCapture) -> int:
             set_declared_target(node, floor)
             rewritten.append((node, previous))
         maybe_reconcile_dag(dag)
+    capture = ph_background_capture()
     for node, previous in rewritten:
         capture(
             distinct_id=str(dag.team.uuid),
