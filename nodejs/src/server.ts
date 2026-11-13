@@ -15,7 +15,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { GeoIPService, GeoIPServiceComponent, resolveMmdbMode } from '~/common/utils/geoip'
+import { GeoIPService, GeoIPServiceComponent, MmdbMode, resolveMmdbMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -143,7 +143,11 @@ export class PluginServer implements NodeServer {
             this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         }
         if (needsCdp) {
-            cdpServices = await this.createCdpSharedServices(!!capabilities.cdpApi)
+            // Only cdp-api looks up GeoIP: its test invocations run transformations, such as the GeoIP
+            // transformation. Destinations get no `geoipLookup`, and no destination plugin reads `meta.geoip`.
+            // Some cdp-api deployments have no MMDB, so the deployments that mount one set MMDB_ENABLED=true.
+            const geoipMode = resolveMmdbMode(this.config.MMDB_ENABLED, capabilities.cdpApi ? 'optional' : 'disabled')
+            cdpServices = await this.createCdpSharedServices({ geoipMode })
         }
 
         // 3. CDP services (posthog redis, quota limiting)
@@ -584,7 +588,7 @@ export class PluginServer implements NodeServer {
         return { teamManager }
     }
 
-    private async createCdpSharedServices(runsCdpApi: boolean): Promise<{
+    private async createCdpSharedServices({ geoipMode }: { geoipMode: MmdbMode }): Promise<{
         geoipService: GeoIPService
         personRepository: PersonReadRepository
         groupRepository: GroupReadRepository
@@ -592,12 +596,9 @@ export class PluginServer implements NodeServer {
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
     }> {
-        // Only cdp-api looks up GeoIP: its test invocations run transformations, such as the GeoIP
-        // transformation. Destinations get no `geoipLookup`, and no destination plugin reads `meta.geoip`.
-        // Some cdp-api deployments have no MMDB, so the deployments that mount one set MMDB_ENABLED=true.
         const { value: geoipService, stop: stopGeoIPService } = await new GeoIPServiceComponent(
             this.config.MMDB_FILE_LOCATION,
-            resolveMmdbMode(this.config.MMDB_ENABLED, runsCdpApi ? 'optional' : 'disabled')
+            geoipMode
         ).start()
         this.stopGeoIPService = stopGeoIPService
 
