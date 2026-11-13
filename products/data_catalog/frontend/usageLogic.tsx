@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { noneWhenNoScan } from './common'
 import { dataCatalogUsageLatestRetrieve, dataCatalogUsageList, dataCatalogUsageRecomputeCreate } from './generated/api'
 import type {
     DataCatalogMetricApi,
@@ -141,16 +142,8 @@ export const usageLogic = kea<usageLogicType>([
         latest: [
             null as LatestScan,
             {
-                loadLatest: async (): Promise<LatestScan> => {
-                    try {
-                        return await dataCatalogUsageLatestRetrieve(projectId())
-                    } catch (error) {
-                        if (error instanceof ApiError && error.status === 404) {
-                            return 'none'
-                        }
-                        throw error
-                    }
-                },
+                loadLatest: async (): Promise<LatestScan> =>
+                    noneWhenNoScan(dataCatalogUsageLatestRetrieve(projectId())),
             },
         ],
         recomputed: [

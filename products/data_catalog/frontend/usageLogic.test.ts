@@ -1,6 +1,7 @@
 import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import { expectLogic } from '~/test/keaTestUtils'
 
 import { dataCatalogUsageLatestRetrieve, dataCatalogUsageList } from './generated/api'
 import type { UsageSnapshotSummaryApi } from './generated/api.schemas'
@@ -24,6 +25,21 @@ describe('usageLogic', () => {
 
     afterEach(() => {
         jest.useRealTimers()
+    })
+
+    it.each([
+        [404, 'none', false],
+        [500, null, true],
+    ])('reads a %s answer for the latest scan', async (status, latest, loadFailed) => {
+        jest.useRealTimers()
+        jest.mocked(dataCatalogUsageList).mockResolvedValue([])
+        jest.mocked(dataCatalogUsageLatestRetrieve).mockRejectedValue(new ApiError('nope', status))
+        const logic = usageLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.latest).toBe(latest)
+        expect(logic.values.latestLoadFailed).toBe(loadFailed)
     })
 
     it('keeps polling a running scan after a failed history request', async () => {

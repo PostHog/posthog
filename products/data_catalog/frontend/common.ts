@@ -117,3 +117,15 @@ export function existingMetricFromNameConflict(error: unknown): DataCatalogMetri
     const body = error.data as DataCatalogMetricNameConflictApi | undefined
     return body?.extra?.existing_metric ?? null
 }
+
+/** A usage read answers 404 until a scan finishes, so the 404 becomes `'none'` and not an error. */
+export async function noneWhenNoScan<T>(request: Promise<T>): Promise<T | 'none'> {
+    try {
+        return await request
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+            return 'none'
+        }
+        throw error
+    }
+}
