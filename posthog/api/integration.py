@@ -2347,9 +2347,12 @@ class IntegrationViewSet(
         customer_id = request.query_params.get("customerId")
         parent_id = request.query_params.get("parentId")
 
-        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        try:
+            search_stream = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+            raise ValidationError("Google Ads did not respond in time. Try again.") from error
 
-        if not conversion_actions or "results" not in conversion_actions[0]:
+        if not search_stream or "results" not in search_stream[0]:
             return Response({"conversionActions": []})
 
         conversion_actions = [
@@ -2358,7 +2361,7 @@ class IntegrationViewSet(
                 "name": conversionAction["conversionAction"]["name"],
                 "resourceName": conversionAction["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
+            for conversionAction in search_stream[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})
