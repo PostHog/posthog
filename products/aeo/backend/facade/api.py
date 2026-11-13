@@ -30,6 +30,7 @@ from django.db.models import (
     QuerySet,
     Value,
 )
+from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
@@ -87,6 +88,7 @@ from products.aeo.backend.facade.contracts import (
     Prompt,
     PromptAuthor,
     PromptCheck,
+    PromptCitation,
     PromptDailyEngineStats,
     PromptEngineCheck,
     PromptEngineDomainShare,
@@ -301,6 +303,101 @@ def list_prompt_checks(
     fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
     page = checks.order_by("-created_at", "-id").values(*fields)[offset : offset + limit]
     return [_to_prompt_check(row) for row in page], checks.count()
+
+
+# Hosts and searches live in JSON arrays, so these match one element; a value that is not a list matches nothing.
+_CITES_DOMAIN_SQL = """EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof("posthog_aeo_citation_check"."top_cited_domains") = 'array'
+            THEN "posthog_aeo_citation_check"."top_cited_domains" ELSE '[]'::jsonb END
+    ) AS host
+    WHERE lower(host) = %s OR right(lower(host), %s) = %s
+)"""
+# Normalizes each search the same way as `_TOP_SEARCHES_SQL`, so a search from the overview finds its checks.
+_RAN_SEARCH_SQL = """EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof("posthog_aeo_citation_check"."search_queries") = 'array'
+            THEN "posthog_aeo_citation_check"."search_queries" ELSE '[]'::jsonb END
+    ) AS query
+    WHERE lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) = %s
+)"""
+
+
+def _normalize_search(query: str) -> str:
+    return " ".join(query.split()).lower()
+
+
+def list_prompt_set_citations(
+    team_id: int,
+    *,
+    timezone_name: str,
+    days: int,
+    limit: int,
+    offset: int,
+    url: str | None = None,
+    domain: str | None = None,
+    search: str | None = None,
+    engine: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    include_answer_text: bool = False,
+) -> tuple[list[PromptCitation], int]:
+    """One page, newest first, of the answered web-search checks in the last `days` days that cited `url`,
+    cited a host on `domain` or one of its subdomains, or ran `search`, and the total count. Exactly one of
+    the three must be set."""
+    if sum(value is not None for value in (url, domain, search)) != 1:
+        raise ValueError("Pass exactly one of url, domain or search.")
+    target_domains = catalog.own_domains(team_id)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(
+        segment_filter(branded, target_domains),
+        created_at__gte=_window_start(timezone_name, days),
+        check_failed=False,
+        mode=CheckMode.WEB_SEARCH,
+    )
+    if url is not None:
+        checks = checks.filter(cited_urls__contains=[url])
+    elif domain is not None:
+        domain = domain.strip().lower()
+        checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the domain is a bound parameter
+            RawSQL(_CITES_DOMAIN_SQL, [domain, len(domain) + 1, f".{domain}"], output_field=BooleanField())
+        )
+    elif search is not None:
+        checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the search is a bound parameter
+            RawSQL(_RAN_SEARCH_SQL, [_normalize_search(search)], output_field=BooleanField())
+        )
+    if engine is not None:
+        checks = checks.filter(engine=engine)
+
+    fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
+    page = (
+        checks.annotate(
+            # A check with no answer text makes the regex match NULL, so default it to not mentioned.
+            mentioned=Coalesce(
+                ExpressionWrapper(mention_filter(target_domains), output_field=BooleanField()), Value(False)
+            )
+        )
+        .order_by("-created_at", "-id")
+        .values(*fields, "prompt_id", "prompt_text", "prompt_topic", "mentioned")[offset : offset + limit]
+    )
+    citations = [
+        PromptCitation(
+            **_check_values(row),
+            prompt_id=str(row["prompt_id"]),
+            prompt_text=row["prompt_text"],
+            prompt_topic=row["prompt_topic"],
+            mentioned=row["mentioned"],
+        )
+        for row in page
+    ]
+    return citations, checks.count()
+
+
+def _window_start(timezone_name: str, days: int) -> dt.datetime:
+    """Start of the last `days` days, today included, in the team's timezone."""
+    tz = ZoneInfo(timezone_name)
+    window_from = timezone.now().astimezone(tz).date() - dt.timedelta(days=days - 1)
+    return dt.datetime.combine(window_from, dt.time.min, tzinfo=tz)
 
 
 MAX_OVERVIEW_DOMAINS = 20
@@ -1121,26 +1218,30 @@ def _strings(value: Any) -> tuple[str, ...]:
 
 
 def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
-    return PromptCheck(
-        id=str(row["id"]),
-        run_id=str(row["run_id"]),
-        engine=row["engine"],
-        mode=CheckMode(row["mode"]),
-        model=row["model"],
-        created_at=row["created_at"],
-        cited=row["cited"],
-        check_failed=row["check_failed"],
-        error=row["error"],
-        cited_urls=_strings(row["cited_urls"]),
-        target_urls=_strings(row["target_urls"]),
-        target_best_position=row["target_best_position"],
-        top_cited_domains=_strings(row["top_cited_domains"]),
-        search_queries=_strings(row["search_queries"]),
-        answer_text=row.get("answer_text"),
-        prompt_version=row["prompt_version"],
-        brand_sentiment=row["brand_sentiment"],
-        brand_sentiment_score=row["brand_sentiment_score"],
-    )
+    return PromptCheck(**_check_values(row))
+
+
+def _check_values(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "run_id": str(row["run_id"]),
+        "engine": row["engine"],
+        "mode": CheckMode(row["mode"]),
+        "model": row["model"],
+        "created_at": row["created_at"],
+        "cited": row["cited"],
+        "check_failed": row["check_failed"],
+        "error": row["error"],
+        "cited_urls": _strings(row["cited_urls"]),
+        "target_urls": _strings(row["target_urls"]),
+        "target_best_position": row["target_best_position"],
+        "top_cited_domains": _strings(row["top_cited_domains"]),
+        "search_queries": _strings(row["search_queries"]),
+        "answer_text": row.get("answer_text"),
+        "prompt_version": row["prompt_version"],
+        "brand_sentiment": row["brand_sentiment"],
+        "brand_sentiment_score": row["brand_sentiment_score"],
+    }
 
 
 def _latest_checks(
