@@ -211,6 +211,23 @@ describe('Hono MCP analytics contexts', () => {
         ['an ordinary tool', 'query-logs', { query: 'level:error' }, true, true],
         ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, true, false],
         [
+            'execute-sql with editor filters',
+            'execute-sql',
+            {
+                query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+            },
+            false,
+            false,
+        ],
+        [
+            'execute-sql through exec',
+            'exec',
+            { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+            false,
+            false,
+        ],
+        [
             'execute-sql querying metadata',
             'execute-sql',
             { query: 'SELECT name FROM system.information_schema.metrics' },
@@ -222,6 +239,14 @@ describe('Hono MCP analytics contexts', () => {
         ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
         ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
         ['an opt-out removal', 'opt-outs-remove', { identifier: 'ada@example.com' }, false, false],
+        ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false, false],
+        [
+            'an opt-out search through exec',
+            'exec',
+            { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+            false,
+            false,
+        ],
         [
             'an email send through exec',
             'exec',
@@ -643,6 +668,21 @@ describe('Hono MCP analytics contexts', () => {
             ],
             ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
             [
+                'execute-sql metadata with editor filters',
+                'execute-sql',
+                {
+                    query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                    filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+                },
+                false,
+            ],
+            [
+                'execute-sql through exec',
+                'exec',
+                { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+                false,
+            ],
+            [
                 'execute-sql with the marker only in a string literal',
                 'execute-sql',
                 { query: "SELECT distinct_id FROM events WHERE 'information_schema' != ''" },
@@ -719,6 +759,13 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
+            ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false],
+            [
+                'an opt-out search through exec',
+                'exec',
+                { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+                false,
+            ],
             [
                 'preparing an email send',
                 'workflows-send-email-prepare',

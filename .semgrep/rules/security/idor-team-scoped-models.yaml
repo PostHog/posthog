@@ -423,6 +423,7 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalGroupingRecord
                               |SignalFirstReportNotification
                               |SignalRatedUsage
                               |SignalReport
@@ -960,6 +961,7 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalGroupingRecord
                         |SignalFirstReportNotification
                         |SignalRatedUsage
                         |SignalReport

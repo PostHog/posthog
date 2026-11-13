@@ -2,8 +2,6 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -195,8 +193,6 @@ describe('evaluationSuggestionsLogic', () => {
     })
 
     it("opens a card's examples in the trace drawer, each labeled with why it is there", () => {
-        const flag = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
-        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
         router.actions.push(urls.aiObservabilityEvaluations())
 
         logic.actions.openExamples(CODE_CHECK)

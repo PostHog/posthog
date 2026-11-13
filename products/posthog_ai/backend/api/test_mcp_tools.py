@@ -585,19 +585,26 @@ class TestMCPToolsAPI(APIBaseTest):
             expected["error_code"] = expected_error_code
         self.assertEqual(response.json(), expected)
 
+    @parameterized.expand([(False,), (True,)])
+    @patch("products.posthog_ai.backend.api.mcp_tools.uuid4", return_value="example-error-id")
     @patch("products.posthog_ai.backend.api.mcp_tools.capture_exception")
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute, mock_capture):
-        mock_execute.side_effect = RuntimeError("unexpected")
+    def test_invoke_tool_unexpected_error_returns_internal_error(self, filtered_sql, mock_execute, mock_capture, _uuid):
+        mock_execute.side_effect = RuntimeError("expanded SQL containing fake-token")
+        filters = {"properties": [{"key": "api_token", "type": "event", "value": "fake-token", "operator": "exact"}]}
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
-            {"args": {"query": "SELECT 1"}},
+            {"args": {"query": "SELECT 1", **({"filters": filters} if filtered_sql else {})}},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
-        error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
+        if filtered_sql:
+            mock_capture.assert_not_called()
+        else:
+            self.assertEqual(mock_capture.call_args.kwargs["properties"]["args"], {"query": "SELECT 1"})
+        error_id = "example-error-id"
         self.assertEqual(
             response.json(),
             {
