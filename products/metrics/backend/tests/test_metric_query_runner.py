@@ -1,4 +1,5 @@
 import re
+import struct
 import datetime as dt
 import threading
 from typing import Any
@@ -34,9 +35,11 @@ from products.metrics.backend.metric_query_runner import (
     attribute_field,
 )
 from products.metrics.backend.metric_samples_query_runner import MetricSamplesQueryRunner, build_metric_query_runner
-from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER
+from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER, STALE_NAN_BITS
 from products.metrics.backend.query_counts import list_metric_query_counts
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+
+STALE_NAN = struct.unpack("<d", struct.pack("<Q", STALE_NAN_BITS))[0]
 
 
 @pytest.mark.usefixtures("clickhouse_database")
@@ -242,6 +245,33 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([row["value"] for row in runner.run()], [expected])
+
+    @parameterized.expand([("sum",), ("avg",), ("count",)])
+    def test_skips_prometheus_stale_markers(self, aggregation: str):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_stale",
+            points=[(anchor - dt.timedelta(minutes=20), 2.0), (anchor - dt.timedelta(minutes=5), STALE_NAN)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_stale",
+            points=[(anchor - dt.timedelta(minutes=5), 3.0)],
+            labels={"pod": "b"},
+        )
+
+        rows = self.runner_class(
+            team=self.team,
+            metric_name="m_stale",
+            aggregation=aggregation,
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        ).run()
+
+        expected = [1.0, 1.0] if aggregation == "count" else [2.0, 3.0]
+        self.assertEqual([row["value"] for row in rows], expected)
 
     def test_unaligned_date_from_reads_the_whole_first_bucket(self):
         # Relative presets can start inside a bucket. The whole bucket must count.
