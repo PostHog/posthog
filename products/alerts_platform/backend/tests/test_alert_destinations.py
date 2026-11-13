@@ -299,11 +299,12 @@ class TestSourceDestinations(BaseTest):
         webhook = self._hog_functions(WEBHOOK)
         by_id = self._record(WEBHOOK, webhook)
 
-        copied = delete_source_destination_rows(
+        deleted = delete_source_destination_rows(
             team_id=self.team.id, public_id=self.legacy_id, destination_ids=[by_id.id], hog_function_ids=slack[:1]
         )
 
-        assert copied == frozenset(webhook)
+        assert deleted.copied_hog_function_ids == frozenset(webhook)
+        assert set(deleted.row_types.values()) == {DestinationType.SLACK, DestinationType.WEBHOOK}
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
     def test_a_row_keeps_only_the_fields_of_its_type(self) -> None:
