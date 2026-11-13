@@ -11,7 +11,7 @@ import { internalFetch } from '~/common/utils/request'
 import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
 
-import { ConsumerGroup, ROLE_PORTS, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
+import { ConsumerGroup, ROLE_PORTS, RoleSpec, SCENARIO_SESSION_PREFIX, SES_RATE_LIMITER_VALKEY } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
 
@@ -253,13 +253,21 @@ export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> 
     )
 }
 
-export async function terminateRoleConnections(postgresUrl: string, share: number): Promise<number> {
+export type Sessions = { names: string[]; prefix: string }
+
+const ROLE_SESSIONS: Sessions = { names: Object.keys(ROLE_PORTS), prefix: SCENARIO_SESSION_PREFIX }
+
+export async function terminateRoleConnections(
+    postgresUrl: string,
+    share: number,
+    { names, prefix }: Sessions = ROLE_SESSIONS
+): Promise<number> {
     return await withPostgres(async (client) => {
         const { rows } = await client.query<{ pid: number }>(
             `SELECT pid FROM pg_stat_activity
-             WHERE pid <> pg_backend_pid() AND (application_name = ANY($1) OR application_name LIKE 'scenario-%')
+             WHERE pid <> pg_backend_pid() AND (application_name = ANY($1) OR starts_with(application_name, $2))
              ORDER BY random()`,
-            [Object.keys(ROLE_PORTS)]
+            [names, prefix]
         )
         const chosen = rows.slice(0, Math.ceil(share * rows.length)).map(({ pid }) => pid)
         const terminated = await client.query<{ terminated: number }>(

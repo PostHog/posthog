@@ -1,6 +1,7 @@
 import { performance } from 'perf_hooks'
 import { Client } from 'pg'
 
+import { SCENARIO_SESSION_PREFIX } from '../environment/roles'
 import { withPostgres } from '../environment/stack'
 
 export type WriterSample = {
@@ -27,7 +28,7 @@ function sqlstateOf(error: unknown): { sqlstate?: string } {
 
 export async function createWriterProbe(
     cyclotronUrl: string,
-    applicationName = 'scenario-writer-probe'
+    applicationName = `${SCENARIO_SESSION_PREFIX}writer-probe`
 ): Promise<WriterProbe> {
     await withPostgres(
         (client) =>

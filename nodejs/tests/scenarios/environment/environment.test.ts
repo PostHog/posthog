@@ -1677,34 +1677,44 @@ describe('scenario environment', () => {
             }
         }, 30_000)
 
-        it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
+        it("drops the dose's share of the sessions it targets, rounded up, and no other session", async () => {
             environment = environmentOf()
             await environment.up()
             const tag = `${process.pid}-${Date.now()}`
-            const sessions = await Promise.all(
-                [1, 2, 3].map(async (n) => {
-                    const client = new Client({
-                        connectionString: templatesUrl,
-                        application_name: `scenario-${tag}-${n}`,
+            const open = (name: string) =>
+                Promise.all(
+                    [1, 2, 3].map(async (n) => {
+                        const client = new Client({
+                            connectionString: templatesUrl,
+                            application_name: `scenario-${tag}-${name}-${n}`,
+                        })
+                        let ended = false
+                        client.on('error', () => (ended = true))
+                        await client.connect()
+                        return { client, ended: () => ended }
                     })
-                    let ended = false
-                    client.on('error', () => (ended = true))
-                    await client.connect()
-                    return { client, ended: () => ended }
-                })
-            )
-            try {
-                const terminated = await terminateRoleConnections(templatesUrl, 0.5)
-
-                await waitForExpect(() => expect(sessions.filter(({ ended }) => ended())).toHaveLength(2))
-                const answered = await Promise.all(
+                )
+            const [targeted, bystanders] = [await open('targeted'), await open('bystander')]
+            const answering = (sessions: typeof targeted) =>
+                Promise.all(
                     sessions
                         .filter(({ ended }) => !ended())
                         .map(async ({ client }) => (await client.query<{ one: number }>('SELECT 1 AS one')).rows[0].one)
                 )
-                expect({ terminated, answered }).toEqual({ terminated: 2, answered: [1] })
+            try {
+                const terminated = await terminateRoleConnections(templatesUrl, 0.5, {
+                    names: [],
+                    prefix: `scenario-${tag}-targeted-`,
+                })
+
+                await waitForExpect(() => expect(targeted.filter(({ ended }) => ended())).toHaveLength(2))
+                expect({
+                    terminated,
+                    targeted: await answering(targeted),
+                    bystanders: await answering(bystanders),
+                }).toEqual({ terminated: 2, targeted: [1], bystanders: [1, 1, 1] })
             } finally {
-                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
+                await Promise.all([...targeted, ...bystanders].map(({ client }) => client.end().catch(() => undefined)))
             }
         })
 

@@ -428,6 +428,13 @@ describe('measurements', () => {
             [{ value: null, censored: true }],
         ],
         [
+            'measures no drain when every read in the valve phase failed',
+            'drain_seconds',
+            (second) => (between(700, 1099)(second) ? 'failed' : QUIET),
+            [VALVE],
+            [],
+        ],
+        [
             'measures no drain after a baseline too short to hold an envelope',
             'drain_seconds',
             (second) => (between(20, 60)(second) ? BACKED_UP : QUIET),

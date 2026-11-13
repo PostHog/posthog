@@ -235,7 +235,11 @@ function drain(queue: readonly QueueSample[], baseline: Phase, phase: Phase): Me
     const recent = { from: Math.max(baseline.from, baseline.to - ENVELOPE_MS), to: baseline.to }
     const envelope = counted(queue).filter(({ at }) => within(recent, at))
     const inPhase = byTime(queue).filter(({ at }) => within(phase, at))
-    if (seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS || envelope.length === 0 || inPhase.length === 0) {
+    if (
+        seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS ||
+        envelope.length === 0 ||
+        !inPhase.some((sample) => !('error' in sample))
+    ) {
         return []
     }
     const maxDue = Math.max(...envelope.map(({ due }) => due))
@@ -320,6 +324,10 @@ export type Baseline = {
 
 export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvidence): Baseline {
     const { baseline } = phasesOf(drive, timeline)
+    const length = seconds(baseline.to - baseline.from)
+    if (length < MIN_BASELINE_SECONDS) {
+        return { seconds: length, claimsPerSecond: {} }
+    }
     const queues = [...new Set(samples.flatMap(({ processed }) => Object.keys(processed)))]
     const claimsPerSecond = Object.fromEntries(
         queues.map((name) => [name, phaseRate(samples, ({ processed }) => processed[name] ?? 0, baseline)])
@@ -328,7 +336,7 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
     const hostSpan = spanning(byTime(host), baseline)
     const [firstHost, lastHost] = [hostSpan.at(0), hostSpan.at(-1)]
     return {
-        seconds: seconds(baseline.to - baseline.from),
+        seconds: length,
         claimsPerSecond,
         ...(inserted.length > 1 && inserted.at(-1)!.at > inserted[0].at
             ? {
@@ -392,20 +400,16 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         name: 'baseline_claims_per_second',
         params: z.object({}).strict(),
         unit: 'jobs/s',
-        measure: (evidence) => {
-            const { seconds: length, claimsPerSecond } = baselineOf(evidence)
-            return length >= MIN_BASELINE_SECONDS
-                ? Object.entries(claimsPerSecond).map(([key, value]) => ({ key, value }))
-                : []
-        },
+        measure: (evidence) =>
+            Object.entries(baselineOf(evidence).claimsPerSecond).map(([key, value]) => ({ key, value })),
     },
     {
         name: 'baseline_new_jobs_per_second',
         params: z.object({}).strict(),
         unit: 'jobs/s',
         measure: (evidence) => {
-            const { seconds: length, newJobsPerSecond } = baselineOf(evidence)
-            return length < MIN_BASELINE_SECONDS || newJobsPerSecond === undefined ? [] : [{ value: newJobsPerSecond }]
+            const { newJobsPerSecond } = baselineOf(evidence)
+            return newJobsPerSecond === undefined ? [] : [{ value: newJobsPerSecond }]
         },
     },
 ]
