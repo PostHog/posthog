@@ -636,7 +636,7 @@ export function drive(
 - **Pacing.** Each traffic kind offers `ratePerSecond` units for the drive's duration, from its profile entry. Sampling uses the card's `seed`, so two runs of one card offer the same sequence of units.
 - **No retries.** Every call, its answer and its expected deliveries are recorded, refusals included. A call that gets no answer is recorded as a transport error.
 - **Load.** `offeredUnits` counts every call to a CDP role's intake, such as cdp-api, whatever it answered and whenever the answer arrived, and every event Kafka acknowledged before the drive ended. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed or late Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
-- **Follow-ups.** `bounce_followup` sends a follow-up only after its unit was accepted. It waits up to 60 seconds for cdp-api's 200 to the bounce feedback in the edge's truth, then for `Environment.groupLag` of the `cdp-ses-webhooks` group to reach zero. When the feedback was refused or the bound passes, the journal records why the follow-up was not sent, and `bounced_suppressed` fails that unit.
+- **Follow-ups.** `bounce_followup` sends a follow-up only after its unit was accepted. It waits up to 60 seconds for cdp-api's 200 to the bounce feedback in the edge's truth, then for `Environment.groupLag` of the `cdp-ses-webhooks` group to reach zero. It stops waiting at once when the edge took the unit's send without a fault, as it does for a send that reaches SES after the runner released its faults at the drive's end. When the feedback was refused, the send went through or the bound passes, the journal records why the follow-up was not sent.
 - **Stopping.** When the drive stops, pending follow-ups send nothing, and the drive returns only after every follow-up it started has settled.
 
 ### Judge
@@ -672,6 +672,7 @@ export type InvariantResult = {
 
   - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
   - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
+    It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce. A run with no bounce lets off neither.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
 
 - **Measurements.** Each has a unit in its definition. Every measurement so far is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
