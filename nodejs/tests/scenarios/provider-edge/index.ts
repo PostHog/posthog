@@ -23,7 +23,7 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
-export { SesThrottleParams } from './faults'
+export { SesRejectParams, SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
 export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'
@@ -165,15 +165,23 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         })
     }
 
+    const unsignedBounce = (rule: FaultRule): string | undefined => {
+        if (rule.answer.kind !== 'bounce' || feedback) {
+            return undefined
+        }
+        const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+        return `params.type: a bounce needs an edge with ${missing}`
+    }
+
     const addCardFault = (body: unknown): Reply => {
         const parsed = CardFault.safeParse(body)
         if (!parsed.success) {
             return { status: 400, body: { problems: problemsOf(parsed.error, 'fault') } }
         }
         const rule = ruleOf(parsed.data)
-        if (rule.answer.kind === 'bounce' && !feedback) {
-            const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
-            return { status: 400, body: { problems: [`params.type: a bounce needs an edge with ${missing}`] } }
+        const problem = unsignedBounce(rule)
+        if (problem) {
+            return { status: 400, body: { problems: [problem] } }
         }
         return { status: 201, body: { id: faults.add(rule) } }
     }
@@ -298,6 +306,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         sent,
         addFault: (rule) => faults.add(rule),
         hold: (rule) => {
+            const problem = unsignedBounce(rule)
+            if (problem) {
+                throw new Error(problem)
+            }
             const id = faults.add(rule)
             return {
                 observed: async (holdEnds) => {
