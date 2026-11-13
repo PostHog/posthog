@@ -235,6 +235,8 @@ class TestResendImport(BaseTest):
             runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
         assert self.resend.calls.count("/contacts") == 4
+        run.refresh_from_db()
+        assert "Unsubscribed contacts" in run.progress["contacts"]["last_error"]
 
     @parameterized.expand([("rate_limit", 429, {"retry-after": "7"}, 7.0), ("server_error", 503, {}, 2.0)])
     def test_a_passing_failure_waits_and_the_step_completes(
