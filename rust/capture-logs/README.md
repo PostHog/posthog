@@ -27,7 +27,6 @@ The service is configured using environment variables:
 | MAX_EXPANDED_REQUEST_BYTES | 268435456 | Rejects a logs, traces, metrics or Firehose request with 413 when the rows it builds would pass this estimated size. Each row copies its resource, scope or common attributes, so the body cap does not bound this |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
 | MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
-| VERCEL_DRAIN_ENABLED_TOKENS | (none) | Comma-separated tokens that may use the Vercel drain route, or `*` for all. Other tokens get 404 |
 
 ## Authentication
 
@@ -198,7 +197,6 @@ A customer creates a log drain with this URL and the project API key, in either 
   The path and `?token=` forms also work, but they put the key in proxy access logs, so prefer the header.
   The same shape check as every other route applies.
   The drain's `x-vercel-signature` is not verified, so, as on the other routes, anyone with the project key can write rows.
-- Rollout: the route is closed until the project's token is in `VERCEL_DRAIN_ENABLED_TOKENS` (or the list is `*`); other tokens get 404. The local dev stack sets `*`.
 - Body: a JSON array, one object, or NDJSON, gzip or plain. The drain sends at most 1 MB per request, inside the shared `MAX_REQUEST_BODY_SIZE_BYTES` cap.
   Every valid line becomes a log row.
   A line that is not a JSON object, or an object with no `id`, `message` or `proxy`, is skipped and counted, so one bad line does not make the drain retry the batch.
@@ -214,7 +212,7 @@ A customer creates a log drain with this URL and the project API key, in either 
 - Delivery is at-least-once: a Kafka failure returns 500 and the drain sends the request again.
   The logs table keeps every copy of a redelivered line. A line's row `uuid` derives from the project key and the drain's log `id`, so queries can find the copies by `uuid`.
 
-Metrics: `capture_logs_vercel_records_total{kind}` (`valid` after the Kafka write; `invalid` per attempt, so a retried bad batch counts again; `no_timestamp` for lines stored at ingest time) and `capture_logs_vercel_requests_rejected_total{reason}` (`gate_closed`).
+Metrics: `capture_logs_vercel_records_total{kind}` (`valid` after the Kafka write; `invalid` per attempt, so a retried bad batch counts again; `no_timestamp` for lines stored at ingest time) and `capture_logs_vercel_requests_rejected_total{reason}` (`too_many_lines`).
 Request outcomes are on the shared `http_requests_total{path,status}`.
 
 ## Endpoints
