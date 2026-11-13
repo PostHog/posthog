@@ -156,7 +156,7 @@ def store_backfilled_query_metadata(
 
 
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
-    """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
+    """Mark an insight as viewed now, preserving any newer timestamp for this viewer.
 
     Shared and embedded renders have no viewer, so ``team_id`` and ``user_id`` are both optional:
     left out, the view is recorded against the anonymous row for the insight.
@@ -165,7 +165,7 @@ def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id:
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
-    """Record this viewer's view of each insight at the given time, in a single statement.
+    """Record this viewer's view of each insight at the given time, in one batch.
 
     A viewer who already has a row for one of the insights keeps it and gets the timestamp moved.
     Runs in the caller's transaction.
