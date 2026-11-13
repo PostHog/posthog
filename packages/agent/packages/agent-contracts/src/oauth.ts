@@ -60,6 +60,10 @@ export const OAUTH_SCOPES = [
   "business_knowledge:write",
   "canvas:read",
   "canvas:write",
+  "code_review:read",
+  "code_review:write",
+  "code_review_approval:read",
+  "code_review_approval:write",
   "cohort:read",
   "cohort:write",
   "comment:read",
@@ -182,8 +186,6 @@ export const OAUTH_SCOPES = [
   "query:write",
   "replay_scanner:read",
   "replay_scanner:write",
-  "review_hog:read",
-  "review_hog:write",
   "revenue_analytics:read",
   "revenue_analytics:write",
   "session_recording:read",
@@ -194,8 +196,6 @@ export const OAUTH_SCOPES = [
   "sharing_configuration:write",
   "signal_scout:read",
   "signal_scout:write",
-  "stamphog:read",
-  "stamphog:write",
   "streamlit_app:read",
   "streamlit_app:write",
   "subscription:read",
@@ -245,7 +245,9 @@ export const OAUTH_SCOPES = [
 // applies to every future server-side scope addition the app relies on, even when
 // OAUTH_SCOPES itself is unchanged.
 // v7: "*" replaced with the explicit list above.
-export const OAUTH_SCOPE_VERSION = 8;
+// v9: review_hog and stamphog renamed to code_review and code_review_approval. The server
+// still translates the old names, so builds that request them keep working.
+export const OAUTH_SCOPE_VERSION = 9;
 
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
   switch (region) {

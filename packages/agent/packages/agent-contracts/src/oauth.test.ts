@@ -20,9 +20,9 @@ describe("OAUTH_SCOPES guard", () => {
       fingerprint,
     }).toMatchInlineSnapshot(`
       {
-        "fingerprint": -310231653,
+        "fingerprint": -339032761,
         "scopeCount": 198,
-        "scopeVersion": 8,
+        "scopeVersion": 9,
       }
     `);
   });
