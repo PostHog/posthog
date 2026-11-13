@@ -3,6 +3,9 @@ import { type RedisV2 } from '~/common/redis/redis-v2'
 import {
     UNKNOWN_TOKENS_KEY,
     UNKNOWN_TOKENS_MAX_ENTRIES,
+    UNKNOWN_TOKEN_CONFIRM_MS,
+    UNKNOWN_TOKEN_IDLE_MS,
+    UNKNOWN_TOKEN_MAX_IN_FLIGHT_WRITES,
     UNKNOWN_TOKEN_RETENTION_MS,
     UNKNOWN_TOKEN_WRITE_DEBOUNCE_MS,
     UnknownTokenRecorder,
@@ -10,12 +13,15 @@ import {
 
 type Call = [string, ...unknown[]]
 
-function setup(opts: { fail?: 'throw' | 'null' | 'command' } = {}) {
+function setup(opts: { fail?: 'throw' | 'null' | 'command' | 'hang' } = {}) {
     const pipelines: Call[][] = []
     const redis = {
         usePipeline: jest.fn((_options: unknown, cb: (p: Record<string, jest.Mock>) => void) => {
             if (opts.fail === 'throw') {
                 return Promise.reject(new Error('redis down'))
+            }
+            if (opts.fail === 'hang') {
+                return new Promise(() => {})
             }
             if (opts.fail === 'null') {
                 return Promise.resolve(null)
@@ -52,16 +58,35 @@ function setup(opts: { fail?: 'throw' | 'null' | 'command' } = {}) {
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
 describe('UnknownTokenRecorder', () => {
-    it('adds the token to the sorted set scored by now', async () => {
-        const { recorder, pipelines, now } = setup()
+    it('writes a token once it keeps missing past the confirmation window, trimming the set each time', async () => {
+        const { recorder, pipelines, advance, now } = setup()
+        recorder.record('phc_unknown')
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
         recorder.record('phc_unknown')
         await flush()
-        expect(pipelines).toHaveLength(1)
-        expect(pipelines[0]).toContainEqual(['zadd', UNKNOWN_TOKENS_KEY, now(), 'phc_unknown'])
+        expect(pipelines).toEqual([
+            [
+                ['zadd', UNKNOWN_TOKENS_KEY, now(), 'phc_unknown'],
+                ['expire', UNKNOWN_TOKENS_KEY, 2 * 60 * 60],
+                ['zremrangebyscore', UNKNOWN_TOKENS_KEY, '-inf', now() - UNKNOWN_TOKEN_RETENTION_MS],
+                ['zremrangebyrank', UNKNOWN_TOKENS_KEY, 0, -(UNKNOWN_TOKENS_MAX_ENTRIES + 1)],
+            ],
+        ])
+    })
+
+    it('never writes a token whose misses all fall inside the confirmation window', async () => {
+        const { recorder, redis, advance } = setup()
+        recorder.record('phc_new_project')
+        advance(UNKNOWN_TOKEN_CONFIRM_MS - 1)
+        recorder.record('phc_new_project')
+        await flush()
+        expect(redis.usePipeline).not.toHaveBeenCalled()
     })
 
     it('writes a steady stream of misses for one token once per debounce window', async () => {
         const { recorder, redis, advance } = setup()
+        recorder.record('phc_unknown')
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
         for (let i = 0; i < 1000; i++) {
             recorder.record('phc_unknown')
         }
@@ -75,53 +100,61 @@ describe('UnknownTokenRecorder', () => {
     })
 
     it('writes each distinct token', async () => {
-        const { recorder, redis } = setup()
+        const { recorder, redis, advance } = setup()
+        recorder.record('phc_a')
+        recorder.record('phc_b')
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
         recorder.record('phc_a')
         recorder.record('phc_b')
         await flush()
         expect(redis.usePipeline).toHaveBeenCalledTimes(2)
     })
 
-    it('trims old and excess entries on the first write and then only now and then', async () => {
-        const { recorder, pipelines, advance, now } = setup()
-        recorder.record('phc_a')
+    it('turns away new tokens while full and takes them again once old ones go idle', async () => {
+        const { recorder, redis, advance } = setup()
+        for (let i = 0; i < UNKNOWN_TOKENS_MAX_ENTRIES; i++) {
+            recorder.record(`phc_flood_${i}`)
+        }
+        recorder.record('phc_late')
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
+        recorder.record('phc_late')
         await flush()
-        expect(pipelines[0]).toContainEqual([
-            'zremrangebyscore',
-            UNKNOWN_TOKENS_KEY,
-            '-inf',
-            now() - UNKNOWN_TOKEN_RETENTION_MS,
-        ])
-        expect(pipelines[0]).toContainEqual([
-            'zremrangebyrank',
-            UNKNOWN_TOKENS_KEY,
-            0,
-            -(UNKNOWN_TOKENS_MAX_ENTRIES + 1),
-        ])
+        expect(redis.usePipeline).not.toHaveBeenCalled()
 
-        advance(1000)
-        recorder.record('phc_b')
+        advance(UNKNOWN_TOKEN_IDLE_MS)
+        recorder.record('phc_late')
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
+        recorder.record('phc_late')
         await flush()
-        expect(pipelines[1].map(([name]) => name)).not.toContain('zremrangebyscore')
+        expect(redis.usePipeline).toHaveBeenCalledTimes(1)
+    })
 
-        advance(10 * 60 * 1000)
-        recorder.record('phc_c')
+    it('stops starting writes while Redis is not answering', async () => {
+        const { recorder, redis, advance } = setup({ fail: 'hang' })
+        const tokens = Array.from({ length: UNKNOWN_TOKEN_MAX_IN_FLIGHT_WRITES + 5 }, (_, i) => `phc_${i}`)
+        tokens.forEach((token) => recorder.record(token))
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
+        tokens.forEach((token) => recorder.record(token))
         await flush()
-        expect(pipelines[2].map(([name]) => name)).toContain('zremrangebyscore')
+        expect(redis.usePipeline).toHaveBeenCalledTimes(UNKNOWN_TOKEN_MAX_IN_FLIGHT_WRITES)
     })
 
     it.each([
         ['empty', ''],
         ['over-long', 'x'.repeat(201)],
     ])('ignores an %s token', async (_name, token) => {
-        const { recorder, redis } = setup()
+        const { recorder, redis, advance } = setup()
+        recorder.record(token)
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
         recorder.record(token)
         await flush()
         expect(redis.usePipeline).not.toHaveBeenCalled()
     })
 
     it.each(['throw', 'null', 'command'] as const)('never throws when the write fails (%s)', async (fail) => {
-        const { recorder, redis } = setup({ fail })
+        const { recorder, redis, advance } = setup({ fail })
+        recorder.record('phc_unknown')
+        advance(UNKNOWN_TOKEN_CONFIRM_MS)
         expect(() => recorder.record('phc_unknown')).not.toThrow()
         await flush()
         expect(redis.usePipeline).toHaveBeenCalledTimes(1)
