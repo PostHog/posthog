@@ -945,6 +945,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             <DashboardTileSectionBand
                 key={section.key}
                 section={section}
+                // Without a line, loose tiles read as part of the open group above. A closed group's header
+                // underline already separates them, and a second line would stack on it.
                 showDivider={
                     !!previous && !(previous.kind === 'group' && collapsedTileGroupKeys.includes(previous.groupKey))
                 }

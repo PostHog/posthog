@@ -12,7 +12,6 @@ import type { TileGroupMoveActions } from './DashboardTileGroup/DashboardTileGro
 
 interface DashboardTileSectionBandProps {
     section: DashboardSection
-    /** Off when nothing sits above, or a collapsed group's underline already separates the loose tiles. */
     showDivider: boolean
     isDropTarget: boolean
     collapsedTileGroupKeys: string[]
@@ -54,7 +53,6 @@ export function DashboardTileSectionBand({
         <div data-dashboard-section={section.key} className={clsx('rounded-lg', isDropTarget && 'ring-2 ring-accent')}>
             {section.kind === 'tiles' ? (
                 <>
-                    {/* Without a line, viewers read loose tiles under a closed group as part of that group. */}
                     {showDivider && <LemonDivider className="mb-4" />}
                     {children}
                 </>
