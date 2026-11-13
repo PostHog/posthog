@@ -5107,8 +5107,8 @@ email@example.org,
         )
 
         self.assertEqual(response.status_code, 400, response.json())
-        # The legacy group saves as a realtime cohort. On the native JSON events table the union reads its flag calls,
-        # but cohort-seeder backfills a realtime cohort from events, which holds none.
+        # The legacy group saves as a realtime cohort. The native JSON events table holds no flag calls, so its teams
+        # get the realtime refusal that mode 2 gets.
         expected_refusal = (
             _FLAG_CALL_REALTIME_REFUSAL if use_new_events_schema(self.team.id) else _FLAG_CALL_KEY_REFUSAL
         )

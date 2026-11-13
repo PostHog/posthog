@@ -2029,8 +2029,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     ) -> HiddenEventRefusal | None:
         """A flag-call criterion that a save puts on a realtime cohort, or None.
 
-        On FLAG_EVALUATIONS_ONLY and on the native JSON events table, events holds no flag calls, and cohort-seeder
-        backfills a realtime cohort from events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime.
+        On FLAG_EVALUATIONS_ONLY, events holds no flag calls, and cohort-seeder backfills a realtime cohort from
+        events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime. The native JSON
+        events table holds no flag calls either, so its teams get the same refusal.
         """
         if not self._saves_realtime_cohort(attrs, team):
             return None
