@@ -393,6 +393,21 @@ describe('dashboardLogic', () => {
         })
     })
 
+    it('reports dashboard tile views with dashboard context', async () => {
+        const viewed = jest.fn((_request: { request: Request }) => [201, null])
+        useMocks({ post: { '/api/environments/:team_id/insights/viewed/': viewed } })
+        logic = dashboardLogic({ id: 5 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        viewed.mockClear()
+        const insight = logic.values.dashboard!.tiles[0].insight!
+        logic.actions.reportInsightsViewed([insight])
+        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(viewed).toHaveBeenCalled())
+        const request = viewed.mock.calls[0][0].request
+        expect(await request.json()).toEqual({ insight_ids: [insight.id], query_context: 'dashboard', dashboard_id: 5 })
+    })
+
     describe('tile group sections', () => {
         let target: InsightShortId
 

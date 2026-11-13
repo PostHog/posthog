@@ -348,6 +348,7 @@ class EventSource(StrEnum):
     """
 
     WEB = "web"
+    SHARED = "shared"
     API = "api"
     CLI = "cli"
     POSTHOG_AI = "posthog_ai"

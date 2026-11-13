@@ -13,7 +13,7 @@ loses a field surfaces at the facade boundary instead of further down the caller
 """
 
 from dataclasses import field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +27,22 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataCheckSkipReason,
     InsightDataChecksStatus,
 )
+
+INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL = timedelta(minutes=1)
+
+
+@dataclass(frozen=True)
+class InsightViewContext:
+    """One viewer's latest view of a saved insight from one source, standalone or on one dashboard.
+
+    An empty ``source`` marks history recorded before views carried a source.
+    """
+
+    insight_id: int
+    user_id: int | None
+    source: str
+    dashboard_id: int | None
+    last_viewed_at: datetime
 
 
 @dataclass(frozen=True)

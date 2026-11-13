@@ -919,9 +919,22 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
 /**
  * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
+
 export const insightsViewedCreateBodyInsightIdsMax = 2500
 
 export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
+    query_context: zod
+        .enum(['standalone', 'dashboard'])
+        .describe('\* `standalone` - Standalone\n\* `dashboard` - Dashboard')
+        .optional()
+        .describe(
+            'Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.\n\n\* `standalone` - Standalone\n\* `dashboard` - Dashboard'
+        ),
+    dashboard_id: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Dashboard containing the viewed tiles. Required for dashboard context.'),
     insight_ids: zod
         .array(zod.number())
         .max(insightsViewedCreateBodyInsightIdsMax)

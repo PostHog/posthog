@@ -32,6 +32,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
+    InsightViewContext,
     SavedInsightDefinition,
     SavedTrendsInsight,
     ViewableInsight,
@@ -140,6 +141,42 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     does not exist in this team. The lock remains until the caller's transaction ends.
     """
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
+
+
+def record_insight_view_context(
+    *, team_id: int, insight_ids: Collection[int], user_id: int | None, source: str, dashboard_id: int | None = None
+) -> None:
+    """Record an authorized saved-context access independently of warming eligibility."""
+    from products.product_analytics.backend import view_context
+
+    view_context.record_insight_view_context(
+        team_id=team_id, insight_ids=insight_ids, user_id=user_id, source=source, dashboard_id=dashboard_id
+    )
+
+
+def insight_view_contexts(
+    *, team_id: int, insight_ids: Collection[int], viewed_since: datetime | None = None
+) -> list[InsightViewContext]:
+    """Return access facts; consumers own source, viewer, context and recency policy.
+
+    ``viewed_since`` leaves out older views, so a caller that only needs recent history does not
+    load every view an insight ever had.
+    """
+    from products.product_analytics.backend import view_context
+
+    rows = view_context.insight_view_contexts(
+        team_id=team_id, insight_ids=insight_ids, viewed_since=viewed_since
+    ).values_list("insight_id", "user_id", "source", "dashboard_id", "last_viewed_at")
+    return [
+        InsightViewContext(
+            insight_id=insight_id,
+            user_id=user_id,
+            source=source,
+            dashboard_id=dashboard_id,
+            last_viewed_at=last_viewed_at,
+        )
+        for insight_id, user_id, source, dashboard_id, last_viewed_at in rows
+    ]
 
 
 def store_backfilled_query_metadata(

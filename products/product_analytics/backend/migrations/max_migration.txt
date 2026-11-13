@@ -1,1 +1,1 @@
-0015_insightagentread
+0017_remove_legacy_insight_view_uniqueness

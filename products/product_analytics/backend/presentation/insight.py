@@ -119,6 +119,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    is_service_auth,
 )
 from posthog.query_cache import QueryCache
 from posthog.query_scan.serve import hydrate_scan_summary
@@ -196,6 +197,7 @@ from products.product_analytics.backend.facade.api import (
     recently_viewed_insights,
     record_agent_insight_read,
     record_insight_view,
+    record_insight_view_context,
     record_insight_views,
     with_last_viewed_at,
 )
@@ -209,6 +211,7 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataChecksDepth,
     InsightDataCheckSkipReason,
     InsightDataChecksStatus,
+    InsightViewQueryContext,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
@@ -1743,6 +1746,14 @@ AGENT_READ_SOURCES = frozenset({EventSource.MCP, EventSource.POSTHOG_AI, EventSo
 
 
 class InsightViewedRequestSerializer(serializers.Serializer):
+    query_context = serializers.ChoiceField(
+        choices=InsightViewQueryContext.choices,
+        required=False,
+        help_text="Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.",
+    )
+    dashboard_id = serializers.IntegerField(
+        required=False, min_value=1, help_text="Dashboard containing the viewed tiles. Required for dashboard context."
+    )
     insight_ids = serializers.ListField(
         child=serializers.IntegerField(),
         allow_empty=False,
@@ -1751,6 +1762,11 @@ class InsightViewedRequestSerializer(serializers.Serializer):
             f"Insight IDs that were just viewed by the current user. At most {INSIGHT_VIEWED_MAX_IDS} ids per request."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if (attrs.get("query_context") == "dashboard") != ("dashboard_id" in attrs):
+            raise serializers.ValidationError("dashboard_id must be provided exactly when query_context is dashboard.")
+        return attrs
 
 
 INSIGHT_BULK_DELETE_MAX_IDS = 1000
@@ -2798,6 +2814,35 @@ When set, the specified dashboard's filters and date range override will be appl
             user_id=cast(User, request.user).pk,
             last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
         )
+
+        context = request.validated_data.get("query_context")
+        if context:
+            demand_insights = Insight.objects.filter(pk__in=visible_insight_ids, team_id=self.team.pk, deleted=False)
+            if not is_service_auth(request):
+                demand_insights = self.user_access_control.filter_queryset_by_access_level(
+                    demand_insights, include_all_if_admin=True
+                )
+            dashboard_id: int | None = None
+            if context == "dashboard":
+                dashboard_id = int(request.validated_data["dashboard_id"])
+                demand_insights = demand_insights.filter(pk__in=insight_ids_on_dashboard(dashboard_id))
+                first_id = demand_insights.values_list("pk", flat=True).first()
+                tile = (
+                    tile_for_insight_on_dashboard(insight_id=first_id, dashboard_id=dashboard_id) if first_id else None
+                )
+                if tile is None or tile.dashboard.team_id != self.team.pk:
+                    return Response(status=status.HTTP_201_CREATED)
+                if not is_service_auth(request) and not self.user_access_control.check_access_level_for_object(
+                    tile.dashboard, "viewer"
+                ):
+                    return Response(status=status.HTTP_201_CREATED)
+            record_insight_view_context(
+                team_id=self.team.pk,
+                insight_ids=list(demand_insights.values_list("pk", flat=True)),
+                user_id=cast(User, request.user).pk,
+                source=get_event_source(request),
+                dashboard_id=dashboard_id,
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

@@ -17,6 +17,11 @@ class InsightVariableType(LabeledStrEnum):
     DATE = "Date", "Date"
 
 
+class InsightViewQueryContext(LabeledStrEnum):
+    STANDALONE = "standalone", "Standalone"
+    DASHBOARD = "dashboard", "Dashboard"
+
+
 class InsightDataCheckKey(LabeledStrEnum):
     INTERNAL_USERS = "internal_users", "Internal and test users"
     LOCAL_DEVELOPMENT = "local_development", "Local development events"
