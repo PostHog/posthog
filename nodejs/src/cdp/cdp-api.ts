@@ -325,6 +325,7 @@ export class CdpApi {
     private cancelInvocationsJwt: ScopedServiceJwt
     private cancelBatchJwt: ScopedServiceJwt
     private manualRunJwt: ScopedServiceJwt
+    private scheduledRunsJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
@@ -415,6 +416,11 @@ export class CdpApi {
         // The web tier mints this token as it mints the cancel tokens, so it shares their key on its own audience.
         this.manualRunJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_MANUAL_RUN,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
+        // The scheduler's poll runs in the web tier too, so its batch token shares that key on its own audience.
+        this.scheduledRunsJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
             config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
         this.stepResumeJwt = new ScopedServiceJwt(
@@ -1182,10 +1188,21 @@ export class CdpApi {
         }
     }
 
+    // Auth: a per-call JWT that Django mints for the teams of the batch. The route is exempt from the
+    // internal API secret.
     private postHogflowScheduledInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        if (!this.scheduledRunsJwt.enabled) {
+            return res.status(503).json({
+                error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+            })
+        }
         const parsed = ScheduledRunsRequestSchema.safeParse(req.body)
         if (!parsed.success) {
             return res.status(400).json({ error: parsed.error.issues })
+        }
+        const allowedTeamIds = this.scheduledRunsTeamIds(req)
+        if (!allowedTeamIds || parsed.data.runs.some((run) => !allowedTeamIds.has(run.team_id))) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid scheduled runs token' })
         }
         try {
             const outcomes = await this.scheduledRuns().queue(
@@ -1205,6 +1222,19 @@ export class CdpApi {
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocations', { error: e })
             res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    private scheduledRunsTeamIds(req: ModifiedRequest): Set<number> | null {
+        const authHeader = req.headers['authorization']
+        if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+            return null
+        }
+        try {
+            const teamIds: unknown = this.scheduledRunsJwt.verify(authHeader.slice(7)).team_ids
+            return Array.isArray(teamIds) && teamIds.every(Number.isInteger) ? new Set(teamIds) : null
+        } catch {
+            return null
         }
     }
 

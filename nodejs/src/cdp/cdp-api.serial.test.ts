@@ -2112,6 +2112,11 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
+        const mintScheduledRunsToken = (
+            teamIds: number[],
+            { secret = 'local-dev-workflows-cancel-jwt', audience = 'posthog:workflows:scheduled_runs' } = {}
+        ) => jwt.sign({ team_ids: teamIds }, secret, { audience, expiresIn: '2m' })
+
         it('queues every admissible run of a batch and answers each run in request order', async () => {
             const eventHogFlow = await insertHogFlow({
                 ...scheduleHogFlow,
@@ -2123,6 +2128,7 @@ describe('CDP API', () => {
 
             const res = await supertest(app)
                 .post('/api/hog_flows/scheduled_invocations')
+                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
                 .send({
                     runs: [
                         { team_id: team.id, hog_flow_id: scheduleHogFlow.id, variables: { greeting: 'Hello' } },
@@ -2145,6 +2151,35 @@ describe('CDP API', () => {
                 [scheduleHogFlow.id, { greeting: 'Hello' }],
                 [scheduleHogFlow.id, { greeting: 'Hi' }],
             ])
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                'a token signed with the wrong key',
+                () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id], { secret: 'wrong-key' })}` }),
+            ],
+            [
+                "another route's token",
+                () => ({
+                    Authorization: `Bearer ${mintScheduledRunsToken([team.id], { audience: 'posthog:workflows:manual_run' })}`,
+                }),
+            ],
+            [
+                'a token that leaves out a team of the batch',
+                () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id + 1])}` }),
+            ],
+        ])('refuses a batch with %s and queues nothing', async (_desc, headers) => {
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+
+            const res = await supertest(app)
+                .post('/api/hog_flows/scheduled_invocations')
+                .set(headers())
+                .send({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })
+
+            expect(res.status).toEqual(401)
+            expect(hogflowQueue.queued).toEqual([])
         })
     })
 
