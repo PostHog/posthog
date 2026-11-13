@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconArrowUpRight, IconCopy, IconEllipsis, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -12,6 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -19,7 +21,10 @@ import { InsightShortId } from '~/types'
 import { AnalyticsCollectionMenuItems } from './AnalyticsCollectionMenuItems'
 import { isTaggableAnalyticsType } from './analyticsFeed'
 import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
+import { analyticsListLogic } from './analyticsListLogic'
+import { AnalyticsPinHint } from './AnalyticsPinHint'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { analyticsShareLogic, shareTargetKey } from './analyticsShareLogic'
 import { AnalyticsTagIcon } from './AnalyticsTagIcon'
 import { analyticsTagsLogic } from './analyticsTagsLogic'
@@ -33,15 +38,24 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
     const target = analyticsItemTarget(item)
     const { type } = item
     const taggable = isTaggableAnalyticsType(type)
+    // Read here, not passed in by the column factory: new columns would remount this cell and close its open menu.
+    const { pinHintVisible } = useValues(analyticsPinnedLogic)
+    const { items } = useValues(analyticsListLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
+    const pinHint = pinHintVisible && items[0]?.type === item.type && items[0]?.id === item.id
+    const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null)
 
     return (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && pinHint && hidePinHint()}>
+            {pinHint && trigger && <AnalyticsPinHint anchor={trigger} />}
             <DropdownMenuTrigger
                 render={
                     <Button
+                        ref={setTrigger}
                         variant="default"
                         size="icon-sm"
                         aria-label={`Actions for ${item.name}`}
+                        className={cn(pinHint && 'ring-2 ring-ring')}
                         data-attr="analytics-list-row-menu"
                     />
                 }
