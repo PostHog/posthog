@@ -157,6 +157,8 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
+    # ClickHouse owns the recurring schedule and starts Trino shadows, so its rewrite also limits shadow frequency.
+    # Shadow and manual Trino runs must not rewrite that shared schedule.
     if inputs.engine == DataModelingJobEngine.CLICKHOUSE:
         await _clamp_to_plan_floor(inputs.team_id, inputs.dag_id)
 
