@@ -517,6 +517,13 @@ class TestCompileHogQLToTrinoSQL:
         ]
         for name, sql in bodies:
             DataWarehouseSavedQuery.objects.create(team=team, name=name, query={**raw, "query": sql}, columns=columns)
+        # Trino names an unnamed column `_col0` in a result only, so the stored name is not visible inside a CTE.
+        DataWarehouseSavedQuery.objects.create(
+            team=team,
+            name="anonymous_daily",
+            query={**raw, "query": "SELECT 1"},
+            columns={"_col0": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+        )
 
         with (
             mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
@@ -621,6 +628,18 @@ class TestCompileHogQLToTrinoSQL:
             'WHERE (CAST("orders_daily"."id" AS VARCHAR) = ?)',
             ["1"],
         )
+
+    @pytest.mark.django_db
+    def test_django_declares_stored_names_for_unnamed_raw_view_columns(self) -> None:
+        compiled, _ = self._compile_with_raw_views(HogQLQuery(query="SELECT _col0 FROM anonymous_daily"))
+
+        assert compiled.sql.startswith('WITH __ph_rv_0("_col0") AS (\nSELECT 1\n)\n')
+
+    @pytest.mark.django_db
+    def test_django_reads_a_raw_trino_view_through_the_models_namespace(self) -> None:
+        compiled, _ = self._compile_with_raw_views(HogQLQuery(query="SELECT id FROM models.orders_daily"))
+
+        assert compiled.sql.startswith("WITH __ph_rv_0 AS (\nSELECT id FROM example_orders\n)\n")
 
     @pytest.mark.django_db
     def test_django_refuses_raw_trino_views_without_raw_access(self) -> None:

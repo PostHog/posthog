@@ -2672,7 +2672,7 @@ class Database(BaseModel):
 
         # Settled before access control drops any row: a stored `models.x` the caller cannot see still
         # owns that name, so the alias of `x` must not answer for it or carry `x`'s denial onto it.
-        stored_names = {saved_query.name for saved_query in sources.saved_queries}
+        stored_names = {saved_query.name for saved_query in (*sources.saved_queries, *sources.raw_trino_saved_queries)}
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
@@ -2693,6 +2693,9 @@ class Database(BaseModel):
         if raw_trino_view_access is not None and not database._is_direct_query():
             with timings.measure("raw_trino_saved_query", emit_span=True):
                 for saved_query in sources.raw_trino_saved_queries:
+                    models_chain = models_namespace_chain(saved_query)
+                    if models_chain is not None and ".".join(models_chain) not in stored_names:
+                        database._models_aliases[".".join(models_chain)] = saved_query.name.split(".")
                     if not database._is_saved_query_readable(saved_query, sources):
                         continue
                     raw_table = RawTrinoViewTable(

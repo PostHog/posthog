@@ -205,6 +205,7 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
+_ANONYMOUS_COLUMN = re.compile(r"_col\d+")
 
 
 def _is_null_constant(expr: ast.Expr) -> bool:
@@ -286,8 +287,10 @@ class TrinoPrinter(PostgresPrinter):
     DIALECT_LABEL: ClassVar[str] = "Trino"
 
     _visit_depth: int = 0
-    # View name to its CTE name and body, in the order the query reads them.
+    # View name to its CTE declaration head and body, in the order the query reads them.
     _raw_view_ctes: dict[str, tuple[str, str]] | None = None
+    # View name to its CTE name, which is what a reference to the view prints as.
+    _raw_view_cte_names: dict[str, str] | None = None
 
     def visit(self, node: ast.AST | None) -> str:
         outermost = self._visit_depth == 0
@@ -4423,17 +4426,26 @@ class TrinoPrinter(PostgresPrinter):
         name = table.name or ""
         if table.sql is None:
             raise ExposedHogQLError(f"View '{name}' runs raw Trino SQL. Open it from the SQL editor while signed in.")
-        if self._raw_view_ctes is None:
+        if self._raw_view_ctes is None or self._raw_view_cte_names is None:
             self._raw_view_ctes = {}
+            self._raw_view_cte_names = {}
         if name not in self._raw_view_ctes:
             cte_name = f"{VIEW_CTE_PREFIX}{len(self._raw_view_ctes)}"
-            self._raw_view_ctes[name] = (cte_name, raw_trino_view_body(name, table.sql))
-        return self._raw_view_ctes[name][0]
+            column_names = list(table.fields)
+            # Trino labels an unnamed column `_colN` in a result, but inside a CTE it stays anonymous.
+            # Declaring the stored names lets the query reach it. Other views keep Trino's own names.
+            if any(_ANONYMOUS_COLUMN.fullmatch(column) for column in column_names):
+                cte_name_head = f"{cte_name}({', '.join(escape_trino_identifier(column) for column in column_names)})"
+            else:
+                cte_name_head = cte_name
+            self._raw_view_ctes[name] = (cte_name_head, raw_trino_view_body(name, table.sql))
+            self._raw_view_cte_names[name] = cte_name
+        return self._raw_view_cte_names[name]
 
     def _with_raw_view_ctes(self, sql: str) -> str:
         """Put the views first in the statement's WITH. A Trino WITH member sees only the members before it."""
         assert self._raw_view_ctes
-        ctes = ", ".join(f"{cte_name} AS (\n{body}\n)" for cte_name, body in self._raw_view_ctes.values())
+        ctes = ", ".join(f"{cte_head} AS (\n{body}\n)" for cte_head, body in self._raw_view_ctes.values())
         with_clause = re.match(r"WITH(\s+RECURSIVE)?\s+", sql)
         if with_clause is None:
             return f"WITH {ctes}\n{sql}"
