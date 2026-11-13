@@ -2879,6 +2879,13 @@ class TestIsConnectionDroppedError:
             # ProtocolViolation rather than OperationalError. Same transient pool-capacity class as
             # the pgcat/Supavisor checkout failures above; the reconnect must catch it.
             psycopg.errors.ProtocolViolation("query_wait_timeout"),
+            # PgBouncer's own `idle_transaction_timeout` setting disconnects a client that leaves a
+            # transaction open longer than the configured limit — exactly what our server-cursor
+            # reads do between fetches during a slow delta-merge. Same bare error-packet shape as
+            # `query_wait_timeout` above, so psycopg surfaces it as ProtocolViolation rather than the
+            # `IdleInTransactionSessionTimeout` Postgres itself raises for the server-side timeout
+            # (already covered by the type check); same transient class, so the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("idle transaction timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
