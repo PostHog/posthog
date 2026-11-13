@@ -1996,6 +1996,12 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "ORDER BY id DESC",
             [("b", 3), ("a", 2)],
         ),
+        # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
+        (
+            "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
+            "SELECT (id AS y) + 1 AS x, x * 2 AS z, sum(y) OVER () AS total FROM rows WHERE x > 2",
+            [(3, 6, 2)],
+        ),
     ],
 )
 def test_relational_rewrites_preserve_results(query: str, expected: list[tuple[object, ...]]) -> None:
