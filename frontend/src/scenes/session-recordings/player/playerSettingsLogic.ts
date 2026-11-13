@@ -10,6 +10,7 @@ import {
     isNewReplayLayout,
     offeredReplayLayout,
     replayLayoutFrom,
+    staffReplayLayout,
 } from 'scenes/session-recordings/playlist/replayLayout'
 import { urls } from 'scenes/urls'
 
@@ -131,8 +132,8 @@ export interface playerSettingsLogicActions {
     setSpeed: (speed: number) => {
         speed: number
     }
-    setStaffLayoutOverride: (layout: ReplayLayout | null) => {
-        layout: ReplayLayout | null
+    setStaffLayoutOverride: (layout: ReplayLayout) => {
+        layout: ReplayLayout
     }
     setTimestampFormat: (format: TimestampFormat) => {
         format: TimestampFormat
@@ -206,7 +207,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlayerControlsOverlay: (playerControlsOverlay: boolean) => ({ playerControlsOverlay }),
         setAmbientBackground: (ambientBackground: boolean) => ({ ambientBackground }),
         setPreferClassicReplayLayout: (preferClassicReplayLayout: boolean) => ({ preferClassicReplayLayout }),
-        setStaffLayoutOverride: (layout: ReplayLayout | null) => ({ layout }),
+        setStaffLayoutOverride: (layout: ReplayLayout) => ({ layout }),
         setWatchPanelOpenSections: (sections: WatchPanelSection[]) => ({ sections }),
         openWatchPanelSection: (section: WatchPanelSection) => ({ section }),
         clearWatchPanelFocus: true,
@@ -377,7 +378,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 replayLayoutFrom(
                     peekFeatureFlag(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT),
                     preferClassicReplayLayout,
-                    canOverrideLayout ? staffLayoutOverride : null
+                    canOverrideLayout ? staffReplayLayout(staffLayoutOverride) : null
                 ),
         ],
         debugMode: [
