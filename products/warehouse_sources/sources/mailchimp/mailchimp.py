@@ -93,6 +93,12 @@ class MailchimpResumeConfig:
     events_until: Optional[str] = None
 
 
+INVALID_API_KEY_FORMAT_ERROR = (
+    "This isn't a valid Mailchimp API key. Copy the full key, which ends in your data center such as -us6, "
+    "from Profile > Extras > API keys, then reconnect."
+)
+
+
 def extract_data_center(api_key: str) -> str:
     """Extract data center from Mailchimp API key.
 
@@ -100,10 +106,10 @@ def extract_data_center(api_key: str) -> str:
     The data center suffix determines the API subdomain.
     """
     if "-" not in api_key:
-        raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
+        raise ValueError(INVALID_API_KEY_FORMAT_ERROR)
     dc = api_key.split("-")[-1]
     if not dc.isalnum():
-        raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
+        raise ValueError(INVALID_API_KEY_FORMAT_ERROR)
     return dc
 
 
@@ -453,7 +459,7 @@ def _resolve_parent_id_maps(
                 parent.data_selector,
                 "offset",
                 MAX_PAGE_SIZE,
-                {},
+                parent.extra_params,
             ):
                 for record in records:
                     parent_id = record.get(parent.id_field)

@@ -158,8 +158,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     is_service_auth,
 )
-from posthog.ph_client import feature_enabled_or_false
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
+from posthog.rate_limit import EmailSenderCreateThrottle, GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -295,6 +294,19 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return False
 
 
+# Keep in sync with INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE in frontend/src/lib/api-error.ts, which
+# keeps this expected failure out of error tracking.
+INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE = "integration_token_refresh_failed"
+
+
+def _token_refresh_failed_error() -> ValidationError:
+    return ValidationError(
+        "This integration's authentication token could not be refreshed. "
+        "Please reconnect or disconnect this integration and connect a different account.",
+        code=INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE,
+    )
+
+
 def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
     """Check that an OAuth integration's token is usable, attempting refresh if needed.
 
@@ -307,19 +319,13 @@ def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
         return instance
 
     if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise ValidationError(
-            "This integration's authentication token could not be refreshed. "
-            "Please reconnect or disconnect this integration and connect a different account."
-        )
+        raise _token_refresh_failed_error()
 
     oauth = OauthIntegration(instance)
     if oauth.access_token_expired():
         instance = oauth.refresh_access_token()
         if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise ValidationError(
-                "This integration's authentication token could not be refreshed. "
-                "Please reconnect or disconnect this integration and connect a different account."
-            )
+            raise _token_refresh_failed_error()
     return instance
 
 
@@ -1834,6 +1840,8 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         if self.action == "push_tokens":
             return [PushTokenImportThrottle(), *super().get_throttles()]
+        if self.action == "create" and self.request.data.get("kind") == "email":
+            return [EmailSenderCreateThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: IntegrationRecord) -> None:
@@ -2341,9 +2349,14 @@ class IntegrationViewSet(
         customer_id = request.query_params.get("customerId")
         parent_id = request.query_params.get("parentId")
 
-        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        try:
+            search_stream = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+            # Still captured although the user gets a 400: it is the only signal that retries were not enough.
+            capture_exception(error)
+            raise ValidationError("Google Ads did not respond in time. Try again.") from error
 
-        if not conversion_actions or "results" not in conversion_actions[0]:
+        if not search_stream or "results" not in search_stream[0]:
             return Response({"conversionActions": []})
 
         conversion_actions = [
@@ -2352,7 +2365,7 @@ class IntegrationViewSet(
                 "name": conversionAction["conversionAction"]["name"],
                 "resourceName": conversionAction["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
+            for conversionAction in search_stream[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})
@@ -3075,20 +3088,6 @@ class IntegrationViewSet(
     )
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        if not any(
-            feature_enabled_or_false(
-                flag,
-                str(cast(User, request.user).distinct_id),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.uuid)},
-                },
-                send_feature_flag_events=False,
-            )
-            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
-        ):
-            raise NotFound()
         instance = self.get_object()
         if instance.kind != "email":
             raise ValidationError("email/status is only supported for email integrations")

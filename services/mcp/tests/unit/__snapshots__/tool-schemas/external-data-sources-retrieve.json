@@ -1,9 +1,19 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "compact": {
+            "default": true,
+            "description": "Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults to true. Set to false for connection settings and the full sync configuration of each table.",
+            "type": "boolean"
+        },
         "id": {
             "description": "A UUID string identifying this external data source.",
             "type": "string"
+        },
+        "include_schemas": {
+            "default": true,
+            "description": "Include the `schemas` (tables) of each source. Set to false to get source-level fields only.",
+            "type": "boolean"
         }
     },
     "required": ["id"],

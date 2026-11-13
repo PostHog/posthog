@@ -762,7 +762,7 @@ LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 
 # staleness when a cache fill races an invalidation (signals stay the fast path).
 LLM_PROMPTS_LABEL_CACHE_TTL = int(os.getenv("LLM_PROMPTS_LABEL_CACHE_TTL", str(60)))  # 1 minute
 
-CACHES = {
+CACHES: dict[str, dict[str, Any]] = {
     "default": {
         # IMPORTANT: If any of these settings change, make sure the
         # feature-flags crate is updated accordingly.
@@ -778,6 +778,18 @@ CACHES = {
         "KEY_PREFIX": "posthog",
     }
 }
+
+WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG = {
+    **CACHES["default"],
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "CONNECTION_FACTORY": "products.warehouse_sources.backend.cache.WarehouseSourceCatalogConnectionFactory",
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
+}
+CACHES["warehouse_source_catalog"] = WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG
 
 # Authorization cache reads must use the writer. Reading membership versions and values from
 # different replicas can otherwise make a revoked membership appear valid after invalidation.
@@ -910,6 +922,7 @@ else:
 
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    CACHES["warehouse_source_catalog"] = CACHES["default"]
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]

@@ -106,34 +106,6 @@ CREATE TABLE posthog.writable_metric_series1 (
   attributes Map(LowCardinality(String), String),
   last_seen DateTime64(6) CODEC(DoubleDelta)
 ) ENGINE = Distributed('logs', 'posthog', 'metric_series1');
-CREATE TABLE posthog.writable_metrics1 (
-  time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
-  uuid String,
-  team_id Int32,
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  created_at DateTime64(6) MATERIALIZED now(),
-  service_name LowCardinality(String),
-  metric_name LowCardinality(String),
-  metric_type LowCardinality(String),
-  value Float64,
-  count UInt64 DEFAULT 1,
-  histogram_bounds Array(Float64),
-  histogram_counts Array(UInt64),
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  resource_attributes Map(LowCardinality(String), String),
-  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
-  instrumentation_scope String,
-  attributes_map_str Map(LowCardinality(String), String),
-  attributes_map_float Map(LowCardinality(String), Float64),
-  time_minute DateTime ALIAS toStartOfMinute(timestamp),
-  attributes Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str)
-) ENGINE = Distributed('logs', 'posthog', 'metrics1');
 CREATE TABLE posthog.writable_query_log_archive_v3 (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,

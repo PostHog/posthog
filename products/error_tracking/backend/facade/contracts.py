@@ -167,6 +167,32 @@ class ErrorTrackingIssuePreview:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueTagDefinition:
+    key: str
+    label: str
+    description: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTag:
+    key: str
+    label: str
+    description: str
+    # The tagger that applied the tag. Postgres stores it, the ClickHouse copy of the tags does not.
+    source: str | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTagCorrection:
+    tag: ErrorTrackingIssueTag
+    # The answer that the correction replaced. Source and probability are None when the issue had no answer.
+    previous_source: str | None
+    previous_applied: bool
+    previous_probability: float | None
+    changed: bool
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssue:
     id: UUID
     status: str
@@ -177,6 +203,8 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+    # None when the tags were not read, so a response leaves the field out.
+    tags: list[ErrorTrackingIssueTag] | None = None
 
 
 @dataclass(frozen=True)

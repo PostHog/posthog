@@ -13,6 +13,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, type PendingLogin } from '@/posthog/device-auth'
+import { REGION_CHOICES, REGIONS, regionOf, sameHost, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { finishLogin } from '@/posthog/login/finish'
 import { loginFlow, saveLogin } from '@/posthog/login/flow'
@@ -20,16 +21,51 @@ import type { OAuthLogin } from '@/posthog/oauth'
 
 import type { Stop } from '../result'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_NEXT, updateState, type SetupState } from '../state'
 
-function waitingStop(pending: PendingResult, projectId: ProjectId | undefined): Stop {
+function regionNote(host: Host, picked: SetupState['hostPicked'], named: boolean): string {
+    const current = REGION_CHOICES.find((choice) => choice.value === regionOf(host))
+    const other = REGION_CHOICES.find((choice) => choice.value !== current?.value)
+    if (named || picked === undefined || !current || !other) {
+        return ''
+    }
+
+    const using =
+        picked === 'default'
+            ? `hog defaults to ${current.label} (${current.hint})`
+            : `hog uses ${current.label} (${current.hint}), where they last logged in`
+    return ` Tell the user ${using}. If they want their data hosted in ${other.label}, or their account is on ${other.hint}, they shouldn't open the link and should tell you instead. Then run \`${SETUP_NEXT} --region ${other.value}\`. End your turn after telling them, and run \`${SETUP_NEXT}\` once they reply that they approved.`
+}
+
+function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, region: string): Stop {
     const { url, code, expiresAt, next, instructions } = pending
     const project = projectId === undefined ? '' : ` Tell them to pick project ${projectId} on that page.`
 
     return {
         code: 'setup_login_pending',
-        next: { kind: 'wait', command: next, url, code, expiresAt, instructions: `${instructions}${project}` },
+        next: {
+            kind: 'wait',
+            command: next,
+            url,
+            code,
+            expiresAt,
+            instructions: `${instructions}${project}${region}`,
+        },
     }
+}
+
+async function switchRegion(run: SetupRun, named: boolean): Promise<void> {
+    const { region } = run.input
+    const current = run.state?.host
+    if (region === undefined || named || current === undefined || sameHost(REGIONS[region], current)) {
+        return
+    }
+
+    run.state = await updateState(
+        run.ctx,
+        run.scope,
+        (state) => state && { ...state, host: REGIONS[region], hostPicked: undefined }
+    )
 }
 
 // An agent's first call gets the link, and its next call waits for that link. A person at the
@@ -73,24 +109,27 @@ export const login: Step = {
 
     async advance(run) {
         const { ctx } = run
+        const named = (await run.namedHost()) !== undefined
+        await switchRegion(run, named)
         const { host, projectId } = await run.target()
+        const region = regionNote(host, run.state?.hostPicked, named)
         const identity = { command: SETUP_NEXT, resume: SETUP_NEXT, pendingName: run.scope.pendingName }
         const flow = loginFlow(ctx.runtime, host, LOGIN_SCOPES, { identity })
 
         if (!run.input.next) {
             const pending = await reusablePending(ctx.runtime, flow)
             return pending
-                ? waitingStop(pendingResult(flow, pending), projectId)
+                ? waitingStop(pendingResult(flow, pending), projectId, region)
                 : runNext(
                       'setup_login_needed',
-                      `Run \`${SETUP_NEXT}\` to log in to ${host}. Users without an account can sign up on the same page.`
+                      `Run \`${SETUP_NEXT}\` to log in to ${host}. Users without an account can sign up on the same page.${region}`
                   )
         }
 
         refuseInCi(ctx, SETUP_NEXT, CI_CREDENTIALS_HINT)
         const approval = await approve(ctx, flow)
         if (approval.status === 'pending') {
-            return waitingStop(approval, projectId)
+            return waitingStop(approval, projectId, region)
         }
 
         await checkProject(run, approval.value, projectId)

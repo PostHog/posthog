@@ -1,13 +1,6 @@
 import { type ReactElement, useEffect } from 'react'
 import { Text, View } from 'react-native'
-import Animated, {
-    Easing,
-    useAnimatedStyle,
-    useReducedMotion,
-    useSharedValue,
-    withDelay,
-    withTiming,
-} from 'react-native-reanimated'
+import Animated, { useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated'
 
 import { groupThousands } from '@/model/adapters/text'
 import type { LiveRankedRow } from '@/model/live'
@@ -15,9 +8,8 @@ import { createStyles, useColors } from '@/ui/theme'
 import { fonts, type } from '@/ui/tokens'
 
 import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LIVE_ROW_HEIGHT, LiveSlidingRow } from './LiveSlidingRow'
 
-const ROW_HEIGHT = 44
-const MOVE_MS = 450
 /** How long a ↑/↓ badge stays before it fades, so it marks the latest change only. */
 const BADGE_MS = 4000
 
@@ -55,7 +47,7 @@ export function LiveRankedTable({
                     <Text style={styles.columnLabel}>{columnLabel}</Text>
                     <Text style={styles.columnLabel}>Views</Text>
                 </View>
-                <View style={{ height: rows.length * ROW_HEIGHT }}>
+                <View style={{ height: rows.length * LIVE_ROW_HEIGHT }}>
                     {rows.map((row, index) => (
                         <RankedRow
                             key={row.key}
@@ -91,19 +83,13 @@ function RankedRow({
     testID: string
 }): ReactElement {
     const styles = useStyles()
-    const reduced = useReducedMotion()
-    const y = useSharedValue(index * ROW_HEIGHT)
-    useEffect(() => {
-        const target = index * ROW_HEIGHT
-        y.value = reduced ? target : withTiming(target, { duration: MOVE_MS, easing: Easing.out(Easing.cubic) })
-    }, [index, reduced, y])
-    const position = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }))
     const percent = `${row.percent.toFixed(1)}%`
     const moved =
         row.rankDelta === null ? '' : `, moved ${row.rankDelta > 0 ? 'up' : 'down'} ${Math.abs(row.rankDelta)}`
     return (
-        <Animated.View
-            style={[styles.row, position]}
+        <LiveSlidingRow
+            index={index}
+            style={styles.row}
             accessible
             accessibilityLabel={`${row.label}, ${groupThousands(row.views)} views, ${percent}${moved}`}
             testID={testID}
@@ -122,7 +108,7 @@ function RankedRow({
                 {groupThousands(row.views)}
                 <Text style={styles.percent}> ({percent})</Text>
             </Text>
-        </Animated.View>
+        </LiveSlidingRow>
     )
 }
 
@@ -157,10 +143,6 @@ const useStyles = createStyles(({ colors }) => ({
         color: colors.tertiary,
     },
     row: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        height: ROW_HEIGHT,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,

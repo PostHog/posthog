@@ -52,6 +52,8 @@ export type CyclotronV2IdempotentJobInit = {
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
+export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
+
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
@@ -89,6 +91,7 @@ export interface CyclotronV2BulkCreateAndCheckInInput {
 
 export interface CyclotronV2DequeuedJob {
     readonly id: string
+    readonly lockId: string
     readonly teamId: number
     readonly functionId: string | null
     readonly queueName: string
@@ -112,6 +115,7 @@ export interface CyclotronV2DequeuedJob {
     defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
+    stillOwned(): Promise<boolean>
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this
     // job (CyclotronV2Manager.cancelJobs) before the transaction took its row lock, so
     // nothing was inserted and the job is STILL HELD — the caller must dispose of it
@@ -128,6 +132,8 @@ export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
+    backgroundDepthCheck?: boolean
+    idempotencyKeyLookupTimeoutMs?: number
     // Knobs for rescheduleParkedJobs — see that method for semantics.
     rescheduleFloorSeconds?: number
     rescheduleWakeRatePerSecond?: number
@@ -195,7 +201,7 @@ export type CyclotronV2CancelUnclaimedResult =
 
 export type CyclotronV2RescheduleUnclaimedResult =
     | { outcome: 'rescheduled'; job: JobRow; rescheduledAt: Date }
-    | { outcome: 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'canceled' | 'claimed' | 'not_found' | 'too_far' }
 
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
@@ -218,7 +224,12 @@ export interface CyclotronV2JobProducer {
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
-    rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
+    rescheduleUnclaimed(
+        teamId: number,
+        id: string,
+        scheduled: Date,
+        options?: { maxAheadOfCreatedMs?: number }
+    ): Promise<CyclotronV2RescheduleUnclaimedResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number
@@ -246,6 +257,7 @@ export type CyclotronV2WorkerConfig = {
     releaseWriteHeartbeatLimitMs?: number
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
+    ownershipReadTimeoutMs?: number
     boundedFairDequeue?: boolean
 }
 
