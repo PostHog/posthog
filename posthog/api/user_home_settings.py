@@ -1,20 +1,13 @@
 from collections.abc import Iterable
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import exceptions, serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import serializers
 from rest_framework.response import Response
 
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.api.user_settings_viewset import UserSettingsViewSet
 from posthog.models import Team, User, UserHomeSettings
-from posthog.permissions import APIScopePermission, check_team_within_credential_organizations
-from posthog.rate_limit import UserAuthenticationThrottle
+from posthog.permissions import check_team_within_credential_organizations
 
 
 class PinnedSceneTabSerializer(serializers.Serializer):
@@ -118,40 +111,8 @@ class PinnedSceneTabsSerializer(serializers.Serializer):
         responses={200: PinnedSceneTabsSerializer},
     ),
 )
-class UserHomeSettingsViewSet(viewsets.GenericViewSet):
-    scope_object = "user"
+class UserHomeSettingsViewSet(UserSettingsViewSet):
     serializer_class = PinnedSceneTabsSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
-    throttle_classes = [UserAuthenticationThrottle]
-    queryset = User.objects.filter(is_active=True)
-    lookup_field = "uuid"
-
-    def get_object(self) -> User:
-        lookup_value = self.kwargs[self.lookup_field]
-        request_user = cast(User, self.request.user)
-
-        if lookup_value == "@me":
-            self.check_object_permissions(self.request, request_user)
-            return request_user
-
-        if not request_user.is_staff:
-            raise exceptions.PermissionDenied(
-                "As a non-staff user you're only allowed to access the `@me` user instance."
-            )
-
-        return super().get_object()
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(id=self.request.user.id)
-        return queryset
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
