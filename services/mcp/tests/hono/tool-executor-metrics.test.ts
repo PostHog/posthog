@@ -129,6 +129,8 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
         { tool: 'execute-sql', useSingleExec: false, type: 'internal', filtered: true },
         { tool: 'execute-sql', useSingleExec: true, type: 'internal', filtered: true },
+        { tool: 'posthog-connection-call', useSingleExec: false, type: 'internal', filtered: true },
+        { tool: 'posthog-connection-call', useSingleExec: true, type: 'internal', filtered: true },
         { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
         { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
     ])(
@@ -136,7 +138,7 @@ describe('ToolExecutor metrics', () => {
         async ({ tool, useSingleExec, type, filtered }) => {
             const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
             const capture = vi.spyOn(getPostHogClient(), 'capture').mockImplementation(() => {})
-            if (filtered) {
+            if (filtered && tool === 'execute-sql') {
                 const analytics = await vi.importActual<typeof import('@/hono/analytics')>('@/hono/analytics')
                 vi.mocked(trackExecuteSqlGeneration).mockImplementationOnce(analytics.trackExecuteSqlGeneration)
             }
@@ -151,19 +153,32 @@ describe('ToolExecutor metrics', () => {
                 : 'Tool failed: private caller query. You may retry with adjusted inputs.'
             vi.stubGlobal(
                 'fetch',
-                vi.fn().mockResolvedValue(
-                    new Response(
-                        JSON.stringify({
-                            success: false,
-                            content,
-                            error_type: type,
-                            error_code: type === 'validation' ? 'unknown_identifier' : undefined,
-                        })
+                vi.fn(async (url) => {
+                    if (String(url).endsWith('/target/')) {
+                        return new Response(
+                            JSON.stringify({
+                                project_id: 3,
+                                project_name: 'Connected project',
+                                organization_id: 'example-org',
+                                organization_name: 'Example organization',
+                                region: 'US',
+                                base_url: 'https://us.posthog.com',
+                            })
+                        )
+                    }
+                    const data = {
+                        success: false,
+                        content,
+                        error_type: type,
+                        error_code: type === 'validation' ? 'unknown_identifier' : undefined,
+                    }
+                    return new Response(
+                        JSON.stringify(tool === 'posthog-connection-call' ? { status: 200, data } : data)
                     )
-                )
+                })
             )
             const args = {
-                query: tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' },
+                query: filtered || tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' },
                 ...(filtered
                     ? {
                           connectionId: 'example-connection',
@@ -173,10 +188,14 @@ describe('ToolExecutor metrics', () => {
                       }
                     : {}),
             }
+            const callArgs =
+                tool === 'posthog-connection-call'
+                    ? { connection_id: '99', tool: 'execute-sql', arguments: args }
+                    : args
             const result = await executor.handleToolCall(
                 useSingleExec
-                    ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(args)}` } }
-                    : { name: tool, arguments: args },
+                    ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(callArgs)}` } }
+                    : { name: tool, arguments: callArgs },
                 state
             )
 

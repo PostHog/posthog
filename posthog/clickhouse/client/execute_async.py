@@ -308,6 +308,8 @@ def execute_process_query(
         query_status.error = False
         raise
     except Exception as err:
+        from posthog.ph_client import has_filtered_sql_query
+
         from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
@@ -335,8 +337,15 @@ def execute_process_query(
                 codes = err.get_codes()
                 if isinstance(codes, str):
                     query_status.error_code = codes
-        logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        if not is_user_safe_error:
+        filtered_sql = has_filtered_sql_query(query_json)
+        logger.exception(
+            "Error processing query async",
+            team_id=team_id,
+            query_id=query_id,
+            error_type=type(err).__name__,
+            exc_info=not filtered_sql,
+        )
+        if not is_user_safe_error and not filtered_sql:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
             # so don't report them to error tracking — only genuine server-side failures belong there.
             capture_exception(err)

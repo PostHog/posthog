@@ -60,21 +60,21 @@ def _query_without_sql_filters(value: Any) -> Any:
     return value
 
 
-def _has_filtered_sql_query(value: Any) -> bool:
+def has_filtered_sql_query(value: Any) -> bool:
     if isinstance(value, dict):
         return (value.get("kind") == "HogQLQuery" and bool(value.get("filters"))) or any(
-            _has_filtered_sql_query(item) for item in value.values()
+            has_filtered_sql_query(item) for item in value.values()
         )
     if isinstance(value, list):
-        return any(_has_filtered_sql_query(item) for item in value)
+        return any(has_filtered_sql_query(item) for item in value)
     return False
 
 
 def filter_sql_query_capture(message: dict[str, Any]) -> dict[str, Any] | None:
     properties = message.get("properties", {})
-    has_filtered_sql = _has_filtered_sql_query(properties)
+    has_filtered_sql = has_filtered_sql_query(properties)
     # Exception chains and stack context can include expanded SQL beyond the query metadata.
-    if message.get("event") == "$exception" and (has_filtered_sql or _has_filtered_sql_query(get_query_tags().query)):
+    if message.get("event") == "$exception" and (has_filtered_sql or has_filtered_sql_query(get_query_tags().query)):
         return None
     if has_filtered_sql:
         properties = _query_without_sql_filters(properties)
