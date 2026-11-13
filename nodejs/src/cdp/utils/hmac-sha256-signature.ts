@@ -4,7 +4,7 @@ import { CyclotronInvocationQueueParametersFetchHmacSha256Type } from '~/cdp/sch
 
 import { HogFunctionType } from '../types'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
-import { overrideHeaders } from './secret-headers'
+import { overrideHeaders } from './override-headers'
 
 export type ResolvedHmacSha256Secret = { ok: true; secret: string } | { ok: false; error: string }
 
