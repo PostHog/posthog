@@ -1,13 +1,27 @@
 import { execFile } from 'child_process'
+import http from 'http'
+import { AddressInfo } from 'net'
 import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { drive } from './generator'
+import { SeedState, drive } from './generator'
 import type { OfferContext } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
+const EVENT_EMAIL = { name: 'event_email', params: {} }
+const CDP_API = { url: 'http://127.0.0.1:1', jwt: { mint: () => 'unused' } }
+
+const seededFor = (teamIds: number[]): SeedState => ({
+    teamIds,
+    flowIds: Object.fromEntries(
+        ['event_email', 'transactional_email'].map((kind) => [
+            kind,
+            Object.fromEntries(teamIds.map((teamId) => [teamId, `flow-${teamId}`])),
+        ])
+    ),
+})
 
 type Produce = OfferContext['producer']['produce']
 type Summary = Awaited<ReturnType<typeof drive>>
@@ -15,7 +29,7 @@ type Summary = Awaited<ReturnType<typeof drive>>
 function cardWith({ seed = 1, ratePerSecond, driveFor }: { seed?: number; ratePerSecond: number; driveFor: string }) {
     return {
         ...SMOKE,
-        card: { ...SMOKE.card, seed, drive: { ...SMOKE.card.drive, for: driveFor } },
+        card: { ...SMOKE.card, seed, drive: { ...SMOKE.card.drive, for: driveFor, traffic: [EVENT_EMAIL] } },
         profile: { ...SMOKE.profile, traffic: { event_email: { ratePerSecond } } },
     } satisfies LoadedCard
 }
@@ -23,12 +37,17 @@ function cardWith({ seed = 1, ratePerSecond, driveFor }: { seed?: number; ratePe
 function startDrive(
     loaded: LoadedCard,
     produce: Produce,
-    { teamIds = [7], signal = NEVER_ABORTED }: { teamIds?: number[]; signal?: AbortSignal } = {}
+    {
+        teamIds = [7],
+        signal = NEVER_ABORTED,
+        cdpApi = CDP_API,
+    }: { teamIds?: number[]; signal?: AbortSignal; cdpApi?: OfferContext['cdpApi'] } = {}
 ): { driving: Promise<Summary>; journal: JournalEntry[] } {
     const journal: JournalEntry[] = []
-    const driving = drive(loaded, { teamIds }, { record: (entry) => journal.push(entry) }, signal, {
+    const driving = drive(loaded, seededFor(teamIds), { record: (entry) => journal.push(entry) }, signal, {
         producer: { produce },
         eventsTopic: 'scenario_events_test',
+        cdpApi,
         runId: 'run-a',
     })
     return { driving, journal }
@@ -76,6 +95,49 @@ describe('drive', () => {
         }
     )
 
+    it.each([
+        ['accepted', 202],
+        ['refused', 503],
+    ])('counts a transactional unit sent inside the window that cdp-api %s after the window', async (_, status) => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        const held: http.ServerResponse[] = []
+        let arrive = (): void => undefined
+        const arrived = new Promise<void>((resolve) => (arrive = resolve))
+        const server = http.createServer((request, response) => {
+            request.resume()
+            held.push(response)
+            if (held.length === 2) {
+                arrive()
+            }
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        const loaded = cardWith({ ratePerSecond: 20, driveFor: '100ms' })
+        const transactional = {
+            ...loaded,
+            card: {
+                ...loaded.card,
+                drive: { ...loaded.card.drive, traffic: [{ name: 'transactional_email', params: {} }] },
+            },
+            profile: { ...loaded.profile, traffic: { transactional_email: { ratePerSecond: 20 } } },
+        } satisfies LoadedCard
+        try {
+            const { driving } = startDrive(transactional, ACKNOWLEDGED, {
+                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+            })
+
+            await jest.advanceTimersByTimeAsync(50)
+            await arrived
+            await jest.advanceTimersByTimeAsync(100)
+            held.forEach((response) => response.writeHead(status).end('{}'))
+
+            expect(await driving).toEqual({ targetUnits: 2, offeredUnits: 2 })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
+
     it('stops waiting for acknowledgements on an interrupt and leaves the pending units out of the summary and the journal', async () => {
         const kafka = heldKafka()
         const interrupt = new AbortController()
@@ -94,6 +156,21 @@ describe('drive', () => {
         expect({ summary, journaled: journal.map(({ unitId }) => unitId) }).toEqual({
             summary: { targetUnits: 5, offeredUnits: 2 },
             journaled: ['run-a-1', 'run-a-2'],
+        })
+    })
+
+    it('keeps the window open until the drive duration ends, after its last unit was offered', async () => {
+        const { driving } = startDrive(cardWith({ ratePerSecond: 1, driveFor: '2s' }), ACKNOWLEDGED)
+        let summary: Summary | undefined
+        void driving.then((ended) => (summary = ended))
+
+        await jest.advanceTimersByTimeAsync(1999)
+        const beforeTheEnd = summary
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect({ beforeTheEnd, summary }).toEqual({
+            beforeTheEnd: undefined,
+            summary: { targetUnits: 2, offeredUnits: 2 },
         })
     })
 
@@ -134,13 +211,13 @@ describe('drive', () => {
             const smoke = load(${JSON.stringify(path.join(__dirname, '..', 'cards', 'smoke.yaml'))})
             const card = {
                 ...smoke,
-                card: { ...smoke.card, drive: { ...smoke.card.drive, for: '${driveFor}' } },
+                card: { ...smoke.card, drive: { ...smoke.card.drive, for: '${driveFor}', traffic: [{ name: 'event_email', params: {} }] } },
                 profile: { ...smoke.profile, traffic: { event_email: { ratePerSecond: 50 } } },
             }
             const journal = { record: () => { throw new Error('journal full') } }
             const interrupt = new AbortController()
             const context = { producer: { produce: () => ${produce} }, eventsTopic: 'scenario_events_test', runId: 'run-a' }
-            drive(card, { teamIds: [7] }, journal, interrupt.signal, context).then(
+            drive(card, { teamIds: [7], flowIds: { event_email: { 7: 'flow-7' } } }, journal, interrupt.signal, context).then(
                 () => process.stdout.write('ended'),
                 (error) => process.stdout.write(error.message)
             )

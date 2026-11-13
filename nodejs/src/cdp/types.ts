@@ -374,6 +374,7 @@ export type CyclotronJobInvocation = {
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    queueLockId?: string
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
@@ -499,6 +500,8 @@ export type MessageOptOutRecord = {
 export type QueuedIdempotencyKey = {
     hash: string
     fingerprint: string
+    currentFingerprint?: string
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     replayFields?: Record<string, number>
 }
@@ -537,6 +540,9 @@ export type HogFlowInvocationContext = {
     // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
     // `triggered` and clears this flag, so a rescheduled run does not count again.
     triggerMetricPending?: boolean
+    // ISO time the API accepted a transactional email send. It lives in the state so that it travels with the job
+    // through Kafka, the queue and every reschedule, and the send's wait counts from it.
+    acceptedAt?: string
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
@@ -630,6 +636,7 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
     idempotencyKey?: QueuedIdempotencyKey

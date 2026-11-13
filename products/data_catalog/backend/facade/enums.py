@@ -54,6 +54,7 @@ class RelationshipStatus(StrEnum):
 
 # Gates every catalog usage surface. While it is off, the usage endpoints answer 404.
 USAGE_FLAG_KEY = "data-catalog-usage"
+EFFECTIVENESS_FLAG_KEY = "data-catalog-effectiveness"
 
 # The `source` that scheduled agents (scouts) stamp on the run event and on `$ai_generation`.
 # A scout can run one metric many times a day, so usage counts keep scouts apart from every
@@ -67,6 +68,17 @@ class UsageSnapshotStatus(LabeledStrEnum):
     COMPUTING = "computing", "Computing"
     DONE = "done", "Done"
     ERROR = "error", "Error"
+
+
+class UsageSection(LabeledStrEnum):
+    """One section of a usage snapshot payload. Each scan step writes one section."""
+
+    METRIC_RUNS = "metric_runs", "Metric runs"
+    CONVERSATIONS = "conversations", "Conversations"
+    ADJUSTED_RUNS = "adjusted_runs", "Adjusted runs"
+    TOPICS = "topics", "Topics"
+    TABLE_SOURCES = "table_sources", "Table sources"
+    UNCOVERED = "uncovered", "Uncovered"
 
 
 class JudgeRelation(LabeledStrEnum):

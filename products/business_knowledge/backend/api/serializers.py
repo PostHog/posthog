@@ -31,6 +31,7 @@ from ..models import (
     SafetyVerdict,
     SourceType,
 )
+from ..models.constants import SearchMatch
 from ..sandbox import SandboxPollStatus, SandboxToolName
 
 
@@ -592,6 +593,24 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
     url = serializers.CharField(
         read_only=True,
         help_text="Fetched page URL. Empty for text and file sources.",
+    )
+    matched_by = serializers.ChoiceField(
+        choices=SearchMatch.choices,
+        read_only=True,
+        help_text=(
+            "Why this chunk is in the result. `both`: the chunk matched the query words and the query meaning, "
+            "the strongest evidence. `semantic`: it matched the meaning only. `keyword`: it shares words with the "
+            "query, which can be a weak match for a long question. `context`: it did not match; it is a neighbour "
+            "of a matching chunk, returned so the match reads in context."
+        ),
+    )
+    similarity = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Semantic similarity between the query and this chunk, from 0 to 1, higher is closer. "
+            "Null when the semantic index did not return this chunk."
+        ),
     )
 
 

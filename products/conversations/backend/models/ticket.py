@@ -187,6 +187,7 @@ class Ticket(Taggable, UUIDTModel):
     zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
     # Intercom conversation ids are opaque strings in its API, so they are stored verbatim.
     intercom_conversation_id = models.CharField(max_length=64, null=True, blank=True)
+    pylon_issue_id = models.CharField(max_length=64, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -302,6 +303,11 @@ class Ticket(Taggable, UUIDTModel):
                 condition=models.Q(intercom_conversation_id__isnull=False),
                 name="posthog_con_intercom_conv_uniq",
             ),
+            models.UniqueConstraint(
+                fields=["team", "pylon_issue_id"],
+                condition=models.Q(pylon_issue_id__isnull=False),
+                name="posthog_con_pylon_issue_uniq",
+            ),
         ]
 
     def __str__(self):
@@ -322,4 +328,6 @@ class Ticket(Taggable, UUIDTModel):
             lookups.append({"zendesk_ticket_id": self.zendesk_ticket_id})
         if self.intercom_conversation_id:
             lookups.append({"intercom_conversation_id": self.intercom_conversation_id})
+        if self.pylon_issue_id:
+            lookups.append({"pylon_issue_id": self.pylon_issue_id})
         return [ticket_thread_key(**lookup) for lookup in lookups]

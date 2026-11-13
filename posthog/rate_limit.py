@@ -785,6 +785,17 @@ class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
+# AEO setup runs a prompt and a keyword suggestion call in one job, so it gets tighter limits of its own.
+class AEOSetupBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_burst"
+    rate = "3/minute"
+
+
+class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_sustained"
+    rate = "10/hour"
+
+
 # The AEO keyword report and modifiers recompute their numbers from every answered check in the window
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
@@ -2097,6 +2108,19 @@ class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class EmailSenderCreateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A new sender domain creates an identity at the email provider, which caps identities per region for
+    # all customers together. Keyed per organization, so new projects or keys do not add to the budget.
+    scope = "email_sender_create"
+    rate = "20/hour"
+
+    def get_cache_key(self, request, view):
+        organization_id = self.safely_get_organization_id_from_view(view)
+        if organization_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"organization_{organization_id}"}
         return super().get_cache_key(request, view)
 
 

@@ -1075,6 +1075,17 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     )
 
 
+# MCP usage is an SDK's `$mcp_*` events under its base `$lib` or `-mcp` label. A `-mcp` label can also
+# cover app events (@posthog/mcp labels its whole client), so `sdk_metrics` counts those as the plain SDK.
+MCP_SDK_EVENT_METRICS: dict[str, tuple[str, ...]] = {
+    "node_mcp_events": ("posthog-node", "posthog-node-mcp"),
+    "python_mcp_events": ("posthog-python", "posthog-python-mcp"),
+    "rust_mcp_events": ("posthog-rs", "posthog-rs-mcp"),
+    "go_mcp_events": ("posthog-go", "posthog-go-mcp"),
+    "ruby_mcp_events": ("posthog-ruby", "posthog-rails", "posthog-ruby-mcp"),
+}
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
@@ -1099,12 +1110,14 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-node", "posthog-opencode", "opencode_events"),
         ("posthog-node", "@posthog/pi", "posthog_pi_events"),
         ("posthog-node", "posthog-ai", "posthog_ai_events"),
+        ("posthog-node-mcp", "posthog-ai", "posthog_ai_events"),
         ("posthog-node", None, "node_events"),
-        ("posthog-node-mcp", None, "node_mcp_events"),
-        ("posthog-python-mcp", None, "python_mcp_events"),
-        ("posthog-rs-mcp", None, "rust_mcp_events"),
-        ("posthog-go-mcp", None, "go_mcp_events"),
-        ("posthog-ruby-mcp", None, "ruby_mcp_events"),
+        ("posthog-node-mcp", None, "node_events"),
+        ("posthog-python-mcp", "posthog-ai", "posthog_python_ai_events"),
+        ("posthog-python-mcp", None, "python_events"),
+        ("posthog-rs-mcp", None, "rust_events"),
+        ("posthog-go-mcp", None, "go_events"),
+        ("posthog-ruby-mcp", None, "ruby_events"),
         ("posthog-edge", None, "edge_events"),
         ("posthog-convex", None, "convex_events"),
         ("posthog-android", None, "android_events"),
@@ -1132,7 +1145,14 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
     )
-    tracked_libs = tuple(dict.fromkeys(lib for lib, _ai_lib, _metric in sdk_metrics))
+    tracked_libs = tuple(
+        dict.fromkeys(
+            [
+                *(lib for lib, _ai_lib, _metric in sdk_metrics),
+                *(lib for libs in MCP_SDK_EVENT_METRICS.values() for lib in libs),
+            ]
+        )
+    )
     quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
     metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
     metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
@@ -1142,6 +1162,12 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # below over only the $ai_* events, where $ai_lib actually lives, and folded back in instead
     # of reading `properties` for every posthog-node event just to check $ai_lib.
     metric_conditions = [f"event LIKE '{event_prefix}', '{metric}'" for event_prefix, metric in event_prefix_metrics]
+    # MCP branches come before the `$lib` branches, so an `$mcp_*` event counts as MCP usage only.
+    for metric, libs in MCP_SDK_EVENT_METRICS.items():
+        quoted_libs = ", ".join(f"'{lib}'" for lib in libs)
+        metric_conditions.append(
+            f"startsWith(event, '{MCP_EVENT_NAME_PREFIX}') AND {lib_expression} IN ({quoted_libs}), '{metric}'"
+        )
     for lib, ai_lib, metric in sdk_metrics:
         if ai_lib is None:
             metric_conditions.append(f"{lib_expression} = '{lib}', '{metric}'")
@@ -3130,11 +3156,8 @@ def capture_report(
             f"Failed to update organization group properties for {organization_id}: {str(err)}",
         )
 
-    # There are some billing-related flags we wanna set in customer.io
-    # and for that to work properly we need to make sure we include that
-    # for every single person in the organization, otherwise we might end up
-    # with some people having the property and some not,
-    # which makes it harder to filter on in customer.io
+    # Workflows cohorts filter on these billing properties. Set them on every member of the
+    # organization, because a member without the property falls out of the filter.
     per_person_properties = {
         "has_non_zero_usage": full_report_dict.get("has_non_zero_usage"),
     }
