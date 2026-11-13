@@ -245,6 +245,7 @@ ACCEPTED: dict[str, dict[str, str]] = {
         "Granola": "scope",
         "GrowthBook": "scope",
         "Harness": "scope",
+        "Helpin": "scope",
         "Hex": "scope",
         "HeyGen": "scope",
         "HiBob": "scope",
