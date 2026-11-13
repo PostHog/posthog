@@ -1,5 +1,5 @@
-('{"custom":"kept","nested":{"keep":1},"service.name":"api","user":{},"items":[{},2],"$exception_types":["TypeError"],"$feature_flags":{"demo":"control","off":"$false"}}','{"$set":{"score":7},"$sdk_debug_probe":true}','{"name":"x","address":{}}',['plan','nested.deep','user.plan','a%2Eb','items.0.a'],['$set.gone'],['email','address.city'])
-('{"a":1,"Account.client_id":"abc","Account":{}}','{}','{}',['Account.client_id','x'],[],[])
+('{"custom":"kept","nested":"{\\"deep\\":null,\\"keep\\":1}","service.name":"api","user":"{\\"plan\\":null}","items":"[{\\"a\\":null},2]","$exception_types":"TypeError","$feature_flags":{"demo":"control","off":"$false"}}','{"$set":"{\\"score\\":7,\\"gone\\":null}","$sdk_debug_probe":true}','{"name":"x","address":"{\\"city\\":null}"}',['plan','a%2Eb'],[],['email'])
+('{"a":1,"Account.client_id":"abc","Account":"{\\"client_id\\":null}"}','{}','{}',['x'],[],[])
 ('{}','{}','{}',[],[],[])
 ('{"$unparseable_properties":"{\\"broken\\""}','{}','{"$unparseable_properties":"[1"}',[],[],[])
 ('{"$unparseable_properties":"[]"}','{}','{"$unparseable_properties":"\\"text\\""}',[],[],[])

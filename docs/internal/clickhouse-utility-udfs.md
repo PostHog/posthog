@@ -8,7 +8,7 @@ A flag value that is the JSON string `"false"` or `"true"` (a variant named fals
 Flag values and person-property ordering follow the existing cleanup rules.
 
 Invalid scalar and array `$feature_flags` values are replaced with an empty map and retained in
-`$unparseable_properties`, alongside other invalid complex properties. This keeps malformed
+`$unparseable_properties`. This keeps malformed
 map values from failing insertion into the typed JSON column while preserving unrelated properties.
 
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
@@ -26,20 +26,30 @@ Each worker uses 64 KiB input and output buffers and borrows ordinary input rows
 Rows exceeding the reader buffer are assembled into an owned slice without imposing a new row-size limit.
 These limits bound reuse, not the size of an accepted property: a large retained document still needs memory proportional to its contents.
 
-### Array nesting limit
+### Objects and arrays are stored as strings
 
-The event, person, and temporary cleaners accept at most eight nested arrays along any path, including arrays separated by objects.
-This limit is separate from the general JSON depth limit of 300.
-Small documents with deeply nested arrays and nulls can cause excessive memory allocation during ClickHouse JSON type inference.
-The eight-array limit is a conservative input policy, not a guarantee against every possible inference failure.
+The event, person, and temporary cleaners write every top-level object and array as a JSON string that holds the text that was sent.
+The cleaner validates that text and copies it without rebuilding it, so whitespace, key order, escapes, duplicate keys, large integers and `null` fields inside it are stored as sent.
+A search for a substring of the original value, such as a file path in a stack trace, matches the stored string.
+A read of the whole value returns the string, and a read of a field inside it parses the string.
 
-The parser counts array nesting even inside discarded properties and checks the normalized result before emitting it.
-The second check covers arrays decoded from strings or introduced by schema normalization.
-Event and person cleaners preserve a rejected document verbatim as an escaped JSON string under `$unparseable_properties`.
+The event `$feature_flags` map is the exception: it stays an object, because it feeds a typed map column.
+A flag value that is an object or array is stored as a string in that map.
+
+The cleaners do not coerce any property to an array.
+`$exception_list`, the `$exception_*` lists and `$mcp_listed_tool_names` are stored as sent, so a scalar stays a scalar.
+
+A string that was sent as a string is stored unchanged.
+A stored string that starts with `{` or `[` can therefore be either a nested value or text the SDK sent, and readers treat both the same way.
+
+ClickHouse does not infer a type for a value inside a string, so the cleaners set no limit on array nesting.
+The JSON depth limit of 300 still applies: the cleaners preserve a document that exceeds it verbatim as an escaped JSON string under `$unparseable_properties`.
 The rejected document's original properties are no longer available as individually queryable JSON paths.
 The temporary cleaner emits `{}` because the permanent cleaner preserves the original input, including temporary properties.
 Run both event cleaners on the original document to retain that guarantee.
 Malformed JSON still fails instead of entering this quarantine path.
+
+The destination table must declare no typed array or object path other than `$feature_flags`, and its readers must parse nested values from strings.
 
 ### `JSONCleanPostHogEvent(properties, person_properties)`
 
@@ -54,7 +64,7 @@ One call per event row for the native JSON events table. It takes the raw event 
 | `temporary_properties_null_keys` | `Array(String)` | The same for `temporary_properties`                                           |
 | `person_properties_null_keys`    | `Array(String)` | The same for `person_properties`                                              |
 
-The typed JSON column cannot store `null`, so the cleaners drop null fields. The null-key arrays keep the difference between a property sent as `null` and one never sent, but no reader uses them, so every read sees a field sent as `null` as missing. Whole-document reads (HogQL `SELECT properties` and `person.properties`, the events API, the native batch export source) leave it out of the document they rebuild with the shared builder in `posthog/hogql/printer/events_json_document.py`. `JSONHas(properties, 'plan')` returns 0 for it, and an object read on its own, such as `properties.$set`, leaves out its null fields where the legacy table keeps them. A path joins the object keys with `.` and writes array positions as numbers: `{"items":[{"a":null}]}` records `items.0.a`. A dot inside one key is written as `%2E`, the spelling `json_type_escape_dots_in_keys` uses, so `{"user":{"plan":null},"a.b":null}` records `user.plan` and `a%2Eb`. A `%` is not escaped, so a key sent with a literal `%2E` reads back with a dot, the same as the JSON column returns a stored value under that key. A path that still holds a value after duplicate handling is not recorded, so `{"a":null,"a":1}` records nothing. Nulls inside arrays are not object fields; they stay in the array. The paths of one document can use at most 256 KiB. If they need more, that document records no null keys, and its cleaned properties are unchanged. A path repeats every key above it, so without this limit a small document with a long key and many null children could produce gigabytes of paths.
+The typed JSON column cannot store `null`, so the cleaners drop null fields. The null-key arrays keep the difference between a property sent as `null` and one never sent, but no reader uses them, so every read sees a field sent as `null` as missing. Whole-document reads (HogQL `SELECT properties` and `person.properties`, the events API, the native batch export source) leave it out of the document they rebuild with the shared builder in `posthog/hogql/printer/events_json_document.py`. `JSONHas(properties, 'plan')` returns 0 for it. Only top-level fields are dropped and recorded: a `null` inside an object or array stays in the stored string, so `{"user":{"plan":null}}` records nothing. The exception is a `null` flag, which is dropped from the `$feature_flags` map and recorded as `$feature_flags.<key>`. A dot inside one key is written as `%2E`, the spelling `json_type_escape_dots_in_keys` uses, so `{"a.b":null}` records `a%2Eb`. A `%` is not escaped, so a key sent with a literal `%2E` reads back with a dot, the same as the JSON column returns a stored value under that key. A path that still holds a value after duplicate handling is not recorded, so `{"a":null,"a":1}` records nothing. The paths of one document can use at most 256 KiB. If they need more, that document records no null keys, and its cleaned properties are unchanged. A path repeats every key above it, so without this limit a small document with a long key and many null children could produce gigabytes of paths.
 
 The native export's separate `$set`, `$set_once`, `$unset` and `$group_set` columns read from the rebuilt document too. HTTP exports send that document without overwriting those fields.
 
@@ -69,38 +79,12 @@ FROM (SELECT JSONCleanPostHogEvent(properties, person_properties) AS cleaned FRO
 
 ```sql
 SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","plan":null,"custom":"kept"}', '{"email":null}');
--- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":{"score":7}}','{}',['plan'],[],['email'])
+-- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":"{\\"score\\":7}"}','{}',['plan'],[],['email'])
 ```
-
-### `JSONCleanPostHogEventNestedAsStrings(properties, person_properties)`
-
-Takes the same arguments and returns the same named tuple as `JSONCleanPostHogEvent`, for a destination table that stores objects and arrays as strings.
-The existing functions and the tables they feed are unchanged.
-
-In all three documents, every top-level object and array becomes a JSON string that holds the text that was sent.
-The cleaner validates that text and copies it without rebuilding it, so whitespace, key order, escapes, duplicate keys, large integers and `null` fields inside it are stored as sent.
-A search for a substring of the original value, such as a file path in a stack trace, matches the stored string.
-The event `$feature_flags` map is the exception: it stays an object, and `$feature/<key>` properties are grouped into it as before.
-
-Differences from `JSONCleanPostHogEvent`:
-
-- Only top-level `null` fields are dropped and recorded in the null-key arrays. The exception is a `null` flag, which is recorded under `$feature_flags`.
-- The `$exception_*` and `$mcp_listed_tool_names` properties are not coerced to arrays. They are stored as sent, so a scalar stays a scalar.
-- The eight-array nesting limit does not apply, because ClickHouse does not infer a type for an array inside a string. The JSON depth limit of 300 still applies.
-- A string that was sent as a string is stored unchanged, so a stored string that starts with `{` or `[` can be either a nested value or text the SDK sent.
-
-The dropped properties, the temporary allowlist, duplicate handling for top-level keys, integer protection for top-level numbers, and quarantine under `$unparseable_properties` are the same.
-
-```sql
-SELECT JSONCleanPostHogEventNestedAsStrings('{"plan":{"seats":5,"trial":null},"tags":["a/b"],"gone":null,"$set":{"score":7}}', '{"address":{"city":null}}');
--- ('{"plan":"{\\"seats\\":5,\\"trial\\":null}","tags":"[\\"a/b\\"]"}','{"$set":"{\\"score\\":7}"}','{"address":"{\\"city\\":null}"}',['gone'],[],[])
-```
-
-The function uses the event cleaner executable with `--event --nested-as-strings`.
 
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
-Accepts a JSON object and retains only the following top-level properties. A dotted key is one flat key, so `$set.foo` is not retained; a key that starts with `$sdk_debug_` is, except `$sdk_debug_current_session_duration`. It uses the event cleaner's null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.
+Accepts a JSON object and retains only the following top-level properties. A dotted key is one flat key, so `$set.foo` is not retained; a key that starts with `$sdk_debug_` is, except `$sdk_debug_current_session_duration`. It uses the event cleaner's null-field removal, duplicate handling, integer protection, and string storage for objects and arrays. Non-object input fails.
 
 | Category                      | Allowlist                                                                                                                                        |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -121,7 +105,7 @@ SELECT
     JSONCleanPostHogEventProperties(raw_properties) AS properties,
     JSONCleanPostHogTemporaryProperties(raw_properties) AS temporary_properties;
 -- properties: {"$sdk_debug_current_session_duration":42,"custom":"kept"}
--- temporary_properties: {"$set":{"score":7},"$sdk_debug_probe":true,"$feature_flag_request_id":"request-example"}
+-- temporary_properties: {"$set":"{\"score\":7}","$sdk_debug_probe":true,"$feature_flag_request_id":"request-example"}
 ```
 
 Both functions use the same executable. The temporary entry point uses `--temporary-properties` with the existing chunk protocol.

@@ -17,7 +17,6 @@ EARLIEST_UDF_VERSION = 11
 UNVERSIONED_FUNCTIONS = {
     "decompress",
     "JSONCleanPostHogEvent",
-    "JSONCleanPostHogEventNestedAsStrings",
     "JSONCleanPostHogEventProperties",
     "JSONCleanPostHogPersonProperties",
     "JSONCleanPostHogTemporaryProperties",

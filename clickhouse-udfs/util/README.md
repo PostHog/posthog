@@ -4,7 +4,6 @@ This module contains the executable ClickHouse UDFs used by PostHog:
 
 - `JSONDropKeys` and `JSONDropKeysPool`
 - `JSONCleanPostHogEvent`
-- `JSONCleanPostHogEventNestedAsStrings`
 - `JSONCleanPostHogEventProperties`
 - `JSONCleanPostHogPersonProperties`
 - `JSONCleanPostHogTemporaryProperties`
