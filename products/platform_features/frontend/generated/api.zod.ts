@@ -314,6 +314,15 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
+export const OrganizationPersonalApiKeysRollAllBody = /* @__PURE__ */ zod.object({
+    skip_rolled_since: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            "Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned."
+        ),
+})
+
 /**
  * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
  */

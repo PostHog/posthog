@@ -33,6 +33,8 @@ import type {
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
     OrganizationPersonalAPIKeyActionResultApi,
+    OrganizationPersonalAPIKeyBulkActionResultApi,
+    OrganizationPersonalAPIKeyRollAllRequestApi,
     OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
@@ -420,6 +422,43 @@ export const organizationPersonalApiKeysRoll = async (
         {
             ...options,
             method: 'POST',
+        }
+    )
+}
+
+export const getOrganizationPersonalApiKeysRevokeAllUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/revoke_all/`
+}
+
+export const organizationPersonalApiKeysRevokeAll = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyBulkActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyBulkActionResultApi>(
+        getOrganizationPersonalApiKeysRevokeAllUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getOrganizationPersonalApiKeysRollAllUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/roll_all/`
+}
+
+export const organizationPersonalApiKeysRollAll = async (
+    organizationId: string,
+    organizationPersonalAPIKeyRollAllRequestApi?: OrganizationPersonalAPIKeyRollAllRequestApi,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyBulkActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyBulkActionResultApi>(
+        getOrganizationPersonalApiKeysRollAllUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(organizationPersonalAPIKeyRollAllRequestApi),
         }
     )
 }
