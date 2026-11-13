@@ -93,7 +93,10 @@ NOOP_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
 
 THREAD_BUSY = "AlertsPlatformThreadBusy"
 REFUSED_EVERYWHERE = "AlertsPlatformRefusedEverywhere"
-DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=10)
+# One attempt can wait up to 3s for a lagging announcement (`read_announcement`) and then spend up to
+# 8s on a webhook's connect and read timeouts (`wire.py`). Below that sum, Temporal times the attempt
+# out while the send still runs, and the retry finds the thread claimed.
+DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=15)
 DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
 # The workflow waits out a held thread because the activity's retries end inside
 # DELIVERY_SCHEDULE_TO_CLOSE, which is shorter than PENDING_CLAIM_TTL. A claim that a dead

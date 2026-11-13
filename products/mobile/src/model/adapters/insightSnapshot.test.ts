@@ -85,6 +85,102 @@ const SQL_PLANS: [string, string][] = [
 ]
 
 describe('insightSnapshot', () => {
+    test.each(
+        ['ActionsLineGraph', 'ActionsBar', 'ActionsBarValue', 'ActionsTable', 'ActionsPie'].flatMap((display) =>
+            ['current', 'legacy'].map((response) => ({ display, response }))
+        )
+    )(
+        'uses saved series names in $display with $response responses, including tooltip and comparison labels',
+        ({ display, response }) => {
+            const result = ['Completed checkouts', 'Abandoned checkouts'].flatMap((name, order) =>
+                ['current', 'previous'].map((compare_label) => ({
+                    label: 'checkout',
+                    ...(response === 'current'
+                        ? { custom_name: name, order }
+                        : { action: { name: 'checkout', custom_name: name, order } }),
+                    compare_label,
+                    days: DAYS,
+                    data: [10, 20, 30, 40],
+                    aggregated_value: order === 0 ? 100 : 50,
+                }))
+            )
+            const snapshot = insightSnapshot(insight({ query: trends(undefined, display), result }), undefined, CONTEXT)
+            const series = snapshotChartSeries(snapshot, themes.light.chartPalette)
+
+            expect(series.map((s) => s.label)).toEqual([
+                'Completed checkouts',
+                'Abandoned checkouts',
+                'Completed checkouts, previous period',
+                'Abandoned checkouts, previous period',
+            ])
+            expect(tooltipPoint(series, [], 0, 'day')?.rows.map((row) => row.label)).toEqual([
+                'Completed checkouts',
+                'Abandoned checkouts',
+            ])
+            if (snapshot.ranking) {
+                expect(snapshot.ranking.rows.map((row) => row.label)).toEqual([
+                    'Completed checkouts',
+                    'Abandoned checkouts',
+                ])
+            }
+        }
+    )
+
+    test.each<[Record<string, unknown>, string]>([
+        [{ label: 'checkout', custom_name: 'Completed checkouts' }, 'Completed checkouts'],
+        [
+            { label: 'checkout', custom_name: 'Completed checkouts', action: { custom_name: 'Legacy name' } },
+            'Completed checkouts',
+        ],
+        [{ label: 'checkout', custom_name: '   ' }, 'checkout'],
+        [{ label: '   ', order: 2 }, 'Series 3'],
+        [{ label: 'checkout', action: { custom_name: '', name: 'checkout' } }, 'checkout'],
+        [{ label: 'checkout', action: { custom_name: '   ', name: 'checkout' } }, 'checkout'],
+        [{ label: '', action: { custom_name: 'Completed checkouts' } }, 'Completed checkouts'],
+        [{ label: '', action: { name: 'checkout' } }, 'checkout'],
+        [{ action: { id: 42 } }, '42'],
+        [{ label: '   ', action: { order: 2 } }, 'Series 3'],
+        [{ label: 'Conversion rate', action: null }, 'Conversion rate'],
+        [
+            {
+                label: 'Chrome',
+                custom_name: 'Completed checkouts',
+                breakdown_value: 'Chrome',
+            },
+            'Completed checkouts · Chrome',
+        ],
+        [
+            {
+                label: 'checkout - Chrome',
+                action: { custom_name: 'Completed checkouts' },
+                breakdown_value: 'Chrome',
+            },
+            'Completed checkouts · Chrome',
+        ],
+        [
+            {
+                label: '$$_posthog_breakdown_other_$$',
+                action: { custom_name: 'Completed checkouts' },
+                breakdown_value: '$$_posthog_breakdown_other_$$',
+            },
+            'Completed checkouts · Other',
+        ],
+        [{ label: 'Chrome', breakdown_value: 'Chrome' }, 'Chrome'],
+        [{ breakdown_value: 'Chrome' }, 'Chrome'],
+    ])('resolves labels without losing fallbacks or breakdowns: %j', (entry, expected) => {
+        const snapshot = insightSnapshot(
+            insight({
+                query: trends(undefined, 'ActionsBarValue'),
+                result: [{ ...entry, days: DAYS, data: [1, 2, 3, 4], aggregated_value: 10 }],
+            }),
+            undefined,
+            CONTEXT
+        )
+
+        expect(snapshotChartSeries(snapshot, themes.light.chartPalette)[0]?.label).toBe(expected)
+        expect(snapshot.ranking?.rows[0]?.label).toBe(expected)
+    })
+
     test.each<[string, Record<string, unknown>, number, string]>([
         ['prefix and suffix', { prefix: '£', suffix: 'M', decimalPlaces: 2 }, 42.7, '£42.70M'],
         ['percent', { style: 'percent', decimalPlaces: 2 }, 0.12375, '12.38%'],

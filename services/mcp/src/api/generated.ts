@@ -1102,6 +1102,172 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    export interface AEOSetupConflict {
+      /** Why the request was refused. */
+      detail: string;
+      /** The setup job already running. Poll GET aeo_setup/<id>/ with it. */
+      job_id: string;
+    }
+
+    /**
+     * * `own_brand` - Own Brand
+     * * `app_urls` - App Urls
+     * * `recording_domains` - Recording Domains
+     * * `pageviews` - Pageviews
+     */
+    export type WebsiteSourceEnum = typeof WebsiteSourceEnum[keyof typeof WebsiteSourceEnum];
+
+
+    export const WebsiteSourceEnum = {
+      OwnBrand: 'own_brand',
+      AppUrls: 'app_urls',
+      RecordingDomains: 'recording_domains',
+      Pageviews: 'pageviews',
+    } as const;
+
+    export interface AEOWebsiteCandidate {
+      /** A registrable domain the project may be about, for example example.com. */
+      domain: string;
+      /** Where PostHog found it: own_brand (an own brand in the catalog), app_urls (the project's authorized URLs), recording_domains (the domains allowed to record sessions) or pageviews (hosts with pageviews in the last 7 days).
+       *
+       * * `own_brand` - Own Brand
+       * * `app_urls` - App Urls
+       * * `recording_domains` - Recording Domains
+       * * `pageviews` - Pageviews */
+      source: WebsiteSourceEnum;
+      /**
+         * Pageviews on the domain in the last 7 days. Null unless source is pageviews.
+         * @nullable
+         */
+      pageviews?: number | null;
+    }
+
+    export interface AEOSetupContext {
+      /** Up to 5 domains the project may be about, the most likely first. */
+      websites: AEOWebsiteCandidate[];
+      /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
+      engines: AEOEngineSetting[];
+      /** Domains already set as the project's own brands. */
+      own_domains: string[];
+      /** Active, unarchived prompts the project tracks. */
+      active_prompts: number;
+      /** Unarchived prompts that are turned off. No run checks them. */
+      paused_prompts: number;
+      /** Keywords in the project's keyword list. */
+      keywords: number;
+      /** Whether any citation check has been recorded for the project. */
+      has_checks: boolean;
+      /** Whether the organization approved AI data processing. Setup needs it. */
+      ai_data_processing_approved: boolean;
+      /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+      first_run_available: boolean;
+      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      prompt_target: number;
+      /** The window, in days, that pageview hosts among the websites cover. */
+      website_days: number;
+    }
+
+    /**
+     * * `brand` - Brand
+     * * `prompts` - Prompts
+     * * `keywords` - Keywords
+     * * `first_run` - First Run
+     */
+    export type SetupStepEnum = typeof SetupStepEnum[keyof typeof SetupStepEnum];
+
+
+    export const SetupStepEnum = {
+      Brand: 'brand',
+      Prompts: 'prompts',
+      Keywords: 'keywords',
+      FirstRun: 'first_run',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `done` - Done
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type SetupStepStatusEnum = typeof SetupStepStatusEnum[keyof typeof SetupStepStatusEnum];
+
+
+    export const SetupStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOSetupStep {
+      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+       *
+       * * `brand` - Brand
+       * * `prompts` - Prompts
+       * * `keywords` - Keywords
+       * * `first_run` - First Run */
+      step: SetupStepEnum;
+      /** pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `done` - Done
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: SetupStepStatusEnum;
+      /** How many brands, prompts or keywords the step added. */
+      added?: number;
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      detail?: string;
+    }
+
+    export interface AEOSetupJob {
+      /** The setup steps in the order they run. */
+      steps: AEOSetupStep[];
+      /** Job id. Poll GET aeo_setup/<id>/ with it. */
+      id: string;
+      /** pending while PostHog works, then completed or failed. A failed keywords step does not fail the job.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
+    }
+
+    export interface AEOSetupRequest {
+      /**
+         * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.
+         * @maxLength 200
+         */
+      domain?: string;
+      /**
+         * The brand name. Inferred from the site when empty.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      engines?: string[];
+      /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts. */
+      run_first_check?: boolean;
+      /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
+      only_first_run?: boolean;
+      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      activate_paused_prompts?: boolean;
+    }
+
     export interface AEOVisibilityDashboard {
       /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
       id: number;
@@ -3810,6 +3976,29 @@ export namespace Schemas {
       account_first_seen: string;
       /** Latest account activity across current distinct IDs, in UTC. */
       account_last_seen: string;
+    }
+
+    export interface PersonAccount {
+      /** Accessible account ID. */
+      id: string;
+      /** Account display name. */
+      name: string;
+    }
+
+    export interface AccountPersonMemberships {
+      /** Current person ID from the requested account. */
+      person_id: string;
+      /** Accessible accounts this person belongs to. */
+      accounts: PersonAccount[];
+    }
+
+    export interface AccountPersonMembershipsRequest {
+      /**
+         * Loaded person IDs to enrich, up to 500.
+         * @minItems 1
+         * @maxItems 500
+         */
+      person_ids: string[];
     }
 
     export interface PersonPropertyFilter {
@@ -9456,14 +9645,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -9518,6 +9710,7 @@ export namespace Schemas {
       name?: string | null;
       /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
       offset?: number | null;
+      /** The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. With `sendRawQuery`, no default limit applies and `hasMore` is not set. */
       query: string;
       response?: HogQLQueryResponse | null;
       /** Run the selected connection query directly without translating it through HogQL first */
@@ -9829,14 +10022,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -13867,6 +14063,15 @@ export namespace Schemas {
       default_reasoning_effort: string | null;
       /** Models a pipeline may set as agent_model. */
       models: AgentModelOption[];
+    }
+
+    export interface AgentSource {
+      /** Distinct people whose agents ran the query, without scouts. */
+      people: number;
+      /** Agent sessions that ran the query, without scouts. */
+      sessions: number;
+      /** Query runs by agents, without scouts. */
+      runs: number;
     }
 
     export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
@@ -27201,6 +27406,25 @@ export namespace Schemas {
       insight_id: number;
       /** When the explanation was first saved. */
       created_at: string;
+    }
+
+    export interface ChartSource {
+      /** Short ID of the saved chart, for a link to it. */
+      insight_short_id: string;
+      /** Name of the saved chart. */
+      insight_name: string;
+      /**
+         * The dashboard that ran the chart, if any.
+         * @nullable
+         */
+      dashboard_id: number | null;
+      /**
+         * Name of the dashboard, if any.
+         * @nullable
+         */
+      dashboard_name: string | null;
+      /** Distinct people whose visit ran the chart. Viewers count. */
+      people: number;
     }
 
     /**
@@ -100541,6 +100765,42 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface SurfaceSource {
+      /** The web app area that ran the query. Empty when it is unknown. */
+      product: string;
+      /** Distinct people who ran the query there. */
+      people: number;
+      /** Query runs from that area. */
+      runs: number;
+    }
+
+    export interface ProposedMetric {
+      /** Proposed metric name. */
+      name: string;
+      /** What the proposed metric counts. */
+      description: string;
+      /** Proposed HogQL definition. */
+      definition: string;
+      /** Recurring measures that this proposal merges. */
+      measures: number;
+      /** Distinct people across the measures, without scouts. */
+      people: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+      built: number;
+      /** The saved charts with the most people. */
+      charts: ChartSource[];
+      /** Saved charts that are not listed in charts. */
+      other_charts: number;
+      /** Web app areas that ran it outside a saved chart. */
+      surfaces: SurfaceSource[];
+      /** Agent use, or null when no agent ran it. */
+      agents: AgentSource | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
+    }
+
     /**
      * * `queued` - Waiting to start
      * * `running` - Importing
@@ -101929,14 +102189,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -102912,14 +103175,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -122023,10 +122289,12 @@ export namespace Schemas {
          * @nullable
          */
       matched_metric_id: string | null;
-      /** Distinct people who ran the measure, without scouts. */
+      /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
       distinct_people: number;
-      /** Query runs of the measure, without scouts. */
-      runs: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+      built: number;
       /** One query that computes the measure. */
       sample_sql: string;
       /**
@@ -122039,6 +122307,13 @@ export namespace Schemas {
          * @nullable
          */
       draft_description: string | null;
+      /**
+         * Proposed HogQL definition, when one was drafted.
+         * @nullable
+         */
+      draft_definition: string | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
     }
 
     export interface UnquarantineQuery {
@@ -122330,6 +122605,11 @@ export namespace Schemas {
          * @nullable
          */
       uncovered: UncoveredGroup[] | null;
+      /**
+         * Proposed metrics with their sources. Null until drafted.
+         * @nullable
+         */
+      proposed_metrics: ProposedMetric[] | null;
     }
 
     export interface UsageSnapshot {
@@ -126897,6 +127177,11 @@ export namespace Schemas {
          * @nullable
          */
       onset_time: string | null;
+      /**
+         * Start of the last bucket when it ends after anomalyTo or now, so it holds only part of its samples. It stays in series but is left out of every statistic, the onset and the movers. Null when every bucket is complete.
+         * @nullable
+         */
+      partial_bucket_time?: string | null;
       /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
       top_movers: _MetricAnomalyDimension[];
       /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */

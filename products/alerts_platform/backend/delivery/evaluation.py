@@ -70,7 +70,12 @@ from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
     enabled_alert_destinations,
 )
-from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
+from products.alerts_platform.backend.logic.platform_alert_events import (
+    AnnouncementStatus,
+    announced_kinds,
+    announcement,
+    read_announcement,
+)
 from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
@@ -161,6 +166,51 @@ class _WebhookTransports:
         )
 
 
+def announcement_to_deliver(request: AlertDeliveryRequest, *, path: str) -> EvaluationAnnouncement | None:
+    """What this part of the evaluation announces, or None when there is nothing to send.
+
+    The history row is written after the Postgres commit and read back here, so a row that is late
+    or whose insert failed would otherwise look like an evaluation that announced nothing, and a
+    committed firing would go unsent with no trace. Each None is counted under its reason instead:
+    `announcement_empty` when the evaluation is recorded and announced nothing (a mute held it, or
+    this part has no groups), `announcement_superseded` when the platform no longer owns the alert,
+    and `announcement_missing` when no record of the evaluation turned up after the retries.
+    """
+    read = read_announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        source=request.source,
+        incident_grouping_keys=request.incident_actions.keys(),
+        part=request.part,
+        parts=request.parts,
+    )
+    if read.status is AnnouncementStatus.FOUND:
+        return read.announcement
+    outcome: DeliveryOutcomeLabel = "announcement_empty"
+    if read.status is AnnouncementStatus.MISSING:
+        owner = (
+            PlatformAlertConfiguration.objects.for_team(request.team_id)
+            .filter(id=request.configuration_id)
+            .values_list("owner", flat=True)
+            .first()
+        )
+        # Handed back to its source or deleted after the check read it: the record that would
+        # have written the row was refused, and the source sends its own message now.
+        outcome = "announcement_superseded" if owner != PlatformAlertOwner.PLATFORM else "announcement_missing"
+        if outcome == "announcement_missing":
+            logger.warning(
+                "alerts_platform_announcement_missing",
+                source=request.source.value,
+                path=path,
+                configuration_id=request.configuration_id,
+                evaluation_key=request.evaluation_key,
+                part=request.part,
+            )
+    safe_record(increment_deliveries, request.source.value, "-", path, outcome)
+    return None
+
+
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
     # A source that still owns its alert sends its own message, so the platform sends nothing for it.
@@ -177,15 +227,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         )
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
 
-    announced = announcement(
-        request.team_id,
-        request.configuration_id,
-        request.evaluation_key,
-        source=request.source,
-        incident_grouping_keys=request.incident_actions.keys(),
-        part=request.part,
-        parts=request.parts,
-    )
+    announced = announcement_to_deliver(request, path=DeliveryPath.NATIVE.value)
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
     announced = replace(announced, rule=rule_metadata(request.team_id, request.configuration_id))
