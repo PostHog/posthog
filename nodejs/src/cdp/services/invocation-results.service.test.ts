@@ -8,6 +8,33 @@ import { HogFunctionMonitoringService } from './monitoring/hog-function-monitori
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
+class RecordingSink {
+    pending: CyclotronJobInvocationResult[] = []
+    delivered: CyclotronJobInvocationResult[] = []
+
+    queueInvocationResults(batch: CyclotronJobInvocationResult[]): void {
+        this.pending.push(...batch)
+    }
+
+    flush(): Promise<void> {
+        this.delivered.push(...this.pending)
+        this.pending = []
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
+        return Promise.resolve()
+    }
+}
+
+const serviceWithRecordingSinks = (): { service: InvocationResultsService; sinks: RecordingSink[] } => {
+    const sinks = Array.from({ length: InvocationResultsService.length }, () => new RecordingSink())
+    const service = new InvocationResultsService(
+        ...(sinks as unknown as ConstructorParameters<typeof InvocationResultsService>)
+    )
+    return { service, sinks }
+}
+
 describe('InvocationResultsService', () => {
     let monitoringService: jest.Mocked<HogFunctionMonitoringService>
     let invocationResultsRowsService: jest.Mocked<HogInvocationResultsService>
@@ -71,21 +98,14 @@ describe('InvocationResultsService', () => {
     })
 
     describe('queueInvocationResults', () => {
-        it('fans the same results out to all sub-services', async () => {
+        it('fans the same results out to every sink without flushing them', async () => {
+            const { service, sinks } = serviceWithRecordingSinks()
+
             await service.queueInvocationResults(results)
 
-            expect(monitoringService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(monitoringService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(invocationResultsRowsService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(invocationResultsRowsService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(warehouseWebhooksService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(warehouseWebhooksService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledWith(results)
-            expect(emailStatusService.queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(emailStatusService.queueInvocationResults).toHaveBeenCalledWith(results)
+            expect(sinks.map(({ pending, delivered }) => ({ pending, delivered }))).toEqual(
+                sinks.map(() => ({ pending: results, delivered: [] }))
+            )
         })
 
         it('awaits the captured-events service (which is async)', async () => {
@@ -116,15 +136,15 @@ describe('InvocationResultsService', () => {
     })
 
     describe('flush', () => {
-        it('flushes all sub-services', async () => {
+        it('flushes every sink', async () => {
+            const { service, sinks } = serviceWithRecordingSinks()
+            await service.queueInvocationResults(results)
+
             await service.flush()
 
-            expect(monitoringService.flush).toHaveBeenCalledTimes(1)
-            expect(invocationResultsRowsService.flush).toHaveBeenCalledTimes(1)
-            expect(warehouseWebhooksService.flush).toHaveBeenCalledTimes(1)
-            expect(capturedEventsService.flush).toHaveBeenCalledTimes(1)
-            expect(messageAssetsService.flush).toHaveBeenCalledTimes(1)
-            expect(emailStatusService.flush).toHaveBeenCalledTimes(1)
+            expect(sinks.map(({ pending, delivered }) => ({ pending, delivered }))).toEqual(
+                sinks.map(() => ({ pending: [], delivered: results }))
+            )
         })
 
         it('flushes all in parallel (all start before any finish)', async () => {
