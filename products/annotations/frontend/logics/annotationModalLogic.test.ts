@@ -60,9 +60,10 @@ describe('annotationModalLogic', () => {
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
-    it('preserves edits from an annotation link when another panel changes the URL hash', async () => {
+    it.each(['save', 'cancel'])('preserves edits through panel switches and reopens after %s', async (closeAction) => {
         const logic = annotationModalLogic()
         logic.mount()
+        await expectLogic(annotationsModel).toFinishAllListeners()
         annotationsModel.actions.loadAnnotationsSuccess([
             {
                 id: 1,
@@ -81,6 +82,20 @@ describe('annotationModalLogic', () => {
 
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
         expect(logic.values.annotationModal.content).toBe('Unsaved edits')
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Annotations)
+
+        await expectLogic(logic, () => {
+            if (closeAction === 'save') {
+                logic.actions.submitAnnotationModal()
+            } else {
+                logic.actions.closeModal()
+            }
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ isModalOpen: false })
+
+        await expectLogic(logic, () => router.actions.push(urls.annotation(1))).toMatchValues({ isModalOpen: true })
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Annotations)
     })
 
     it('keeps a newer draft open when an earlier save completes', async () => {

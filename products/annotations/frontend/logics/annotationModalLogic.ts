@@ -368,8 +368,8 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         },
     })),
     urlToAction(({ values, actions, cache }) => ({
-        [urls.annotation(':id')]: ({ id }, _search, _hash, { initial }, previousLocation) => {
-            if (!initial && previousLocation?.pathname === router.values.location.pathname) {
+        [urls.annotation(':id')]: ({ id }, _search, _hash, { initial, method }, previousLocation) => {
+            if (!initial && method !== 'PUSH' && previousLocation?.pathname === router.values.location.pathname) {
                 return
             }
             cache.annotationToShowId = parseInt(id as string)
