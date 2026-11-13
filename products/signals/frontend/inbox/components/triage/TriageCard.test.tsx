@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -45,6 +48,8 @@ describe('TriageCard', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         logic = inboxTriageLogic()
     })
 

@@ -93,7 +93,6 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
-        '/api/projects/:id/signals/config/': { posthog_ai_usage_limited: false },
         '/api/projects/:id/signals/reports/:reportId/feedback_state/': { sentiment: null, note: '' },
         '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
             const reportId = req.params.reportId as string
@@ -285,16 +284,6 @@ export const ReportWithoutPostHogAiAccess: Story = {
             [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false,
         },
     },
-}
-
-export const ReportWithAiUsageLimitReached: Story = {
-    ...ReportReadyToImplement,
-    decorators: [
-        readyToImplementMocks,
-        mswDecorator({
-            get: { '/api/projects/:id/signals/config/': { posthog_ai_usage_limited: true } },
-        }),
-    ],
 }
 
 export const ReportImplementButtonInHeader: Story = {

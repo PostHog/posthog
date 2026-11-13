@@ -32,7 +32,6 @@ import {
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
 } from './inboxTaskKickoffLogic'
-import { agentSteeringLogic } from './logics/agentSteeringLogic'
 import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import { SignalReportStatus } from './types'
@@ -130,11 +129,34 @@ describe('inboxTaskKickoffLogic', () => {
                 },
             })
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
             logic = inboxTaskKickoffLogic()
             logic.mount()
         })
 
         afterEach(() => logic.unmount())
+
+        it.each([false, undefined])('does not launch report AI when access is %s', async (access) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+                ...(access === undefined ? {} : { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: access }),
+            })
+            await expectLogic(logic, () => {
+                logic.actions.openReportCheckMetricSuggestion(report, { id: 'check-1' } as SignalReportCheckApi)
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+                logic.actions.warmReportDiscussion(report)
+                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the fix')
+                logic.actions.implementReport(report, undefined, 'detail_pane')
+                logic.actions.createPrFromReport(report)
+            }).toFinishAllListeners()
+            expect(createdTasks).toEqual([])
+            expect(startedRuns).toEqual([])
+            expect(warmRequests).toEqual([])
+            expect(logic.values.reportChatContext).toBeNull()
+            expect(logic.values.isCreatingPr).toBe(false)
+            expect(logic.values.isDiscussing).toBe(false)
+        })
 
         it.each([
             { enabled: true, legacyEnabled: true },
@@ -148,6 +170,7 @@ describe('inboxTaskKickoffLogic', () => {
                     ...(legacyEnabled ? ['signals-report-checks-replace'] : []),
                 ],
                 {
+                    [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
                     'signals-report-checks-replace': legacyEnabled,
                     ...(enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }),
                 }
@@ -655,37 +678,6 @@ describe('inboxTaskKickoffLogic', () => {
         })
 
         describe.each(['implementation', 'discussion'] as const)('%s kickoff errors', (relationship) => {
-            it('refreshes the AI quota after a usage-limit refusal', async () => {
-                let limited = false
-                useMocks({
-                    get: {
-                        '/api/projects/:id/signals/config/': () => [200, { posthog_ai_usage_limited: limited }],
-                    },
-                    post: {
-                        '/api/projects/:team/tasks/:id/run/': () => {
-                            limited = true
-                            return [429, { code: 'usage_limit_exceeded', error: 'Usage limit reached.' }]
-                        },
-                    },
-                })
-                const configLogic = agentSteeringLogic()
-                const unmount = configLogic.mount()
-                try {
-                    await expectLogic(configLogic).toFinishAllListeners()
-                    expect(configLogic.values.steeringConfig?.posthog_ai_usage_limited).toBe(false)
-                    await expectLogic(logic, () => {
-                        if (relationship === 'implementation') {
-                            logic.actions.createPrFromReport(report)
-                        } else {
-                            logic.actions.discussReport(report, 'https://example.com/report', 'Explain the fix')
-                        }
-                    }).toFinishAllListeners()
-                    await waitFor(() => expect(configLogic.values.steeringConfig?.posthog_ai_usage_limited).toBe(true))
-                } finally {
-                    unmount()
-                }
-            })
-
             it.each<[string, number, Record<string, string>, 'limited' | 'failure']>([
                 ['create', 429, { code: 'signal_report_task_cap', error: 'Report task limit reached' }, 'limited'],
                 ['create', 429, { code: 'throttled', detail: 'Please wait before creating another task.' }, 'limited'],
@@ -890,6 +882,8 @@ describe('inboxTaskKickoffLogic', () => {
             // featureFlagLogic persists to localStorage, which jsdom keeps across tests.
             localStorage.clear()
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
             featureFlagLogic.mount()
             logic = inboxTaskKickoffLogic()
             logic.mount()

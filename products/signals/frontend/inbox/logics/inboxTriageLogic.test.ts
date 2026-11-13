@@ -3,6 +3,8 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -78,6 +80,8 @@ describe('inboxTriageLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
     })
 
     afterEach(() => {
@@ -92,6 +96,18 @@ describe('inboxTriageLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
+
+    it('does not offer implementation through triage without AI access', async () => {
+        const report = makeReport('no-ai-access')
+        useMocks({ get: { [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] } } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
+        await mountAt({ report: report.id, at: 0 })
+        expect(logic.values.currentReport?.id).toBe(report.id)
+        expect(logic.values.canCreatePr).toBe(false)
+        await expectLogic(logic, () => logic.actions.createPrForCurrent()).toNotHaveDispatchedActions([
+            'implementReport',
+        ])
+    })
 
     it('passes the selected repository when implementing from triage', async () => {
         const report = { ...makeReport('selected-repo'), status: SignalReportStatus.PENDING_INPUT, repo_slug: null }

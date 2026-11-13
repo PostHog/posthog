@@ -5,6 +5,7 @@ import { IconCopy, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -38,7 +39,8 @@ export function ImplementButton({
     reportTaskToOpen,
     openChoicesFromLink = false,
     onChoicesOpenedFromLink,
-}: ImplementButtonProps): JSX.Element {
+}: ImplementButtonProps): JSX.Element | null {
+    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const {
         disabledReason: githubDisabledReason,
@@ -132,6 +134,10 @@ export function ImplementButton({
             extra: { agent: agentKey },
         })
         run(prompt)
+    }
+
+    if (!hasPostHogAiAccess) {
+        return null
     }
 
     if (reportTaskToOpen?.task.latest_run) {
