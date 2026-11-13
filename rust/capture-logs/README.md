@@ -27,6 +27,7 @@ The service is configured using environment variables:
 | MAX_EXPANDED_REQUEST_BYTES | 268435456 | Rejects a logs, traces, metrics or Firehose request with 413 when the rows it builds would pass this estimated size. Each row copies its resource, scope or common attributes, so the body cap does not bound this |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
 | MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
+| METRICS_PARTITION_BUCKETS_PER_TOKEN | 8 | Number of Kafka message keys for the metric sum and histogram rows of one token. Each series stays on one key for five minutes, so metrics ingestion can aggregate its points in one batch. A request becomes at most this many keyed messages, plus one unkeyed message for other rows. `0` sends each request as one unkeyed message |
 | VERCEL_DRAIN_ENABLED_TOKENS | (none) | Comma-separated tokens that may use the Vercel drain route, or `*` for all. Other tokens get 404 |
 
 ## Authentication
