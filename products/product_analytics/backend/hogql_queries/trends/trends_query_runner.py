@@ -280,6 +280,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
+                    breakdown_ranking_series=self._breakdown_ranking_series,
                 )
                 query = query_builder.build_query()
 
@@ -403,6 +404,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
+                    breakdown_ranking_series=self._breakdown_ranking_series,
                 )
 
                 query = query_builder.build_query()
@@ -609,6 +611,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if self.query.compareFilter is not None and self.query.compareFilter.compare
             else None,
         )
+
+    @cached_property
+    def _breakdown_ranking_series(self) -> list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] | None:
+        # A formula combines series by breakdown value, so all series must keep the same top breakdown values
+        if self.query.trendsFilter and self.query.trendsFilter.formulaNodes and len(self.query.series) > 1:
+            return list(self.query.series)
+        return None
 
     def _metric_total_needs_range_query(self) -> bool:
         trends_filter = self.query.trendsFilter
