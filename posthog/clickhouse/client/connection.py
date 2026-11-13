@@ -534,11 +534,8 @@ def events_cluster_connection() -> Iterator[None]:
     The events cluster holds only the events tables. Raw SQL outside the block, such as reads of email_status or
     web_pre_aggregated_stats, keeps the legacy hosts, which forward events reads.
     """
-    token = _events_cluster_allowed.set(True)
-    try:
+    with _events_cluster_allowed.set(True):
         yield
-    finally:
-        _events_cluster_allowed.reset(token)
 
 
 def _events_cluster_workload(workload: Workload, team_id: int | None) -> Workload | None:

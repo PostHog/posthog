@@ -841,7 +841,6 @@ def _fetch_query_log_exception(ch_query_id: str, workload: Workload, team_id: in
     return None
 
 
-# A frame runs only SQL printed from HogQL, plus the query log lookup that must follow it.
 @events_cluster_connection()
 def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """Stream the frame's ClickHouse result into the object store; return the object key.
