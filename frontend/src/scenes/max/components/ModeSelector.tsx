@@ -5,24 +5,14 @@ import { useCallback, useMemo } from 'react'
 import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationType } from '~/types'
 
-import {
-    MODE_DEFINITIONS,
-    SPECIAL_MODES,
-    SpecialMode,
-    ToolDefinition,
-    getDefaultTools,
-    getToolsForMode,
-} from '../max-constants'
+import { MODE_DEFINITIONS, ToolDefinition, getDefaultTools, getToolsForMode } from '../max-constants'
 import { maxThreadLogic } from '../maxThreadLogic'
-
-export type ModeValue = AgentMode | SpecialMode | null
+import { type ModeChoiceSection, type ModeValue, getModeChoices } from '../modeChoices'
 
 function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Element {
     return (
@@ -111,89 +101,6 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
     )
 }
 
-interface GetModeOptionsParams {
-    planModeEnabled: boolean
-    researchEnabled: boolean
-    featureFlags: Record<string, boolean | string>
-    hasExistingMessages: boolean
-}
-
-/** One mode the selector offers, as plain data so each skin draws it its own way. */
-export interface ModeChoice {
-    value: ModeValue
-    name: string
-    description: string
-    icon: JSX.Element
-    beta?: boolean
-    alpha?: boolean
-    /** The tools the lemon tooltip lists; empty for research mode, which has no tool list. */
-    tools: ToolDefinition[]
-}
-
-export interface ModeChoiceSection {
-    options: ModeChoice[]
-}
-
-function getModeChoices({
-    planModeEnabled,
-    researchEnabled,
-    featureFlags,
-    hasExistingMessages,
-}: GetModeOptionsParams): ModeChoiceSection[] {
-    const specialOptions: ModeChoice[] = [
-        {
-            value: null,
-            name: SPECIAL_MODES.auto.name,
-            description: SPECIAL_MODES.auto.description,
-            icon: SPECIAL_MODES.auto.icon,
-            tools: getDefaultTools(),
-        },
-    ]
-    if (planModeEnabled) {
-        specialOptions.push({
-            value: 'plan',
-            name: SPECIAL_MODES.plan.name,
-            description: SPECIAL_MODES.plan.description,
-            icon: SPECIAL_MODES.plan.icon,
-            beta: SPECIAL_MODES.plan.beta,
-            tools: getDefaultTools(),
-        })
-    }
-
-    if (researchEnabled && !hasExistingMessages) {
-        specialOptions.push({
-            value: 'research',
-            name: SPECIAL_MODES.research.name,
-            description: SPECIAL_MODES.research.description,
-            icon: SPECIAL_MODES.research.icon,
-            beta: SPECIAL_MODES.research.beta,
-            tools: [],
-        })
-    }
-
-    const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([_, def]) => {
-        if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
-            return false
-        }
-        return true
-    })
-
-    return [
-        { options: specialOptions },
-        {
-            options: modeEntries.map(([mode, def]) => ({
-                value: mode as AgentMode,
-                name: def.name,
-                description: def.description,
-                icon: def.icon,
-                beta: def.beta,
-                alpha: def.alpha,
-                tools: getToolsForMode(mode as AgentMode),
-            })),
-        },
-    ]
-}
-
 function toLemonSelectSections(sections: ModeChoiceSection[]): LemonSelectSection<ModeValue>[] {
     return sections.map((section) => ({
         options: section.options.map((choice) => ({
@@ -218,7 +125,7 @@ function toLemonSelectSections(sections: ModeChoiceSection[]): LemonSelectSectio
                 ),
             icon: choice.icon,
             tooltip:
-                choice.value === 'research' ? (
+                choice.value === AgentMode.Research ? (
                     <div>{choice.description}</div>
                 ) : (
                     buildModeTooltip(choice.description, choice.tools)
@@ -230,19 +137,14 @@ function toLemonSelectSections(sections: ModeChoiceSection[]): LemonSelectSectio
 export interface ModeSelectorController {
     value: ModeValue
     sections: ModeChoiceSection[]
-    disabledReason: string | undefined
+    disabledReason?: string
     onChange: (value: ModeValue) => void
 }
 
 /** The modes that the current feature flags allow. Research mode is offered only before the first message. */
 export function useModeChoices(hasExistingMessages: boolean): ModeChoiceSection[] {
     const { featureFlags } = useValues(featureFlagLogic)
-    const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
-    const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
-    return useMemo(
-        () => getModeChoices({ planModeEnabled, researchEnabled, featureFlags, hasExistingMessages }),
-        [planModeEnabled, researchEnabled, featureFlags, hasExistingMessages]
-    )
+    return useMemo(() => getModeChoices(featureFlags, hasExistingMessages), [featureFlags, hasExistingMessages])
 }
 
 /**
@@ -260,7 +162,7 @@ export function useModeSelector(): ModeSelectorController {
                 previous_mode: agentMode,
                 new_mode: value,
             })
-            setAgentMode(value as AgentMode | null)
+            setAgentMode(value)
         },
         [agentMode, setAgentMode]
     )
@@ -268,7 +170,7 @@ export function useModeSelector(): ModeSelectorController {
     const isDeepResearch = conversation?.type === ConversationType.DeepResearch
 
     return {
-        value: isDeepResearch ? 'research' : agentMode,
+        value: isDeepResearch ? AgentMode.Research : agentMode,
         sections,
         disabledReason: isDeepResearch
             ? "You're in research mode, start a new conversation to change mode"

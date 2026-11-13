@@ -83,7 +83,6 @@ import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
-import { agentModeFromParam } from './agentModeParam'
 import {
     EnhancedToolCall,
     MESSAGE_TOO_LONG,
@@ -98,6 +97,7 @@ import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLo
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SCENE_PANEL_ID, maxLogic } from './maxLogic'
 import { AttachedContext, MaxContextItem, MaxUIContext } from './maxTypes'
+import { agentModeFromParam } from './modeChoices'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
 import { canCreateSupportTicket, isTicketCommand } from './ticketUtils'

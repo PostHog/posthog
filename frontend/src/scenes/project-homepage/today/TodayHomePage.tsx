@@ -122,19 +122,20 @@ export function TodayHomePage(): JSX.Element {
                     </Text>
                 </div>
                 <TodayMetaLine />
-                {!homeComposer ? null : postHogAiTasks ? (
-                    <TodayHomeComposer />
-                ) : (
-                    <Suspense
-                        fallback={
-                            <div className="TodayHome__composer">
-                                <QuillTaskComposerSkeleton />
-                            </div>
-                        }
-                    >
-                        <TodayHomeClassicComposer />
-                    </Suspense>
-                )}
+                {homeComposer &&
+                    (postHogAiTasks ? (
+                        <TodayHomeComposer />
+                    ) : (
+                        <Suspense
+                            fallback={
+                                <div className="TodayHome__composer">
+                                    <QuillTaskComposerSkeleton />
+                                </div>
+                            }
+                        >
+                            <TodayHomeClassicComposer />
+                        </Suspense>
+                    ))}
             </section>
             <div className="TodayHome__body">
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}

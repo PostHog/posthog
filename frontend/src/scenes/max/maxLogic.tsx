@@ -32,12 +32,12 @@ import {
 
 import { type ComposerSeed, composerSeedLogic, taskLogic } from 'products/posthog_ai/frontend/api/logics'
 
-import { agentModeFromParam } from './agentModeParam'
 import type { ToolRegistration } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MaxUIContext } from './maxTypes'
+import { agentModeFromParam } from './modeChoices'
 import type { TopicSuggestion } from './suggestionTopics'
 import { nextTypingDelayMs } from './utils/typing'
 

@@ -12,7 +12,8 @@ import {
     MenuLabel,
 } from '@posthog/quill'
 
-import type { ModeChoice, ModeSelectorController, ModeValue } from './ModeSelector'
+import type { ModeChoice, ModeValue } from '../modeChoices'
+import type { ModeSelectorController } from './ModeSelector'
 
 const AUTO_MODE_KEY = '__auto__'
 
@@ -28,12 +29,7 @@ function fromMenuValue(value: string): ModeValue {
  * The legacy chat's agent mode picker in quill: a dropdown of radio rows, where each row's tooltip carries the
  * mode's description. The caller owns the value, so a composer without a thread can use it too.
  */
-export function QuillModeMenu({
-    value,
-    sections,
-    disabledReason,
-    onChange,
-}: Omit<ModeSelectorController, 'disabledReason'> & { disabledReason?: string }): JSX.Element {
+export function QuillModeMenu({ value, sections, disabledReason, onChange }: ModeSelectorController): JSX.Element {
     const [open, setOpen] = useState(false)
     const choices = sections.flatMap((section) => section.options)
     const selected: ModeChoice | undefined = choices.find((choice) => choice.value === value) ?? choices[0]
