@@ -9,6 +9,6 @@ structured tool outputs (not user input), and is delivered via email only.
     {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
     {{ report_body|safe }}
     <div class="mb mt text-center">
-        <a class="button primary" href="{{ evaluation_url }}">View evaluation in PostHog</a>
+        <a class="button primary" href="{{ evaluation_url }}">Open this report in PostHog</a>
     </div>
 {% endblock %}

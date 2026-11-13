@@ -27,7 +27,12 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryTooManyRowsError
 from products.metrics.backend.facade.enums import FilterOp, MetricType
-from products.metrics.backend.metrics4_samples import dedupe_points_limit_by, metric_name_expr, samples_points_query
+from products.metrics.backend.metrics4_samples import (
+    dedupe_points_limit_by,
+    metric_name_expr,
+    not_stale_marker_expr,
+    samples_points_query,
+)
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -517,6 +522,7 @@ def points_query(
     `row_filters` can use only columns that are constant in a series-hour.
     `samples_row_filters` apply only to `metric_samples`, for example array lookups.
     `dedupe_points` drops exact copies of a point, as written by a replayed Kafka batch.
+    Neither source returns Prometheus stale markers.
     """
     if from_samples:
         return samples_points_query(
@@ -535,8 +541,7 @@ def points_query(
     )
     assert isinstance(query, ast.SelectQuery) and query.where is not None
     query.select = [ast.Field(chain=[column]) for column in columns]
-    if row_filters or point_filters:
-        query.where = ast.And(exprs=[query.where, *row_filters, *point_filters])
+    query.where = ast.And(exprs=[query.where, not_stale_marker_expr(), *row_filters, *point_filters])
     if dedupe_points:
         query.limit_by = dedupe_points_limit_by([column for column in columns if column != "series_fingerprint"])
     return query
