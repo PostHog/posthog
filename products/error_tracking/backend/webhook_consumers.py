@@ -17,6 +17,22 @@ def _enqueue_linear_status_sync(delivery: WebhookDelivery) -> None:
     enqueue_linear_status_sync(dict(delivery.payload))
 
 
+def _enqueue_linear_external_references(delivery: WebhookDelivery) -> None:
+    from products.error_tracking.backend.facade.linear import (  # noqa: PLC0415 - keeps Celery and product logic off the registry import path
+        enqueue_linear_external_references,
+    )
+
+    enqueue_linear_external_references(dict(delivery.payload))
+
+
+def _linear_external_references_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    from products.error_tracking.backend.facade.api import (  # noqa: PLC0415 - keeps product logic off the registry import path
+        linear_external_reference_delivery_ownership,
+    )
+
+    return linear_external_reference_delivery_ownership(dict(delivery.payload))
+
+
 def _linear_status_sync_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     from products.error_tracking.backend.facade.issues import (  # noqa: PLC0415 - keeps product logic off the registry import path
         linear_delivery_ownership,
@@ -40,5 +56,13 @@ WEBHOOK_CONSUMERS = (
         event_types=frozenset({"Issue"}),
         handler=_enqueue_linear_status_sync,
         ownership=_linear_status_sync_ownership,
+    ),
+    WebhookConsumer(
+        name="error_tracking_linear_external_references",
+        provider="linear",
+        app="posthog",
+        event_types=frozenset({"Issue"}),
+        handler=_enqueue_linear_external_references,
+        ownership=_linear_external_references_ownership,
     ),
 )
