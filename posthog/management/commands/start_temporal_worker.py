@@ -61,6 +61,12 @@ from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
+from posthog.temporal.data_modeling import (
+    ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_WORKFLOWS,
+    WORKFLOWS as DATA_MODELING_WORKFLOWS,
+)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
@@ -76,10 +82,6 @@ from posthog.temporal.dlq_replay import (
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
-)
-from posthog.temporal.experiments import (
-    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
-    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
 )
 from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
@@ -215,12 +217,6 @@ from products.data_catalog.backend.facade.temporal import (
     ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
     WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
 )
-from products.data_modeling.backend.facade.temporal import (
-    ACTIVITIES as DATA_MODELING_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_WORKFLOWS,
-    WORKFLOWS as DATA_MODELING_WORKFLOWS,
-)
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
     WORKFLOWS as DATA_QUALITY_WORKFLOWS,
@@ -237,7 +233,7 @@ from products.error_tracking.backend.facade.temporal import (
     LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
-from products.experiments.backend.temporal import (
+from products.experiments.backend.facade.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
@@ -246,6 +242,8 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
+    TIMESERIES_ACTIVITIES as EXPERIMENTS_ACTIVITIES,
+    TIMESERIES_WORKFLOWS as EXPERIMENTS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
