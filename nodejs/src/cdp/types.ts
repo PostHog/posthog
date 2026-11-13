@@ -500,6 +500,8 @@ export type MessageOptOutRecord = {
 export type QueuedIdempotencyKey = {
     hash: string
     fingerprint: string
+    currentFingerprint?: string
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     replayFields?: Record<string, number>
 }
@@ -631,6 +633,7 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
     idempotencyKey?: QueuedIdempotencyKey
