@@ -174,8 +174,9 @@ class EvalReportMetrics:
         definition = get_outcome_definition(self.output_type)
         self.result_counts = normalize_result_counts(self.output_type, self.result_counts)
 
+        # An empty period has no rates, so a stored 0% can't read as a collapse in any channel.
         if not self.result_rates:
-            self.result_rates = calculate_result_rates(self.output_type, self.result_counts) or {}
+            self.result_rates = calculate_result_rates(self.output_type, self.result_counts, empty_as_none=True) or {}
         else:
             calculated_rates = calculate_result_rates(self.output_type, self.result_counts) or {}
             self.result_rates = {
@@ -204,9 +205,7 @@ class EvalReportMetrics:
             }
 
         if self.output_type in ("boolean", "numeric", "categorical"):
-            self.pass_rate = calculate_pass_rate(
-                self.result_counts, empty_as_none=self.output_type in ("numeric", "categorical")
-            )
+            self.pass_rate = calculate_pass_rate(self.result_counts, empty_as_none=True)
             if self.previous_result_counts is not None:
                 self.previous_pass_rate = calculate_pass_rate(self.previous_result_counts, empty_as_none=True)
         else:

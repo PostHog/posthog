@@ -150,7 +150,7 @@ describe('catalogTableRows', () => {
                 problems: ['suspended'],
                 checks: 0,
                 trust: null,
-                freshness: 'revenue-run',
+                freshness: 'Suspended Last refreshed revenue-run',
             },
             { name: 'events', subtitle: 'PostHog', problems: ['checks'], checks: 1, trust: null, freshness: 'Live' },
             {
@@ -159,7 +159,7 @@ describe('catalogTableRows', () => {
                 problems: [],
                 checks: 1,
                 trust: null,
-                freshness: 'Live (runs on read)',
+                freshness: 'Up to date, runs on each query',
             },
             {
                 name: 'orders_daily',
@@ -167,7 +167,7 @@ describe('catalogTableRows', () => {
                 problems: [],
                 checks: 0,
                 trust: 'cert-orders',
-                freshness: 'Live (runs on read)',
+                freshness: 'Up to date, runs on each query',
             },
             {
                 name: 'orders_export',
@@ -202,7 +202,26 @@ describe('catalogTableRows', () => {
                 ],
             },
             'revenue',
-            'Refresh failed Last tried last-try',
+            'Refresh failed Last refreshed revenue-run',
+        ],
+        [
+            'a refresh that never succeeded',
+            {
+                nodes: [{ ...revenueNode, last_run_at: null }],
+                savedQueries: [
+                    savedQuery('query-orders', 'orders_daily'),
+                    savedQuery('query-revenue', 'revenue', { is_materialized: true, last_run_at: 'failed-attempt' }),
+                    savedQuery('query-api', 'api_v1', { origin: DataWarehouseSavedQueryOrigin.ENDPOINT }),
+                ],
+                materializationProblems: [
+                    {
+                        kind: 'failed',
+                        attention: { node: { ...revenueNode, last_run_at: null }, problem: 'Failed' },
+                    } as MaterializationProblem,
+                ],
+            },
+            'revenue',
+            'Refresh failed No successful refresh yet',
         ],
         [
             'a late refresh',
@@ -231,10 +250,33 @@ describe('catalogTableRows', () => {
                 ],
             },
             'stripe.charges',
-            'Refresh failed schema-sync',
+            'Refresh failed Last refreshed schema-sync',
         ],
     ])('freshness shows %s', (_, overrides, name, expectedFreshness) => {
         expect(freshnessText(rowNamed(buildRows(overrides), name))).toEqual(expectedFreshness)
+    })
+
+    it('keeps the suspension of a view whose materialization is off and says it runs on each query', () => {
+        const revenue = rowNamed(
+            buildRows({
+                savedQueries: [
+                    savedQuery('query-orders', 'orders_daily'),
+                    savedQuery('query-revenue', 'revenue'),
+                    savedQuery('query-api', 'api_v1', { origin: DataWarehouseSavedQueryOrigin.ENDPOINT }),
+                ],
+            }),
+            'revenue'
+        )
+
+        expect({
+            kind: revenue.kind,
+            problems: revenue.problems,
+            freshness: freshnessText(revenue),
+        }).toEqual({
+            kind: 'view',
+            problems: ['suspended'],
+            freshness: 'Materialization off, runs on each query',
+        })
     })
 
     it('offers Sync now on every materialized view and review actions only on settled trust', () => {

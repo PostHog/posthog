@@ -1,3 +1,4 @@
+import type { ScannerDisabledReasonEnumApi } from '../../generated/api.schemas'
 import type { ScannerStatus } from '../scannerStatus'
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'muted'
@@ -13,29 +14,42 @@ const TONE_DOT: Record<StatusTone, string> = {
     muted: 'bg-muted',
 }
 
-const STATUS_LABEL: Record<ScannerStatus['kind'], { label: string; tone: StatusTone }> = {
+type StatusLabel = { label: string; tone: StatusTone }
+
+// A person's own turn-off stays a quiet "Off"; one PostHog made names its cause so it isn't mistaken for a choice.
+const OFF_LABEL: Record<ScannerDisabledReasonEnumApi, StatusLabel> = {
+    manual: { label: 'Off', tone: 'muted' },
+    free_credits_used: { label: 'Stopped', tone: 'danger' },
     no_ai_consent: { label: 'Needs AI consent', tone: 'danger' },
     creator_lost_access: { label: 'Creator lost access', tone: 'danger' },
-    off: { label: 'Off', tone: 'muted' },
+    experiment_deleted: { label: 'Experiment deleted', tone: 'muted' },
+}
+
+const STATUS_LABEL: Record<Exclude<ScannerStatus['kind'], 'off'>, StatusLabel> = {
+    no_sampling: { label: 'Off', tone: 'muted' },
     replay_off: { label: 'Replay off', tone: 'danger' },
     no_recordings: { label: 'No recordings', tone: 'warning' },
     limit_reached: { label: 'Stopped', tone: 'danger' },
     quota_exhausted: { label: 'Stopped', tone: 'danger' },
     filter_error: { label: 'Filter error', tone: 'danger' },
     starting: { label: 'Starting', tone: 'warning' },
+    paused: { label: 'Paused', tone: 'muted' },
     delayed: { label: 'Delayed', tone: 'warning' },
     no_matches: { label: 'No matches', tone: 'warning' },
     throttled: { label: 'Throttled', tone: 'warning' },
     running: { label: 'Running', tone: 'success' },
 }
 
-export function scannerStatusTone(status: ScannerStatus): StatusTone {
-    return STATUS_LABEL[status.kind].tone
+function statusLabel(status: ScannerStatus): StatusLabel {
+    if (status.kind === 'off') {
+        return status.reason ? OFF_LABEL[status.reason] : OFF_LABEL.manual
+    }
+    return STATUS_LABEL[status.kind]
 }
 
 /** The status dot and label, shared by the scanner list and the scanner page so the two always agree. */
 export function ScannerStatusLabel({ status, className }: { status: ScannerStatus; className?: string }): JSX.Element {
-    const { label, tone } = STATUS_LABEL[status.kind]
+    const { label, tone } = statusLabel(status)
     return (
         <span className={`inline-flex items-center gap-2 ${className ?? ''}`}>
             <span

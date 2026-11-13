@@ -376,6 +376,8 @@ class PlatformAlertUpsert:
     # edits set, because a source row stores none.
     grouping: Grouping = Grouping()
     created_by_id: int | None = None
+    # None keeps the copy's own, so a source that records no first enable leaves the copy's alone.
+    first_enabled_at: datetime | None = None
 
 
 @frozen
@@ -428,6 +430,7 @@ class PlatformAlertRuntime:
     next_check_at: datetime | None
     grouping: Grouping
     labels: dict[str, str]
+    annotations: dict[str, str]
 
 
 @frozen
@@ -437,6 +440,8 @@ class PlatformStateChange:
     occurred_at: datetime
     previous_state: PlatformAlertState
     state: PlatformAlertState
+    # The group whose state moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -498,6 +503,8 @@ class PlatformCheckEvent:
     condition: dict[str, Any]
     query_duration_ms: int | None
     error_message: str | None
+    # The group the check moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -556,6 +563,34 @@ class PlatformControlHistory:
     changes: tuple[PlatformControlChange, ...]
     oldest_at: datetime
     toggle_before: ControlChangeKind | None
+
+
+@frozen
+class StateInterval:
+    """A stretch of an alert's recent past with one state and one enabled setting, as alert lists draw it."""
+
+    start: datetime
+    end: datetime
+    state: PlatformAlertState
+    enabled: bool
+
+
+@frozen
+class PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id."""
+
+    last_checks: dict[UUID, PlatformLastCheck]
+    # State changes across every group.
+    histories: dict[UUID, PlatformAlertHistory]
+    controls: dict[UUID, PlatformControlHistory]
+
+
+@frozen
+class PlatformAlertEvents:
+    """A configuration's notable checks across every group and its control-plane changes, newest first."""
+
+    checks: PlatformCheckEventPage
+    changes: PlatformControlChangePage
 
 
 class SkipReason(StrEnum):
@@ -877,6 +912,14 @@ class AnnouncedTransition:
 
 
 @frozen
+class RuleMetadata:
+    """The labels and annotations the alert's author set, as stored. Annotation templates are not rendered yet."""
+
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+
+
+@frozen
 class EvaluationAnnouncement:
     """What one evaluation left for a destination to say.
 
@@ -896,6 +939,8 @@ class EvaluationAnnouncement:
     # a group without anyone being told.
     overflowed: int = 0
     overflow_is_lower_bound: bool = False
+    # Read when the delivery runs, unlike the transition snapshots, so a retry shows a later edit.
+    rule: RuleMetadata = field(default_factory=RuleMetadata)
 
 
 @frozen
@@ -1050,7 +1095,7 @@ class NativeConfigurationMatch:
 
 @frozen
 class EnabledNativeConfiguration:
-    """One enabled alert of a kind with no source row, with what a source's own readers of its
+    """One enabled alert of a kind with no source row, or a copy the platform owns, with what a source's own readers of its
     enabled alerts need, such as the insight an insight alert watches."""
 
     id: UUID
@@ -1059,6 +1104,12 @@ class EnabledNativeConfiguration:
     created_at: datetime
     created_by_id: int | None
     source_config: dict[str, Any]
+    # Set for a copy the platform owns, whose source row's id stays its public id.
+    legacy_configuration_id: UUID | None = None
+
+    @property
+    def public_id(self) -> UUID:
+        return self.legacy_configuration_id or self.id
 
 
 @frozen
@@ -1275,6 +1326,18 @@ class NativeAlertLifecycle:
 
 
 @frozen
+class ActivitySource:
+    """What an alert watches in its source's product, named on its activity log entries so the entry
+    can link there after the alert is gone."""
+
+    id: str
+    name: str
+
+
+ActivitySourceLookup = Callable[[int, Mapping[str, Any]], ActivitySource | None]
+
+
+@frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
@@ -1317,6 +1380,8 @@ class SourceConfigSpec:
     # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
     # without one predates it, so an edit that fills it in does not end the alert's firings.
     kept_source_config_keys: frozenset[str] = frozenset()
+    # What an alert watches, by team and `source_config`, for its activity log entries.
+    activity_source: ActivitySourceLookup | None = None
 
     @property
     def creatable(self) -> bool:
@@ -1332,6 +1397,22 @@ class SourceConfigSpec:
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
+
+
+@frozen
+class LegacyCopyExpectation:
+    """What the copy of one platform-owned alert should store, built from its source row."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    # None when the row has no platform form, such as an insight cadence the platform never runs.
+    upsert: PlatformAlertUpsert | None
+    extra_columns: Mapping[str, Any] = field(default_factory=dict)
+
+
+# One page of a source's platform-owned rows, ordered by id: `(team_id or None for every team,
+# after this id, limit)`.
+LegacyDriftSource = Callable[[int | None, UUID | None, int], Sequence[LegacyCopyExpectation]]
 
 
 @frozen
@@ -1478,6 +1559,32 @@ class StoredAlertDestination:
     enabled: bool
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
+
+
+@frozen
+class SourceDestination:
+    """One destination on the page of an alert whose source keeps HogFunctions for it.
+
+    Until a source's rollback window ends, a destination added there is both an `AlertDestination`
+    row and the HogFunctions it copies, and the HogFunctions send. An older one is HogFunctions
+    only, and one whose HogFunctions were deleted elsewhere is a row only.
+    """
+
+    # The `AlertDestination` row, or None for HogFunctions no row copies.
+    destination_id: UUID | None
+    hog_function_ids: tuple[UUID, ...]
+    data: AlertDestinationData
+    enabled: bool
+
+
+@frozen
+class DeletedSourceDestinations:
+    """What a source destination delete removed on the platform side."""
+
+    # The type of each deleted row, by row id.
+    row_types: Mapping[UUID, str]
+    # The HogFunctions the rows named by id copied, which the source deletes too.
+    copied_hog_function_ids: frozenset[UUID]
 
 
 class AlertDestinationValidationError(Exception):

@@ -47,7 +47,7 @@ interface LinkedObject {
     type: string
     title: string
     meta: string
-    badge: string
+    badge?: string
     badgeVariant: ReleaseBadgeVariant
     to: string
     mono?: boolean
@@ -73,9 +73,11 @@ function LinkedRow({ item }: { item: LinkedObject }): JSX.Element {
                         {item.meta}
                     </Text>
                 </span>
-                <Badge variant={item.badgeVariant} className="shrink-0">
-                    {item.badge}
-                </Badge>
+                {item.badge && (
+                    <Badge variant={item.badgeVariant} className="shrink-0">
+                        {item.badge}
+                    </Badge>
+                )}
             </LinkPrimitive>
             {item.onRemove && (
                 <Button
@@ -105,7 +107,7 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
             type: 'feature_flag',
             title: flag.key,
             meta: 'Feature flag',
-            badge: flag.active ? 'Enabled' : 'Disabled',
+            badge: flag.active ? undefined : 'Disabled',
             badgeVariant: (flag.active ? 'success' : 'warning') as ReleaseBadgeVariant,
             to: urls.featureFlag(flag.id),
             mono: true,

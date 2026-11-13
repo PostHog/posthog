@@ -59,6 +59,20 @@ class CitationGap:
         return self.cited_checks / self.checks if self.checks else 0.0
 
 
+class CheckMode(LabeledStrEnum):
+    """How an engine answered: with its web search tool, or from its training data alone."""
+
+    WEB_SEARCH = "web_search", "Web search"
+    NO_SEARCH = "no_search", "No search"
+
+
+class CheckFrequency(LabeledStrEnum):
+    """How often an engine checks each prompt. Weekly checks spread the prompt set over the week."""
+
+    DAILY = "daily", "Daily"
+    WEEKLY = "weekly", "Weekly"
+
+
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
@@ -77,10 +91,13 @@ class BrandedSegment(LabeledStrEnum):
 
 @frozen
 class PromptEngineCheck:
-    """The most recent check of one prompt against one answer engine."""
+    """The most recent check of one prompt against one answer engine. A no-search engine never cites,
+    so `mentioned` is the column to read for it."""
 
     engine: str
+    mode: CheckMode
     cited: bool
+    mentioned: bool
     check_failed: bool
     target_best_position: int | None
     search_queries: tuple[str, ...]
@@ -120,6 +137,7 @@ class PromptCheck:
     id: str
     run_id: str
     engine: str
+    mode: CheckMode
     model: str
     created_at: dt.datetime
     cited: bool
@@ -219,7 +237,7 @@ def _rate(part: int, whole: int) -> float | None:
 
 @frozen
 class PromptSetCounts:
-    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+    """Web-search checks across the prompt set in one window, all engines. Rates leave failed checks out."""
 
     checks: int
     failed: int
@@ -300,6 +318,7 @@ class PromptSetOverview:
     branded_answers: int
     non_branded_answers: int
     engines: tuple[PromptSetEngineCounts, ...]
+    daily: tuple[PromptDailyEngineStats, ...]
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]
@@ -430,6 +449,30 @@ class BrandCreateError(Exception):
     """The brand cannot be added. The message is safe to show the user."""
 
 
+@frozen
+class EngineSetting:
+    """One engine as the project runs it. `available` is false when the deployment cannot run the engine,
+    for example without the API key it needs, and then it never runs whatever `enabled` says."""
+
+    engine: str
+    mode: CheckMode
+    available: bool
+    enabled: bool
+    frequency: CheckFrequency
+
+
+@frozen
+class EngineSettingUpdate:
+    """A partial edit of one engine's setting. None leaves the field as it is."""
+
+    enabled: bool | None = None
+    frequency: CheckFrequency | None = None
+
+
+class EngineNotFoundError(Exception):
+    pass
+
+
 class PromptUpdateError(Exception):
     """The edit is not allowed in the prompt's current state. The message is safe to show the user."""
 
@@ -478,7 +521,9 @@ class PromptSuggestion:
     reason: str
 
 
-class PromptSuggestionStatus(LabeledStrEnum):
+class SuggestionJobStatus(LabeledStrEnum):
+    """The state of a prompt or keyword suggestion job."""
+
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -487,7 +532,7 @@ class PromptSuggestionStatus(LabeledStrEnum):
 @frozen
 class PromptSuggestionJob:
     id: str
-    status: PromptSuggestionStatus
+    status: SuggestionJobStatus
     suggestions: tuple[PromptSuggestion, ...] = ()
     error: str = ""
 
@@ -584,6 +629,44 @@ class KeywordLimitError(Exception):
     """The request would take the project past its keyword cap. The message is safe to show the user."""
 
 
+MAX_SUGGESTED_KEYWORDS = 50
+# Suggestions count engine searches over the most recent checks of this window, which bounds the read.
+KEYWORD_SUGGESTION_SEARCH_DAYS = 30
+KEYWORD_SUGGESTION_SEARCH_CHECKS = 2000
+
+
+class KeywordSuggestionError(Exception):
+    """Keyword suggestions could not be produced. The message is safe to show the user."""
+
+
+@frozen
+class KeywordSuggestionRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    count: int = 20
+
+
+@frozen
+class KeywordSuggestion:
+    keyword: str
+    reason: str
+    # Recent answers whose web searches contain the keyword, counted by PostHog rather than the model.
+    searched_checks: int
+
+
+@frozen
+class KeywordSuggestionJob:
+    id: str
+    status: SuggestionJobStatus
+    suggestions: tuple[KeywordSuggestion, ...] = ()
+    error: str = ""
+
+
+class KeywordSuggestionJobNotFoundError(Exception):
+    pass
+
+
 @frozen
 class KeywordReportRow:
     """How one keyword shows up across the answered checks in the window. Each rate is None when its
@@ -661,3 +744,113 @@ class VisibilityDashboard:
 
     id: int
     name: str
+
+
+SETUP_PROMPT_COUNT = 20
+SETUP_KEYWORD_COUNT = 20
+# A project that already has this many active prompts or keywords keeps its own list, and setup skips the step.
+SETUP_ENOUGH_PROMPTS = 10
+SETUP_ENOUGH_KEYWORDS = 10
+SETUP_WEBSITE_DAYS = 7
+MAX_SETUP_WEBSITES = 5
+
+
+class WebsiteSource(LabeledStrEnum):
+    """Where PostHog found a website the project may be about."""
+
+    OWN_BRAND = "own_brand"
+    APP_URLS = "app_urls"
+    RECORDING_DOMAINS = "recording_domains"
+    PAGEVIEWS = "pageviews"
+
+
+@frozen
+class WebsiteCandidate:
+    domain: str
+    source: WebsiteSource
+    # Pageviews on the domain over the last SETUP_WEBSITE_DAYS days, only for the pageviews source.
+    pageviews: int | None = None
+
+
+@frozen
+class SetupContext:
+    """What PostHog already knows about the project, so setup can start from it."""
+
+    websites: tuple[WebsiteCandidate, ...]
+    own_domains: tuple[str, ...]
+    active_prompts: int
+    # Unarchived prompts that are turned off, which no run checks.
+    paused_prompts: int
+    keywords: int
+    has_checks: bool
+    ai_data_processing_approved: bool
+    first_run_available: bool
+    # The engines as the project runs them now, defaults included, for choosing which ones to track.
+    engines: tuple[EngineSetting, ...]
+    # How many prompts setup asks for, so a client can show how many checks one run makes.
+    prompt_target: int
+    # The window, in days, of the pageview hosts among the websites.
+    website_days: int
+
+
+class SetupStep(LabeledStrEnum):
+    BRAND = "brand"
+    PROMPTS = "prompts"
+    KEYWORDS = "keywords"
+    FIRST_RUN = "first_run"
+
+
+class SetupStepStatus(LabeledStrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+@frozen
+class SetupStepState:
+    step: SetupStep
+    status: SetupStepStatus
+    # How many prompts or keywords the step added.
+    added: int = 0
+    detail: str = ""
+
+
+@frozen
+class SetupRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    # Each check is a paid call to every enabled engine, so the first run is queued only when asked for.
+    run_first_check: bool = False
+    # The engines to track. Every other engine is turned off. None keeps the current settings.
+    engines: tuple[str, ...] | None = None
+    # Queue the first run and nothing else: no brand, prompts or keywords, and no engine change.
+    only_first_run: bool = False
+    # With only_first_run, turn on every paused prompt first, such as the ones a configure-only setup saved.
+    activate_paused_prompts: bool = False
+
+
+@frozen
+class SetupJob:
+    id: str
+    status: SuggestionJobStatus
+    steps: tuple[SetupStepState, ...] = ()
+    error: str = ""
+
+
+class SetupJobNotFoundError(Exception):
+    pass
+
+
+class SetupAlreadyRunningError(Exception):
+    """The team already has a setup job pending. `job_id` is that job, so a client can follow it instead."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(job_id)
+        self.job_id = job_id
+
+
+class SetupRequestError(Exception):
+    """The setup request cannot start. The message is safe to show the user."""

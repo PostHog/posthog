@@ -236,6 +236,13 @@ describe('SandboxEmailActionHandler', () => {
             { status: 'pending', reason: 'pause_state_unavailable' },
             undefined,
         ],
+        [
+            'a real test over the shared send rate asks the editor to try again',
+            { isTest: true },
+            { send: () => Promise.resolve({ status: 'failed', reason: 'send_rate_limited' }) },
+            { status: 'failed', reason: 'send_rate_limited' },
+            'Too many emails are being sent right now. Send the test again in a moment.',
+        ],
     ])('runs a test inline: %s', async (_name, hogExecutorOptions, testClient, execResult, error) => {
         const mailbox = new FakeMailbox()
 

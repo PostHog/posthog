@@ -1,6 +1,7 @@
 import dataclasses
 from typing import ClassVar, cast
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -10,7 +11,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.dataclasses import frozen
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.error_tracking.backend.logic.issue_tags import registry, writer
@@ -38,6 +43,7 @@ class _NewTaggerConfig:
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",
     label="Blocks checkout",
+    description="The error stops a user from paying.",
     question_version=1,
     enabled_flag="error-tracking-issue-tags",
     taggers=(
@@ -48,11 +54,12 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
 
 
 class TestIssueTagRegistry(SimpleTestCase):
-    def test_severity_and_every_jev_tag_fit_one_jev_request(self) -> None:
+    def test_every_jev_tag_fits_one_jev_request(self) -> None:
         jev_questions = sum(
             isinstance(tagger, JevTaggerConfig) for definition in ISSUE_TAG_DEFINITIONS for tagger in definition.taggers
         )
 
+        # One slot stays free for the severity question, so the tag request and the severity request can merge.
         assert jev_questions + 1 <= MAX_QUESTIONS_PER_REQUEST
 
 
@@ -82,6 +89,7 @@ class TestSetIssueTag(BaseTest):
             ("new_tagger_keeps_manual", Source.MANUAL, NEW_TAGGER, None, False, 1),
             ("jev_repeats_its_answer", Source.JEV, Source.JEV, True, True, 1),
             ("manual_confirms_jev", Source.JEV, Source.MANUAL, True, True, 2),
+            ("manual_overrules_jev", Source.JEV, Source.MANUAL, False, True, 2),
         ]
     )
     def test_an_answer_replaces_only_sources_that_rank_no_higher(
@@ -94,15 +102,35 @@ class TestSetIssueTag(BaseTest):
         logs: int,
     ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
-        set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(first, value=True), first)
+        with time_machine.travel("2026-01-05T10:00:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
+            set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(first, value=True), first)
+        _, first_version = self._latest_clickhouse_answer(issue)
 
-        stored = set_issue_tag(
-            self.team.id, issue.id, "blocks_checkout", self._answer(second, value=second_value), second
-        )
+        with time_machine.travel("2026-01-05T10:01:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
+            stored = set_issue_tag(
+                self.team.id, issue.id, "blocks_checkout", self._answer(second, value=second_value), second
+            )
 
         tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key="blocks_checkout")
         assert (stored, tag.source, tag.value) == ((True, second, second_value) if replaced else (False, first, True))
         assert self._issue_activity(issue).count() == logs
+        value, version = self._latest_clickhouse_answer(issue)
+        assert value == tag.value
+        assert (version > first_version) is replaced
+
+    def test_a_later_write_wins_in_clickhouse_when_its_clock_reads_earlier(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        with time_machine.travel("2026-01-05T10:01:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
+            set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+        _, first_version = self._latest_clickhouse_answer(issue)
+
+        with time_machine.travel("2026-01-05T10:00:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
+            set_issue_tag(
+                self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=False), Source.MANUAL
+            )
+
+        value, version = self._latest_clickhouse_answer(issue)
+        assert (value, version > first_version) == (False, True)
 
     def test_manual_replaces_an_answer_from_a_tagger_the_definition_no_longer_lists(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
@@ -164,6 +192,18 @@ class TestSetIssueTag(BaseTest):
             ],
         }
 
+    def test_a_child_environment_issue_keeps_one_answer_across_writes(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Staging"
+        )
+        issue = ErrorTrackingIssue.objects.create(team=child)
+
+        set_issue_tag(child.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=False), Source.JEV)
+        stored = set_issue_tag(child.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+
+        tag = ErrorTrackingIssueTag.objects.for_team(child.id).get(issue=issue, key="blocks_checkout")
+        assert (stored, tag.value) == (True, True)
+
     def _answer(self, source: ErrorTrackingIssueTag.Source, *, value: bool | None) -> TagAnswer:
         if source == Source.MANUAL:
             return TagAnswer(value=value, probability=None, model=None, question_version=1, set_by=self.user)
@@ -171,3 +211,17 @@ class TestSetIssueTag(BaseTest):
 
     def _issue_activity(self, issue: ErrorTrackingIssue) -> QuerySet[ActivityLog]:
         return ActivityLog.objects.filter(team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id))
+
+    def _latest_clickhouse_answer(self, issue: ErrorTrackingIssue) -> tuple[bool | None, int]:
+        response = execute_hogql_query(
+            """
+            SELECT value, version FROM posthog.raw_error_tracking_issue_tags
+            WHERE issue_id = {issue_id} AND key = 'blocks_checkout'
+            ORDER BY version DESC
+            LIMIT 1
+            """,
+            self.team,
+            placeholders={"issue_id": ast.Constant(value=str(issue.id))},
+        )
+        [(value, version)] = response.results
+        return None if value is None else bool(value), version

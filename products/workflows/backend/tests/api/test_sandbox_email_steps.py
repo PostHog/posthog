@@ -1,18 +1,24 @@
+import json
 from copy import deepcopy
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
+import responses
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
+from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 from common.hogvm.python.execute import execute_bytecode
@@ -44,7 +50,7 @@ def _trigger() -> dict[str, Any]:
     }
 
 
-def _sandbox_step(subject: str = "Hello") -> dict[str, Any]:
+def _sandbox_step(subject: str = "Hello", templating: str = "liquid") -> dict[str, Any]:
     return {
         "id": SANDBOX_STEP_ID,
         "name": "Email",
@@ -53,7 +59,7 @@ def _sandbox_step(subject: str = "Hello") -> dict[str, Any]:
             "message_category_type": "marketing",
             "inputs": {
                 "email": {
-                    "templating": "liquid",
+                    "templating": templating,
                     "value": {
                         "to": {"email": "{{ person.properties.email }}", "name": ""},
                         "subject": subject,
@@ -85,9 +91,9 @@ def _render(compiled: Any, globals: dict[str, Any]) -> Any:
     return execute_bytecode(compiled, globals).result
 
 
-def _own_email_step(sender_id: int) -> dict[str, Any]:
+def _own_email_step(sender_id: int | None, step_id: str = OWN_EMAIL_STEP_ID, **value: Any) -> dict[str, Any]:
     return {
-        "id": OWN_EMAIL_STEP_ID,
+        "id": step_id,
         "name": "Email",
         "type": "function_email",
         "config": {
@@ -101,6 +107,7 @@ def _own_email_step(sender_id: int) -> dict[str, Any]:
                         "subject": "Hello",
                         "text": "Hello",
                         "html": "",
+                        **value,
                     },
                 }
             },
@@ -299,3 +306,307 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert response.status_code == expected, response.json()
         if expected == 400:
             assert "This sender can't send email from a workflow" in response.json()["detail"]
+
+
+class TestSandboxEmailStepsOverTheApi(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_template_to_db(_email_function_template())
+
+    def _verified_sender(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+        )
+
+    def _patch_email(self, flow: HogFlow, step_id: str, body: dict[str, Any]) -> Any:
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}/actions/{step_id}/email", body, format="json"
+        )
+
+    def _stored_step(self, flow: HogFlow) -> dict[str, Any]:
+        return HogFlow.objects.get(id=flow.id).actions[1]
+
+    def _sandbox_sender_is_set_up(self) -> bool:
+        return Integration.objects.filter(
+            team=self.team, kind="email_sandbox", integration_id="posthog-managed-sandbox"
+        ).exists()
+
+    def test_the_email_patch_edits_a_sandbox_step(self) -> None:
+        flow = HogFlow.objects.create(
+            team=self.team, name="Flow", status="draft", actions=[_trigger(), _sandbox_step()]
+        )
+
+        with _flag(False):
+            response = self._patch_email(
+                flow, SANDBOX_STEP_ID, {"email_patch": {"subject": "Edited", "to": {"email": "ana@example.com"}}}
+            )
+
+        assert response.status_code == 200, response.json()
+        value = self._stored_step(flow)["config"]["inputs"]["email"]["value"]
+        assert (value["subject"], value["to"]["email"]) == ("Edited", "ana@example.com")
+
+    @parameterized.expand([("reply_to", {"replyTo": "a@example.com"}), ("sender", {"from": {"integrationId": 1}})])
+    def test_the_email_patch_refuses_own_sender_fields_on_a_sandbox_step(self, _name: str, patch: dict) -> None:
+        flow = HogFlow.objects.create(
+            team=self.team, name="Flow", status="draft", actions=[_trigger(), _sandbox_step()]
+        )
+
+        response = self._patch_email(flow, SANDBOX_STEP_ID, {"email_patch": patch})
+
+        assert response.status_code == 400, response.json()
+        assert "set sender: 'own'" in response.json()["detail"]
+        assert self._stored_step(flow) == _sandbox_step()
+
+    @parameterized.expand(
+        [
+            ("plain", {}, {}, {}, None),
+            ("reply_to_kept", {"replyTo": "a@example.com"}, {}, {}, "can't keep these settings: replyTo"),
+            (
+                "reply_to_cleared_in_the_patch",
+                {"replyTo": "a@example.com"},
+                {},
+                {"email_patch": {"replyTo": None}},
+                None,
+            ),
+            ("reply_to_dropped", {"replyTo": "a@example.com"}, {}, {"drop_own_sender_settings": True}, None),
+            (
+                "sender_rotation_that_is_not_a_list",
+                {},
+                {},
+                {"email_patch": {"from": {"integrationIds": 42}}},
+                "can't keep these settings: from.integrationIds",
+            ),
+            ("cc_kept", {"cc": "c@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
+            ("bcc_kept", {"bcc": "b@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
+            ("tracking_off_kept", {}, {"tracking_enabled": False}, {}, "can't keep these settings: tracking_enabled"),
+            ("utm_tags_kept", {}, {"utm_tags_enabled": True}, {}, "can't keep these settings: utm_tags_enabled"),
+        ]
+    )
+    def test_the_email_patch_switches_a_step_to_the_sandbox_sender(
+        self, _name: str, own_value: dict, own_config: dict, extra: dict, refusal: str | None
+    ) -> None:
+        own_step = _own_email_step(self._verified_sender().id, **own_value)
+        own_step["config"].update(own_config)
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger(), own_step])
+
+        with _flag(True):
+            response = self._patch_email(flow, OWN_EMAIL_STEP_ID, {"sender": "sandbox", **extra})
+
+        if refusal:
+            assert response.status_code == 400, response.json()
+            assert refusal in response.json()["detail"]
+            assert self._stored_step(flow) == own_step
+            assert not self._sandbox_sender_is_set_up()
+            return
+        assert response.status_code == 200, response.json()
+        stored = self._stored_step(flow)
+        assert stored["type"] == "email_sandbox"
+        assert stored["config"]["inputs"]["email"]["value"] == {
+            "to": {"email": "{{ person.properties.email }}"},
+            "subject": "Hello",
+            "text": "Hello",
+            "html": "",
+        }
+        assert self._sandbox_sender_is_set_up()
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, False, OWN_EMAIL_STEP_ID, "sandbox sender isn't available"),
+            ("organization_blocked", True, True, OWN_EMAIL_STEP_ID, "can't use the sandbox sender"),
+            ("step_id_the_provider_cannot_tag", True, False, "welcome:email", "Add a new email step"),
+        ]
+    )
+    def test_the_email_patch_refuses_a_switch_the_sandbox_sender_cannot_take(
+        self, _name: str, enabled: bool, blocked: bool, step_id: str, refusal: str
+    ) -> None:
+        if blocked:
+            SandboxSenderOrganizationBlock.objects.create(organization=self.organization, reason="test")
+        own_step = _own_email_step(self._verified_sender().id, step_id=step_id)
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger(), own_step])
+
+        with _flag(enabled):
+            response = self._patch_email(flow, step_id, {"sender": "sandbox"})
+
+        assert response.status_code == 400, response.json()
+        assert refusal in response.json()["detail"]
+        assert self._stored_step(flow) == own_step
+
+    @parameterized.expand(
+        [
+            ("with_a_verified_sender", "verified", "liquid", 200, None),
+            ("without_a_sender", None, "liquid", 400, "email_patch.from.integrationId"),
+            ("with_a_sender_whose_domain_is_unverified", "unverified", "liquid", 400, "isn't verified"),
+            ("with_an_unverified_sender_in_its_rotation", "unverified_in_rotation", "liquid", 400, "isn't verified"),
+            ("from_a_step_written_in_hog", "verified", "hog", 400, "Liquid"),
+        ]
+    )
+    def test_the_email_patch_switches_a_sandbox_step_back_to_an_own_sender(
+        self, _name: str, sender: str | None, templating: str, expected: int, refusal: str | None
+    ) -> None:
+        verified_id = self._verified_sender().id
+        unverified_id = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="pending.example.com",
+            config={"domain": "pending.example.com", "provider": "ses", "verified": False},
+        ).id
+        sender_id = unverified_id if sender == "unverified" else verified_id
+        sandbox_step = _sandbox_step(templating=templating)
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger(), sandbox_step])
+        email_patch: dict[str, Any] = {"from": {"integrationId": sender_id}} if sender else {"subject": "Edited"}
+        if sender == "unverified_in_rotation":
+            email_patch["from"]["integrationIds"] = [verified_id, unverified_id]
+
+        response = self._patch_email(flow, SANDBOX_STEP_ID, {"sender": "own", "email_patch": email_patch})
+
+        assert response.status_code == expected, response.json()
+        stored = self._stored_step(flow)
+        if refusal is None:
+            assert stored["type"] == "function_email"
+            assert stored["config"]["inputs"]["email"]["value"]["from"] == {"integrationId": sender_id}
+            assert stored["config"]["inputs"]["email"]["value"]["subject"] == "Hello"
+        else:
+            assert refusal in response.json()["detail"]
+            assert stored == sandbox_step
+
+    def test_an_api_test_run_neither_moves_new_steps_nor_sets_up_the_sandbox_sender(self) -> None:
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger()])
+
+        with _flag(True), responses.RequestsMock() as executor:
+            executor.post(
+                f"{settings.CDP_API_URL}/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations",
+                json={"status": "success"},
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations",
+                {"configuration": _flow(_own_email_step(None)), "globals": {}},
+                format="json",
+                HTTP_USER_AGENT="posthog-cli",
+            )
+            sent = [json.loads(call.request.body) for call in executor.calls]
+
+        assert response.status_code == 200, response.json()
+        sent_steps = sent[0]["configuration"]["actions"]
+        assert [step["type"] for step in sent_steps] == ["trigger", "function_email"]
+        assert not self._sandbox_sender_is_set_up()
+
+    @parameterized.expand(
+        [
+            ("mcp_without_a_verified_sender", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, False, "email_sandbox"),
+            ("mcp_with_a_verified_sender", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, True, "function_email"),
+            ("mcp_without_the_adoption_flag", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, False, False, "function_email"),
+            ("web_editor", {}, True, False, "function_email"),
+        ]
+    )
+    def test_a_new_email_step_from_the_api_starts_on_the_sandbox_sender_without_a_verified_sender(
+        self, _name: str, headers: dict, enabled: bool, verified: bool, expected_type: str
+    ) -> None:
+        if verified:
+            self._verified_sender()
+
+        with _flag(enabled):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(_own_email_step(None)), format="json", **headers
+            )
+
+        assert response.status_code == 201, response.json()
+        assert HogFlow.objects.get(id=response.json()["id"]).actions[1]["type"] == expected_type
+        assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
+
+    @parameterized.expand(
+        [
+            ("from_a_saved_template", "template_uuid", "Library subject"),
+            ("from_a_saved_template_named_in_template_id", "template_id", "Library subject"),
+            ("without_a_templating_language", "inline", "Hello"),
+            ("with_inline_html_and_no_design", "inline_html", "Hello"),
+        ]
+    )
+    def test_a_new_email_step_from_the_api_keeps_its_content_on_the_sandbox_sender(
+        self, _name: str, content: str, subject: str
+    ) -> None:
+        step = _own_email_step(None)
+        if content == "inline_html":
+            step["config"]["inputs"]["email"]["value"]["html"] = "<p>Hello</p>"
+        elif content != "inline":
+            template_id = create_message_template_for_test(
+                team_id=self.team.id,
+                name="Welcome",
+                content={
+                    "templating": "liquid",
+                    "email": {"subject": "Library subject", "text": "Hi {{ person.properties.name }}", "html": ""},
+                },
+            )
+            step["config"][content] = str(template_id)
+            step["config"]["inputs"]["email"]["value"] = {"to": {"email": "{{ person.properties.email }}"}}
+        else:
+            step["config"]["inputs"]["email"].pop("templating")
+
+        with _flag(True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(step), format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
+        assert stored["type"] == "email_sandbox"
+        assert stored["config"]["inputs"]["email"]["templating"] == "liquid"
+        assert stored["config"]["inputs"]["email"]["value"]["subject"] == subject
+        if content == "inline_html":
+            assert isinstance(stored["config"]["inputs"]["email"]["value"]["design"], dict)
+
+    @parameterized.expand(
+        [
+            ("a_step_id_that_is_not_text", "id", ["not", "an", "id"]),
+            ("no_config", "config", None),
+            ("a_saved_template_that_does_not_exist", "template_uuid", "00000000-0000-4000-8000-000000000002"),
+            ("no_subject", "subject", None),
+        ]
+    )
+    def test_a_new_api_email_step_that_is_refused_sets_up_nothing(self, _name: str, key: str, value: Any) -> None:
+        step = _own_email_step(None)
+        if key == "template_uuid":
+            step["config"]["template_uuid"] = value
+            step["config"]["inputs"]["email"]["value"] = {"to": {"email": "{{ person.properties.email }}"}}
+        elif key == "subject":
+            del step["config"]["inputs"]["email"]["value"]["subject"]
+        else:
+            step[key] = value
+
+        with _flag(True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(step), format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+
+        assert response.status_code == 400, response.json()
+        assert not self._sandbox_sender_is_set_up()
+
+    def test_a_stale_api_save_that_adds_an_email_step_sets_up_nothing(self) -> None:
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger()])
+        loaded_before_another_save = (flow.updated_at - timedelta(minutes=1)).isoformat()
+
+        with _flag(True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+                {**_flow(_own_email_step(None)), "base_updated_at": loaded_before_another_save},
+                format="json",
+                HTTP_USER_AGENT="posthog-cli",
+            )
+
+        assert response.status_code == 409, response.json()
+        assert HogFlow.objects.get(id=flow.id).actions == [_trigger()]
+        assert not self._sandbox_sender_is_set_up()
+
+    def test_switching_a_step_in_a_workflow_that_does_not_exist_sets_up_nothing(self) -> None:
+        with _flag(True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/00000000-0000-4000-8000-000000000001/actions/"
+                f"{OWN_EMAIL_STEP_ID}/email",
+                {"sender": "sandbox"},
+                format="json",
+            )
+
+        assert response.status_code == 404, response.json()
+        assert not self._sandbox_sender_is_set_up()

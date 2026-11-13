@@ -41,22 +41,176 @@ describe('IdempotencyKeys', () => {
         expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'in_flight' })
         expect(await keys.reserve(1, key, 'request-b', 'run-3')).toEqual({ status: 'conflict' })
 
-        await keys.markQueued(1, key, 'request-a', 'run-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'run-1')
 
         expect(await keys.reserve(1, key, 'request-a', 'run-4')).toEqual({ status: 'replayed', invocationId: 'run-1' })
         expect(await keys.reserve(2, key, 'request-a', 'run-5')).toEqual({ status: 'reserved' })
         expect(await operations('test', 'reserve', 'replayed')).toEqual(replayedBefore + 1)
     })
 
-    it('replays the fields recorded with the run', async () => {
-        await keys.reserve(1, key, 'request-a', 'run-1')
-        await keys.markQueued(1, key, 'request-a', 'run-1', { attachment_count: 2, attachment_bytes: 4_096 })
+    it.each([
+        [
+            'an old pod queued, a new pod retries',
+            'request-a-before',
+            { current: 'request-a', previousShape: 'request-a-before' },
+        ],
+        [
+            'a new pod queued, an old pod retries',
+            { current: 'request-a', previousShape: 'request-a-before' },
+            'request-a-before',
+        ],
+        [
+            'a new pod queued, a new pod retries a request whose previous shape changed',
+            { current: 'request-a', previousShape: 'request-a-before' },
+            { current: 'request-a', previousShape: 'request-a-before-other-sender' },
+        ],
+    ] as const)('replays a run across a fingerprint shape change when %s', async (_desc, first, retry) => {
+        await keys.reserve(1, key, first, 'run-1')
+        await keys.markQueued(1, key, first, 'run-1', 'run-1')
 
-        expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+        expect(await keys.reserve(1, key, retry, 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
+        expect(
+            await keys.reserve(1, key, { current: 'request-b', previousShape: 'request-b-before' }, 'run-3')
+        ).toEqual({
+            status: 'conflict',
+        })
+    })
+
+    it.each([
+        { send: 'now', scheduledInMs: null, windowMs: 24 * HOUR_MS },
+        { send: 'scheduled 3 days ahead', scheduledInMs: 72 * HOUR_MS, windowMs: 96 * HOUR_MS },
+    ])('keeps the key of a send $send until 24 hours after it is due', async ({ scheduledInMs, windowMs }) => {
+        const scope = `scope-${new UUIDT().toString()}`
+        const scopedKeys = new IdempotencyKeys(valkey, scope)
+        await scopedKeys.reserve(1, key, 'request-a', 'run-1')
+        const scheduledAt = scheduledInMs === null ? undefined : new Date(Date.now() + scheduledInMs).toISOString()
+
+        await scopedKeys.markQueued(1, key, 'request-a', 'run-1', 'run-1', undefined, scheduledAt)
+
+        expect(await scopedKeys.reserve(1, key, 'request-a', 'run-2')).toEqual({
             status: 'replayed',
             invocationId: 'run-1',
-            replayFields: { attachment_count: 2, attachment_bytes: 4_096 },
+            scheduledAt,
         })
+        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, async (client) => {
+            const stored = await client.keys(`*${scope}*`)
+            expect(stored).toHaveLength(1)
+            return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
+        })
+        expect(ttlSeconds).toBeGreaterThan(windowMs / 1000 - 60)
+        expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
+    })
+
+    it('keeps the sender and both fingerprint shapes of a sandbox send when a reschedule extends its key', async () => {
+        const fingerprint = { current: 'request-a', previousShape: 'request-a-before' }
+        await keys.reserve(1, key, fingerprint, 'run-1')
+        await keys.markQueued(1, key, fingerprint, 'run-1', 'run-1', undefined, undefined, undefined, 'email_sandbox')
+
+        await keys.replayUntilDayAfter(
+            1,
+            'run-1',
+            {
+                hash: IdempotencyKeys.hash(key),
+                fingerprint: 'request-a-before',
+                currentFingerprint: 'request-a',
+                senderKind: 'email_sandbox',
+            },
+            new Date(Date.now() + 30 * 24 * HOUR_MS)
+        )
+
+        expect(
+            await keys.reserve(
+                1,
+                key,
+                { current: 'request-a', previousShape: 'request-a-before-other-sender' },
+                'run-2'
+            )
+        ).toEqual({ status: 'replayed', invocationId: 'run-1', senderKind: 'email_sandbox' })
+    })
+
+    it('replays the run and the fields recorded with it, not the lease that reserved it', async () => {
+        const fields = { attachment_count: 2, attachment_bytes: 4_096 }
+        const scheduledAt = new Date(Date.now() + HOUR_MS).toISOString()
+        await keys.reserve(1, key, 'request-a', 'lease-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-1', fields, scheduledAt)
+
+        expect(await keys.reserve(1, key, 'request-a', 'lease-2')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+            scheduledAt,
+            replayFields: fields,
+        })
+        expect(await keys.queuedReplay(1, key)).toEqual({ replayFields: fields, scheduledAt })
+    })
+
+    it('counts a late completion of a run another request already recorded as written, not as refused', async () => {
+        await keys.reserve(1, key, 'request-a', 'lease-1')
+        await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
+        await keys.reserve(1, key, 'request-a', 'lease-2')
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+        const [writtenBefore, refusedBefore] = await Promise.all([
+            operations('test', 'mark_queued', 'written'),
+            operations('test', 'mark_queued', 'not_owned'),
+        ])
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-1')
+
+        expect(await operations('test', 'mark_queued', 'written')).toEqual(writtenBefore + 1)
+        expect(await operations('test', 'mark_queued', 'not_owned')).toEqual(refusedBefore)
+        expect(await keys.reserve(1, key, 'request-a', 'lease-3')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+        })
+    })
+
+    it('keeps the longer replay window when a run it recorded is recorded again', async () => {
+        await keys.reserve(1, key, 'request-a', 'lease-1')
+        await keys.markQueued(
+            1,
+            key,
+            'request-a',
+            'run-1',
+            'lease-1',
+            undefined,
+            undefined,
+            new Date(Date.now() + 72 * HOUR_MS)
+        )
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+
+        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, (client) =>
+            client.ttl(keys['redisKey'](1, key))
+        )
+        expect(ttlSeconds).toBeGreaterThan((96 * HOUR_MS) / 1000 - 60)
+    })
+
+    it('keeps the exact expiry when a run it recorded is recorded again with a shorter window', async () => {
+        await keys.reserve(1, key, 'request-a', 'lease-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-1')
+        const redisKey = keys['redisKey'](1, key)
+        // Below the half second, so rounding the expiry to whole seconds would shorten it.
+        const expiryMs = 100 * HOUR_MS + 400
+        await valkey.useClient({ name: 'test-ttl' }, (client) => client.pexpire(redisKey, expiryMs))
+        const expiresAt = (): Promise<unknown> =>
+            valkey.useClient({ name: 'test-ttl' }, (client) =>
+                client.eval("return redis.call('PEXPIRETIME', KEYS[1])", 1, redisKey)
+            )
+        const before = await expiresAt()
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+
+        expect(await expiresAt()).toEqual(before)
+    })
+
+    it('leaves a record without an expiry without one when its run is recorded again', async () => {
+        const redisKey = keys['redisKey'](1, key)
+        await valkey.useClient({ name: 'test-ttl' }, (client) =>
+            client.set(redisKey, JSON.stringify({ fingerprint: 'request-a', invocationId: 'run-1', queued: true }))
+        )
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+
+        expect(await valkey.useClient({ name: 'test-ttl' }, (client) => client.pttl(redisKey))).toEqual(-1)
     })
 
     it('frees a key only for the request that holds it', async () => {
@@ -74,7 +228,7 @@ describe('IdempotencyKeys', () => {
         // The pending hold expires while the queue write is still running.
         await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
 
-        await keys.markQueued(1, key, 'request-a', 'run-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'run-1')
 
         expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
     })
@@ -85,7 +239,7 @@ describe('IdempotencyKeys', () => {
         const useClient = valkey.useClient
         const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
         try {
-            await keys.markQueued(1, key, 'request-a', 'run-1')
+            await keys.markQueued(1, key, 'request-a', 'run-1', 'run-1')
             expect(await operations('test', 'mark_queued', 'failed')).toEqual(failedBefore + 1)
             const inlineAttempts = outage.mock.calls.length
             await waitForExpect(() => expect(outage.mock.calls.length).toBeGreaterThan(inlineAttempts))
@@ -109,7 +263,7 @@ describe('IdempotencyKeys', () => {
         const realNow = Date.now
         const clock = jest.spyOn(Date, 'now')
         try {
-            await keys.markQueued(1, key, 'request-a', 'run-1')
+            await keys.markQueued(1, key, 'request-a', 'run-1', 'run-1')
             clock.mockImplementation(() => realNow() + 12 * HOUR_MS)
             outage.mockImplementation(useClient)
 
@@ -129,6 +283,83 @@ describe('IdempotencyKeys', () => {
             clock.mockRestore()
         }
     })
+
+    it.each([
+        { completion: 'waits for the store', writesBeforeFailing: false, storeRecovers: true, holdExpires: false },
+        {
+            completion: 'is written but its answer is lost',
+            writesBeforeFailing: true,
+            storeRecovers: true,
+            holdExpires: false,
+        },
+        {
+            completion: 'is lost with its process',
+            writesBeforeFailing: false,
+            storeRecovers: false,
+            holdExpires: false,
+        },
+        {
+            completion: 'is lost with its process and its hold expires',
+            writesBeforeFailing: false,
+            storeRecovers: false,
+            holdExpires: true,
+        },
+    ])(
+        'replays a moved run past 24 hours when its completion $completion',
+        async ({ writesBeforeFailing, storeRecovers, holdExpires }) => {
+            const scope = `scope-${new UUIDT().toString()}`
+            const scopedKeys = new IdempotencyKeys(valkey, scope)
+            const replayFields = { attachment_count: 1, attachment_bytes: 512 }
+            await scopedKeys.reserve(1, key, 'request-a', 'run-1')
+            const useClient = valkey.useClient
+            let storeAnswers = false
+            const store = jest.spyOn(valkey, 'useClient').mockImplementation(async (...args) => {
+                if (args[0].name !== 'idempotency-mark-queued' || storeAnswers) {
+                    return useClient(...args)
+                }
+                if (writesBeforeFailing) {
+                    await useClient(...args)
+                }
+                throw new Error('connection lost')
+            })
+            const redisKey = scopedKeys['redisKey'](1, key)
+            try {
+                await scopedKeys.markQueued(1, key, 'request-a', 'run-1', 'run-1', replayFields)
+                if (holdExpires) {
+                    await valkey.useClient({ name: 'test-expire' }, (client) => client.del(redisKey))
+                }
+                await scopedKeys.replayUntilDayAfter(
+                    1,
+                    'run-1',
+                    { hash: IdempotencyKeys.hash(key), fingerprint: 'request-a', replayFields },
+                    new Date(Date.now() + 30 * 24 * HOUR_MS)
+                )
+                const completionLands = async () => {
+                    storeAnswers = true
+                    await waitForExpect(async () =>
+                        expect(await operations(scope, 'mark_queued', 'written')).toEqual(1)
+                    )
+                }
+                if (storeRecovers) {
+                    await completionLands()
+                }
+
+                await valkey.useClient({ name: 'test-age' }, async (client) => {
+                    const ttlMs = await client.pttl(redisKey)
+                    await (ttlMs > 25 * HOUR_MS ? client.pexpire(redisKey, ttlMs - 25 * HOUR_MS) : client.del(redisKey))
+                })
+
+                expect(await scopedKeys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                    replayFields,
+                })
+                await completionLands()
+            } finally {
+                store.mockRestore()
+            }
+        }
+    )
 
     it('records a retry whose completion fails while the earlier completion of its key is still writing', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
@@ -150,12 +381,12 @@ describe('IdempotencyKeys', () => {
             .mockRejectedValueOnce(connectionLost)
             .mockImplementation(useClient)
         try {
-            await keys.markQueued(1, key, 'request-a', 'run-1')
+            await keys.markQueued(1, key, 'request-a', 'run-1', 'run-1')
             await waitForExpect(() => expect(store.mock.calls.length).toEqual(3))
             // The pending hold of run-1 expires, and a retry of the request reserves the key again.
             await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
             expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'reserved' })
-            await keys.markQueued(1, key, 'request-a', 'run-2')
+            await keys.markQueued(1, key, 'request-a', 'run-2', 'run-2')
             endSlowWrite()
 
             await waitForExpect(async () =>
@@ -174,10 +405,10 @@ describe('IdempotencyKeys', () => {
         const useClient = valkey.useClient
         const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
         try {
-            await keys.markQueued(1, key, 'request-a', 'run-1')
+            await keys.markQueued(1, key, 'request-a', 'run-1', 'run-1')
             // The webhook route queues a retry without a reservation when the store is unavailable.
             expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'unavailable' })
-            await keys.markQueued(1, key, 'request-a', 'run-2')
+            await keys.markQueued(1, key, 'request-a', 'run-2', 'run-2')
             // The store recovers before the pending hold of run-1 expires.
             outage.mockImplementation(useClient)
 
@@ -204,7 +435,9 @@ describe('IdempotencyKeys', () => {
         })
         try {
             await Promise.all(
-                Array.from({ length: 20 }, (_, i) => keys.markQueued(1, `${key}-${i}`, 'request-a', `run-${i}`))
+                Array.from({ length: 20 }, (_, i) =>
+                    keys.markQueued(1, `${key}-${i}`, 'request-a', `run-${i}`, `run-${i}`)
+                )
             )
             maxInFlight = 0
             const inlineAttempts = outage.mock.calls.length

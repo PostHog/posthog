@@ -1,4 +1,9 @@
-import type { ScoutSuggestionItemApi, SignalScoutConfigApi } from '../../generated/api.schemas'
+import type {
+    InboxOnboardingDraftApi,
+    ScoutSuggestionItemApi,
+    SelfDrivingTrialStatusApi,
+    SignalScoutConfigApi,
+} from '../../generated/api.schemas'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import type { InboxSetupSource } from './inboxSetup'
@@ -119,6 +124,39 @@ export function inboxSetupDefaultScouts(
             },
         ]
     })
+}
+
+const MAX_SETUP_SCOUTS = 5
+
+export interface InboxSetupScoutLimit {
+    limit: number
+    reason: string
+}
+
+// The trial counts every enabled scout except an operational one, which is seeded for every project.
+export function inboxSetupScoutLimit(
+    trial: SelfDrivingTrialStatusApi | null,
+    configs: Pick<SignalScoutConfigApi, 'enabled' | 'scout_role' | 'skill_name'>[],
+    draft: Pick<InboxOnboardingDraftApi, 'suggestions' | 'activation_scouts'>
+): InboxSetupScoutLimit {
+    const fallback = { limit: MAX_SETUP_SCOUTS, reason: 'Select up to five scouts' }
+    if (!trial?.enabled || (trial.grant_status !== 'active' && !trial.eligible)) {
+        return fallback
+    }
+    const managed = new Set([...draft.suggestions.map((item) => item.skill_name), ...(draft.activation_scouts ?? [])])
+    const alreadyOn = configs.filter(
+        (config) => config.enabled && config.scout_role !== 'operational' && !managed.has(config.skill_name)
+    ).length
+    const limit = Math.max(0, trial.scout_limit - alreadyOn)
+    if (limit >= MAX_SETUP_SCOUTS) {
+        return fallback
+    }
+    return {
+        limit,
+        reason: alreadyOn
+            ? `The free trial includes ${trial.scout_limit} scouts, and ${alreadyOn} ${alreadyOn === 1 ? 'is' : 'are'} already on`
+            : `The free trial includes ${trial.scout_limit} scouts`,
+    }
 }
 
 export function inboxSetupScoutChoices(

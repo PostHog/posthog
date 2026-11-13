@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { KafkaConsumerInterface } from '~/common/kafka/consumer'
 import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
@@ -8,6 +9,7 @@ import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
+import { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { MetricsIngestionConsumerConfig } from './config'
@@ -75,12 +77,15 @@ export class MetricsPipelineConsumer {
         this.usageBatch = deps.usageBatch
         this.teamManager = deps.teamManager
         this.promiseScheduler = new FailureLatchingPromiseScheduler()
+        const redis = createMetricsRateLimiterRedis(config)
         this.pipeline = createMetricsIngestionPipeline({
             outputs: deps.outputs,
             promiseScheduler: this.promiseScheduler,
             teamManager: deps.teamManager,
             quotaLimiting: deps.quotaLimiting,
-            rateLimiter: new MetricsRateLimiterService(config, createMetricsRateLimiterRedis(config)),
+            rateLimiter: new MetricsRateLimiterService(config, redis),
+            isAggregationEnabled: buildIntegerMatcher(config.METRICS_AGGREGATION_ENABLED_TEAMS, true),
+            unknownTokens: new UnknownTokenRecorder(redis),
         })
     }
 
