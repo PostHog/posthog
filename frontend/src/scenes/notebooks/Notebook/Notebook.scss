@@ -861,6 +861,7 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
             .MarkdownNotebook__component-actions,
             .MarkdownNotebook__component-mode-actions,
             .MarkdownNotebook__component-toolbar-controls,
+            .MarkdownNotebook__component-panel--filters,
             .MarkdownNotebook__real-node-resize-handle,
             .MarkdownNotebook__real-node-settings,
             .MarkdownNotebook__jupyter-cell-actions,
@@ -868,6 +869,14 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
             .NotebookNode__resize-handle,
             .NotebookNode__meta button {
                 display: none !important;
+            }
+
+            .MarkdownNotebook__real-node-content:has([data-attr='notebook-node-python-v2']),
+            [data-attr='notebook-node-python-v2'],
+            [data-attr='notebook-node-python-v2'] > div {
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
             }
 
             .NotebookNode,

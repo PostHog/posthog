@@ -101,7 +101,8 @@ describe('NotebookMenu', () => {
         expect(document.title).toEqual('Legacy notebook')
 
         if (end === 'afterprint') {
-            window.dispatchEvent(new Event('afterprint'))
+            fireEvent(window, new Event('afterprint'))
+            expect(screen.queryByText('Print')).not.toBeInTheDocument()
         } else {
             unmount()
         }

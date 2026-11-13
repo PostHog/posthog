@@ -41,13 +41,17 @@ export const notebookExportLogic = kea<notebookExportLogicType>([
     path((key) => ['products', 'notebooks', 'notebookExportLogic', key]),
     actions({ preparePrint: true, cancelPrint: true, printNotebook: (title: string) => ({ title }) }),
     reducers({ preparingPrint: [false, { preparePrint: () => true, cancelPrint: () => false }] }),
-    listeners(({ props, cache }) => ({
+    listeners(({ props, cache, actions }) => ({
         printNotebook: ({ title }) => {
             const notebook = document.querySelector<HTMLElement>(
                 `.Notebook[data-notebook-short-id="${CSS.escape(props.shortId)}"]`
             )
             if (!notebook) {
                 return
+            }
+            const finish = (): void => {
+                cache.disposables.dispose('print')
+                actions.cancelPrint()
             }
             cache.disposables.add(
                 () => {
@@ -59,7 +63,6 @@ export const notebookExportLogic = kea<notebookExportLogicType>([
                     }
                     notebook.classList.add('Notebook--printing')
                     document.title = title
-                    const finish = (): void => cache.disposables.dispose('print')
                     window.addEventListener('afterprint', finish)
                     return () => {
                         window.removeEventListener('afterprint', finish)
@@ -75,7 +78,7 @@ export const notebookExportLogic = kea<notebookExportLogicType>([
             try {
                 window.print()
             } catch (error) {
-                cache.disposables.dispose('print')
+                finish()
                 throw error
             }
         },
