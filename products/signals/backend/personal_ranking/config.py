@@ -23,6 +23,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.activity_summary.render import InboxStrength
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
 logger = structlog.get_logger(__name__)
@@ -148,6 +149,13 @@ class PersonalRankingConfig:
     max_builds_per_day: int = 500
     # Each build keeps this many of the person's newest rows and deletes the older ones.
     max_rows_per_person: int = 5
+    # The most lines of the person's own inbox activity in the prompt. 0 leaves the block out and runs no read.
+    inbox_activity_lines: int = 0
+    inbox_activity_days: int = 14
+    # Facts below this strength stay out of the block. Opens and Slack discussions are below `RATED`.
+    inbox_activity_min_strength: InboxStrength = InboxStrength.RATED
+    # The most standing reviewer exclusions of the person under the activity lines.
+    inbox_activity_exclusion_lines: int = 5
     tick: PersonalRankingTickConfig = TICK_DISABLED
 
 
@@ -178,6 +186,9 @@ _MAXIMUMS: dict[str, int] = {
     "builds_per_day": 500,
     "max_builds_per_day": 50000,
     "max_rows_per_person": 100,
+    "inbox_activity_lines": 20,
+    "inbox_activity_days": 28,
+    "inbox_activity_exclusion_lines": 20,
     "reason_max_chars": 500,
 }
 
@@ -201,6 +212,12 @@ def _model(value: Any) -> str:
 
 def _reasoning_effort(value: Any) -> ReasoningEffort:
     return cast(ReasoningEffort, value) if value in REASONING_EFFORTS else DEFAULTS.reasoning_effort
+
+
+def _min_strength(value: Any) -> InboxStrength:
+    if isinstance(value, str) and value.upper() in InboxStrength.__members__:
+        return InboxStrength[value.upper()]
+    return DEFAULTS.inbox_activity_min_strength
 
 
 def _reason_limits(value: Any) -> ReasonLimits:
@@ -353,6 +370,7 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
         model=_model(payload.get("model")),
         reasoning_effort=_reasoning_effort(payload.get("reasoning_effort")),
         reason_limits=_reason_limits(payload.get("reason_max_chars")),
+        inbox_activity_min_strength=_min_strength(payload.get("inbox_activity_min_strength")),
         pools=_pools(payload.get("pools")),
         tick=tick,
         timeout_seconds=_bounded_number(
@@ -382,6 +400,7 @@ def effective_config(config: PersonalRankingConfig) -> dict[str, Any]:
         "max_candidates": config.max_candidates,
         "timeout_seconds": config.timeout_seconds,
         "max_completion_tokens": config.max_completion_tokens,
+        "inbox_activity_lines": config.inbox_activity_lines,
     }
 
 

@@ -147,16 +147,20 @@ import {
 import {
     type DashboardSection,
     type SectionLayouts,
+    type TileGroupMoveDirection,
+    type TileGroupMoveDirections,
     type TileGroupMoveOptions,
     getCollapsedTileGroupKeys,
     getDashboardSections,
     getDashboardTabs,
     getEmptyTileGroupKeys,
     getLayoutAfterSectionChange,
+    getLayoutAfterTileGroupMove,
     getLayoutAfterTileMove,
     getSectionGroupKey,
     getSectionLayouts,
     getTileGroupLabel,
+    getTileGroupMoveDirections,
     getTileGroupMoveOptions,
     UNGROUPED_TILES_TAB_KEY,
     getTileGroupSectionKey,
@@ -180,7 +184,7 @@ import {
 import { createDashboardWidgetTileRefreshScheduler } from 'products/dashboards/frontend/widgetTileRefreshScheduler'
 import type { ZoomRange } from 'products/dashboards/frontend/zoomPreview'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
+import { rangeReachesBefore } from 'products/product_analytics/frontend/insights/dataRetention/rangeReachesBefore'
 
 import type { DashboardSharingDebugApi } from '../../../../products/dashboards/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -213,7 +217,6 @@ import {
     withCompactMetricVariables,
     encodeURLVariables,
     getDashboardWidgetType,
-    getEffectiveDateOverride,
     getInsightQueryError,
     getInsightWithRetry,
     isRefreshRejectionStub,
@@ -774,9 +777,8 @@ function mergeUpdatedWidgetTileIntoDashboard(dashboard: DashboardType, updatedTi
 export interface dashboardLogicValues {
     internetConnectionIssue: boolean // apiStatusLogic
     tileGroupChoices: TileGroupChoices // dashboardTileGroupChoicesLogic
-    retentionMonths: number | null // dataRetentionBannerLogic
-    retentionPeriodLabel: string | null // dataRetentionBannerLogic
-    warningEligible: boolean // dataRetentionBannerLogic
+    deletionCutoff: Dayjs | null // dataRetentionBannerLogic
+    dismissed: boolean // dataRetentionBannerLogic
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
@@ -789,7 +791,7 @@ export interface dashboardLogicValues {
     addWidgetModalOpen: boolean
     addWidgetSelectedTypes: string[]
     addWidgetTileLoading: boolean
-    anyInsightExceedsRetention: boolean
+    anyInsightReachesDeletion: boolean
     apiUrl: (
         refresh?: RefreshType | undefined,
         filtersOverride?: DashboardFilter | undefined,
@@ -934,6 +936,7 @@ export interface dashboardLogicValues {
     tileDisplayOptionsSavingIds: number[]
     tileGroupDisplay: TileGroupDisplay
     tileGroupKeys: Map<number, string>
+    tileGroupMoveDirections: Record<string, TileGroupMoveDirections>
     tileGroupMoveOptions: Record<number, TileGroupMoveOptions>
     tileGroupSectionLayouts: SectionLayouts[]
     tileGroupSections: DashboardSection[]
@@ -1190,6 +1193,13 @@ export interface dashboardLogicActions {
     }
     loadingDashboardItemsStarted: (action: DashboardLoadAction) => {
         action: DashboardLoadAction
+    }
+    moveTileGroup: (
+        groupKey: string,
+        direction: TileGroupMoveDirection
+    ) => {
+        direction: TileGroupMoveDirection
+        groupKey: string
     }
     moveTileToSection: (
         tileId: number,
@@ -1909,14 +1919,10 @@ export interface dashboardLogicMeta {
             currentDashboardSettings: DashboardSettings,
             variables: Variable[]
         ) => DashboardSettingsChange[]
-        anyInsightExceedsRetention: (
-            insightTiles: DashboardTile[],
-            effectiveEditBarFilters: DashboardFilter,
-            retentionMonths: number | null
-        ) => boolean
+        anyInsightReachesDeletion: (insightTiles: DashboardTile[], deletionCutoff: Dayjs | null) => boolean
         showRetentionBanner: (
-            warningEligible: boolean,
-            anyInsightExceedsRetention: boolean,
+            dismissed: boolean,
+            anyInsightReachesDeletion: boolean,
             placement: DashboardPlacement
         ) => boolean
         effectiveRefreshFilters: (
@@ -2070,6 +2076,12 @@ export interface dashboardLogicMeta {
             tileGroupSections: DashboardSection[],
             canEditDashboard: boolean
         ) => Record<number, TileGroupMoveOptions>
+        tileGroupMoveDirections: (
+            tileGroupSections: DashboardSection[],
+            tileGroupDisplay: TileGroupDisplay,
+            canEditLayout: boolean,
+            dashboardStreaming: boolean
+        ) => Record<string, TileGroupMoveDirections>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
             refreshTilesTotal: number | null
@@ -2249,7 +2261,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
             dataRetentionBannerLogic,
-            ['warningEligible', 'retentionMonths', 'retentionPeriodLabel'],
+            ['deletionCutoff', 'dismissed'],
             apiStatusLogic,
             ['internetConnectionIssue'],
             dashboardTileGroupChoicesLogic,
@@ -2335,6 +2347,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRevealedTileGroup: (revealedTileGroup: RevealedTileGroup | null) => ({ revealedTileGroup }),
         /** A band grid reports its own layout, which joins the other bands into one dashboard layout. */
         updateTileGroupSectionLayout: (layouts: ResponsiveLayouts) => ({ layouts }),
+        moveTileGroup: (groupKey: string, direction: TileGroupMoveDirection) => ({ groupKey, direction }),
         /** A null section takes the tile out of its group, and a null cell puts it below the target's tiles. */
         moveTileToSection: (
             tileId: number,
@@ -4070,34 +4083,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ]
             },
         ],
-        // Does any tile on this dashboard reach past the team's events retention window? Runs the same date
-        // precedence and the same rule the tiles do, so the banner and a tile's icon can't disagree.
-        anyInsightExceedsRetention: [
-            (s) => [s.insightTiles, s.effectiveEditBarFilters, s.retentionMonths],
-            (
-                insightTiles: DashboardTile[],
-                dashboardFilters: DashboardFilter,
-                retentionMonths: number | null
-            ): boolean =>
+        anyInsightReachesDeletion: [
+            (s) => [s.insightTiles, s.deletionCutoff],
+            (insightTiles: DashboardTile[], deletionCutoff: Dayjs | null): boolean =>
                 (insightTiles || []).some((tile) =>
-                    exceedsRetention({
+                    rangeReachesBefore({
                         query: tile.insight?.query,
-                        dateFromOverride: getEffectiveDateOverride(
-                            tile.insight?.filter_override_context,
-                            dashboardFilters,
-                            tile.filters_overrides
-                        ).dateFromOverride,
                         resolvedDateFrom: tile.insight?.resolved_date_range?.date_from,
-                        retentionMonths,
+                        cutoff: deletionCutoff,
                     })
                 ),
         ],
         showRetentionBanner: [
-            (s) => [s.warningEligible, s.anyInsightExceedsRetention, s.placement],
-            (warningEligible: boolean, anyInsightExceedsRetention: boolean, placement: DashboardPlacement): boolean =>
-                warningEligible &&
-                anyInsightExceedsRetention &&
-                // Shared and exported views have no upgrade path for the viewer, and a public viewer isn't our customer.
+            (s) => [s.dismissed, s.anyInsightReachesDeletion, s.placement],
+            (dismissed: boolean, anyInsightReachesDeletion: boolean, placement: DashboardPlacement): boolean =>
+                !dismissed &&
+                anyInsightReachesDeletion &&
+                // Shared and exported viewers can't change the retention period, and a public viewer isn't our customer.
                 placement !== DashboardPlacement.Public &&
                 placement !== DashboardPlacement.Export,
         ],
@@ -4658,6 +4660,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 canEditDashboard ? getTileGroupMoveOptions(tileGroupSections) : {},
             { resultEqualityCheck: objectsEqual },
         ],
+        tileGroupMoveDirections: [
+            (s) => [s.tileGroupSections, s.tileGroupDisplay, s.canEditLayout, s.dashboardStreaming],
+            (
+                tileGroupSections: DashboardSection[],
+                tileGroupDisplay: TileGroupDisplay,
+                canEditLayout: boolean,
+                dashboardStreaming: boolean
+            ): Record<string, TileGroupMoveDirections> =>
+                // A group can still miss tiles while they stream in, and a move would then save only part of it.
+                canEditLayout && !dashboardStreaming
+                    ? getTileGroupMoveDirections(tileGroupSections, tileGroupDisplay)
+                    : {},
+            { resultEqualityCheck: objectsEqual },
+        ],
         refreshMetrics: [
             (s) => [s.refreshStatus, s.refreshTilesTotal],
             (refreshStatus: Record<string, RefreshStatus>, refreshTilesTotal: number | null) => {
@@ -5040,6 +5056,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (dashboardLayout) {
                 actions.stageLayouts({ sm: dashboardLayout })
             }
+        },
+        moveTileGroup: ({ groupKey, direction }) => {
+            if (!Object.hasOwn(values.tileGroupMoveDirections, groupKey)) {
+                return
+            }
+            const layout = getLayoutAfterTileGroupMove({
+                layout: values.layouts.sm ?? [],
+                sections: values.tileGroupSections,
+                groupKey,
+                direction,
+                groupDisplay: values.tileGroupDisplay,
+                compactor: getDashboardGridCompactor(values.dashboard?.customization?.layout_compaction),
+            })
+            if (!layout) {
+                return
+            }
+            // With no tab in the URL the first tab is open, so name the open tab before the order changes.
+            const openTab = values.activeTileGroupTab
+            if (openTab && openTab !== UNGROUPED_TILES_TAB_KEY) {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                router.actions.replace(pathname, { ...searchParams, tab: getTileGroupSectionKey(openTab) }, hashParams)
+            }
+            actions.stageLayouts({ sm: layout })
         },
         moveTileToSection: async ({ tileId, sectionKey, cell, method }) => {
             const capture = ({ sourceGroupKey, groupKey }: TileMove): void => {

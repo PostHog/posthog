@@ -1,4 +1,5 @@
-"""Logs alerts with no logs row, which only the alerts platform keeps.
+"""Logs alerts the logs API reads from the alerts platform: those with no logs row, which only the
+platform keeps, and the copies the platform owns, whose settings it keeps.
 
 Each function takes ids and returns the platform's view, so the logs API presents the alert with
 `LogsAlertConfiguration.from_platform_view` and never holds a row it could save.
@@ -17,9 +18,16 @@ from products.alerts_platform.backend.facade.api import (
     get_configuration,
     list_configurations,
     native_configuration_keys,
+    owned_copies,
+    owned_copy_keys,
     update_configuration,
 )
-from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationView, SourceKind
+from products.alerts_platform.backend.facade.contracts import (
+    Grouping,
+    OwnedCopyKey,
+    PlatformAlertConfigurationView,
+    SourceKind,
+)
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_ownership import platform_change_of, platform_edit_of
 
@@ -46,6 +54,16 @@ def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[Platf
         team_id=team_id, source_kinds=_LOGS, limit=len(alert_ids), offset=0, configuration_ids=alert_ids
     )
     return tuple(view for view in page.configurations if view.legacy_configuration_id is None)
+
+
+def owned_copy_alert_keys(team_id: int) -> tuple[OwnedCopyKey, ...]:
+    """The team's logs alerts that keep a logs row and that the platform owns, newest first."""
+    return owned_copy_keys(team_id=team_id, source_kind=SourceKind.LOGS)
+
+
+def owned_copy_views(team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The platform's view of each named logs alert it owns that keeps a logs row, keyed by the alert's id."""
+    return owned_copies(team_id=team_id, source_kind=SourceKind.LOGS, legacy_configuration_ids=alert_ids)
 
 
 def create_native(

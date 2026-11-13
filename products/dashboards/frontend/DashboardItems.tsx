@@ -37,6 +37,7 @@ import { biDashboardCrossFilterLogic } from 'products/business_intelligence/fron
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
+import type { TileGroupMoveActions } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMoveButtons'
 import { DashboardTileGroupTabs } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupTabs'
 import { DashboardTileSectionBand } from 'products/dashboards/frontend/components/DashboardTileSectionBand'
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
@@ -126,6 +127,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tileGroupSectionLayouts,
         collapsedTileGroupKeys,
         tileGroupMoveOptions,
+        tileGroupMoveDirections,
         activeTileGroupTab,
         queryLoadQueue,
         isEditablePlacement,
@@ -169,6 +171,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         openButtonTileModal,
         setAddWidgetModalOpen,
         removeTileGroup,
+        moveTileGroup,
         addTileGroup,
         toggleTileGroup,
         selectTileGroupTab,
@@ -330,6 +333,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ? (groupKey: string) => <QuillDashboardEmptyGroupAddButton groupKey={groupKey} />
         : undefined
     const onRemoveTileGroup = canEditTileGroups ? removeTileGroup : undefined
+    const getTileGroupMoveActions = (groupKey: string): TileGroupMoveActions | undefined =>
+        Object.hasOwn(tileGroupMoveDirections, groupKey)
+            ? {
+                  ...tileGroupMoveDirections[groupKey],
+                  onMove: (direction) => moveTileGroup(groupKey, direction),
+              }
+            : undefined
     const onAddTileGroup = canEditTileGroups && tileGroupSectionsEnabled ? () => addTileGroup() : undefined
 
     const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
@@ -382,7 +392,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             enabled: canEditLayout,
             handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             // Text inside a tile stays selectable instead of starting a drag.
-            cancel: 'a,table,button,input,textarea,select,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown,.Popover',
+            cancel: 'a,table,button,input,textarea,select,p,h4,[role="heading"],[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown,.Popover',
             bounded: !showBands || activeTabIndex >= 0,
         }),
         [canEditLayout, showBands, activeTabIndex]
@@ -939,28 +949,36 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         )
     }
 
-    const renderSection = (section: DashboardSection, index: number): JSX.Element => (
-        <DashboardTileSectionBand
-            key={section.key}
-            section={section}
-            isFirst={index === 0}
-            isDropTarget={dropTargetKey === section.key}
-            collapsedTileGroupKeys={collapsedTileGroupKeys}
-            onToggleTileGroup={toggleTileGroup}
-            onRenameTileGroup={onRenameTileGroup}
-            renamingTileGroupKey={renamingTileGroupKey}
-            onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
-            onRemoveTileGroup={onRemoveTileGroup}
-            copyToDestinations={copyToDestinations}
-            onCopyGroupToDashboard={onCopyGroupToDashboard}
-            copyLoading={copyGroupToDashboardLoading}
-            onChangeGroupDisplay={onChangeGroupDisplay}
-            getAddTileOptions={getAddTileOptions}
-            getEmptyGroupAddAction={getBandEmptyAddAction}
-        >
-            {renderSectionGrid(section, index)}
-        </DashboardTileSectionBand>
-    )
+    const renderSection = (section: DashboardSection, index: number): JSX.Element => {
+        const previous = tileGroupSections[index - 1]
+        return (
+            <DashboardTileSectionBand
+                key={section.key}
+                section={section}
+                // Without a line, loose tiles read as part of the open group above. A closed group's header
+                // underline already separates them, and a second line would stack on it.
+                showDivider={
+                    !!previous && !(previous.kind === 'group' && collapsedTileGroupKeys.includes(previous.groupKey))
+                }
+                isDropTarget={dropTargetKey === section.key}
+                collapsedTileGroupKeys={collapsedTileGroupKeys}
+                onToggleTileGroup={toggleTileGroup}
+                onRenameTileGroup={onRenameTileGroup}
+                renamingTileGroupKey={renamingTileGroupKey}
+                onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
+                getTileGroupMoveActions={getTileGroupMoveActions}
+                onRemoveTileGroup={onRemoveTileGroup}
+                copyToDestinations={copyToDestinations}
+                onCopyGroupToDashboard={onCopyGroupToDashboard}
+                copyLoading={copyGroupToDashboardLoading}
+                onChangeGroupDisplay={onChangeGroupDisplay}
+                getAddTileOptions={getAddTileOptions}
+                getEmptyGroupAddAction={getBandEmptyAddAction}
+            >
+                {renderSectionGrid(section, index)}
+            </DashboardTileSectionBand>
+        )
+    }
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -973,6 +991,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onRenameGroup={onRenameTileGroup}
                         renamingGroupKey={renamingTileGroupKey}
                         onRenamingGroupKeyChange={setRenamingTileGroupKey}
+                        getMoveActions={getTileGroupMoveActions}
                         onRemoveGroup={onRemoveTileGroup}
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}

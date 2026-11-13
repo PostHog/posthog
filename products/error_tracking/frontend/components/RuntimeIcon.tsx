@@ -2,6 +2,7 @@ import {
     IconAndroid,
     IconApple,
     IconCSharp,
+    IconConvex,
     IconDart,
     IconElixir,
     IconFlutter,
@@ -22,10 +23,11 @@ import {
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 
-const RuntimeIconMap: Record<ErrorTrackingRuntime, React.FC> = {
+const RuntimeIconMap: Record<ErrorTrackingRuntime, React.FC<IconProps>> = {
     python: IconPython,
     web: IconJavascript,
     node: IconNode,
+    convex: IconConvex,
     ruby: IconRuby,
     go: IconGo,
     rust: IconRust,

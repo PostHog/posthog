@@ -18,6 +18,11 @@ export const SCENE_TABS: SceneTabConfig[] = [
         href: urls.supportTickets(),
     },
     {
+        key: 'overview',
+        label: 'Overview',
+        href: urls.supportDashboard(),
+    },
+    {
         key: 'settings',
         label: 'Settings',
         href: urls.supportSettings(),
@@ -69,6 +74,7 @@ export const scenesTabsLogic = kea<scenesTabsLogicType>([
     }),
     urlToAction(({ actions }) => {
         return {
+            '/support': () => actions.setActiveTab('overview'),
             '/support/tickets': () => actions.setActiveTab('tickets'),
             '/support/tickets/:ticketId': () => actions.setActiveTab('tickets'),
             '/support/settings': () => actions.setActiveTab('settings'),

@@ -203,9 +203,11 @@ from posthog.schema_enums import (
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationIdentitySourceType as MarketingAnalyticsRecommendationIdentitySourceType,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
+    MarketingAnalyticsRecommendationResolutionState as MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsDataGapKind as MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
@@ -1743,6 +1745,33 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
+
+
+class ErrorTrackingIssueTag(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str = Field(..., description="What the tag means, for a tooltip.")
+    key: str = Field(..., description="Key of the tag definition.")
+    label: str = Field(..., description="Short name of the tag.")
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results send null."
+        ),
+    )
+
+
+class ErrorTrackingIssueTagFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    applied: bool = Field(
+        ...,
+        description=("True matches the issues the tag is applied to. False matches every other issue."),
+    )
+    key: str = Field(..., description="Key of the tag definition.")
 
 
 class Person(BaseModel):
@@ -3424,6 +3453,7 @@ class ResultCustomizationByValue(BaseModel):
     color: DataColorToken | None = None
     customColor: str | None = None
     hidden: bool | None = None
+    label: str | None = None
 
 
 class RetentionValue(BaseModel):
@@ -3721,30 +3751,6 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: float | None = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: str | None = Field(default=None, description="Session ID. None means out-of-session events")
-
-
-class TraceNeighborsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
-    newerTraceId: str | None = Field(
-        default=None,
-        description="ID of the newer trace (chronologically after current)",
-    )
-    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
-    olderTraceId: str | None = Field(
-        default=None,
-        description="ID of the older trace (chronologically before current)",
-    )
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
 
 
 class TrendsFormulaNode(BaseModel):
@@ -6701,7 +6707,9 @@ class HogQLQueryModifiers(BaseModel):
             "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate"
             " into the joined persons subquery, so the latest-version lookup only reads"
             " persons that the outer query's left-table filters can reach. Applies only"
-            " to a persons join from the query's own FROM table."
+            " to a persons join from the query's own FROM table. Unset, it applies to a"
+            " persons join from `posthog.flag_evaluations` or from the union of events"
+            " and flag_evaluations, and to no other join."
         ),
     )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
@@ -7284,6 +7292,48 @@ class MarketingAnalyticsRecommendationCpa(BaseModel):
     )
 
 
+class MarketingAnalyticsRecommendationIdentity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaign_id: str = Field(
+        ...,
+        description=("The Google Ads campaign id. Empty when the recommendation is not about one campaign."),
+    )
+    customer_id: str = Field(
+        ...,
+        description=("The Google Ads account id. Empty when the recommendation is not tied to one account."),
+    )
+    rule: MarketingAnalyticsRecommendationRule
+    source_type: MarketingAnalyticsRecommendationIdentitySourceType = Field(
+        ..., description="The ad platform the ids belong to."
+    )
+    subject: str = Field(
+        ...,
+        description=(
+            "The search term, or the budget id for a budget recommendation. Empty when"
+            " the campaign id names the subject."
+        ),
+    )
+
+
+class MarketingAnalyticsRecommendationResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(
+        ...,
+        description=("The resolution id. Delete it through the resolutions API to show the recommendation again."),
+    )
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    resolved_at: str = Field(
+        ...,
+        description=(
+            "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp."
+        ),
+    )
+
+
 class MarketingAnalyticsRecommendationsDataGap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7597,6 +7647,10 @@ class MetricsDisplaySettings(BaseModel):
     reduce: MetricsReducer | None = Field(
         default=MetricsReducer.LAST,
         description=("How scalar panels and legend calcs collapse a series to one number."),
+    )
+    statSparkline: bool | None = Field(
+        default=True,
+        description=("`stat` display only: whether a graph of the series shows under the value."),
     )
     statSummary: MetricsStatSummary | None = Field(
         default=MetricsStatSummary.LATEST,
@@ -8054,30 +8108,6 @@ class QueryResponseAlternative31(BaseModel):
     data: dict[str, Any]
     error: ExternalQueryError | None = None
     status: ExternalQueryStatus
-
-
-class QueryResponseAlternative86(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
-    newerTraceId: str | None = Field(
-        default=None,
-        description="ID of the newer trace (chronologically after current)",
-    )
-    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
-    olderTraceId: str | None = Field(
-        default=None,
-        description="ID of the older trace (chronologically before current)",
-    )
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
 
 
 class QueryScanAnalysis(BaseModel):
@@ -16397,49 +16427,6 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     )
 
 
-class CachedTraceNeighborsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    is_cached: bool
-    last_refresh: AwareDatetime
-    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
-    newerTraceId: str | None = Field(
-        default=None,
-        description="ID of the newer trace (chronologically after current)",
-    )
-    next_allowed_client_refresh: AwareDatetime
-    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
-    olderTraceId: str | None = Field(
-        default=None,
-        description="ID of the older trace (chronologically before current)",
-    )
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class CachedTraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19763,6 +19750,13 @@ class ErrorTrackingIssue(BaseModel):
     severity: ErrorTrackingQueryIssueSeverity | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingIssueEventsQueryResponse(BaseModel):
@@ -19896,6 +19890,13 @@ class ErrorTrackingRelationalIssue(BaseModel):
     name: str | None = None
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingReleasesQueryResponse(BaseModel):
@@ -22392,14 +22393,28 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None, description="CPA figures in the account currency."
     )
     currency: str | None = None
+    identity: MarketingAnalyticsRecommendationIdentity
     impact: float | None = Field(
         default=None,
         description=("Monthly money impact in the account currency. Null when the rule has no money impact."),
     )
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    key: str = Field(
+        ...,
+        description=(
+            "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is."
+        ),
+    )
     level: MarketingAnalyticsRecommendationLevel
     reason: str
+    resolution: MarketingAnalyticsRecommendationResolution | None = Field(
+        default=None,
+        description=(
+            "Set only when the query includes resolved recommendations and someone"
+            " dismissed this one or marked it as applied."
+        ),
+    )
     rule: MarketingAnalyticsRecommendationRule
     steps: list[MarketingAnalyticsRecommendationStep] | None = Field(
         default=None,
@@ -27426,7 +27441,7 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27481,7 +27496,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27536,7 +27551,7 @@ class QueryResponseAlternative88(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27591,7 +27606,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27656,7 +27671,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27732,7 +27747,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27787,7 +27802,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27842,7 +27857,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27897,7 +27912,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27952,7 +27967,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28012,7 +28027,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28067,7 +28082,7 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28122,7 +28137,7 @@ class QueryResponseAlternative99(BaseModel):
     )
 
 
-class QueryResponseAlternative100(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28177,7 +28192,7 @@ class QueryResponseAlternative100(BaseModel):
     )
 
 
-class QueryResponseAlternative101(BaseModel):
+class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28232,7 +28247,7 @@ class QueryResponseAlternative101(BaseModel):
     )
 
 
-class QueryResponseAlternative102(BaseModel):
+class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28291,7 +28306,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28346,7 +28361,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28401,7 +28416,7 @@ class QueryResponseAlternative104(BaseModel):
     )
 
 
-class QueryResponseAlternative105(BaseModel):
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28456,7 +28471,7 @@ class QueryResponseAlternative105(BaseModel):
     )
 
 
-class QueryResponseAlternative106(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28511,7 +28526,7 @@ class QueryResponseAlternative106(BaseModel):
     )
 
 
-class QueryResponseAlternative107(BaseModel):
+class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28569,7 +28584,7 @@ class QueryResponseAlternative107(BaseModel):
     )
 
 
-class QueryResponseAlternative108(BaseModel):
+class QueryResponseAlternative107(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28624,7 +28639,7 @@ class QueryResponseAlternative108(BaseModel):
     )
 
 
-class QueryResponseAlternative109(BaseModel):
+class QueryResponseAlternative108(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28694,7 +28709,7 @@ class QueryResponseAlternative109(BaseModel):
     )
 
 
-class QueryResponseAlternative110(BaseModel):
+class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28749,7 +28764,7 @@ class QueryResponseAlternative110(BaseModel):
     )
 
 
-class QueryResponseAlternative111(BaseModel):
+class QueryResponseAlternative110(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28804,7 +28819,7 @@ class QueryResponseAlternative111(BaseModel):
     )
 
 
-class QueryResponseAlternative112(BaseModel):
+class QueryResponseAlternative111(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28859,7 +28874,7 @@ class QueryResponseAlternative112(BaseModel):
     )
 
 
-class QueryResponseAlternative113(BaseModel):
+class QueryResponseAlternative112(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28914,7 +28929,7 @@ class QueryResponseAlternative113(BaseModel):
     )
 
 
-class QueryResponseAlternative114(BaseModel):
+class QueryResponseAlternative113(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28969,7 +28984,7 @@ class QueryResponseAlternative114(BaseModel):
     )
 
 
-class QueryResponseAlternative115(BaseModel):
+class QueryResponseAlternative114(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29024,7 +29039,7 @@ class QueryResponseAlternative115(BaseModel):
     )
 
 
-class QueryResponseAlternative116(BaseModel):
+class QueryResponseAlternative115(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29079,7 +29094,7 @@ class QueryResponseAlternative116(BaseModel):
     )
 
 
-class QueryResponseAlternative117(BaseModel):
+class QueryResponseAlternative116(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29135,7 +29150,7 @@ class QueryResponseAlternative117(BaseModel):
     )
 
 
-class QueryResponseAlternative118(BaseModel):
+class QueryResponseAlternative117(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29193,7 +29208,7 @@ class QueryResponseAlternative118(BaseModel):
     )
 
 
-class QueryResponseAlternative119(BaseModel):
+class QueryResponseAlternative118(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -32830,6 +32845,13 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     population: Population
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingFingerprintProjectionQuery(BaseModel):
@@ -33461,12 +33483,25 @@ class HogQLQueryResponse(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -34238,6 +34273,13 @@ class MarketingAnalyticsRecommendationsQuery(BaseModel):
         ),
     )
     dateRange: DateRange | None = None
+    includeResolved: bool | None = Field(
+        default=False,
+        description=(
+            "Also return recommendations that someone in the project dismissed or"
+            " marked as applied, with their `resolution`."
+        ),
+    )
     kind: Literal["MarketingAnalyticsRecommendationsQuery"] = "MarketingAnalyticsRecommendationsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MarketingAnalyticsRecommendationsQueryResponse | None = None
@@ -34724,12 +34766,25 @@ class QueryResponseAlternative8(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -34888,12 +34943,25 @@ class QueryResponseAlternative43(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -34995,7 +35063,7 @@ class QueryResponseAlternative55(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -35307,25 +35375,6 @@ class TileFilters(BaseModel):
     )
     interval: IntervalType | None = None
     properties: list[AnyPropertyFilterDiscriminated] | None = None
-
-
-class TraceNeighborsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: DateRange | None = None
-    filterSupportTraces: bool | None = None
-    filterTestAccounts: bool | None = None
-    kind: Literal["TraceNeighborsQuery"] = "TraceNeighborsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = Field(
-        default=None, description="Properties configurable in the interface"
-    )
-    response: TraceNeighborsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    timestamp: str = Field(..., description="Timestamp of the current trace to find neighbors for")
-    traceId: str = Field(..., description="ID of the current trace to find neighbors for")
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TraceQuery(BaseModel):
@@ -35998,15 +36047,28 @@ class CachedHogQLQueryResponse(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
@@ -36104,12 +36166,25 @@ class Response3(BaseModel):
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
+    hasMore: bool | None = Field(
+        default=None,
+        description=(
+            "Set when the default row limit applied, because the query is a single"
+            " SELECT with no LIMIT of its own. True means more rows exist beyond"
+            " `limit`: add an explicit LIMIT, or page with `offset`. Not set when the"
+            " query has its own LIMIT, uses UNION, or runs with `sendRawQuery`."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT."
+        ),
+    )
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
+    offset: int | None = Field(default=None, description="Rows skipped before the default row limit applied.")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -36395,7 +36470,15 @@ class HogQLQuery(BaseModel):
             " sets its own LIMIT, uses UNION, or runs as raw SQL."
         ),
     )
-    query: str
+    query: str = Field(
+        ...,
+        description=(
+            "The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows;"
+            " check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in"
+            " a UNION gets the same default limit. With `sendRawQuery`, no default"
+            " limit applies and `hasMore` is not set."
+        ),
+    )
     response: HogQLQueryResponse | None = None
     sendRawQuery: bool | None = Field(
         default=None,
@@ -36916,6 +36999,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
+    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+        default=None,
+        description=(
+            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+        ),
+    )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -37860,7 +37949,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative116
         | QueryResponseAlternative117
         | QueryResponseAlternative118
-        | QueryResponseAlternative119
     ]
 ):
     root: (
@@ -37979,7 +38067,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative116
         | QueryResponseAlternative117
         | QueryResponseAlternative118
-        | QueryResponseAlternative119
     )
 
 
@@ -39139,7 +39226,6 @@ class HogQLAutocomplete(BaseModel):
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -39290,7 +39376,6 @@ class HogQLMetadata(BaseModel):
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -39446,7 +39531,6 @@ class MaxInsightContext(BaseModel):
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -39597,7 +39681,6 @@ class QueryRequest(BaseModel):
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -39741,7 +39824,6 @@ class QuerySchemaRoot(
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -39855,7 +39937,6 @@ class QuerySchemaRoot(
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -39974,7 +40055,6 @@ class QueryUpgradeRequest(BaseModel):
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -40093,7 +40173,6 @@ class QueryUpgradeResponse(BaseModel):
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery
@@ -40257,7 +40336,6 @@ class VisualizationArtifactContent(BaseModel):
         | TracesQuery
         | TraceQuery
         | SessionQuery
-        | TraceNeighborsQuery
         | VectorSearchQuery
         | InboxUsageQuery
         | UsageMetricsQuery

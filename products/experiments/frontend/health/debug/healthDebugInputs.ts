@@ -267,6 +267,11 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
                   { label: 'Since', value: `${formatTimestamp(traffic.since)} (${traffic.team_timezone})` },
                   { label: 'Calls', value: formatCount(traffic.calls) },
                   {
+                      label: 'Internal and test users',
+                      value: traffic.filters_test_accounts ? 'Left out' : 'Counted',
+                      help: 'The scan leaves out the calls that the filter for internal and test users excludes when the experiment applies that filter, as the results do.',
+                  },
+                  {
                       label: 'Evaluated by the flag service',
                       value: `${formatCount(traffic.remotely_evaluated_calls)} (${formatShare(traffic.calls ? traffic.remotely_evaluated_calls / traffic.calls : null)})`,
                       help: 'Only these calls name the condition that served them. Local evaluation and bootstrapped values name none.',

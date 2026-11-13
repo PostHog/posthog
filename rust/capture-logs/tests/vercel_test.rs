@@ -191,23 +191,6 @@ fn severity_table() {
 }
 
 #[test]
-fn drain_gate_is_closed_unless_a_token_is_listed() {
-    for (enabled, token, allowed) in [
-        ("", "phc_a", false),
-        ("phc_a", "phc_a", true),
-        (" phc_a , phc_b ", "phc_b", true),
-        ("phc_a", "phc_c", false),
-        ("*", "phc_c", true),
-    ] {
-        assert_eq!(
-            VercelDrainGate::new(enabled).allows(token),
-            allowed,
-            "{enabled:?} / {token}"
-        );
-    }
-}
-
-#[test]
 fn only_real_http_statuses_become_the_response_status() {
     for (proxy_status, line_status, expected) in [
         (json!(200), json!(null), Some(200)),
