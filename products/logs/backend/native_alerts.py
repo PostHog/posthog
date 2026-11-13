@@ -54,6 +54,7 @@ def create_native(
     fields: Mapping[str, Any],
     grouping: Grouping | None,
     labels: dict[str, str] | None,
+    annotations: dict[str, str] | None,
     created_by_id: int,
 ) -> PlatformAlertConfigurationView:
     """Creates a logs alert on the platform alone, from the logs API's settings with their defaults applied.
@@ -62,7 +63,10 @@ def create_native(
     platform's logs schema rejects.
     """
     edit = platform_edit_of(
-        LogsAlertConfiguration(team_id=team_id, **fields), grouping if grouping is not None else Grouping(), labels
+        LogsAlertConfiguration(team_id=team_id, **fields),
+        grouping if grouping is not None else Grouping(),
+        labels,
+        annotations,
     )
     return create_configuration(
         team_id=team_id, source_kind=SourceKind.LOGS, edit=edit, created_by_id=created_by_id, natively=True
@@ -76,6 +80,7 @@ def update_native(
     changes: Mapping[str, Any],
     grouping: Grouping | None,
     labels: dict[str, str] | None,
+    annotations: dict[str, str] | None,
     snooze_until: datetime | None,
     snooze_changed: bool,
 ) -> PlatformAlertConfigurationView | None:
@@ -94,7 +99,7 @@ def update_native(
         team_id=team_id,
         source_kinds=_LOGS,
         configuration_id=alert_id,
-        change=platform_change_of(alert, grouping, labels),
+        change=platform_change_of(alert, grouping, labels, annotations),
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
     )

@@ -18,7 +18,6 @@ from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api_keys_for_user
-from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
@@ -27,6 +26,17 @@ from posthog.user_permissions import UserPermissions
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
 SCOPE_ACCESS_ERROR = "You must be a member of all teams and organizations that you are scoping the key to."
+
+
+def _is_grantable_scope(scope: str) -> bool:
+    scope_object, _, action = scope.partition(":")
+    return scope_object in GRANTABLE_API_SCOPE_OBJECTS and action in API_SCOPE_ACTIONS
+
+
+def _drop_retired_scopes(scopes: list[str], existing_scopes: list[str] | None) -> list[str]:
+    """Drop the scopes a key already held that are no longer grantable, so retiring a scope never blocks saving a key."""
+    held = set(existing_scopes or [])
+    return [scope for scope in scopes if scope == "*" or scope not in held or _is_grantable_scope(scope)]
 
 
 def validate_personal_api_key_scopes(
@@ -42,19 +52,14 @@ def validate_personal_api_key_scopes(
                 continue
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
-        scope_parts = scope.split(":")
-        if (
-            len(scope_parts) != 2
-            or scope_parts[0] not in GRANTABLE_API_SCOPE_OBJECTS
-            or scope_parts[1] not in API_SCOPE_ACTIONS
-        ):
+        if not _is_grantable_scope(scope):
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
         if allowed_scopes is not None and scope not in allowed_scopes:
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
         # Check feature flag for llm_gateway scope - block if newly adding this scope
-        if scope_parts[0] == "llm_gateway":
+        if scope.startswith("llm_gateway:"):
             existing_has_llm_gateway = existing_scopes is not None and any(
                 s.startswith("llm_gateway:") for s in existing_scopes
             )
@@ -187,6 +192,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
         existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
+        scopes = _drop_retired_scopes(scopes, existing_scopes)
         validate_personal_api_key_scopes(scopes, requesting_user, existing_scopes=existing_scopes)
 
         return scopes
@@ -296,25 +302,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         personal_api_key = super().update(personal_api_key, updates)
         personal_api_key._value = value  # type: ignore
         return personal_api_key
-
-    def get_scoped_organization_ids(self, personal_api_key: PersonalAPIKey) -> list[str]:
-        """Get organization IDs that should receive activity logs for this API key."""
-        org_ids = []
-
-        if personal_api_key.scoped_organizations:
-            org_ids = personal_api_key.scoped_organizations
-        elif personal_api_key.scoped_teams:
-            # `organization_id` is a column on the team row, so no organization join is needed.
-            org_ids = list(
-                Team.objects.filter(pk__in=personal_api_key.scoped_teams)
-                .values_list("organization_id", flat=True)
-                .distinct()
-            )
-        else:
-            user_permissions = UserPermissions(personal_api_key.user)
-            org_ids = list(user_permissions.organization_memberships.keys())
-
-        return [str(org_id) for org_id in org_ids]
 
 
 class PersonalApiKeySelfAccessPermission(BasePermission):

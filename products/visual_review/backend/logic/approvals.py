@@ -1,18 +1,37 @@
-"""Approving snapshots and finalizing a run (the all-or-nothing baseline commit)."""
+"""Approving snapshots and finalizing a run (the all-or-nothing baseline change).
+
+Finalize commits the baseline file in yaml and shadow mode. Shadow and ledger mode record approval
+rows, and in ledger mode those rows are the whole change. In shadow mode recording them never makes
+finalize wait or fail.
+"""
 
 from __future__ import annotations
 
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from ..db import WRITER_DB
-from ..facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
+from ..facade.enums import BaselineMode, ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
 from ..models import Run
-from . import artifact_store, baselines, ci_status, errors, gating, run_queries
+from . import (
+    artifact_store,
+    baseline_approvals,
+    baseline_record,
+    baselines,
+    ci_status,
+    errors,
+    gating,
+    github_api,
+    ledger,
+    run_queries,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +47,56 @@ def _rerun_completing_job(run: Run, check_run_id: str) -> None:
         logger.warning("visual_review.finalize_ci_rerun_failed", run_id=str(run.id), error=error)
 
 
-@transaction.atomic(using=WRITER_DB)
+def _record_shadow_approvals(run: Run, user_id: int, carried_commit_sha: str) -> None:
+    """Write a shadow-mode finalize's approval rows, never failing the finalize.
+
+    The savepoint keeps a failed statement from aborting the finalize transaction, which already
+    pushed its baseline commit.
+    """
+    try:
+        with transaction.atomic(using=WRITER_DB):
+            baseline_approvals.record_approvals(run, user_id, carried_commit_sha=carried_commit_sha)
+    except Exception:
+        logger.warning("visual_review.shadow_approvals_failed", run_id=str(run.id), exc_info=True)
+
+
+@frozen
+class _FinalizeContext:
+    """What finalize reads before its transaction.
+
+    The mode decides whether the ledger lock comes first. The pull request is read in ledger mode only.
+    """
+
+    repo_id: UUID
+    mode: BaselineMode
+    pull_request: github_api.PullRequestState | None = None
+
+
+def _read_finalize_context(run_id: UUID, team_id: int | None) -> _FinalizeContext:
+    """Read the mode and, in ledger mode, the pull request outside the transaction, so no lock waits on GitHub.
+
+    In yaml and shadow mode the commit path reads the pull request itself, so nothing is read here.
+    """
+    run = run_queries.get_run(run_id, team_id=team_id)
+    mode = BaselineMode(run.repo.baseline_mode)
+    context = _FinalizeContext(repo_id=run.repo_id, mode=mode)
+    if mode != BaselineMode.LEDGER or run.pr_number is None or run.approved:
+        return context
+    pull_request = github_api.pull_request_state(run.repo, run.pr_number)
+    if pull_request is None:
+        raise errors.GitHubCommitError(f"GitHub did not return pull request #{run.pr_number}.")
+    return _FinalizeContext(repo_id=run.repo_id, mode=mode, pull_request=pull_request)
+
+
+def _require_open_pull_request_at_run(run: Run, pull_request: github_api.PullRequestState) -> None:
+    if pull_request.state != "open" or pull_request.merged:
+        raise errors.PullRequestClosedError(baselines.PULL_REQUEST_CLOSED_MESSAGE.format(pr_number=run.pr_number))
+    if pull_request.head_sha != run.commit_sha:
+        raise errors.PRSHAMismatchError(
+            baselines.PR_SHA_MISMATCH_MESSAGE.format(expected=run.commit_sha, actual=pull_request.head_sha)
+        )
+
+
 def finalize_run(
     run_id: UUID,
     user_id: int,
@@ -60,9 +128,51 @@ def finalize_run(
     posts a new comment when it does not. ``add_images_to_comment_on_pr`` only controls whether
     the before/after snapshot images are embedded in that comment; defaults false so the comment
     stays a text summary unless the reviewer opts in.
+
+    In shadow and ledger mode finalize also writes one approval row per approved change. In
+    ledger mode nothing is committed and nothing in CI runs again: the success status is the gate.
     """
+    context = _read_finalize_context(run_id, team_id)
+    return _finalize_run(
+        run_id,
+        user_id,
+        team_id=team_id,
+        approve_all=approve_all,
+        review_decision=review_decision,
+        commit_to_github=commit_to_github,
+        add_images_to_comment_on_pr=add_images_to_comment_on_pr,
+        context=context,
+    )
+
+
+@transaction.atomic(using=WRITER_DB)
+def _finalize_run(
+    run_id: UUID,
+    user_id: int,
+    *,
+    team_id: int | None,
+    approve_all: bool,
+    review_decision: ReviewDecision,
+    commit_to_github: bool,
+    add_images_to_comment_on_pr: bool,
+    context: _FinalizeContext,
+) -> Run:
+    mode = context.mode
+    ledger_locked = False
+    if mode == BaselineMode.LEDGER:
+        ledger.lock_ledger(context.repo_id)
+        ledger_locked = True
+    elif mode == BaselineMode.SHADOW:
+        # Shadow mode must never make finalize wait on the ledger, so it only takes a free lock.
+        ledger_locked = ledger.try_lock_ledger(context.repo_id)
+        if not ledger_locked:
+            logger.info("visual_review.shadow_approvals_skipped_ledger_busy", run_id=str(run_id))
     run = run_queries._get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
+    # Changing the mode takes the ledger lock, so a mode that differs here changed before finalize
+    # held that lock, and the lock order with `advance` is not guaranteed any more.
+    if ledger_locked and repo.baseline_mode != mode:
+        raise errors.BaselineModeChangedError("The repo's baseline mode changed during the approval. Try again.")
 
     if run.purpose == RunPurpose.OBSERVE:
         raise ValueError("Observational runs cannot be approved")
@@ -78,6 +188,20 @@ def finalize_run(
     if run_queries.is_run_stale(run):
         raise errors.StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
 
+    if mode == BaselineMode.LEDGER:
+        if run.pr_number is None:
+            raise errors.RunWithoutPullRequestError(
+                "This run has no pull request, and in ledger mode an approval belongs to a pull request. "
+                "Approve a run of the pull request that makes this change."
+            )
+        if context.pull_request is not None:
+            _require_open_pull_request_at_run(run, context.pull_request)
+        if baseline_record.record_for_run(run) is None:
+            raise errors.RunWithoutBaselineRecordError(
+                "This run finished before the repo used the baseline ledger, so its approvals cannot be recorded. "
+                f"Re-run CI on commit {run.commit_sha[:12]} and approve the new run."
+            )
+
     # Re-evaluate quarantine so resolution accounting reflects the current policy.
     gating._stamp_quarantine(run)
     now = timezone.now()
@@ -91,12 +215,19 @@ def finalize_run(
     if approve_all:
         pending = [s for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)]
         _validate_approval(run, {s.identifier: s.current_hash for s in pending})
+        # One statement for all pending snapshots, because in ledger mode this runs under the repo-wide
+        # ledger lock. The objects get the same values, because the check below reads them.
+        run.snapshots.using(WRITER_DB).filter(id__in=[s.id for s in pending]).update(
+            review_state=ReviewState.APPROVED,
+            reviewed_at=now,
+            reviewed_by_id=user_id,
+            approved_hash=F("current_hash"),
+        )
         for snapshot in pending:
             snapshot.review_state = ReviewState.APPROVED
             snapshot.reviewed_at = now
             snapshot.reviewed_by_id = user_id
             snapshot.approved_hash = snapshot.current_hash
-            snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
 
     # All-or-nothing: refuse to commit while any actionable snapshot is still unreviewed.
     unresolved = [
@@ -116,7 +247,14 @@ def finalize_run(
 
     # Commit first — before DB writes — so a GitHub failure aborts cleanly. Removed snapshots
     # also need a commit, to prune them from the baseline, even when nothing was approved.
-    committed = bool(commit_to_github and (approved_updates or has_removed) and run.pr_number and repo.repo_full_name)
+    # In ledger mode the approval rows are the baseline change, so nothing goes to the branch.
+    committed = bool(
+        mode != BaselineMode.LEDGER
+        and commit_to_github
+        and (approved_updates or has_removed)
+        and run.pr_number
+        and repo.repo_full_name
+    )
     if committed:
         baselines._commit_baseline_to_github(run, repo, approved_updates, approver_user_id=user_id)
 
@@ -127,11 +265,19 @@ def finalize_run(
         reviewed_by_id=user_id,
     )
 
+    # Landing without evidence needs the merged head to be the approval's commit or carried commit.
+    carried_commit_sha = ((run.metadata or {}).get("baseline_commit_sha") or "") if committed else ""
+    if mode == BaselineMode.LEDGER:
+        baseline_approvals.record_approvals(run, user_id, carried_commit_sha=carried_commit_sha)
+
     run.approved = True
     run.review_decision = review_decision
     run.approved_at = now
     run.approved_by_id = user_id
     run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
+
+    if mode == BaselineMode.SHADOW and ledger_locked:
+        _record_shadow_approvals(run, user_id, carried_commit_sha)
 
     if commit_to_github:
         ci_status._post_commit_status(run, repo, "success", "Visual changes approved")
@@ -203,7 +349,7 @@ def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
                 f"approved {expected_hash[:12]} but current is {snapshot.current_hash[:12]}"
             )
 
+    missing_hashes = set(artifact_store.find_missing_hashes(repo.id, list(approvals.values())))
     for identifier, new_hash in approvals.items():
-        artifact = artifact_store.get_artifact(repo.id, new_hash)
-        if not artifact:
+        if new_hash in missing_hashes:
             raise errors.ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")

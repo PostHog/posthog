@@ -916,7 +916,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
+                '/api/projects/:team_id/tags/': { results: ['checkout', 'core flows'], next: null, count: 2 },
                 '/api/projects/:team_id/experiments/': runningExperiments,
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
@@ -2112,7 +2112,7 @@ export const StartupProgramCap: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
+                '/api/projects/:team_id/tags/': { results: ['checkout', 'core flows'], next: null, count: 2 },
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },

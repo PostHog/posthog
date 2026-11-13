@@ -498,16 +498,18 @@ def test_scrub_body_redacts_nested_json_secrets():
     assert out["data"]["page"] == 2
 
 
-def test_scrub_body_redacts_webhook_signing_secret():
-    out = _scrub_body('{"webhooks": [{"id": "hook-1", "secret": "signing-secret"}]}')
+@pytest.mark.parametrize(
+    ("collection", "secret_key"),
+    [
+        ("webhooks", "secret"),
+        ("advertisers", "verification_token"),
+        ("clusters", "kube_config"),
+    ],
+)
+def test_scrub_body_redacts_secret_fields_in_listed_rows(collection: str, secret_key: str):
+    out = _scrub_body(json.dumps({collection: [{"id": "row-1", secret_key: "live-credential"}]}))
     assert isinstance(out, dict)
-    assert out["webhooks"][0]["secret"] == "REDACTED"
-
-
-def test_scrub_body_redacts_postback_verification_token():
-    out = _scrub_body('{"advertisers": [{"network_advertiser_id": 135, "verification_token": "postback-token"}]}')
-    assert isinstance(out, dict)
-    assert out["advertisers"][0]["verification_token"] == "REDACTED"
+    assert out[collection][0] == {"id": "row-1", secret_key: "REDACTED"}
 
 
 def test_scrub_body_redacts_preauthenticated_download_urls():

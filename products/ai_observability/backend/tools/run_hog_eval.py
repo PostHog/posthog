@@ -10,7 +10,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.sync import database_sync_to_async
 
-from products.ai_observability.backend.hog import compile_ai_observability_hog
+from products.ai_observability.backend.hog import compile_ai_observability_hog, hog_compile_error_message
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
@@ -159,7 +159,7 @@ class RunHogEvalTestTool(MaxTool):
         try:
             bytecode = compile_ai_observability_hog(source, "destination")
         except Exception as e:
-            return (f"Compilation error: {e}", None)
+            return (hog_compile_error_message(source, e), None)
 
         team = self._team
 

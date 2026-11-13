@@ -5,7 +5,6 @@ import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLog
 import { hogFlowsDestroy, hogFlowsPartialUpdate } from 'products/workflows/frontend/generated/api'
 import type { HogFlowStateEnumApi, HogFlowUpdateApi } from 'products/workflows/frontend/generated/api.schemas'
 
-/** What the row actions need to know about a workflow, in either list. */
 export interface WorkflowRowTarget {
     id: string
     name: string | null
@@ -47,10 +46,6 @@ export async function restoreWorkflowToDraft(
     }
 }
 
-/**
- * Asks first, then archives. `onArchived` runs only after the server accepted the change.
- * `onPendingChange` brackets the request, from the confirm press to the answer.
- */
 export function confirmArchiveWorkflow(
     teamId: string,
     workflow: WorkflowRowTarget,
@@ -86,7 +81,6 @@ export function confirmArchiveWorkflow(
     })
 }
 
-/** Asks first, then deletes. `onDeleted` runs only after the server deleted the workflow. */
 export function confirmDeleteWorkflow(
     teamId: string,
     workflow: WorkflowRowTarget,

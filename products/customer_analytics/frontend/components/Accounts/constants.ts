@@ -55,7 +55,6 @@ export const AccountsEvents = {
     PropertiesWidgetConfigured: 'customer analytics account properties widget configured',
     AccountPropertySaveFailed: 'customer analytics account property save failed',
     PinnedPropertiesSaved: 'customer analytics account pinned properties saved',
-    LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
     NoteCreated: 'customer analytics accounts note created',
     NotesSearched: 'customer analytics accounts notes searched',

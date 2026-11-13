@@ -32,7 +32,8 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.utils import variables_override_requested_by_client
 
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import InsightPlacement
 from products.product_analytics.backend.facade.api import insight_variables_for_team
 from products.product_analytics.backend.facade.models import Insight
 
@@ -117,12 +118,12 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
-    dashboard_q_filter = Q()
+    placements: list[InsightPlacement] = []
     insight_ids_single = set()
 
     for insight_id, dashboard_id in (combo.split(":") for combo in combos):
         if dashboard_id:
-            dashboard_q_filter |= Q(insight_id=insight_id, dashboard_id=dashboard_id)
+            placements.append(InsightPlacement(insight_id=int(insight_id), dashboard_id=int(dashboard_id)))
         else:
             insight_ids_single.add(insight_id)
 
@@ -139,19 +140,13 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         for single_insight_id in single_insight_ids:
             yield single_insight_id, None
 
-    if not dashboard_q_filter:
+    if not placements:
         return
 
-    if shared_only:
-        dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
-
-    dashboard_tiles = (
-        DashboardTile.objects.filter(dashboard__last_accessed_at__gte=threshold)
-        .filter(dashboard_q_filter)
-        .distinct()
-        .values_list("insight_id", "dashboard_id")
-    )
-    yield from dashboard_tiles
+    for placement in dashboards_api.placements_on_dashboards_accessed_since(
+        placements=placements, since=threshold, shared_only=shared_only
+    ):
+        yield placement.insight_id, placement.dashboard_id
 
 
 @shared_task(ignore_result=True, expires=60 * 15)
@@ -265,7 +260,11 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
-            tile = dashboard.tiles.filter(insight=insight).first() if dashboard is not None else None
+            tile_filters_override = (
+                dashboards_api.tile_filters_overrides(dashboard_id=dashboard.id, insight_id=insight.pk)
+                if dashboard is not None
+                else None
+            )
             variables_override = (
                 variables_override_requested_by_client(None, dashboard, insight_variables_for_team(insight.team_id))
                 if dashboard is not None and dashboard.variables
@@ -282,7 +281,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=insight.created_by,
                 variables_override=variables_override,
-                tile_filters_override=tile.filters_overrides if tile is not None else None,
+                tile_filters_override=tile_filters_override,
                 analytics_props={"source": EventSource.CACHE_WARMING},
             )
 

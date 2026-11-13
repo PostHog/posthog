@@ -17,7 +17,6 @@
 # Once a product reaches the Isolated rung, regenerate this file and its line drops out.
 
 access_control
-actions
 ai_observability
 alerts
 analytics_platform

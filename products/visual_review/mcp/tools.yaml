@@ -96,9 +96,11 @@ tools:
         description: >
             Change a repo's settings; a field you leave out keeps its value. `enable_pr_comments` posts a review request
             on pull requests with visual changes. `debt_digest_enabled` posts a Monday Slack digest of expiring
-            quarantines and piled-up variants to the owning teams. `baseline_file_paths` maps a run type to its
-            committed baseline file, for example `{"storybook": ".storybook/snapshots.yml"}`, with `default` as the
-            fallback; finalize commits to that path.
+            quarantines and piled-up variants to the owning teams. `auto_quarantine_mode` quarantines a snapshot that
+            full default-branch and merge queue runs prove flaky, and lifts a quarantine once the last 500
+            default-branch runs and every stored merge queue run since render the snapshot unchanged: `off`, `preview`
+            (log only) or `on`. `baseline_file_paths` maps a run type to its committed baseline file, for example
+            `{"storybook": ".storybook/snapshots.yml"}`, with `default` as the fallback; finalize commits to that path.
         param_overrides:
             id:
                 description: The repo's UUID, from `visual-review-repos-list`.

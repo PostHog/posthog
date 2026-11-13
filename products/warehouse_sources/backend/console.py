@@ -493,3 +493,11 @@ class WarehouseSourcesTool(ConsoleTool):
                 )
             )
         return operations
+
+
+for old in ("repartition", "trigger-sync", "pause-schedule", "unpause-schedule", "recreate-schedule"):
+    console.register_moved_page(
+        old_path=f"admin/warehouse_sources/externaldataschema/<uuid:schema_id>/{old}/",
+        title="Schema partitioning and sync",
+        url="/admin/console/tools/warehouse-sources/?schema={schema_id}",
+    )

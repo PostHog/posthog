@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { isFeatureFlagGatedError } from 'lib/api-error'
+import { retryWithBackoff } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -84,8 +86,22 @@ export const logsMetricRulesSectionLogic = kea<logsMetricRulesSectionLogicType>(
             [] as LogsMetricRuleApi[],
             {
                 loadRules: async () => {
-                    const response = await logsMetricRulesList(String(values.currentTeamId))
-                    return response.results
+                    try {
+                        const response = await retryWithBackoff(
+                            () => logsMetricRulesList(String(values.currentTeamId)),
+                            { maxAttempts: 4, shouldRetry: isFeatureFlagGatedError }
+                        )
+                        return response.results
+                    } catch (error) {
+                        // The browser shows this section as soon as the user turns the metrics preview on,
+                        // but the server sees the enrollment only once the person property is ingested,
+                        // a few seconds later. The retries cover that window; if the gate is still closed
+                        // after them, show no rules instead of an error.
+                        if (isFeatureFlagGatedError(error)) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],

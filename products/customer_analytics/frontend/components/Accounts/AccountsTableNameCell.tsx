@@ -1,16 +1,11 @@
-import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import type { MouseEventHandler } from 'react'
 
 import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import type { AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountNameCell } from './AccountNameCell'
-import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
 import { AccountsEvents } from './constants'
 
@@ -41,28 +36,13 @@ export function AccountsTableNameCell({
     name,
     viewers,
 }: AccountsTableNameCellProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { isAccountExpanded } = useValues(accountsExpansionLogic)
-    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
-    const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
-
     const handleClick: MouseEventHandler<HTMLElement> = (event) => {
         if (!accountId || event.metaKey || event.ctrlKey || event.shiftKey) {
             return
         }
 
-        if (accountSceneEnabled) {
-            accountsViewsLogic.findMounted()?.actions.prepareAccountReturn()
-            posthog.capture(AccountsEvents.AccountOpened)
-            return
-        }
-
-        event.preventDefault()
-        event.stopPropagation()
-        if (!isAccountExpanded(accountId)) {
-            posthog.capture(AccountsEvents.AccountOpened)
-        }
-        toggleAccountExpanded(accountId)
+        accountsViewsLogic.findMounted()?.actions.prepareAccountReturn()
+        posthog.capture(AccountsEvents.AccountOpened)
     }
 
     const shownViewers = viewers.slice(0, MAX_PRESENCE_AVATARS)

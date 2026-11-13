@@ -45,6 +45,19 @@ def select_page[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
     return Page(results=list(rows), count=count)
 
 
+def select_page_without_count[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
+    """Return one page of `queryset` without counting the whole list, for filters too costly to run twice.
+
+    It reads one row past the page to learn whether another page follows. `count` then holds the rows
+    through this page, plus one when another page follows, so that a limit/offset paginator sets `next`
+    exactly when more rows exist.
+    """
+    rows = list(stable_queryset_ordering(queryset)[page.offset : page.offset + page.limit + 1])
+    more = len(rows) > page.limit
+    results = rows[: page.limit]
+    return Page(results=results, count=page.offset + len(results) + (1 if more else 0))
+
+
 def _model_field(model: type[Model], field: str) -> Field | None:
     """Return the column field that `field` names, or None for an annotation or a relation without a column."""
     if field == "pk":

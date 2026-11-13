@@ -6,7 +6,7 @@ All parameters go inside `query` — top-level fields are rejected:
 { "query": { "metricName": "m", "anomalyFrom": "2026-01-01T00:00:00Z" } }
 ```
 
-Required: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).
+Required: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). The window bounds are ISO 8601 timestamps; relative offsets such as `-30M` or `-1h` are rejected here. `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).
 
 The aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.
 

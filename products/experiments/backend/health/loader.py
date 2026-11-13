@@ -47,6 +47,10 @@ def evaluate_experiment_health(
     metrics, the compile of their queries and their latest calculation, the changes of the flag since launch and the
     flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow."""
     experiment = _load_experiment(team_id, experiment_id)
+    if experiment.is_rule_linked:
+        # The checks and the setup read the release conditions and the variants of a v1 flag. None reads a
+        # feature flag rule yet, so such an experiment has no findings instead of failed checks.
+        return ExperimentHealth(findings=(), checks=())
     health = evaluate(_health_context(experiment, reader_access, user), EXPERIMENT_HEALTH_CHECKS)
     return replace(health, setup=_health_setup(experiment))
 

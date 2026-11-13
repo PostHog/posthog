@@ -60,6 +60,7 @@ export interface sendDayPickerLogicValues {
     crowdedDays: Record<string, boolean>
     days: string[]
     draftAudience: SendAudience
+    ignoresCap: boolean
     isTransactional: boolean
     loadFailed: boolean
     loadRange: CalendarRange
@@ -119,6 +120,7 @@ export interface sendDayPickerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         rule: (currentTeam: TeamPublicType | TeamType | null) => SendingRule
         isTransactional: (emailSettings: BroadcastEmailSettings) => boolean
+        ignoresCap: (isTransactional: boolean, emailSettings: BroadcastEmailSettings) => boolean
         draftAudience: (audienceProperties: AnyPropertyFilter[]) => SendAudience
         timeOfDay: (sendAt: string | null, effectiveTimezone: string) => string
         today: (effectiveTimezone: string) => string
@@ -132,12 +134,12 @@ export interface sendDayPickerLogicMeta {
             otherFlows: SendCalendarFlowApi[],
             loadRange: CalendarRange,
             draftAudience: SendAudience,
-            isTransactional: boolean
+            ignoresCap: boolean
         ) => CalendarSend[]
         countingKeys: (
             otherSends: CalendarSend[],
             draftAudience: SendAudience,
-            isTransactional: boolean
+            ignoresCap: boolean
         ) => Record<string, boolean>
         sendsByDay: (otherSends: CalendarSend[], effectiveTimezone: string) => Record<string, CalendarSend[]>
         crowdedDays: (
@@ -153,7 +155,7 @@ export interface sendDayPickerLogicMeta {
             timeOfDay: string,
             effectiveTimezone: string,
             rule: SendingRule,
-            isTransactional: boolean
+            ignoresCap: boolean
         ) => dayjs.Dayjs | null
     }
 }
@@ -242,6 +244,11 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
             (s) => [s.emailSettings],
             (emailSettings: BroadcastEmailSettings): boolean => emailSettings.messageCategoryType === 'transactional',
         ],
+        ignoresCap: [
+            (s) => [s.isTransactional, s.emailSettings],
+            (isTransactional: boolean, emailSettings: BroadcastEmailSettings): boolean =>
+                isTransactional || emailSettings.skipFrequencyCap,
+        ],
         draftAudience: [
             (s) => [s.audienceProperties],
             (audienceProperties: AnyPropertyFilter[]): SendAudience => audienceFromProperties(audienceProperties),
@@ -302,14 +309,14 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
         // The sends the cap counts, over the whole range and without the display limit. Only flows that can reach
         // the same people are expanded, and these are never sorted for display.
         countingSends: [
-            (s) => [s.otherFlows, s.loadRange, s.draftAudience, s.isTransactional],
+            (s) => [s.otherFlows, s.loadRange, s.draftAudience, s.ignoresCap],
             (
                 otherFlows: SendCalendarFlowApi[],
                 loadRange: CalendarRange,
                 draftAudience: SendAudience,
-                isTransactional: boolean
+                ignoresCap: boolean
             ): CalendarSend[] => {
-                if (isTransactional) {
+                if (ignoresCap) {
                     return []
                 }
                 const now = dayjs()
@@ -323,13 +330,9 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
             },
         ],
         countingKeys: [
-            (s) => [s.otherSends, s.draftAudience, s.isTransactional],
-            (
-                otherSends: CalendarSend[],
-                draftAudience: SendAudience,
-                isTransactional: boolean
-            ): Record<string, boolean> =>
-                isTransactional
+            (s) => [s.otherSends, s.draftAudience, s.ignoresCap],
+            (otherSends: CalendarSend[], draftAudience: SendAudience, ignoresCap: boolean): Record<string, boolean> =>
+                ignoresCap
                     ? {}
                     : Object.fromEntries(
                           otherSends
@@ -364,17 +367,15 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
                 sendAt ? crowdingSends(dayjs(sendAt), countingSends, rule) : [],
         ],
         suggestion: [
-            (s) => [s.countingSends, s.timeOfDay, s.effectiveTimezone, s.rule, s.isTransactional],
+            (s) => [s.countingSends, s.timeOfDay, s.effectiveTimezone, s.rule, s.ignoresCap],
             (
                 countingSends: CalendarSend[],
                 timeOfDay: string,
                 timezone: string,
                 rule: SendingRule,
-                isTransactional: boolean
+                ignoresCap: boolean
             ): dayjs.Dayjs | null =>
-                isTransactional
-                    ? null
-                    : suggestSendTime({ timeOfDay, timezone, now: dayjs(), others: countingSends, rule }),
+                ignoresCap ? null : suggestSendTime({ timeOfDay, timezone, now: dayjs(), others: countingSends, rule }),
         ],
     }),
     listeners(({ actions, values }) => ({

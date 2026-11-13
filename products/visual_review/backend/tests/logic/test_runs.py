@@ -8,10 +8,18 @@ from django.test.utils import CaptureQueriesContext
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunReviewFilter, RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.logic import approvals, artifact_store, errors, repos, run_queries, runs
+from products.visual_review.backend.facade.enums import (
+    BaselineMode,
+    RunReviewFilter,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
+from products.visual_review.backend.logic import approvals, artifact_store, errors, github_api, repos, run_queries, runs
+from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.tests.logic.ledger_fakes import button_flow
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -961,3 +969,26 @@ class TestRecomputeRun:
 
         assert result["ci_rerun_triggered"] is False
         assert "403" in result["ci_rerun_error"]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestCompleteRunByBaselineMode:
+    def test_a_ledger_that_cannot_place_the_run_fails_a_ledger_mode_run(self, team, mocker):
+        _repo, _git, flow = button_flow(team.id, BaselineMode.LEDGER, mocker, external_id=99996)
+        mocker.patch.object(github_api, "default_branch_name", return_value=None)
+
+        run = flow.run("p1a", {"Button": "b0"}, branch="feat", pr_number=1)
+
+        assert run.status == RunStatus.FAILED
+        assert "default branch" in run.error_message
+
+    def test_a_ledger_that_cannot_place_the_run_leaves_a_shadow_mode_run_complete(self, team, mocker):
+        _repo, _git, flow = button_flow(team.id, BaselineMode.SHADOW, mocker, external_id=99996)
+        mocker.patch.object(github_api, "default_branch_name", return_value=None)
+
+        run = flow.run("p1a", {"Button": "b0"}, branch="feat", pr_number=1)
+
+        assert run.status == RunStatus.COMPLETED
+        record = BaselineRecord.from_json(run.metadata[METADATA_KEY])
+        assert record is not None and record.mode == BaselineMode.SHADOW
+        assert "default branch" in record.unavailable_reason

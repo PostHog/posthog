@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
@@ -46,6 +46,35 @@ class TestCustomerIOSyncService(BaseTest):
                 "cio_subscription_preferences.topics.topic_8": True,
             },
         )
+
+    def test_transactional_categories_are_not_pushed_as_topic_changes(self):
+        receipts = MessageCategory.objects.create(
+            team=self.team,
+            key="customerio_receipts",
+            name="Receipts",
+            category_type=MessageCategoryType.TRANSACTIONAL,
+        )
+        prefs = {
+            str(self.cat_8.id): PreferenceStatus.OPTED_OUT.value,
+            str(receipts.id): PreferenceStatus.OPTED_OUT.value,
+        }
+
+        sync_preferences_to_customerio(self.team.id, "user@test.com", prefs)
+
+        self.assertEqual(
+            self.track_api.attributes_for("user@test.com"), {"cio_subscription_preferences.topics.topic_8": False}
+        )
+
+    @parameterized.expand([("us", "track.customer.io"), ("eu", "track-eu.customer.io")])
+    def test_syncs_to_the_integration_region_track_host(self, region, expected_host):
+        self.track_integration.config = {"region": region}
+        self.track_integration.save(update_fields=["config"])
+
+        sync_preferences_to_customerio(
+            self.team.id, "user@test.com", {str(self.cat_7.id): PreferenceStatus.OPTED_OUT.value}
+        )
+
+        self.assertEqual([request.host for request in self.track_api.received], [expected_host])
 
     def test_does_not_sync_posthog_only_categories(self):
         prefs = {str(self.cat_posthog.id): PreferenceStatus.OPTED_OUT.value}

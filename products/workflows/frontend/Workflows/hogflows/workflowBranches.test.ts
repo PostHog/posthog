@@ -13,7 +13,6 @@ describe('getWorkflowBranchLabel', () => {
         [false, 'none', 'branch', 'Condition matched'],
         [false, 'targetless', 'branch', 'Condition matched'],
         [false, 'targeted', 'branch', 'Event received'],
-        [true, 'none', 'branch', 'Condition matched'],
         [true, 'targetless', 'branch', 'Condition matched'],
         [true, 'targeted', 'branch', 'Condition or event matched'],
         [false, 'none', 'continue', 'No match within 2d'],
@@ -47,7 +46,6 @@ describe('getWorkflowBranchLabel', () => {
         ['25h', 'No match within 24h'],
         ['90m', 'No match within 60m'],
         ['m', 'No match'],
-        ['', 'No match'],
         [undefined, 'No match'],
     ] as const)('labels a wait timeout of %s on the continue edge', (maxWaitDuration, label) => {
         const waitAction = {

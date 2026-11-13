@@ -43,6 +43,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade import investigations as alerts
+from products.alerts.backend.facade.api import first_subscriber_id
 from products.alerts.backend.facade.contracts import InvestigationRelease
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
@@ -970,6 +971,7 @@ async def _pick_investigation_user(alert) -> User | None:
                 return User.objects.get(id=alert.created_by_id)
             except User.DoesNotExist:
                 pass
-        return alert.subscribed_users.first()
+        subscriber_id = first_subscriber_id(team_id=alert.team_id, alert_id=alert.id)
+        return User.objects.filter(id=subscriber_id).first() if subscriber_id is not None else None
 
     return await sync_to_async(_resolve, thread_sensitive=False)()

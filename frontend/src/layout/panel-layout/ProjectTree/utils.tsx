@@ -565,21 +565,6 @@ export function isPathUnder(path: string | null | undefined, ancestor: string): 
     return segments.length >= under.length && under.every((segment, index) => segments[index] === segment)
 }
 
-/**
- * Matches a path that is one of `folders` or lies under one. Each call checks the path and its ancestors against a
- * set, so pruning many paths costs their depth instead of paths times folders.
- */
-export function underAnyFolder(folders: string[]): (path: string | null | undefined) => boolean {
-    const known = new Set(folders.map((folder) => joinPath(splitPath(folder))))
-    return (path) => {
-        if (known.size === 0) {
-            return false
-        }
-        const segments = splitPath(path)
-        return segments.some((_, index) => known.has(joinPath(segments.slice(0, index + 1))))
-    }
-}
-
 export function parentPath(path: string | null | undefined): string {
     return joinPath(splitPath(path).slice(0, -1))
 }
@@ -724,6 +709,19 @@ export function calculateMovePath(
     return { newPath, isValidMove }
 }
 
+// Each merge hands its file-to-folder index on to the folders it returns, so paging through a large tree reads the
+// cached files once, not once per page. Folders that another update built get a new index on their first merge.
+const folderIndexes = new WeakMap<Record<string, FileSystemEntry[]>, Map<string, string>>()
+
+function takeFolderIndex(folders: Record<string, FileSystemEntry[]>): Map<string, string> {
+    const index =
+        folderIndexes.get(folders) ??
+        new Map(Object.entries(folders).flatMap(([folder, files]) => files.map((file) => [file.id, folder] as const)))
+    // The merge changes the index in place, so the folders it came from must not use it again.
+    folderIndexes.delete(folders)
+    return index
+}
+
 export function appendResultsToFolders(
     results: RecentResults | SearchResults,
     folders: Record<string, FileSystemEntry[]>
@@ -734,6 +732,9 @@ export function appendResultsToFolders(
 
     // Track IDs we've already processed to avoid duplicates within the incoming results
     const processedIds = new Set<string>()
+    const positions = new Map<string, Map<string, number>>()
+    const staleIds = new Map<string, Set<string>>()
+    const cachedFolders = takeFolderIndex(folders)
 
     for (const result of newResults) {
         // Skip items without IDs or that we've already processed in this batch
@@ -746,17 +747,29 @@ export function appendResultsToFolders(
         processedIds.add(result.id)
 
         const folder = parentPath(result.path)
-        if (newState[folder]) {
-            const existingItem = newState[folder].find((item) => item.id === result.id)
-            if (existingItem) {
-                newState[folder] = newState[folder].map((file) => (file.id === result.id ? result : file))
-            } else {
-                newState[folder] = [...newState[folder], result]
-            }
+        const staleFolder = cachedFolders.get(result.id)
+        // A file has one path, so the copy cached at its old path is stale once it arrives at another.
+        if (staleFolder !== undefined && staleFolder !== folder) {
+            staleIds.set(staleFolder, (staleIds.get(staleFolder) ?? new Set()).add(result.id))
+        }
+        cachedFolders.set(result.id, folder)
+        // Each folder is copied once and indexed by id, so merging thousands of files into one folder stays linear.
+        if (!positions.has(folder)) {
+            newState[folder] = [...(newState[folder] ?? [])]
+            positions.set(folder, new Map(newState[folder].map((file, index) => [file.id, index])))
+        }
+        const position = positions.get(folder)!
+        const index = position.get(result.id)
+        if (index === undefined) {
+            position.set(result.id, newState[folder].push(result) - 1)
         } else {
-            newState[folder] = [result]
+            newState[folder][index] = result
         }
     }
+    for (const [folder, ids] of staleIds) {
+        newState[folder] = newState[folder].filter((file) => !ids.has(file.id))
+    }
+    folderIndexes.set(newState, cachedFolders)
     return newState
 }
 

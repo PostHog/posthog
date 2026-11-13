@@ -7,15 +7,15 @@ A step is either done, does its work, or stops with the next action: what you or
 The rule for every step: an option counts as an answer as soon as it is given, and a prompt at a terminal asks only for the answers the options left out.
 The install step has no option, so it ends only on a `hog setup next` that started on it, which means the agent always reads its instructions first.
 
-| File                  | Holds                                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| `run.ts`              | The step order, the loop, and the summary of a connected folder                             |
-| `setup-run.ts`        | `SetupRun`, what one call knows: the folder, its login, the products                        |
-| `result.ts`           | The result types, which the agent reads as JSON                                             |
-| `state.ts`            | The state file each folder keeps in `~/.posthog/setup/`                                     |
-| `products.ts`         | The product table that `--products` picks from                                              |
-| `agents-md.ts`        | The PostHog section in `AGENTS.md` and `CLAUDE.md`                                          |
-| `steps/<n>-<step>.ts` | One step each, in the order of `STEP_IDS` in `state.ts`: `1-purpose.ts` to `9-connected.ts` |
+| File                   | Holds                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `run.ts`               | The step order, the loop, and the summary of a connected folder                               |
+| `setup-run.ts`         | `SetupRun`, what one call knows: the folder, its login, the products                          |
+| `result.ts`            | The result types, which the agent reads as JSON                                               |
+| `state.ts`             | The state file each folder keeps in `~/.posthog/setup/`                                       |
+| `products.ts`          | The product table that `--products` picks from                                                |
+| `agents-md.ts`         | The PostHog section in `AGENTS.md` and `CLAUDE.md`                                            |
+| `steps/<nn>-<step>.ts` | One step each, in the order of `STEP_IDS` in `state.ts`: `01-purpose.ts` to `10-connected.ts` |
 
 The diagrams show who talks to whom in each step. The numbers match the files in `steps/`.
 
@@ -45,8 +45,8 @@ sequenceDiagram
     hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
 
     Note over You,PH: 5. install
-    hog->>You: Read the install skill with two hog learn commands
-    You->>hog: hog learn posthog:instrument-integration (and its COMMANDMENTS.md)
+    hog->>You: Read the install skill with two hog skills read commands
+    You->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md)
     You->>You: Install PostHog in the app
     You->>hog: hog setup next
 
@@ -58,9 +58,10 @@ sequenceDiagram
     hog->>PH: Any events since setup started? (for up to 30 seconds)
     PH-->>hog: The event count, or none yet
 
-    Note over You,PH: 8. products, 9. connected
+    Note over You,PH: 8. products, 9. mcp, 10. connected
+    hog->>hog: Check whether your agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
-    hog->>You: The event count, what else PostHog can do, and the skills you can add
+    hog->>You: The event count, what else PostHog can do, the skills you can add, and hog mcp add
 ```
 
 ## You with a coding agent
@@ -96,8 +97,8 @@ sequenceDiagram
     hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
 
     Note over You,PH: 5. install
-    hog-->>Agent: read, with two hog learn commands
-    Agent->>hog: hog learn posthog:instrument-integration (and its COMMANDMENTS.md)
+    hog-->>Agent: read, with two hog skills read commands
+    Agent->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md)
     Agent->>Agent: Install PostHog in the app
     Agent->>hog: hog setup next
 
@@ -110,8 +111,9 @@ sequenceDiagram
     hog->>PH: Any events since setup started? (for up to 30 seconds)
     PH-->>hog: The event count, or none yet
 
-    Note over You,PH: 8. products, 9. connected
+    Note over You,PH: 8. products, 9. mcp, 10. connected
+    hog->>hog: Check whether the agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
-    hog-->>Agent: done, with the event count, the products and the skills
-    Agent->>You: At the end of its turn: what else PostHog can do, and hog skills add
+    hog-->>Agent: done, with the event count, the products, the skills and the MCP check
+    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, and hog mcp add when the server is missing
 ```

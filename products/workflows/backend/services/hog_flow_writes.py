@@ -42,6 +42,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
     strip_content_secrets,
     strip_secrets_from_content,
 )
+from products.workflows.backend.services.sandbox_email.validation import require_sandbox_runtime
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
@@ -57,10 +58,20 @@ def field_values(flow: HogFlow) -> dict[str, object]:
     return {field.attname: getattr(flow, field.attname) for field in flow._meta.concrete_fields}
 
 
-def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dict) -> WorkflowWriteResult:
+def create_workflow(
+    *,
+    team_id: int,
+    user_id: Optional[int],
+    validated_data: dict,
+    before_write: Optional[Callable[[], None]] = None,
+) -> WorkflowWriteResult:
     with transaction.atomic():
+        if before_write is not None:
+            before_write()
         data = dict(validated_data)
         tags = data.pop("tags", None)
+        if data.get("status") == HogFlow.State.ACTIVE:
+            require_sandbox_runtime(data.get("actions"))
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
         instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
@@ -134,6 +145,8 @@ def _save_live(
         )
     for attr, value in data.items():
         setattr(instance, attr, value)
+    if instance.status == HogFlow.State.ACTIVE:
+        require_sandbox_runtime(instance.actions)
     instance.save()
 
 
@@ -386,6 +399,7 @@ def update_workflow(
     validated_status: str,
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
+    before_write: Optional[Callable[[], None]] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -430,6 +444,8 @@ def update_workflow(
                 guard_timestamp = before_update.draft_updated_at
         if base_stamp and guard_timestamp and guard_timestamp > base_stamp:
             raise WorkflowStale()
+        if before_write is not None:
+            before_write()
 
         if route_to_draft:
             _write_draft(instance, before_update, validated_data)

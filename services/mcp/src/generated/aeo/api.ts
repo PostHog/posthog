@@ -352,7 +352,7 @@ export const AeoPromptsBulkImportBody = () => zod.object({
 })
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
  * @summary Get the AEO prompt set overview
  */
 export const AeoPromptsOverviewParams = () => zod.object({

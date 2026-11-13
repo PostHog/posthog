@@ -48,6 +48,42 @@ describe('IdempotencyKeys', () => {
         expect(await operations('test', 'reserve', 'replayed')).toEqual(replayedBefore + 1)
     })
 
+    it.each([
+        { send: 'now', scheduledInMs: null, windowMs: 24 * HOUR_MS },
+        { send: 'scheduled 3 days ahead', scheduledInMs: 72 * HOUR_MS, windowMs: 96 * HOUR_MS },
+    ])('keeps the key of a send $send until 24 hours after it is due', async ({ scheduledInMs, windowMs }) => {
+        const scope = `scope-${new UUIDT().toString()}`
+        const scopedKeys = new IdempotencyKeys(valkey, scope)
+        await scopedKeys.reserve(1, key, 'request-a', 'run-1')
+        const scheduledAt = scheduledInMs === null ? undefined : new Date(Date.now() + scheduledInMs).toISOString()
+
+        await scopedKeys.markQueued(1, key, 'request-a', 'run-1', undefined, scheduledAt)
+
+        expect(await scopedKeys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+            scheduledAt,
+        })
+        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, async (client) => {
+            const stored = await client.keys(`*${scope}*`)
+            expect(stored).toHaveLength(1)
+            return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
+        })
+        expect(ttlSeconds).toBeGreaterThan(windowMs / 1000 - 60)
+        expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
+    })
+
+    it('replays the fields recorded with the run', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', { attachment_count: 2, attachment_bytes: 4_096 })
+
+        expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+            replayFields: { attachment_count: 2, attachment_bytes: 4_096 },
+        })
+    })
+
     it('frees a key only for the request that holds it', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
 

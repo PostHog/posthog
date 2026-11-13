@@ -16,12 +16,10 @@ export interface WorkflowListRow {
     name: string
     workflow: HogFlowListSummaryApi
     triggerType: string | null
-    /** Explicit `Owner: @handle` names from the description, else the creator's handle. */
     owners: string[]
     /** Null while the metrics load, and when they fail. */
     last7Days: WorkflowRunCounts | null
     health: WorkflowHealth
-    /** Lowercased name and description, built once for text search. */
     searchText: string
 }
 
@@ -64,10 +62,6 @@ function healthOf(counts: WorkflowRunCounts | null): WorkflowHealth {
     return 'idle'
 }
 
-/**
- * Most recently updated first. `metrics` is null until the metrics load. Once loaded, a workflow
- * without a metrics row had no runs.
- */
 export function buildWorkflowListRows(
     workflows: HogFlowListSummaryApi[],
     metrics: WorkflowStatsRowApi[] | null

@@ -252,6 +252,7 @@ export class ToolDomainExtractor {
         'unarchive',
         'unfreeze',
         'upload',
+        'validate',
     ])
 
     private readonly items: ToolItem[]

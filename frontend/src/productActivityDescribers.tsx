@@ -109,6 +109,10 @@ export const productActivityDescribers: Partial<Record<ActivityScope, () => Prom
         ),
     [ActivityScope.PERSON]: () =>
         import('../../products/persons/frontend/activityDescriptions').then((module) => module.personActivityDescriber),
+    [ActivityScope.PLATFORM_ALERT_CONFIGURATION]: () =>
+        import('../../products/alerts_platform/frontend/platformAlertConfigurationActivityDescriber').then(
+            (module) => module.platformAlertConfigurationActivityDescriber
+        ),
     [ActivityScope.PRODUCT_TOUR]: () =>
         import('scenes/product-tours/activityDescriptions').then((module) => module.productTourActivityDescriber),
     [ActivityScope.PROPERTY_DEFINITION]: () =>

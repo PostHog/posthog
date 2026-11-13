@@ -10,10 +10,24 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, HogQLQueryModifiers, WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    HogQLQueryModifiers,
+    PersonPropertyFilter,
+    PropertyOperator,
+    SessionPropertyFilter,
+    WebOverviewQuery,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+)
+
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.models.scoping import team_scope
 
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
@@ -207,3 +221,70 @@ class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_calls = [c for c in spy.call_args_list if "breakdown_by" in c.kwargs]
         self.assertEqual(breakdown_calls, [], f"did not expect any breakdown_by tag, got: {spy.call_args_list}")
+
+
+class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("stats_table_without_filters", "stats_table", [], False),
+            ("overview_without_filters", "overview", [], False),
+            (
+                "stats_table_with_event_filter",
+                "stats_table",
+                [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)],
+                False,
+            ),
+            (
+                "stats_table_with_person_filter",
+                "stats_table",
+                [PersonPropertyFilter(key="email", value="test@posthog.com", operator=PropertyOperator.EXACT)],
+                True,
+            ),
+            (
+                "overview_with_person_filter",
+                "overview",
+                [PersonPropertyFilter(key="email", value="test@posthog.com", operator=PropertyOperator.EXACT)],
+                True,
+            ),
+            (
+                "stats_table_with_built_in_session_filter",
+                "stats_table",
+                [SessionPropertyFilter(key="$entry_pathname", value="/", operator=PropertyOperator.EXACT)],
+                False,
+            ),
+            (
+                "stats_table_with_saved_session_expression_filter",
+                "stats_table",
+                [SessionPropertyFilter(key="is_long_session", value="1", operator=PropertyOperator.EXACT)],
+                True,
+            ),
+        ]
+    )
+    def test_full_database_is_built_only_when_a_filter_can_read_the_warehouse(
+        self, _name, kind, properties, builds_full_database
+    ):
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="sessions",
+                field_name="is_long_session",
+                expression="$session_duration > 60",
+            )
+        date_range = DateRange(date_from="2024-01-01", date_to="2024-01-02")
+        runner: WebStatsTableQueryRunner | WebOverviewQueryRunner
+        if kind == "stats_table":
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=date_range, properties=properties, breakdownBy=WebStatsBreakdown.PAGE
+                ),
+            )
+        else:
+            runner = WebOverviewQueryRunner(
+                team=self.team, query=WebOverviewQuery(dateRange=date_range, properties=properties)
+            )
+
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            runner.calculate()
+
+        assert create_for.called == builds_full_database

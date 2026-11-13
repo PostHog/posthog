@@ -58,9 +58,8 @@ pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_
 // Time a large symbol set parse waits for a `ParseLimiter` permit, in milliseconds.
 pub const SYMBOL_SET_LARGE_PARSE_WAIT_MS: &str = "cymbal_symbol_set_large_parse_wait_ms";
 pub const SYMBOL_SET_PARSE_INPUT_BYTES: &str = "cymbal_symbol_set_parse_input_bytes";
-// Symbol set parses that failed on a size limit. Labelled by `kind`, and by `limit`:
-// `container` for `SYMBOL_SET_MAX_DECOMPRESSED_BYTES`, `extracted` for
-// `SYMBOL_SET_MAX_EXTRACTED_BYTES`.
+// Parses that failed on a size limit, by `kind` and `limit`: `container` is
+// `SYMBOL_SET_MAX_DECOMPRESSED_BYTES`, `extracted` is `SYMBOL_SET_MAX_EXTRACTED_BYTES`.
 pub const SYMBOL_SET_SIZE_LIMIT_EXCEEDED: &str = "cymbal_symbol_set_size_limit_exceeded";
 
 // Histogram buckets for the byte-shaped metrics above. The default
@@ -148,6 +147,8 @@ pub const GROUPING_STAGE: &str = "cymbal_exception_grouping_stage";
 pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
 pub const RATE_LIMITING_STAGE: &str = "cymbal_rate_limiting_stage";
 pub const RATE_LIMIT_OUTCOMES: &str = "cymbal_error_tracking_rate_limiter_outcomes";
+pub const ADAPTIVE_INGESTION_STAGE: &str = "cymbal_adaptive_ingestion_stage";
+pub const ADAPTIVE_INGESTION_EVENTS: &str = "cymbal_adaptive_ingestion_events_total";
 pub const RATE_LIMIT_FAIL_OPEN: &str = "cymbal_error_tracking_rate_limiter_fail_open";
 pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_metric_emit";
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";

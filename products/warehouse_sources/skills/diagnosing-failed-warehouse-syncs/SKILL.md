@@ -49,6 +49,9 @@ which item to diagnose and can skip Step 1's discovery search.
 | `external-data-sources-create-webhook-create`          | Re-register a webhook that was lost or never registered                    |
 | `external-data-sources-update-webhook-inputs-create`   | Update the signing secret after rotation on the source side                |
 | `external-data-sources-delete-webhook-create`          | Remove a broken webhook before re-registering                              |
+| `platform-alerts-list`                                 | Check whether a sync failure alert already exists                          |
+| `platform-alerts-create`                               | Create a sync failure alert for a source or its tables                     |
+| `warehouse-alerts-destinations-create`                 | Choose where the alert notifies (Slack, webhook, and so on)                |
 
 ## Workflow
 
@@ -167,7 +170,7 @@ The recovery action depends on root cause, not just status. Match the user's sit
   the source side. Status may still read `Completed` because the bulk sync (the safety-net cadence) is succeeding —
   the problem is the push path.
 - Action:
-  1. `external-data-sources-webhook-info-retrieve({source_id})`.
+  1. `external-data-sources-webhook-info-retrieve({id})`.
   2. If `exists: false` → the webhook was never registered, or was deleted. Call `create-webhook-create` to
      register it.
   3. If `exists: true` but `external_status.error` is set → typically "API key doesn't have permission to read
@@ -175,7 +178,7 @@ The recovery action depends on root cause, not just status. Match the user's sit
   4. If `external_status.status` isn't `"enabled"` → the source disabled the webhook (usually after repeated
      delivery failures). Re-enable or re-register.
   5. If payloads are arriving but failing signature verification → the signing secret was rotated. Get the new
-     one from the source's dashboard and call `update-webhook-inputs-create({source_id}, {inputs:
+     one from the source's dashboard and call `update-webhook-inputs-create({id}, {inputs:
 {signing_secret: "..."}})`.
 - After any fix, check the source's webhook logs (on their side) to confirm PostHog is now responding 2xx.
 
@@ -189,6 +192,25 @@ Three recovery actions discard data and cannot be undone:
 
 Always present the fix you're proposing and wait for explicit approval before calling any of these. "Just try
 resync" is rarely the right default.
+
+### Step 6 — Offer a sync failure alert after the fix
+
+After the sync works again, offer to alert the user the next time it breaks, so they do not need to open PostHog to
+find out. Offer it once, and do not create the alert unless the user agrees.
+
+1. Call `platform-alerts-list` with `source_kind=warehouse_source`. If an enabled alert already watches this source
+   (its `source_config.source_ids` names it, or is empty) and has a destination (`destination_types` is not empty),
+   say so and stop. If an alert exists with no destination, offer to add one.
+2. Ask where messages go: a Slack channel, a webhook, Microsoft Teams, Discord, or PagerDuty. Do not guess the
+   channel.
+3. Call `platform-alerts-create` with `source_kind=warehouse_source`, a descriptive `name`, and
+   `source_config.source_ids` set to the source ID. Use `group_by=schema` and `grouping.keys=["schema_id"]` for one
+   message per failing table, or the default `group_by=source` and `grouping.keys=["source_id"]` for one message per
+   source.
+4. Call `warehouse-alerts-destinations-create` with the `id` the create call returned. An alert with no destination
+   notifies nobody.
+
+If the tools are not available, the user's project may not have sync failure alerts yet. Say so and skip this step.
 
 ## Example interaction
 

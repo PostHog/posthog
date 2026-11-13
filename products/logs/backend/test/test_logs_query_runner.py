@@ -1,14 +1,18 @@
 import os
 import json
+import base64
+import datetime as dt
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
+    CachedLogsQueryResponse,
     DateRange,
     FilterLogicalOperator,
     HogQLFilters,
@@ -1603,3 +1607,33 @@ class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, AP
         )
         self.assertEqual(group_by_response.status_code, status.HTTP_200_OK)
         self.assertEqual(group_by_response.json()["total_logs"], 1)
+
+
+class TestLogsQueryCachedResponse(APIBaseTest):
+    def test_cursor_from_cached_string_timestamps(self):
+        rows = [
+            {"uuid": uuid, "timestamp": timestamp}
+            for uuid, timestamp in [
+                ("01", "2026-06-02T08:00:00.300000+00:00"),
+                ("02", "2026-06-02T08:00:00.200000+00:00"),
+                ("03", "2026-06-02T08:00:00.100000+00:00"),
+            ]
+        ]
+        now = dt.datetime.now(dt.UTC)
+        cached = CachedLogsQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=rows,
+        )
+        with patch("products.logs.backend.presentation.views.api.LogsQueryRunner.run", return_value=cached):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/query",
+                {"query": {"limit": 2, "dateRange": {"date_from": "-10m"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        cursor = json.loads(base64.b64decode(response.json()["nextCursor"]))
+        self.assertEqual(cursor, {"timestamp": "2026-06-02T08:00:00.200000+00:00", "uuid": "02"})

@@ -1,8 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { DndContext, useDndContext } from '@dnd-kit/core'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { DndContext, MouseSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -17,7 +16,7 @@ import { AccessControlLevel } from '~/types'
 
 import type { HogFlowListSummaryApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
+import { workflowFoldersLogic } from './Workflows/WorkflowsListV2/workflowFoldersLogic'
 import {
     FIXTURE_METRICS,
     FIXTURE_WORKFLOWS,
@@ -31,19 +30,39 @@ import { WorkflowsScene } from './WorkflowsScene'
 const shownRowNames = (): string[] =>
     Array.from(document.querySelectorAll('[data-attr="workflows-list-v2-name"]')).map((el) => el.textContent ?? '')
 
+const shownHeaders = (): (string | null)[] =>
+    Array.from(document.querySelectorAll('[data-attr="workflows-list-v2"] th')).map((th) => th.textContent)
+
 describe('WorkflowsScene', () => {
     let listRequests: string[]
+    let answeredSearches: string[]
     let workflows: HogFlowListSummaryApi[]
+
+    // The list shows its local matches at once and greys out until the debounced server search answers.
+    const waitForSearch = (text: string): Promise<void> =>
+        waitFor(() => {
+            expect(answeredSearches).toContain(text)
+            expect(document.querySelector('[data-attr="workflows-list-v2"] .LemonTable--loading')).toBeNull()
+        })
 
     beforeEach(() => {
         listRequests = []
+        answeredSearches = []
         workflows = FIXTURE_WORKFLOWS
         localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/summaries/': ({ request }) => {
                     listRequests.push(request.url)
-                    return [200, paginated(workflows)]
+                    const search = new URL(request.url).searchParams.get('search')
+                    if (search === null) {
+                        return [200, paginated(workflows)]
+                    }
+                    answeredSearches.push(search)
+                    const matches = workflows.filter((workflow) =>
+                        `${workflow.name}\n${workflow.description}`.toLowerCase().includes(search.toLowerCase())
+                    )
+                    return [200, paginated(matches)]
                 },
                 '/api/projects/:team_id/hog_flows/metrics/global/': ({ request }) => {
                     listRequests.push(request.url)
@@ -59,9 +78,22 @@ describe('WorkflowsScene', () => {
 
     afterEach(() => cleanup())
 
-    it('offers a metrics retry instead of an empty health result when metrics fail', async () => {
+    it('waits for metrics while pages load, and keeps the page retry beside a metrics failure', async () => {
+        const answerLaterPage: ((status: number, body: unknown) => void)[] = []
         useMocks({
-            get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }] },
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.get('offset')
+                        ? new Promise((resolve) => answerLaterPage.push((status, body) => resolve([status, body])))
+                        : [
+                              200,
+                              paginated(
+                                  FIXTURE_WORKFLOWS,
+                                  'http://localhost/api/projects/997/hog_flows/summaries/?offset=100'
+                              ),
+                          ],
+                '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }],
+            },
         })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'health:failing' })
@@ -72,11 +104,27 @@ describe('WorkflowsScene', () => {
                 </DndContext>
             </Provider>
         )
-        await waitFor(() =>
-            expect(document.querySelector('[data-attr="workflows-list-v2-metrics-retry"]')).not.toBeNull()
-        )
+        const metricsRetry = (): Element | null =>
+            document.querySelector('[data-attr="workflows-list-v2-metrics-retry"]')
+
+        await waitFor(() => expect(answerLaterPage).toHaveLength(1))
+        await waitFor(() => expect(document.body).toHaveTextContent('Loading more workflows'))
+        expect(document.querySelector('[data-attr="workflows-list-v2"] .LemonTable--loading')).not.toBeNull()
+        expect(metricsRetry()).toBeNull()
+
+        act(() => answerLaterPage[0](500, { detail: 'Boom' }))
+        await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
+        expect(metricsRetry()).toBeNull()
+
+        act(() => workflowsListV2Logic.actions.refreshWorkflows())
+        await waitFor(() => expect(metricsRetry()).not.toBeNull())
+        expect(document.body).not.toHaveTextContent("Couldn't load all workflows")
         expect(document.body).not.toHaveTextContent('No workflows match these filters')
         expect(document.body).not.toHaveTextContent('Nothing matches')
+        await waitFor(() => expect(answerLaterPage).toHaveLength(2))
+        act(() => answerLaterPage[1](500, { detail: 'Boom' }))
+        await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
+        expect(metricsRetry()).not.toBeNull()
     })
 
     it('keeps the Customer.io import next to the folder view', async () => {
@@ -115,6 +163,59 @@ describe('WorkflowsScene', () => {
         expect(document.querySelector('[data-attr="workflows-folder-contents"]')).not.toBeNull()
     })
 
+    it('waits for later pages before saying nothing matches, and keeps the loaded rows when one fails', async () => {
+        const answerLaterPage: ((status: number, body: unknown) => void)[] = []
+        const firstPage = paginated(
+            [
+                buildWorkflowRow({
+                    id: 'wf-live',
+                    name: 'Live flow',
+                    status: 'active',
+                    updated_at: '2026-09-02T00:00:00Z',
+                }),
+            ],
+            'http://localhost/api/projects/997/hog_flows/summaries/?offset=100'
+        )
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.get('offset')
+                        ? new Promise((resolve) => answerLaterPage.push((status, body) => resolve([status, body])))
+                        : [200, firstPage],
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled status:draft' })
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+
+        await waitFor(() => expect(answerLaterPage).toHaveLength(1))
+        await waitFor(() => expect(workflowFoldersLogic.values.browserReady).toBe(true))
+        await waitFor(() => expect(document.body).toHaveTextContent('Loading more workflows'))
+        expect(document.body).not.toHaveTextContent('Nothing matches')
+
+        act(() => answerLaterPage[0](500, { detail: 'Boom' }))
+        act(() =>
+            workflowsListV2Logic.actions.setValue({
+                filters: [{ facet: 'in', value: 'Unfiled', negated: false }],
+                text: '',
+            })
+        )
+        await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
+        expect(shownRowNames()).toEqual(['Live flow'])
+
+        fireEvent.click(document.querySelector('[data-attr="workflows-list-v2-retry"]')!)
+        await waitFor(() => expect(answerLaterPage).toHaveLength(2))
+        act(() => answerLaterPage[1](200, paginated([buildWorkflowRow({ id: 'wf-draft', name: 'Draft flow' })])))
+        await waitFor(() => expect(shownRowNames()).toEqual(['Draft flow', 'Live flow']))
+        expect(document.body).not.toHaveTextContent("Couldn't load all workflows")
+    })
+
     it('keeps guided automation setup on an empty automation view', async () => {
         workflows = FIXTURE_WORKFLOWS.filter((workflow) => workflow.type === 'messaging')
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
@@ -129,20 +230,17 @@ describe('WorkflowsScene', () => {
         await waitFor(() =>
             expect(document.querySelector('[data-attr="workflows-automation-empty-state-guided-setup"]')).not.toBeNull()
         )
-        await userEvent
-            .setup()
-            .click(
-                document.querySelector<HTMLElement>(
-                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
-                )!
-            )
+        fireEvent.click(
+            document.querySelector<HTMLElement>(
+                '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+            )!
+        )
         expect(document.querySelector('input[data-attr="workflows-new-folder-name"]')).not.toBeNull()
     })
 
     it('filters the list and writes pills to the URL', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -155,11 +253,13 @@ describe('WorkflowsScene', () => {
 
         const input = document.querySelector<HTMLInputElement>('input[data-attr="workflows-search"]')
         expect(input).not.toBeNull()
-        await user.click(input!)
-        await user.keyboard('sta')
-        await user.keyboard('{Tab}')
+        input!.focus()
+        fireEvent.click(input!)
+        fireEvent.change(input!, { target: { value: 'sta' } })
+        fireEvent.keyDown(input!, { key: 'Tab' })
         expect(input).toHaveValue('status:')
-        await user.keyboard('{ArrowDown}{Enter}')
+        fireEvent.keyDown(input!, { key: 'ArrowDown' })
+        fireEvent.keyDown(input!, { key: 'Enter' })
 
         await waitFor(() => expect(shownRowNames()).toEqual(['Welcome series']))
         expect(router.values.searchParams.q).toEqual('in:Unfiled status:active')
@@ -167,7 +267,7 @@ describe('WorkflowsScene', () => {
     })
 
     // Each step renders a full page of 100 rows, which runs past Jest's default 5 second limit on slower CI runners.
-    it('pages past the first 100 rows, and a new filter starts again on page one', async () => {
+    it('pages past the first 100 rows, and a new filter starts again on page one without redrawing kept rows', async () => {
         workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
                 id: `wf-${i}`,
@@ -178,7 +278,6 @@ describe('WorkflowsScene', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         const scope = [{ facet: 'in', value: 'Unfiled', negated: false }]
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -188,14 +287,22 @@ describe('WorkflowsScene', () => {
         )
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
 
-        await user.click(document.querySelector('[aria-label="Next page"]')!)
+        fireEvent.click(document.querySelector('[aria-label="Next page"]')!)
         // The folder view spends one row of each page on the ".." row.
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 099 odd'))
         expect(shownRowNames()).toHaveLength(100)
+        const nameCell = (name: string): Element | undefined =>
+            Array.from(document.querySelectorAll('[data-attr="workflows-list-v2-name"]')).find(
+                (el) => el.textContent === name
+            )
+        const keptCell = nameCell('Flow 101 odd')
 
         // 125 rows match, so a kept page would still show matches 101 and up.
         act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: 'odd' }))
-        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 001 odd'))
+        await waitForSearch('odd')
+        expect(shownRowNames()[0]).toEqual('Flow 001 odd')
+        expect(shownRowNames().every((name) => name.endsWith('odd'))).toBe(true)
+        expect(nameCell('Flow 101 odd')).toBe(keptCell)
     }, 15000)
 
     it('keeps the sort order when a filter changes', async () => {
@@ -204,7 +311,6 @@ describe('WorkflowsScene', () => {
         )
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -217,8 +323,8 @@ describe('WorkflowsScene', () => {
         const nameHeader = Array.from(
             document.querySelectorAll<HTMLElement>('[data-attr="workflows-list-v2"] .LemonTable__header-content')
         ).find((header) => header.textContent === 'Name')!
-        await user.click(nameHeader)
-        await user.click(nameHeader)
+        fireEvent.click(nameHeader)
+        fireEvent.click(nameHeader)
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 5 odd'))
 
         act(() =>
@@ -227,7 +333,8 @@ describe('WorkflowsScene', () => {
                 text: 'odd',
             })
         )
-        await waitFor(() => expect(shownRowNames()).toEqual(['Flow 5 odd', 'Flow 3 odd', 'Flow 1 odd']))
+        await waitForSearch('odd')
+        expect(shownRowNames()).toEqual(['Flow 5 odd', 'Flow 3 odd', 'Flow 1 odd'])
     })
 
     it.each([
@@ -256,10 +363,39 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
-        const headers = Array.from(document.querySelectorAll('[data-attr="workflows-list-v2"] th')).map(
-            (th) => th.textContent
-        )
-        expect(headers).toEqual(expectedHeaders)
+        expect(shownHeaders()).toEqual(expectedHeaders)
+    })
+
+    it('keeps the columns picked in List options after the list reopens, until they are reset', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        const openList = async (): Promise<void> => {
+            render(
+                <Provider>
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
+                </Provider>
+            )
+            await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
+        }
+        const chooseFromListOptions = async (item: string): Promise<void> => {
+            fireEvent.click(document.querySelector('[data-attr="workflows-list-v2-options"]')!)
+            await waitFor(() => expect(document.querySelector(`[data-attr="${item}"]`)).not.toBeNull())
+            fireEvent.click(document.querySelector(`[data-attr="${item}"]`)!)
+        }
+
+        await openList()
+        await chooseFromListOptions('workflows-list-v2-column-health')
+        await chooseFromListOptions('workflows-list-v2-column-owner')
+        await waitFor(() => expect(shownHeaders()).toEqual(['', 'Name', 'Status', 'Health', 'Updated', '', '']))
+
+        cleanup()
+        await openList()
+        expect(shownHeaders()).toEqual(['', 'Name', 'Status', 'Health', 'Updated', '', ''])
+
+        await chooseFromListOptions('workflows-list-v2-reset-columns')
+        await waitFor(() => expect(shownHeaders()).toEqual(['', 'Name', 'Status', 'Owner', 'Updated', '', '']))
     })
 
     it('opens the template chooser on the old list type tab', async () => {
@@ -272,7 +408,6 @@ describe('WorkflowsScene', () => {
         }
         featureFlagLogic.actions.setFeatureFlags([], {})
         router.actions.push(urls.workflows(), { type: 'messaging' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -282,8 +417,13 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(document.querySelector('[data-attr="new-workflow"]')).not.toBeNull())
-        await user.click(document.querySelector('[data-attr="new-workflow"]')!)
-        expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
+        expect(document.body).not.toHaveTextContent('Create a workflow')
+        fireEvent.click(document.querySelector('[data-attr="new-workflow"]')!)
+
+        await waitFor(() => expect(document.body).toHaveTextContent('Create a workflow'))
+        expect(document.querySelector('[data-attr="workflow-template-type-messaging"]')?.closest('li')).toHaveClass(
+            'LemonSegmentedButton__option--selected'
+        )
     })
 
     it('turns an old filter link into pills without loading the old list', async () => {
@@ -336,29 +476,32 @@ describe('WorkflowsScene', () => {
 
     describe('project folders', () => {
         let files: FileSystemEntry[]
-        let droppables: ReturnType<typeof useDndContext>['droppableContainers'] | null
+        let moveRequests: { id: string; newPath: string }[]
 
-        function DroppableProbe(): null {
-            droppables = useDndContext().droppableContainers
-            return null
+        function MouseDragContext({ children }: { children: JSX.Element }): JSX.Element {
+            const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 10 } }))
+            return <DndContext sensors={sensors}>{children}</DndContext>
         }
+        let holdMoves: boolean
+        let releaseHeldMoves: (() => void)[]
 
         const renderFolder = async (folder: string, visibleWorkflow: string, filters = ''): Promise<void> => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
             router.actions.push(urls.workflows(), { q: `in:${folder}${filters}` })
             render(
                 <Provider>
-                    <DndContext>
-                        <DroppableProbe />
+                    <MouseDragContext>
                         <WorkflowsScene />
-                    </DndContext>
+                    </MouseDragContext>
                 </Provider>
             )
             await waitFor(() => expect(shownRowNames()).toContain(visibleWorkflow))
         }
 
         beforeEach(() => {
-            droppables = null
+            moveRequests = []
+            holdMoves = false
+            releaseHeldMoves = []
             files = [
                 { id: 'billing', path: 'Billing', type: 'folder' },
                 { id: 'cards', path: 'Billing/Cards', type: 'folder' },
@@ -383,6 +526,22 @@ describe('WorkflowsScene', () => {
                     },
                 },
                 post: {
+                    '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 1 }],
+                    '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                        const { new_path: newPath } = (await request.json()) as { new_path: string }
+                        moveRequests.push({ id: String(params.id), newPath })
+                        if (holdMoves) {
+                            await new Promise<void>((resolve) => releaseHeldMoves.push(resolve))
+                        }
+                        const moved = files.find((file) => file.id === params.id)!
+                        const oldPath = moved.path
+                        for (const file of files) {
+                            if (file.path === oldPath || file.path.startsWith(`${oldPath}/`)) {
+                                file.path = newPath + file.path.slice(oldPath.length)
+                            }
+                        }
+                        return [200, moved]
+                    },
                     '/api/projects/:team_id/file_system/': async ({ request }) => {
                         const body = (await request.json()) as { path: string; type: string }
                         const created = { id: `created-${body.path}`, ...body }
@@ -391,6 +550,86 @@ describe('WorkflowsScene', () => {
                     },
                 },
             })
+        })
+
+        it('mounts only the sidebar folders in view, and opens a far folder after scrolling to it', async () => {
+            const teams = Array.from({ length: 300 }, (_, index) => `Team-${String(index).padStart(3, '0')}`)
+            files = [...files, ...teams.map((path) => ({ id: path, path, type: 'folder' }))]
+            await renderFolder('Billing', 'Welcome series')
+            const tree = (): HTMLElement => document.querySelector<HTMLElement>('nav [role="tree"]')!
+            const treeItems = (): string[] =>
+                Array.from(tree().querySelectorAll('[aria-label^="tree item: "]')).map(
+                    (item) => item.getAttribute('aria-label') ?? ''
+                )
+            await waitFor(() => expect(treeItems()).toContain('tree item: Team-000'))
+            expect(treeItems().length).toBeLessThan(60)
+            expect(treeItems()).not.toContain('tree item: Team-299')
+
+            const viewport = tree().querySelector<HTMLElement>('.ScrollableShadows__inner')!
+            Object.defineProperty(viewport, 'clientHeight', { value: 300, configurable: true })
+            Object.defineProperty(viewport, 'scrollTop', { value: 0, writable: true, configurable: true })
+            act(() => {
+                viewport.scrollTop = 31 * 300
+                viewport.dispatchEvent(new Event('scroll'))
+            })
+            await waitFor(() => expect(treeItems()).toContain('tree item: Team-299'))
+            expect(treeItems()).not.toContain('tree item: Team-000')
+            fireEvent.click(tree().querySelector('[aria-label="tree item: Team-299"]')!)
+            await waitFor(() => expect(router.values.searchParams.q).toEqual('in:Team-299'))
+        })
+
+        it('lists a bounded number of folders in the Folders menu, and finds a far folder by typing', async () => {
+            const teams = Array.from({ length: 300 }, (_, index) => `Team-${String(index).padStart(3, '0')}`)
+            files = [...files, ...teams.map((path) => ({ id: path, path, type: 'folder' }))]
+            await renderFolder('Billing', 'Welcome series')
+            await waitFor(() => expect(workflowFoldersLogic.values.folderPaths).toContain('Team-299'))
+            const menuItems = (): string[] =>
+                Array.from(document.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent ?? '')
+            const toolbar = document.querySelector('[data-attr="workflows-folder-toolbar"]')!
+            fireEvent.click([...toolbar.querySelectorAll('button')].find((button) => button.textContent === 'Folders')!)
+
+            await waitFor(() => expect(document.body).toHaveTextContent('Type to narrow down 254 more folders'))
+            expect(menuItems().length).toBeLessThan(60)
+            expect(menuItems()).not.toContain('Team-299(0)')
+
+            fireEvent.change(document.querySelector('input[placeholder="Find a folder"]')!, {
+                target: { value: 'Team-299' },
+            })
+            await waitFor(() => expect(menuItems()).toContain('Team-299(0)'))
+            expect(document.body).not.toHaveTextContent('Type to narrow down')
+            fireEvent.click(
+                [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Team-299(0)')!
+            )
+            await waitFor(() => expect(router.values.searchParams.q).toEqual('in:Team-299'))
+        })
+
+        it('shows no workflow as Unfiled until the project folders load', async () => {
+            let releaseScan = (): void => {}
+            const scanHeld = new Promise<void>((resolve) => (releaseScan = resolve))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/file_system/unfiled/': async () => {
+                        await scanHeld
+                        return [200, { count: 0 }]
+                    },
+                },
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+            render(
+                <Provider>
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
+                </Provider>
+            )
+            await waitFor(() => expect(workflowsListV2Logic.values.listLoaded).toBe(true))
+            expect(shownRowNames()).toEqual([])
+
+            releaseScan()
+            await waitFor(() => expect(shownRowNames()).toEqual(['Spring promo', 'Sync accounts to CRM']))
+            act(() => router.actions.push(urls.workflows(), { q: 'in:Billing/Cards' }))
+            await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder']))
         })
 
         it('shows workflow descriptions inside a folder as the flat list does', async () => {
@@ -408,46 +647,116 @@ describe('WorkflowsScene', () => {
                     hog_flow: AccessControlLevel.Editor,
                 },
             }
-            const user = userEvent.setup()
             await renderFolder('Billing', 'Welcome series', ' kind:messaging')
-            await user.click(
+            fireEvent.click(
                 document.querySelector('[data-attr="workflows-folder-toolbar"] [data-attr="new-workflow"]')!
             )
-            expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
+            await waitFor(() => expect(document.body).toHaveTextContent('Create a workflow'))
+            expect(document.querySelector('[data-attr="workflow-template-type-messaging"]')?.closest('li')).toHaveClass(
+                'LemonSegmentedButton__option--selected'
+            )
         })
 
-        it('keeps sidebar folders, breadcrumbs and the up row as separate drop targets', async () => {
+        // jsdom lays nothing out, so the drag gets real boxes only for the dragged row and the one drop target.
+        const box = (left: number, top: number, width: number, height: number): DOMRect =>
+            ({ x: left, y: top, left, top, width, height, right: left + width, bottom: top + height }) as DOMRect
+        const dragOnto = async (handle: Element, target: () => Element): Promise<void> => {
+            jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+                // The sidebar tree's drag overlay is a fixed box the size of the dragged row.
+                if (this.classList.contains('cursor-grab') || (this as HTMLElement).style?.position === 'fixed') {
+                    return box(0, 0, 100, 30)
+                }
+                // TreeNodeDroppable's own wrapper is the node dnd-kit measures for a drop target.
+                return this === target().closest('.z-2') ? box(400, 400, 100, 30) : box(0, 0, 0, 0)
+            })
+            fireEvent.mouseDown(handle, { button: 0, clientX: 10, clientY: 10 })
+            fireEvent.mouseMove(document, { clientX: 30, clientY: 10 })
+            await act(async () => {})
+            fireEvent.mouseMove(document, { clientX: 410, clientY: 410 })
+            await act(async () => {})
+            fireEvent.mouseUp(document, { clientX: 410, clientY: 410 })
+        }
+
+        it.each([
+            ['a sidebar folder', () => document.querySelector('nav [aria-label="tree item: Billing"]')!],
+            [
+                'a breadcrumb',
+                () =>
+                    [
+                        ...document.querySelectorAll(
+                            '[data-attr="workflows-folder-toolbar"] button, [data-attr="workflows-folder-toolbar"] a'
+                        ),
+                    ].find((element) => element.textContent === 'Billing')!,
+            ],
+            [
+                'the up row',
+                () =>
+                    [...document.querySelectorAll('[data-attr="workflows-folder-row"]')].find(
+                        (element) => element.textContent === '..'
+                    )!,
+            ],
+        ])('moves a workflow dragged by its name onto %s, and offers no drag until it lands', async (_, target) => {
+            holdMoves = true
             await renderFolder('Billing/Cards', 'Renewal reminder')
-            const targets = [...(droppables?.values() ?? [])].map((droppable) => ({
-                folder: droppable.data.current?.treeId,
-                inSidebar: !!droppable.node.current?.closest('[role="tree"]'),
-                inBreadcrumbs: !!droppable.node.current?.closest('[data-attr="workflows-folder-toolbar"]'),
-            }))
-            const countOf = (folder: string, inSidebar: boolean, inBreadcrumbs: boolean): number =>
-                targets.filter(
-                    (target) =>
-                        target.folder === folder &&
-                        target.inSidebar === inSidebar &&
-                        target.inBreadcrumbs === inBreadcrumbs
-                ).length
-            expect(countOf('project://', true, false)).toBe(1)
-            expect(countOf('project://Billing', true, false)).toBe(1)
-            expect(countOf('project://', false, true)).toBe(1)
-            expect(countOf('project://Billing', false, true)).toBe(1)
-            expect(countOf('project://Billing', false, false)).toBe(1)
+            const dragHandle = (): HTMLElement | null => screen.queryByLabelText('Drag workflow Renewal reminder')
+            expect(dragHandle()).not.toBeNull()
+            const name = [...document.querySelectorAll('[data-attr="workflows-list-v2-name"]')].find(
+                (element) => element.textContent === 'Renewal reminder'
+            )!
+            await dragOnto(name, target)
+            jest.restoreAllMocks()
+            await waitFor(() => expect(moveRequests).toEqual([{ id: 'renewal', newPath: 'Billing/Renewal reminder' }]))
+            expect(dragHandle()).toBeNull()
+            act(() => releaseHeldMoves[0]())
+            act(() => router.actions.push(urls.workflows(), { q: 'in:Billing' }))
+            await waitFor(() => expect(shownRowNames()).toContain('Renewal reminder'))
+            await waitFor(() => expect(dragHandle()).not.toBeNull())
+        })
+
+        it('keeps a folder rename pending until the move lands, then renames from the new name', async () => {
+            holdMoves = true
+            await renderFolder('Billing', 'Welcome series')
+            await waitFor(() => expect(workflowFoldersLogic.values.takenFolderPaths).not.toBeNull())
+            const folderActions = (folder: string): HTMLElement => screen.getByLabelText(`Actions for folder ${folder}`)
+            const rename = async (from: string, to: string): Promise<void> => {
+                fireEvent.click(folderActions(from))
+                fireEvent.click(await screen.findByText('Rename…'))
+                fireEvent.change(await screen.findByDisplayValue(from), { target: { value: to } })
+                await waitFor(() => expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true'))
+                fireEvent.click(submitButton())
+            }
+            const submitButton = (): HTMLElement => screen.getByText('Submit').closest('button') as HTMLElement
+
+            await rename('Cards', 'Payments')
+            await waitFor(() => expect(moveRequests).toHaveLength(1))
+            expect(screen.getByText('Rename Cards')).toBeInTheDocument()
+            expect(submitButton()).toHaveAttribute('aria-disabled', 'true')
+            expect(folderActions('Cards')).toHaveAttribute('aria-disabled', 'true')
+
+            act(() => releaseHeldMoves[0]())
+            await waitFor(() => expect(screen.queryByText('Rename Cards')).toBeNull())
+            holdMoves = false
+            await rename('Payments', 'Wallet')
+            await waitFor(() => expect(screen.queryByText('Rename Payments')).toBeNull())
+            expect(moveRequests).toEqual([
+                { id: 'cards', newPath: 'Billing/Payments' },
+                { id: 'cards', newPath: 'Billing/Wallet' },
+            ])
+            act(() => router.actions.push(urls.workflows(), { q: 'in:Billing/Wallet' }))
+            await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder']))
         })
 
         it('lists a subfolder in the open folder after naming it inline', async () => {
-            const user = userEvent.setup()
             await renderFolder('Billing', 'Welcome series')
-            await user.click(
+            fireEvent.click(
                 document.querySelector<HTMLElement>(
                     '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
                 )!
             )
             const input = document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
             expect(input).not.toBeNull()
-            await user.type(input!, 'Invoices{Enter}')
+            fireEvent.change(input!, { target: { value: 'Invoices' } })
+            fireEvent.keyDown(input!, { key: 'Enter' })
             await waitFor(() =>
                 expect(
                     Array.from(document.querySelectorAll('[data-attr="workflows-folder-row"]')).map(
@@ -460,13 +769,11 @@ describe('WorkflowsScene', () => {
         })
 
         const draftInputAfterNewFolder = async (): Promise<HTMLInputElement | null> => {
-            await userEvent
-                .setup()
-                .click(
-                    document.querySelector<HTMLElement>(
-                        '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
-                    )!
-                )
+            fireEvent.click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
             return document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
         }
 
@@ -489,7 +796,7 @@ describe('WorkflowsScene', () => {
                 })),
             ]
             await renderFolder('Billing', 'Flow 000')
-            await userEvent.setup().click(document.querySelector('[aria-label="Next page"]')!)
+            fireEvent.click(document.querySelector('[aria-label="Next page"]')!)
             await waitFor(() => expect(shownRowNames()).toContain('Flow 119'))
             expect(await draftInputAfterNewFolder()).not.toBeNull()
         })
