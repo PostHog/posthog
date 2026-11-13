@@ -231,8 +231,10 @@ def query_condition_set_traffic(
             team=team,
             # The rules, not the user, because the answer is cached for every reader with the same rules.
             context=HogQLContext(team_id=team.pk, team=team, restricted_properties=set(restricted_properties)),
-            # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
-            # fraction, because a merge moves few people.
+            # The scan reads the person and the person properties stored on each call, also on a project whose
+            # results join each person's current properties and apply person merges. Those joins read every person
+            # and every merge of the team, which costs seconds per scan on large projects and can pass the timeout.
+            # The counts differ only for people whose properties changed, or who merged, after the call.
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
