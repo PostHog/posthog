@@ -155,6 +155,34 @@ async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) ->
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_a_pass_that_runs_out_of_time_keeps_the_scores_it_finished(settings) -> None:
+    team = await sync_to_async(_team)()
+    await sync_to_async(create_own_brand)(team, "example.com")
+    _, checks = await sync_to_async(_seed_run)(team)
+    await sync_to_async(_age)(checks["other_run"], 10)
+    classify = MagicMock(side_effect=lambda texts: [_result(positive=0.6, neutral=0.3, negative=0.1) for _ in texts])
+
+    with (
+        patch("posthog.temporal.ai_observability.sentiment.model.classify", classify),
+        patch(f"{_MODULE}.ANSWERS_PER_WRITE", 1),
+        patch(f"{_MODULE}.SCORING_BUDGET", dt.timedelta(0)),
+    ):
+        result = await ActivityEnvironment().run(
+            classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=None)
+        )
+
+    assert result == {"scored": 1, "answers": 1}
+
+    def labels() -> dict[str, str | None]:
+        with team_scope(team.pk):
+            rows = AEOCitationCheck.objects.in_bulk([checks[name].id for name in ("other_run", "praise")])
+        return {name: rows[checks[name].id].brand_sentiment for name in ("other_run", "praise")}
+
+    assert await sync_to_async(labels)() == {"other_run": "positive", "praise": None}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_activity_drops_scores_of_checks_re_keyed_while_the_model_ran(settings) -> None:
     team = await sync_to_async(_team)()
     await sync_to_async(create_own_brand)(team, "example.com")

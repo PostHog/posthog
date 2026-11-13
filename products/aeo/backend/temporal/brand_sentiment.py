@@ -8,6 +8,7 @@ sentences that name the brand, and writes the label and score to the check rows.
 
 from __future__ import annotations
 
+import time
 import uuid
 import asyncio
 import datetime as dt
@@ -39,8 +40,10 @@ from products.aeo.backend.sentiment import aggregate_sentiment, brand_sentences
 logger = structlog.get_logger(__name__)
 
 WORKFLOW_NAME = "aeo-brand-sentiment"
-# One run is at most ~150 answers x 20 sentences on a CPU model, well inside this.
 CLASSIFY_TIMEOUT = dt.timedelta(minutes=15)
+# Stops starting new groups well inside the timeout, so the last group still has time to finish.
+SCORING_BUDGET = dt.timedelta(minutes=10)
+ANSWERS_PER_WRITE = 100
 CLASSIFY_BATCH = 32
 # Answers scored before the setting was turned on, or missed by a failed run, are picked up from
 # this far back, which matches the window the prompt report shows.
@@ -129,7 +132,8 @@ def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[tuple[str
 @activity.defn
 @close_db_connections
 async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[str, Any]:
-    """Score every answer of the run that names the brand and has no sentiment yet.
+    """Score the run's answers that name the brand and have no sentiment yet, then the backlog, for as
+    long as the time budget allows.
 
     A missing model is a deployment problem, not a data problem, so the activity reports it and
     leaves the rows unscored instead of retrying: the next run picks nothing up either, and the
@@ -139,32 +143,64 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
     if not pending:
         return {"scored": 0, "answers": 0}
 
-    texts = [sentence for answer in pending for sentence in answer.sentences]
     try:
         import posthog.temporal.ai_observability.sentiment.model as sentiment_model  # noqa: PLC0415 -- ONNX deps
-
-        results = []
-        for start in range(0, len(texts), CLASSIFY_BATCH):
-            results.extend(await asyncio.to_thread(sentiment_model.classify, texts[start : start + CLASSIFY_BATCH]))
     except (ImportError, FileNotFoundError) as error:
-        logger.warning(
-            "aeo_brand_sentiment_model_unavailable", team_id=inputs.team_id, run_id=inputs.run_id, error=str(error)
-        )
-        return {"scored": 0, "answers": len(pending), "error": "model_unavailable"}
+        return _model_unavailable(inputs, pending, error)
 
+    # Scores are written per group so a pass that runs out of time keeps what it finished, and the
+    # rest waits for the next pass instead of a retry that would classify it all again.
+    deadline = time.monotonic() + SCORING_BUDGET.total_seconds()
+    written = classified = 0
+    for start in range(0, len(pending), ANSWERS_PER_WRITE):
+        if start and time.monotonic() > deadline:
+            break
+        group = pending[start : start + ANSWERS_PER_WRITE]
+        texts = [sentence for answer in group for sentence in answer.sentences]
+        try:
+            results = []
+            for offset in range(0, len(texts), CLASSIFY_BATCH):
+                results.extend(
+                    await asyncio.to_thread(sentiment_model.classify, texts[offset : offset + CLASSIFY_BATCH])
+                )
+        except (ImportError, FileNotFoundError) as error:
+            return _model_unavailable(inputs, pending, error)
+        written += await database_sync_to_async(_write_scores, thread_sensitive=False)(
+            inputs.team_id, batch.own_domains_key, _aggregate(group, results)
+        )
+        classified += len(group)
+        activity.heartbeat(classified)
+
+    logger.info(
+        "aeo_brand_sentiment_scored",
+        team_id=inputs.team_id,
+        run_id=inputs.run_id,
+        scored=written,
+        answers=classified,
+        remaining=len(pending) - classified,
+    )
+    return {"scored": written, "answers": classified}
+
+
+def _aggregate(answers: Sequence[_PendingAnswer], results: Sequence[Any]) -> list[tuple[str, str, float]]:
     scored: list[tuple[str, str, float]] = []
     position = 0
-    for answer in pending:
+    for answer in answers:
         sentence_scores = [result.scores for result in results[position : position + len(answer.sentences)]]
         position += len(answer.sentences)
         sentiment = aggregate_sentiment(sentence_scores)
         if sentiment is not None:
             scored.append((answer.check_id, sentiment.label, sentiment.score))
-    written = await database_sync_to_async(_write_scores, thread_sensitive=False)(
-        inputs.team_id, batch.own_domains_key, scored
+    return scored
+
+
+def _model_unavailable(
+    inputs: AEOBrandSentimentInputs, pending: Sequence[_PendingAnswer], error: Exception
+) -> dict[str, Any]:
+    logger.warning(
+        "aeo_brand_sentiment_model_unavailable", team_id=inputs.team_id, run_id=inputs.run_id, error=str(error)
     )
-    logger.info("aeo_brand_sentiment_scored", team_id=inputs.team_id, run_id=inputs.run_id, scored=written)
-    return {"scored": written, "answers": len(pending)}
+    return {"scored": 0, "answers": len(pending), "error": "model_unavailable"}
 
 
 @workflow.defn(name=WORKFLOW_NAME)
