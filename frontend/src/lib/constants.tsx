@@ -227,6 +227,7 @@ export const FEATURE_FLAGS = {
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SELF_DRIVING_UBP: 'self-driving-ubp', // owner: #team-self-driving
     SELF_DRIVING_USAGE_DISPLAY: 'self-driving-usage-display', // owner: #team-self-driving, gates monetary usage in the Self-driving UI
+    SELF_SERVICE_DATA_DELETION: 'self-service-data-deletion', // owner: @orian, gates the data deletion settings section and new request page (also checked server-side)
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
@@ -255,7 +256,6 @@ export const FEATURE_FLAGS = {
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_OBSERVABILITY_OFFLINE_EVALUATIONS: 'ai-observability-offline-evaluations', // owner: #team-ai-observability
-    AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_DESTINATION_CUSTOMIZATION: 'alerts-destination-customization', // owner: #team-logs, gates the custom message tag and edit notice on logs alert destinations
@@ -304,6 +304,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TILE_GROUP_SECTIONS: 'dashboard-tile-group-sections', // owner: @pauldambra #team-analytics-platform, shows tile groups as bands that open and close
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
+    DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page
     DATA_MODELING_USAGE: 'data-modeling-usage', // owner: #team-data-modeling, gates the Models usage tab
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
@@ -385,7 +386,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
     LLM_ANALYTICS_EVAL_SUGGESTIONS: 'llm-analytics-eval-suggestions', // owner: #team-ai-observability, shows suggested evaluations at the top of the evaluations page
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
-    LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTS_GROUPING: 'logs-alerts-grouping', // owner: #team-apm, shows the Group by field on logs alerts the alerts platform runs
@@ -651,6 +651,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_SUPABASE_AUTH_EMAILS: 'workflows-supabase-auth-emails', // owner: @luke-belton #team-workflows, send Supabase auth emails through transactional templates
     WORKFLOWS_SURVEY_STEP: 'workflows-survey-step', // owner: @dmarchuk #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
+    WORKFLOWS_WIZARD_JOURNEY_FIRST: 'workflows-wizard-journey-first', // owner: @silthus #team-workflows multivariate=control,test, shows the onboarding wizard's journey or broadcast step before the email setup; gate on === 'test'
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS

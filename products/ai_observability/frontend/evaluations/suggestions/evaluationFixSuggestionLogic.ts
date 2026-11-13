@@ -152,7 +152,10 @@ export const evaluationFixSuggestionLogic = kea<evaluationFixSuggestionLogicType
             llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
             markEvaluationsOverviewStale()
             const { location, searchParams, hashParams } = router.values
-            router.actions.replace(location.pathname, { ...searchParams, suggestion: undefined }, hashParams)
+            // The user may have opened another suggestion while this one applied, and its banner stays open.
+            if (searchParams.suggestion === props.suggestionId) {
+                router.actions.replace(location.pathname, { ...searchParams, suggestion: undefined }, hashParams)
+            }
         },
     })),
 

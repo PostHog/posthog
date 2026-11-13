@@ -2086,13 +2086,16 @@ class TestExternalDataSource(APIBaseTest):
                 "db_error",
                 psycopg.OperationalError("the connection is closed"),
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-                "database",
+                "temporary error",
+                True,
             ),
+            # A validation failure fails the same way on retry, so the message must not advise one.
             (
                 "validation_error",
                 ValidationError("Table1 cannot be changed"),
                 status.HTTP_400_BAD_REQUEST,
                 "cannot be changed",
+                False,
             ),
         ]
     )
@@ -2101,7 +2104,13 @@ class TestExternalDataSource(APIBaseTest):
         return_value=False,
     )
     def test_bulk_update_schemas_one_schema_failing_does_not_block_others(
-        self, _name, raised_exception, expected_status, expected_detail_substring, _mock_workflow_exists
+        self,
+        _name,
+        raised_exception,
+        expected_status,
+        expected_detail_substring,
+        expect_retry_advice,
+        _mock_workflow_exists,
     ):
         # Each schema commits in its own transaction. A failure on one schema — a database error
         # mid-save, or a validation error raised inside update() — must not roll back or block the
@@ -2153,6 +2162,7 @@ class TestExternalDataSource(APIBaseTest):
         detail = response.json()["detail"]
         assert "Table1" in detail
         assert expected_detail_substring in detail
+        assert ("try again" in detail.lower() or "retry" in detail.lower()) == expect_retry_advice
         assert "Table0" not in detail
         assert "Table2" not in detail
 
@@ -2486,7 +2496,8 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
         assert "Discount" in detail
-        assert "webhooks" in detail
+        assert "pick the webhook sync method" in detail.lower()
+        assert "try again" not in detail.lower() and "retry" not in detail.lower()
 
         webhook_only_schema.refresh_from_db()
         normal_schema.refresh_from_db()
@@ -3961,6 +3972,8 @@ class TestExternalDataSource(APIBaseTest):
                     "label": schema.label,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
+                    "live_query_enabled": False,
+                    "live_query_unavailable_reason": "Live queries are only available on synced sources that have live queries turned on.",
                     "status": schema.status,
                     "pending_self_managed_table": False,
                     "sync_type": schema.sync_type,
