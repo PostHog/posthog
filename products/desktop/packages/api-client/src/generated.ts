@@ -18909,6 +18909,10 @@ export namespace Schemas {
          */
         intercom_conversation_id: string | null;
         /**
+         * Pylon issue id when the ticket was imported from Pylon. Null otherwise.
+         */
+        pylon_issue_id: string | null;
+        /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          */
         organization_id: string | null;
