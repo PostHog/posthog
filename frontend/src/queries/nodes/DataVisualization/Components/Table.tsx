@@ -546,7 +546,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 </LemonBanner>
             )}
             <LemonTable
-                className="DataVisualizationTable"
+                className={cn('DataVisualizationTable', !props.embedded && '[&>.ScrollableShadows]:max-h-[70vh]')}
                 rowKey="rowIndex"
                 dataSource={tableRows}
                 columns={tableColumns}
@@ -584,7 +584,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 footer={tableRows.length > 0 ? <LoadNext query={props.query} /> : null}
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
-                allowContentScroll={!!props.embedded}
+                allowContentScroll
                 virtualized={virtualized}
                 virtualizedColumnWidth={virtualizeColumns ? 192 : undefined}
                 tableLayout={virtualized ? 'fixed' : 'auto'}

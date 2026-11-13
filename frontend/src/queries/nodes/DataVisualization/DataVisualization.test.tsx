@@ -16,16 +16,7 @@ import type { SqlChartProps } from './Components/Charts/SqlChart'
 import { buildPieSeries, buildPieSlices } from './Components/Charts/sqlPieGraphAdapter'
 import { DataTableVisualization } from './DataVisualization'
 
-type LemonTableMockProps = {
-    embedded?: boolean
-    allowContentScroll?: boolean
-}
-
-let mockLatestLemonTableProps: LemonTableMockProps | null = null
-const mockLemonTable = jest.fn((props: LemonTableMockProps): null => {
-    mockLatestLemonTableProps = props
-    return null
-})
+const mockLemonTable = jest.fn()
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -72,7 +63,6 @@ describe('DataTableVisualization', () => {
 
     beforeEach(() => {
         initKeaTests()
-        mockLatestLemonTableProps = null
         mockLemonTable.mockClear()
     })
 
@@ -215,35 +205,4 @@ describe('DataTableVisualization', () => {
         await waitFor(() => expect(mockLemonTable).toHaveBeenCalled())
         expect(screen.queryByText(/Chart with goal lines/)).toBeNull()
     })
-
-    test.each([
-        { embedded: true, expectedAllowContentScroll: true },
-        { embedded: false, expectedAllowContentScroll: false },
-    ])(
-        'sets table scroll mode to $expectedAllowContentScroll when embedded is $embedded',
-        async ({ embedded, expectedAllowContentScroll }) => {
-            render(
-                <DataTableVisualization
-                    uniqueKey={`data-visualization-scroll-${embedded}`}
-                    query={query}
-                    setQuery={jest.fn()}
-                    cachedResults={cachedResults}
-                    readOnly
-                    embedded={embedded}
-                />
-            )
-
-            await waitFor(() => {
-                if (!mockLatestLemonTableProps) {
-                    throw new Error('Expected LemonTable to render')
-                }
-            })
-
-            if (!mockLatestLemonTableProps) {
-                throw new Error('Expected LemonTable props to be recorded')
-            }
-            expect(mockLatestLemonTableProps.embedded).toBe(embedded)
-            expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
-        }
-    )
 })
