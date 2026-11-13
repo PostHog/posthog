@@ -63,6 +63,7 @@ REPO_SELECTION = replace(
     inherit_user_defaults=False,
     personal_mcp=False,
     mcp_scopes="read_only",
+    done_on_turn_close=True,
 )
 
 PROFILES = (SLACK, REPORT_IMPLEMENTATION, REPO_SELECTION)
