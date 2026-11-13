@@ -2652,6 +2652,14 @@ describe('CDP API', () => {
                 })
             })
 
+            it('inserts a sensitive send without producing it, so its secret stays off Kafka', async () => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(intakeMessages()).toEqual([])
+            })
+
             it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
                 const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
