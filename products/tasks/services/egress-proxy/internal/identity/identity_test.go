@@ -88,7 +88,7 @@ func (f *fixture) config(keys map[string]*rsa.PublicKey) identity.Config {
 		Issuer: "https://issuer.example.com", Keys: keys, MaxLifetime: 5 * time.Minute,
 		LookupTimeout: time.Minute, ClockSkew: f.clockSkew,
 		Now: func() time.Time { return f.now },
-		Lookup: func(context.Context, string) (identity.Registration, error) {
+		Lookup: func(context.Context, identity.LookupRequest) (identity.Registration, error) {
 			if f.afterLookup != nil {
 				f.afterLookup()
 			}
@@ -312,7 +312,7 @@ func TestAuthorizeLookupDeadline(t *testing.T) {
 				f.sign(t)
 				config := f.config(map[string]*rsa.PublicKey{"current": &key.PublicKey})
 				config.LookupTimeout = 2 * time.Second
-				config.Lookup = func(ctx context.Context, _ string) (identity.Registration, error) {
+				config.Lookup = func(ctx context.Context, _ identity.LookupRequest) (identity.Registration, error) {
 					if tc.cancelDuringLookup {
 						cancel()
 					}
@@ -332,6 +332,49 @@ func TestAuthorizeLookupDeadline(t *testing.T) {
 					t.Fatalf("virtual lookup duration = %v, want %v", elapsed, tc.wantDuration)
 				}
 			})
+		})
+	}
+}
+
+func TestAuthorizeLookupScope(t *testing.T) {
+	key, foreignKey, certificate := signingKey(t), signingKey(t), relayCertificate(t)
+	for _, tc := range []struct {
+		name   string
+		change func(*fixture)
+	}{
+		{name: "verified identity"},
+		{name: "invalid signature", change: func(f *fixture) { f.key = foreignKey }},
+		{name: "missing team", change: func(f *fixture) { f.claims.TeamID = 0 }},
+		{name: "unbound relay", change: func(f *fixture) { f.claims.RelayKeySHA256 = "another-key" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, key, certificate)
+			if tc.change != nil {
+				tc.change(f)
+			}
+			f.sign(t)
+			want := identity.LookupRequest{TeamID: f.registration.TeamID, RunID: f.registration.RunID, ExecutionID: f.registration.ExecutionID}
+			var received []identity.LookupRequest
+			config := f.config(map[string]*rsa.PublicKey{"current": &key.PublicKey})
+			config.Lookup = func(_ context.Context, lookup identity.LookupRequest) (identity.Registration, error) {
+				received = append(received, lookup)
+				if lookup != want {
+					return identity.Registration{}, identity.ErrUnauthorized
+				}
+				return f.registration, nil
+			}
+			verifier, err := identity.New(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := verifier.Authorize(f.request)
+			if tc.change == nil {
+				if err != nil || got != f.registration || len(received) != 1 || received[0] != want {
+					t.Fatalf("Authorize() = %v, %v; lookup received %v", got, err, received)
+				}
+			} else if !errors.Is(err, identity.ErrUnauthorized) || got != (identity.Registration{}) || len(received) != 0 {
+				t.Fatalf("unverified identity reached lookup: registration=%v error=%v lookups=%v", got, err, received)
+			}
 		})
 	}
 }
@@ -375,7 +418,12 @@ func TestAuthorizeRechecksTimeAfterLookup(t *testing.T) {
 
 func TestSigningKeyRotation(t *testing.T) {
 	current, previous, certificate := signingKey(t), signingKey(t), relayCertificate(t)
-	keys := map[string]*rsa.PublicKey{"current": &current.PublicKey, "previous": &previous.PublicKey}
+	keys, err := identity.ParseKeyBundle(keyBundle(t, map[string]string{
+		"current": publicKeyPEM(t, &current.PublicKey), "previous": publicKeyPEM(t, &previous.PublicKey),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	f := newFixture(t, previous, certificate)
 	f.kid = "previous"
 	f.sign(t)

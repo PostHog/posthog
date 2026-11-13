@@ -284,6 +284,7 @@ rules:
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
+                              |KnowledgeRunCitation
                               |KnowledgeSource
                               |KnowledgeUsageRecord
                               |PlaygroundChat
@@ -334,6 +335,7 @@ rules:
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
                               |MCPMeasuredStats
+                              |MCPMemberAutoConnectOptOut
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -373,6 +375,7 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |RecommendationResolution
                               |Release
                               |ReleaseImportState
                               |ReleaseAutoLinkedFlag
@@ -495,6 +498,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |AgentEgressRegistration
                               |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
@@ -831,6 +835,7 @@ rules:
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
+                        |KnowledgeRunCitation
                         |KnowledgeSource
                         |KnowledgeUsageRecord
                         |PlaygroundChat
@@ -873,6 +878,7 @@ rules:
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
+                        |MCPMemberAutoConnectOptOut
                         |MCPMemberServerRevocation
                         |MCPOrgRule
                         |MCPServiceAccount
@@ -912,6 +918,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RecommendationResolution
                         |Release
                         |ReleaseImportState
                         |ReleaseAutoLinkedFlag
@@ -1034,6 +1041,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |AgentEgressRegistration
                         |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
@@ -1168,6 +1176,7 @@ rules:
                         AccessControl
                         |ActivityLog
                         |AgentArtifact
+                        |AgentEgressRegistration
                         |AgentMemory
                         |AITrainingDeletionRequest
                         |Alert
@@ -1231,6 +1240,9 @@ rules:
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Evaluation
                         |EvaluationConfig
                         |EvaluationContext

@@ -143,6 +143,7 @@ from products.tasks.backend.logic.log_slice import (
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_command import send_set_config_option
+from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
@@ -13634,3 +13635,23 @@ def release_mobile_push_cooldown(key: str) -> None:
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
     get_tasks_cache().delete(key)
+
+
+def get_agent_egress_registration(
+    *, team_id: int, run_id: UUID, execution_id: UUID, region: str
+) -> contracts.AgentEgressRegistrationDTO | None:
+    registration = AgentEgressRegistry(region=region).lookup(team_id=team_id, run_id=run_id, execution_id=execution_id)
+    if registration is None:
+        return None
+    return contracts.AgentEgressRegistrationDTO(
+        run_id=registration.task_run_id,
+        team_id=registration.team_id,
+        execution_id=registration.execution_id,
+        actor_id=registration.actor_id,
+        actor_epoch=registration.actor_epoch,
+        relay_key_sha256=registration.relay_key_sha256,
+        authority=registration.authority,
+        region=registration.region,
+        lease_expires_at=registration.lease_expires_at,
+        revoked=registration.revoked,
+    )

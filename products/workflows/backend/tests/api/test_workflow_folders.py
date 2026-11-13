@@ -1,3 +1,4 @@
+import re
 import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -1206,8 +1207,11 @@ class TestWorkflowFolders(APIBaseTest):
         for path in ("Unfiled", "Unfiled/Email templates"):
             FileSystem.objects.create(team=self.team, path=path, depth=len(path.split("/")), type="folder")
         with patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
             self.assertEqual(response.json()["results"], [])
+            # A LIKE pattern built from a row's own path renders as LIKE REPLACE(...) and scans the project per row.
+            self.assertEqual([q["sql"] for q in queries.captured_queries if "LIKE REPLACE(" in q["sql"]], [])
             FileSystem.objects.filter(team=self.team, type="message_template").delete()
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
@@ -2041,9 +2045,15 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="hog_flow", ref=created.json()["id"]).exists())
         self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Campaigns").exists())
 
-    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
+    @parameterized.expand(
+        [
+            ("flag_on", True, False),
+            ("local_evaluation_inconclusive", None, False),
+            ("active_workflow_staging_a_draft", None, True),
+        ]
+    )
     def test_filing_an_unfiled_workflow_on_update_puts_it_in_the_requested_folder(
-        self, _name: str, local: bool | None
+        self, _name: str, local: bool | None, stages_a_draft: bool
     ) -> None:
         workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
         trigger = {"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}
@@ -2051,10 +2061,15 @@ class TestWorkflowFolders(APIBaseTest):
             workflows_url, {"name": "Renewal", "actions": [trigger], "edges": []}, format="json"
         ).json()["id"]
         FileSystem.objects.filter(team=self.team, type="hog_flow", ref=workflow_id).delete()
+        if stages_a_draft:
+            HogFlow.objects.filter(id=workflow_id).update(status=HogFlow.State.ACTIVE)
         self._local_flag_answer(local)
 
         filed = self.client.patch(
-            f"{workflows_url}{workflow_id}/", {"_create_in_folder": "Campaigns/Retention"}, format="json"
+            f"{workflows_url}{workflow_id}/",
+            {"_create_in_folder": "Campaigns/Retention", **({"variables": []} if stages_a_draft else {})},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp" if stages_a_draft else "web",
         )
 
         self.assertEqual(filed.status_code, 200, filed.content)
@@ -2063,6 +2078,40 @@ class TestWorkflowFolders(APIBaseTest):
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": workflow_id}
         ).json()["results"]
         self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+        self.assertEqual(HogFlow.objects.get(id=workflow_id).draft is not None, stages_a_draft)
+
+    @parameterized.expand(
+        [
+            ("staged_draft_on_a_filed_workflow", None, {"variables": []}, True, []),
+            ("renamed_broadcast_without_a_file", "broadcasts", {"name": "Renamed"}, False, ["SELECT"]),
+        ]
+    )
+    def test_a_workflow_save_that_leaves_its_file_alone_writes_no_file_row(
+        self, _name: str, origin_product: str | None, body: dict, active: bool, file_statements: list[str]
+    ) -> None:
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Synthetic flow",
+            created_by=self.user,
+            origin_product=origin_product,
+            status=HogFlow.State.ACTIVE if active else HogFlow.State.DRAFT,
+            actions=[{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+        )
+        files_before = list(FileSystem.objects.filter(team=self.team).values_list("path", "type", "ref"))
+
+        with CaptureQueriesContext(connection) as queries:
+            saved = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/", body, format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.assertEqual(
+            [query["sql"].split()[0] for query in queries.captured_queries if '"posthog_filesystem"' in query["sql"]],
+            file_statements,
+        )
+        self.assertEqual(
+            list(FileSystem.objects.filter(team=self.team).values_list("path", "type", "ref")), files_before
+        )
 
     @parameterized.expand(
         [
@@ -2119,6 +2168,76 @@ class TestWorkflowFolders(APIBaseTest):
         reloaded = self.client.get(f"{files_url}{entry['id']}/")
         self.assertEqual(reloaded.json()["path"], "Campaigns/Welcome back")
         self.assertEqual(reloaded.json()["ref"], workflow_id)
+
+    def test_flag_off_file_reads_never_scan_file_rows_once_per_outer_row(self) -> None:
+        trigger = [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}]
+        workflow = HogFlow.objects.create(team=self.team, name="Synthetic filed", created_by=self.user, actions=trigger)
+        broadcast = HogFlow.objects.create(
+            team=self.team,
+            name="Synthetic broadcast",
+            created_by=self.user,
+            origin_product="broadcasts",
+            actions=trigger,
+        )
+        for path, depth in (("Unfiled", 1), ("Unfiled/Insights", 2), ("Unfiled/Workflows", 2)):
+            FileSystem.objects.get_or_create(team=self.team, path=path, depth=depth, type="folder")
+        for i in range(3):
+            FileSystem.objects.create(
+                team=self.team, path=f"Unfiled/Insights/Synthetic {i}", depth=3, type="insight", ref=f"invented{i}"
+            )
+        folder = FileSystem.objects.get(team=self.team, path="Unfiled", type="folder")
+        file_reads: list[tuple[str, str, Any]] = []
+        label = ""
+
+        def keep_file_reads(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            if '"posthog_filesystem"' in sql and sql.lstrip().upper().startswith("SELECT"):
+                file_reads.append((label, sql, params))
+            return execute(sql, params, many, context)
+
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        reads: list[tuple[str, str, str, dict[str, Any]]] = [
+            ("root", "get", files_url, {"depth": 1}),
+            ("folder", "get", files_url, {"parent": "Unfiled", "depth": 2}),
+            ("typed", "get", files_url, {"type": "insight"}),
+            ("list_search", "get", files_url, {"search": "Unfiled"}),
+            ("recents", "get", files_url, {"order_by": "-last_viewed_at"}),
+            ("search", "get", f"{files_url}search/", {"search": "Synthetic"}),
+            ("unfiled", "get", f"{files_url}unfiled/", {}),
+            ("count", "post", f"{files_url}{folder.id}/count/", {}),
+            ("workflow_save", "patch", f"/api/projects/{self.team.id}/hog_flows/{workflow.id}/", {"name": "Renamed"}),
+            ("broadcast_save", "patch", f"/api/projects/{self.team.id}/hog_flows/{broadcast.id}/", {"name": "Renamed"}),
+        ]
+        with patch("posthoganalytics.feature_enabled", return_value=False), connection.execute_wrapper(keep_file_reads):
+            for label, method, url, body in reads:
+                response = (
+                    getattr(self.client, method)(url, body, format="json")
+                    if method != "get"
+                    else self.client.get(url, body)
+                )
+                self.assertEqual(response.status_code, 200, (label, response.content))
+
+        def per_row_prefix_scans(node: dict[str, Any], in_subplan: bool = False) -> list[str]:
+            in_subplan = in_subplan or (
+                node.get("Parent Relationship") == "SubPlan" and not node.get("Subplan Name", "").startswith("hashed")
+            )
+            found = []
+            if in_subplan and node.get("Relation Name") == "posthog_filesystem":
+                conditions = " ".join(node.get(key, "") for key in ("Filter", "Index Cond", "Recheck Cond"))
+                if re.search(r"~~\*?\s+(?!')", conditions):
+                    found.append(conditions)
+            for child in node.get("Plans", []):
+                found.extend(per_row_prefix_scans(child, in_subplan))
+            return found
+
+        offenders: list[tuple[str, str]] = []
+        with connection.cursor() as cursor:
+            for read_label, sql, params in file_reads:
+                cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}", params)
+                plan = cursor.fetchone()[0]
+                plan = json.loads(plan) if isinstance(plan, str) else plan
+                offenders.extend((read_label, scan) for scan in per_row_prefix_scans(plan[0]["Plan"]))
+        self.assertLessEqual({"root", "folder", "unfiled", "workflow_save"}, {read[0] for read in file_reads})
+        self.assertEqual(offenders, [])
 
     @parameterized.expand(
         [

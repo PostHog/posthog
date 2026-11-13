@@ -77,6 +77,7 @@ from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -363,6 +364,81 @@ class TestHogFlowAPI(APIBaseTest):
             {"email_sending_rate_limit": value},
         )
         assert response.status_code == 400, response.json()
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    @patch("products.workflows.backend.services.batch_jobs.get_hog_flow_in_flight_count")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_email_sending_rate_limit_is_locked_while_a_raised_batch_may_be_sending(
+        self, _mock_dispatch, mock_in_flight_count
+    ):
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 3})
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(id=flow_id)
+        actions_without_email = flow.actions
+        flow.actions = [*flow.actions, {**flow.actions[-1], "id": "email", "type": "function_email"}]
+        flow.email_sending_rate_limit = {"count": 60, "period": "hour"}
+        flow.save()
+
+        def update_after_concurrent_launch(**kwargs):
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow)
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_launch,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+            )
+        assert response.status_code == 409, response.json()
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+
+        for value in (None, {"count": 500, "period": "hour"}, {"count": 30, "period": "hour"}):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": value}, format="json"
+            )
+            assert response.status_code == 400, response.json()
+            assert response.json()["attr"] == "email_sending_rate_limit"
+
+        # Removing the email step first must not unlock the rate in a second edit.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": actions_without_email}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # A tier demotion makes the stored rate stop qualifying, but the dispatched cap still needs it.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_tier=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # Sends parked behind a long delay keep the lock past any fixed window.
+        HogFlowBatchJob.objects.filter(id=batch_job.id).update(created_at=batch_job.created_at - timedelta(days=30))
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 0})
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [
@@ -5333,6 +5409,32 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["limit"] == 5000
 
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_hog_flow_user_blast_radius_raises_the_limit_for_a_qualifying_rate_limit(self):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "email_sending_rate_limit": {"count": 60, "period": "hour"}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 60 * 24 * 7
+        assert response.json()["rate_limited"] == {"max_emails_per_hour": 62, "max_days": 7, "limit": 62 * 24 * 7}
+
     def test_hog_flow_user_blast_radius_returns_elevated_limit_for_listed_team(self):
         with (
             override_settings(
@@ -9592,7 +9694,7 @@ class TestRunScoutActionValidation(APIBaseTest):
             assert live_inputs["note"]["value"] == "PR #{event.properties.pr_number}"
         else:
             assert publish.status_code == status.HTTP_400_BAD_REQUEST, publish.json()
-            assert publish.json()["attr"] == "actions__1__inputs__note"
+            assert "requires editor access to skills" in publish.json()["detail"], publish.json()
             assert "note" not in live_inputs
 
 
