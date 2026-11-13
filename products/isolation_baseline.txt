@@ -31,7 +31,6 @@ context_layer
 conversations
 dashboards
 data_catalog
-data_modeling
 data_quality
 data_tools
 data_warehouse

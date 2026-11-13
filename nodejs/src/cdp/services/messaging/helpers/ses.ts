@@ -5,12 +5,17 @@ import { MinimalAppMetric } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import type { EmailStatus, EmailStatusReason } from '../email-status.service'
+import { type EmailStatus, type EmailStatusReason } from '../email-status.service'
 import { removeWorkflowRunTag } from './link-tags'
 import { SesBounce, SesEventRecord, sanitizeSesField } from './ses-events'
 import { SnsEnvelope, SnsEnvelopeVerifier } from './sns-envelope'
 import { unquoteMailbox } from './suppressed-recipients'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    TRACKING_CODE_HEADER_NAME,
+    trackingCodeFormatCounter,
+} from './tracking-code'
 import { sentTransactionalEmailIdentity } from './transactional-email-identity'
 
 // Below the default, so a batch records well within the 30s heartbeat health check.
@@ -120,6 +125,7 @@ export type SesEmailStatusUpdate = {
     status: EmailStatus
     reason?: EmailStatusReason
     timestamp: string
+    messageCreatedAtMs?: number
 }
 
 const normalizeAddress = (address: string): string => unquoteMailbox(address).trim().toLowerCase()
@@ -806,7 +812,20 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
-                    emailStatusUpdates.push({ teamId, invocationId, ...update })
+                    // Only from the header signed for the message this verified code names: the partition and TTL
+                    // key must not come from an unsigned value.
+                    const createdMs = this.trackingCodeSigner.verifyMessageCreatedHeaderValue(
+                        invocationId,
+                        rec.mail.headers?.find(
+                            (h) => h.name.toLowerCase() === MESSAGE_CREATED_HEADER_NAME.toLowerCase()
+                        )?.value
+                    )
+                    emailStatusUpdates.push({
+                        teamId,
+                        invocationId,
+                        ...update,
+                        ...(createdMs === undefined ? {} : { messageCreatedAtMs: createdMs }),
+                    })
                 }
             }
         }
