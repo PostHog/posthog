@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EnabledNativeConfiguration,
     HandbackRefusal,
+    HeldAlertSearchMatch,
     HeldDeliveryAddress,
     NativeConfigurationMatch,
     NewAlertDestination,
@@ -280,6 +281,18 @@ def native_configuration_matches(
     them on beside its own rows. With `search`, only the ones whose name matches it, exact and
     similar alike: the source keeps only the exact tier when any row of either kind is exact."""
     return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+
+
+def search_held_configurations(
+    *, team_ids: Collection[int], source_kind: SourceKind, query: str | None, limit: int
+) -> tuple[tuple[HeldAlertSearchMatch, ...], int]:
+    """The alerts of a kind whose settings the platform holds in these teams, for a source's search
+    beside its own rows: every alert with no source row, and every copy the platform owns. Ranked by
+    how well the name matches `query` on core search's scale, or in name order without one. At most
+    `limit`, with how many match in all."""
+    return platform_reads.search_held_configurations(
+        team_ids=team_ids, source_kind=source_kind.value, query=query, limit=limit
+    )
 
 
 def enabled_native_configurations(

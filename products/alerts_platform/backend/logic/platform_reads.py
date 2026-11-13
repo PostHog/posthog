@@ -14,12 +14,14 @@ from uuid import UUID
 from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
+from posthog.helpers.full_text_search import build_rank
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
 
 from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     EnabledNativeConfiguration,
     Grouping,
+    HeldAlertSearchMatch,
     InstanceCheckState,
     NativeConfigurationMatch,
     PlatformAlertConfigurationPage,
@@ -263,6 +265,72 @@ def native_configuration_matches(
 
 def _unmuted_at(at: datetime) -> Q:
     return Q(snooze_until__isnull=True) | Q(snooze_until__lte=at)
+
+
+# The rank below which core search drops a match, so platform alerts rank on the same scale as its own rows.
+_SEARCH_RANK_THRESHOLD = 0.05
+
+
+def search_held_configurations(
+    *, team_ids: Collection[int], source_kind: str, query: str | None, limit: int
+) -> tuple[tuple[HeldAlertSearchMatch, ...], int]:
+    """The alerts of a kind whose settings the platform holds in these teams, ranked by how well their name
+    matches `query`, or in name order without one, at most `limit` of them, and how many match in all."""
+    if not team_ids:
+        return (), 0
+    # The caller names the teams, as a source's readers of its own rows across teams do.
+    rows = PlatformAlertConfiguration.objects.unscoped().annotate(
+        rank=build_rank({"name": "A"}, query, config="simple") if query else Value(None)
+    )
+    rows = rows.filter(
+        Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM),
+        team_id__in=list(team_ids),
+        source_kind=source_kind,
+    )
+    rows = (
+        rows.filter(rank__gt=_SEARCH_RANK_THRESHOLD).order_by("-rank", "id") if query else rows.order_by("name", "id")
+    )
+    total = rows.count()
+    instances = PlatformAlert.objects.unscoped().filter(configuration=OuterRef("pk"))
+    page = rows.annotate(
+        public_id=_PUBLIC_ID,
+        instance_state=Case(
+            When(
+                Exists(instances.filter(state=PlatformAlertState.FIRING)), then=Value(PlatformAlertState.FIRING.value)
+            ),
+            default=Subquery(instances.filter(grouping_key="").values("state")[:1]),
+        ),
+    ).values_list(
+        "public_id",
+        "team_id",
+        "name",
+        "enabled",
+        "check_interval_minutes",
+        "instance_state",
+        "check_status",
+        "snooze_until",
+        "rank",
+    )[:limit]
+    return tuple(
+        HeldAlertSearchMatch(
+            public_id=public_id,
+            team_id=team_id,
+            name=name,
+            enabled=enabled,
+            check_interval_minutes=check_interval_minutes,
+            state=PlatformAlertState(
+                InstanceCheckState.composed(
+                    grouping_key="",
+                    state=instance_state or PlatformAlertState.NOT_FIRING,
+                    check_status=check_status,
+                    configuration_snooze_until=None,
+                ).state
+            ),
+            snooze_until=snooze_until,
+            rank=rank,
+        )
+        for public_id, team_id, name, enabled, check_interval_minutes, instance_state, check_status, snooze_until, rank in page
+    ), total
 
 
 def enabled_native_configurations(

@@ -14,9 +14,12 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
+from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import acreate_action
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade import testing as alerts_platform_testing
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.facade.testing import acreate_experiment
@@ -459,6 +462,36 @@ class TestEntitySearchContext(NonAtomicBaseTest):
 
         assert len(results) == SEARCH_LIMIT
         assert results[0]["type"] == "hog_flow"
+
+    async def test_search_entities_alerts_shows_platform_held_alerts_once_with_their_settings(self):
+        insight = await Insight.objects.acreate(team=self.team, name="Signups", saved=True)
+        own = await AlertConfiguration.objects.acreate(team=self.team, insight=insight, name="Latency row")
+        moved = await AlertConfiguration.objects.acreate(
+            team=self.team, insight=insight, name="Latency stale", owner="platform"
+        )
+        source = {"source_kind": "insight", "source_config": {"insight_id": insight.id}, "check_interval_minutes": 60}
+
+        def create_in_team(**fields):
+            with team_scope(self.team.pk):
+                return alerts_platform_testing.create_configuration(**fields)
+
+        create = sync_to_async(create_in_team)
+        await create(
+            team_id=self.team.pk, legacy_configuration_id=moved.id, name="Latency copy", owner="platform", **source
+        )
+        await create(
+            team_id=self.team.pk, legacy_configuration_id=own.id, name="Latency shadow", owner="source", **source
+        )
+        native = await create(team_id=self.team.pk, name="Latency native", owner="platform", **source)
+
+        results, counts = await self.context.search_entities({"alert_configuration"}, "latency")
+
+        assert {(r["result_id"], r["extra_fields"]["name"]) for r in results} == {
+            (str(own.id), "Latency row"),
+            (str(moved.id), "Latency copy"),
+            (str(native.id), "Latency native"),
+        }
+        assert counts["alert_configuration"] == 3
 
     async def test_list_entities_account(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")
