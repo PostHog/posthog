@@ -217,6 +217,22 @@ These cases can change cached bodies and ETags even before an unsupported config
 Deploy this builder to every region before storing an unsupported configuration, and never deploy an older builder after one exists.
 Tightening these exclusion rules later requires rebuilding existing cache entries.
 
+### Definitions v2 entry
+
+`products/feature_flags/backend/local_evaluation_v2.py` writes a second entry, `flags_with_cohorts_v2.json`, in the same namespace and with its own ETag.
+Its body is the team's legacy response plus one entry per valid config version 2 flag, whose `filters` is the stored document as it is.
+An inactive flag is included with `active: false`. A deleted, survey-linked, encrypted or invalid flag is left out.
+
+Only a team that holds at least one config version 2 flag that is not deleted has the entry.
+For every other team the legacy entry already is the complete feed, so nothing is written.
+The entry is removed when the team's last such flag is deleted and when the team is deleted.
+
+The legacy entry is built and written first, by the unchanged legacy path.
+The v2 entry follows in its own error boundary: a failure is logged and counted under `posthog_hypercache_sync` and leaves the legacy entry and its ETag as they were.
+The entry lives in Redis only, on the same Redis tiers as the legacy entry.
+An object-storage copy would outlive every expiry, and a reader decides from Redis alone whether a team has the entry.
+Nothing reads the entry yet.
+
 ### Cache invalidation
 
 Django signals trigger cache updates when models change:
@@ -561,6 +577,7 @@ Cache freshness is maintained through scheduled Celery tasks.
 | `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Delete deleted teams' entries and tracking members |
 | `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire |
 | `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database     |
+| `maintain_flag_definitions_v2_cache_entries`      | Hourly at :05    | Verify, refresh and clean up the v2 entries        |
 
 ### Refresh task
 
@@ -681,6 +698,7 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 
 - `posthog/storage/hypercache.py` - Core HyperCache implementation
 - `products/feature_flags/backend/local_evaluation.py` - Local evaluation caching
+- `products/feature_flags/backend/local_evaluation_v2.py` - Definitions v2 entry for local evaluation
 - `products/feature_flags/backend/flags_cache.py` - Flags cache, signal handlers, verification, dependency computation
 - `posthog/storage/hypercache_manager.py` - Batch management operations (warm, invalidate, stats)
 - `posthog/caching/flags_redis_cache.py` - `FLAGS_DEDICATED_CACHE_ALIAS` constant for the dedicated flags Redis

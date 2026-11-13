@@ -73,6 +73,14 @@ def detect_config_format(filters: object) -> ConfigFormat:
     return ConfigFormat(kind="unsupported", raw_version=version)
 
 
+def v2_config_lookup() -> dict[str, int]:
+    """Queryset lookup for the flag rows that ``detect_config_format`` reads as config version 2.
+
+    JSONB compares numbers by value, so a stored ``2.0`` matches and a string or boolean does not.
+    """
+    return {"filters__version": 2}
+
+
 def require_v1_config(filters: Mapping[str, Any] | None) -> None:
     """Raise ``ConfigFormatError`` unless ``filters`` is a config version 1 document."""
     config_format = detect_config_format(filters)
