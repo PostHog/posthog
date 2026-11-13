@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from posthog.schema import (
     MarketingAnalyticsRecommendationIdentity,
     MarketingAnalyticsRecommendationResolution,
@@ -13,17 +15,27 @@ from products.marketing_analytics.backend.hogql_queries.recommendation_identity 
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution, subject_hash
 
 
-def resolutions_by_key(team_id: int) -> dict[str, MarketingAnalyticsRecommendationResolution]:
-    rows = RecommendationResolution.objects.for_team(team_id).values_list(
-        "id",
-        "rule",
-        "source_type",
-        "customer_id",
-        "campaign_id",
-        "subject",
-        "resolution",
-        "resolved_at",
-        named=True,
+def resolutions_by_key(
+    team_id: int, identities: Iterable[MarketingAnalyticsRecommendationIdentity]
+) -> dict[str, MarketingAnalyticsRecommendationResolution]:
+    hashes = {subject_hash(identity.subject) for identity in identities}
+    if not hashes:
+        return {}
+    # Resolved search terms that are no longer candidates stay unread. Campaign rules share the empty subject.
+    rows = (
+        RecommendationResolution.objects.for_team(team_id)
+        .filter(subject_hash__in=hashes)
+        .values_list(
+            "id",
+            "rule",
+            "source_type",
+            "customer_id",
+            "campaign_id",
+            "subject",
+            "resolution",
+            "resolved_at",
+            named=True,
+        )
     )
     return {
         RecommendationKey.from_fields(row).encoded: MarketingAnalyticsRecommendationResolution(
