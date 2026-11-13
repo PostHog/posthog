@@ -2112,11 +2112,14 @@ describe('Hog Executor', () => {
                 return received
             }
 
-            const createSignedInvocation = async (method = 'POST'): Promise<CyclotronJobInvocationHogFunction> => {
+            const createSignedInvocation = async (
+                method = 'POST',
+                body = BODY
+            ): Promise<CyclotronJobInvocationHogFunction> => {
                 const invocation = await createFetchInvocation({
                     url: `${baseUrl}/`,
                     method,
-                    body: BODY,
+                    body,
                     headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=stale' },
                     hmac_sha256: SIGNING_REFS,
                 })
@@ -2124,13 +2127,22 @@ describe('Hog Executor', () => {
                 return invocation
             }
 
-            it('signs the bytes the request sends', async () => {
+            it.each([
+                ['the configured secret', SECRET, BODY_SIGNATURE],
+                [
+                    'a secret of exactly 24 bytes in 12 characters',
+                    'é'.repeat(12),
+                    'sha256=08faf5c284367a94cb95273a9fb68873b5b46460b0f7de89af5f45214667aded',
+                ],
+            ])('signs the bytes the request sends with %s', async (_case, secret, signature) => {
                 const received = receiveRequests()
+                const invocation = await createSignedInvocation()
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: secret } } as any
 
-                const result = await executor.executeFetch(await createSignedInvocation())
+                const result = await executor.executeFetch(invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature: BODY_SIGNATURE, body: BODY }])
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: BODY }])
             })
 
             it('signs every attempt of one delivery with the same delivery id', async () => {
@@ -2145,12 +2157,13 @@ describe('Hog Executor', () => {
             })
 
             it.each([
-                ['the secret input is missing', 'POST', undefined, 'signing_secret'],
-                ['the secret is shorter than 24 bytes', 'POST', 'x'.repeat(23), 'at least 24'],
-                ['a GET request sends no body', 'GET', SECRET, 'sends none'],
-                ['a HEAD request sends no body', 'HEAD', SECRET, 'sends none'],
-            ])('refuses to send when %s', async (_case, method, secret, reason) => {
-                const invocation = await createSignedInvocation(method)
+                ['the secret input is missing', 'POST', BODY, undefined, 'signing_secret'],
+                ['the secret is shorter than 24 bytes', 'POST', BODY, 'x'.repeat(23), 'at least 24'],
+                ['a GET request sends no body', 'GET', BODY, SECRET, 'sends none'],
+                ['a HEAD request sends no body', 'HEAD', BODY, SECRET, 'sends none'],
+                ['a POST request has an empty body', 'POST', '', SECRET, 'sends none'],
+            ])('refuses to send when %s', async (_case, method, body, secret, reason) => {
+                const invocation = await createSignedInvocation(method, body)
                 invocation.hogFunction.encrypted_inputs = (
                     secret === undefined ? {} : { signing_secret: { value: secret } }
                 ) as any
