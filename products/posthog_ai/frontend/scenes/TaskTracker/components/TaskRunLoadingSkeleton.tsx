@@ -11,11 +11,7 @@ export function TaskRunLoadingSkeleton(): JSX.Element {
     return (
         <div className="@container/thread flex h-full min-h-0 flex-col">
             <RunLogSkeleton className="flex-1" listClassName="py-4" rowClassName="px-4" />
-            <QuillRunSurfaceInputs
-                approval={null}
-                showApproval={false}
-                composer={<QuillTaskComposerSkeleton />}
-            />
+            <QuillRunSurfaceInputs approval={null} showApproval={false} composer={<QuillTaskComposerSkeleton />} />
         </div>
     )
 }
