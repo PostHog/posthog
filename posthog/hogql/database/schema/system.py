@@ -308,7 +308,9 @@ def _platform_state_expr() -> ast.Expr:
     return parse_expr(_PLATFORM_STATE)
 
 
-def _platform_configuration_table(name: str, source_kind: str, access_scope: APIScopeObject) -> PostgresTable:
+def _platform_configuration_table(
+    name: str, source_kind: str, access_scope: APIScopeObject, source_predicates: list[Expr]
+) -> PostgresTable:
     return PostgresTable(
         name=name,
         postgres_table_name="alerts_platformalertconfiguration",
@@ -321,7 +323,8 @@ def _platform_configuration_table(name: str, source_kind: str, access_scope: API
             parse_expr(
                 "source_kind = {source_kind} AND (legacy_configuration_id IS NULL OR owner = 'platform')",
                 placeholders={"source_kind": ast.Constant(value=source_kind)},
-            )
+            ),
+            *source_predicates,
         ],
         description=(
             f"Internal table of {source_kind} alerts the alerts platform holds, from "
@@ -395,8 +398,9 @@ insight_alert_rows: PostgresTable = PostgresTable(
     access_scope="alert",
     resource_level_access_only=True,
     push_team_guard_with_predicates=True,
-    # The platform's copy holds the settings and state of an alert it owns, so its row would show stale ones.
-    predicates=[parse_expr("owner != 'platform'")],
+    # The platform's copy holds the settings and state of an alert it owns, so its row would show stale ones. An
+    # alert is readable only with its insight, as the alert API gates it.
+    predicates=[parse_expr("owner != 'platform' AND insight_id IN (SELECT id FROM system.insights)")],
     description="Internal table of the insight alerts their own stack evaluates; not for direct querying, use `system.alerts`.",
     fields={
         "id": StringDatabaseField(name="id", description="Alert UUID."),
@@ -419,7 +423,13 @@ insight_alert_rows: PostgresTable = PostgresTable(
     },
 )
 
-platform_insight_alerts: PostgresTable = _platform_configuration_table("_platform_insight_alerts", "insight", "alert")
+platform_insight_alerts: PostgresTable = _platform_configuration_table(
+    "_platform_insight_alerts",
+    "insight",
+    "alert",
+    # An alert is readable only with its insight, as the alert API gates it.
+    [parse_expr("JSONExtractInt(source_config, 'insight_id') IN (SELECT id FROM system.insights)")],
+)
 platform_insight_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_insight_alert_instances",
     "_platform_insight_alerts",
@@ -487,7 +497,7 @@ class _InsightAlertsTable(ScopedLazyTable):
     def lazy_select(
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        return _insight_alerts_select()
+        return self.with_nested_reads(_insight_alerts_select(), table_to_add)
 
     def to_printed_clickhouse(self, context: HogQLContext) -> str:
         return "alerts"
@@ -2521,7 +2531,7 @@ logs_alert_rows: PostgresTable = PostgresTable(
     },
 )
 
-platform_logs_alerts: PostgresTable = _platform_configuration_table("_platform_logs_alerts", "logs", "logs")
+platform_logs_alerts: PostgresTable = _platform_configuration_table("_platform_logs_alerts", "logs", "logs", [])
 platform_logs_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_logs_alert_instances",
     "_platform_logs_alerts",
@@ -2582,7 +2592,7 @@ class _LogsAlertsTable(ScopedLazyTable):
     def lazy_select(
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        return _logs_alerts_select()
+        return self.with_nested_reads(_logs_alerts_select(), table_to_add)
 
     def to_printed_clickhouse(self, context: HogQLContext) -> str:
         return "logs_alerts"
