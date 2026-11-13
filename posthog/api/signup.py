@@ -133,16 +133,20 @@ def next_url_unless_other_project(next_url: str | None, user: User | None) -> st
     if len(path_parts) < 2 or path_parts[0] != "project":
         return next_url
     project_ref = path_parts[1]
-    if project_ref.isdigit():
-        team = Team.objects.filter(pk=int(project_ref)).only("pk").first()
-    elif project_ref.startswith("phc_"):
-        team = Team.objects.filter(api_token=project_ref).only("pk").first()
-    else:
+    if not (project_ref.isdigit() or project_ref.startswith("phc_")):
         return next_url
-    if user is None or team is None:
+    if user is None:
+        return None
+    teams = (
+        Team.objects.filter(pk=int(project_ref))
+        if project_ref.isdigit()
+        else Team.objects.filter(api_token=project_ref)
+    )
+    team_id = teams.values_list("pk", flat=True).first()
+    if team_id is None:
         return None
     can_open = authorization.check(
-        resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)),
+        resource=Resource(type=ResourceType.PROJECT, id=str(team_id)),
         action=AuthorizationAction.VIEW,
         subject=Subject(user_id=user.pk),
     )
