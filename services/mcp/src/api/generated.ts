@@ -63779,8 +63779,8 @@ export namespace Schemas {
 
     export interface IncrementalFieldRecommendationsRequest {
       /**
-         * Tables from database_schema to get a recommended incremental field for.
-         * @maxItems 128
+         * Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.
+         * @maxItems 8
          */
       tables: IncrementalFieldTable[];
     }
@@ -113766,9 +113766,9 @@ export namespace Schemas {
       new_work_paused: boolean;
       /** Enabled scouts across this project's environments. */
       enabled_scouts: number;
-      /** Maximum enabled scouts during the trial. */
+      /** Maximum enabled scouts allowed for the project. */
       scout_limit: number;
-      /** On activation, all but the three oldest enabled scouts pause. */
+      /** Number of scouts paused when the trial starts. */
       scouts_to_pause: number;
       /** What happens to new work after the trial.
        *
