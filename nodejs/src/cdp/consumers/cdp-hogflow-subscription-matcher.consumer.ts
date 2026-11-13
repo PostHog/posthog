@@ -263,9 +263,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
     // before consuming, so the gate is never consulted against an unpopulated set.
     private teamsWithLiveWatchers: Set<number> = new Set()
-    // Team -> refresh number current when its flows last changed. A watcher written just before its
-    // flow was paused or lost its goal is invisible to the set until a refresh that started after the
-    // change, and the active-only flow cache no longer shows the goal either.
+    // A watcher written just before its flow was paused stays unseen until a refresh that starts after the change.
     private teamsWithChangedFlows: Map<number, number> = new Map()
     private watcherRefreshNumber = 0
 

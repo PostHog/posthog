@@ -1810,7 +1810,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 expectedPairs: null,
             },
             {
-                // Paused or goal removed after a run wrote its watcher: neither the set nor the cache shows it yet.
                 name: 'a team whose flows changed since the last refresh',
                 liveWatcherTeams: [],
                 flows: [],
