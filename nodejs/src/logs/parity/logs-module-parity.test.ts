@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
+import { template as logDropBySeverityTemplate } from '~/cdp/templates/_transformations_log/drop-by-severity/drop-by-severity.template'
+import { template as logPiiScrubTemplate } from '~/cdp/templates/_transformations_log/pii-scrub/pii-scrub.template'
+import { template as logRedactAttributesTemplate } from '~/cdp/templates/_transformations_log/redact-attributes/redact-attributes.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -326,6 +329,36 @@ const HOG_TRANSFORM_CASES: HogTransformCase[] = [
     { hog: `return (x) -> x` },
     { hog: `let rec := record\nrec.attributes.f := (x) -> x\nreturn rec` },
     { hog: `return {'body': 'not applied'}`, sensitive: ['body'] },
+    // The templates that a customer starts from. Their regular expressions run on RE2 in Node.
+    {
+        hog: logPiiScrubTemplate.code,
+        record: {
+            body: 'jane@example.com and joe.bloggs+x@example.org sent Bearer abcdefghij.klmnop== with sk_live_abcdefgh1234 twice: jane@example.com',
+        },
+        inputs: { replacement: '[REDACTED]' },
+    },
+    { hog: logPiiScrubTemplate.code, record: { body: null }, inputs: { replacement: '[REDACTED]' } },
+    {
+        hog: logDropBySeverityTemplate.code,
+        record: { severity_text: 'debug' },
+        inputs: { severitiesToDrop: 'TRACE, Debug ' },
+    },
+    { hog: logDropBySeverityTemplate.code, inputs: { severitiesToDrop: 'debug,trace' } },
+    {
+        hog: logRedactAttributesTemplate.code,
+        record: { attributes: { 'user.email': '"jane@example.com"', 'user.id': '42', empty: '""', other: '"kept"' } },
+        inputs: { attributeKeys: 'user.email, user.id,empty,missing', salt: 'pepper' },
+        sensitive: ['pepper'],
+    },
+    {
+        hog: logRedactAttributesTemplate.code,
+        record: { attributes: { 'user.email': '"jane@example.com"' } },
+        inputs: { attributeKeys: 'user.email,user.id', salt: null },
+    },
+    // A printed line is cut at 10,000 UTF-16 units, also when it is within the suffix length of the cut, and never inside a surrogate pair.
+    {
+        hog: `${doubled(10)}\nprint(concat(substring(s, 1, 9999), '🚀 tail'))\nprint(substring(s, 1, 9990))\nprint(substring(s, 1, 9985))\nreturn record`,
+    },
 ]
 
 async function buildHogTransformCases(): Promise<Case[]> {
