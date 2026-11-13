@@ -14082,14 +14082,6 @@ snapshots:
         hash: v1.k794b7964.50d81e23177f49a10b50aa963a9a617dc26c8b2cce062a8e313430cf4868446e.MlMWfByO92mw-UakenXEkHJEuedG86aYeWonqvOAILA
     scenes-app-llm-observability-evaluation-templates--without-api-key--light:
         hash: v1.k794b7964.539c391440bb76c34d73f3b2dde3540960a8c521e97968ba1fbfe5b88e2a339d.GXDp0COFtN21PhNIdkfuMAKL2O1mGPpyPcWqTdJCZTI
-    scenes-app-llm-observability-evaluationreportconfig--lemon-ui--dark:
-        hash: v1.k794b7964.195aa4a5a39e8f947e17fe67f5c23303b7dd0579c278907761be24a08780be92.IkGQtAI95T60kJKVZcmmFBIWNCd4meuJv-bcNDoohwU
-    scenes-app-llm-observability-evaluationreportconfig--lemon-ui--light:
-        hash: v1.k794b7964.e6179df07dd55d64e0140d40ac812feb4662e28e5bded7ce2cf9e2575f245626.MyOxoktsQii79iZFaoDLCYAhjrx2QQs-B7SShBLrqL4
-    scenes-app-llm-observability-evaluationreportconfig--quill--dark:
-        hash: v1.k794b7964.195aa4a5a39e8f947e17fe67f5c23303b7dd0579c278907761be24a08780be92.t2Zgr2Pj-cL6F6Xx11DpcCyR1L0QQ8fD17WzQNmXbw8
-    scenes-app-llm-observability-evaluationreportconfig--quill--light:
-        hash: v1.k794b7964.e6179df07dd55d64e0140d40ac812feb4662e28e5bded7ce2cf9e2575f245626.4iGTruUDV858d17xZIUMJCG2xFeWLagkzakPS2Yw4Ps
     scenes-app-llm-observability-evaluationresulttag--categorical--dark:
         hash: v1.k794b7964.c4e312671669532a4bb20c3d59585d8771fb67597fd211d8f6826f66ecf62c11.F1VmFUHyXVK0odHStOtQJBlVZyPmAE8FgkkHva2hbzg
     scenes-app-llm-observability-evaluationresulttag--categorical--light:
