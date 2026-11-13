@@ -35,6 +35,7 @@ deny:
                 # A PR that edits either one changes what the proof checks.
                 - '^\.github/workflows/dependency-proof'
                 - '^\.github/scripts/dependency_proof/'
+                - '^\.github/scripts/dependency_scan\.py$'
                 - '^\.github/actions/setup-uv/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
@@ -141,6 +142,7 @@ attestations:
           - .github/scripts/dependency_proof/__main__.py
           - .github/scripts/dependency_proof/policy.py
           - .github/scripts/dependency_proof/prove.py
+          - .github/scripts/dependency_scan.py
           - .github/workflows/dependency-proof-trigger.yml
           - .github/workflows/dependency-proof.yml
           - .nvmrc
