@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { joinPath, parentPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { workflowFoldersLogic } from './workflowFoldersLogic'
+import { displayedFolder } from './workflowListFacets'
 
 export function WorkflowFolderPath({ path }: { path: string }): JSX.Element | null {
     const { currentFolder, hasActiveQuery } = useValues(workflowFoldersLogic)
@@ -12,7 +13,8 @@ export function WorkflowFolderPath({ path }: { path: string }): JSX.Element | nu
     if (!hasActiveQuery) {
         return null
     }
-    const segments = splitPath(parentPath(path))
+    // An unfiled file sits under a product subfolder that the view shows as plain Unfiled.
+    const segments = splitPath(displayedFolder(parentPath(path)))
     const offset = splitPath(currentFolder ?? '').length
     return (
         <span className="flex min-w-0 text-secondary overflow-hidden">

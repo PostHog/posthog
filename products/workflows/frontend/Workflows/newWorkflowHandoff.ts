@@ -1,12 +1,13 @@
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { calculateMovePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { calculateMovePath, isPathUnder } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { hogFlowsList } from '../generated/api'
 
@@ -52,6 +53,10 @@ async function fileWorkflow(id: string, folder: string): Promise<void> {
         if (!entry?.id) {
             throw new Error('Workflow file not found')
         }
+        // Past the deadline the workflow is already open, so the person or the agent may have filed it by now.
+        if (!isPathUnder(entry.path, 'Unfiled')) {
+            return
+        }
         const { newPath, isValidMove } = calculateMovePath(entry, folder)
         if (isValidMove) {
             await api.fileSystem.move(entry.id, newPath)
@@ -76,16 +81,12 @@ export function workflowHandoffInFolder(
         prepareCreated: async (id) => {
             // File requests have no timeout, so a stalled one would keep the new workflow from opening. Past the
             // deadline the workflow opens, and filing goes on: it still moves the file or warns when it fails.
-            let deadline: ReturnType<typeof setTimeout> | undefined
             try {
-                await Promise.race([
-                    fileWorkflow(id, folder),
-                    new Promise<void>((resolve) => {
-                        deadline = setTimeout(resolve, filingDeadlineMs)
-                    }),
-                ])
-            } finally {
-                clearTimeout(deadline)
+                await withTimeout(fileWorkflow(id, folder), filingDeadlineMs)
+            } catch (error) {
+                if (!(error instanceof PromiseTimeoutError)) {
+                    throw error
+                }
             }
         },
     }

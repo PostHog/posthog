@@ -337,7 +337,8 @@ export interface workflowFoldersLogicMeta {
             matchingRows: WorkflowListRow[],
             currentFolder: string | null,
             placements: Record<string, FileSystemEntry> | null,
-            hasActiveQuery: boolean
+            hasActiveQuery: boolean,
+            browserLoadFailed: boolean
         ) => WorkflowListRow[]
         folderSearchItems: (
             rows: WorkflowListRow[],
@@ -1063,15 +1064,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                           .map((path) => ({ path, name: splitPath(path).at(-1) ?? path, count: counts[path] ?? 0 })),
         ],
         folderRows: [
-            (s) => [s.matchingRows, s.currentFolder, s.placements, s.hasActiveQuery],
+            (s) => [s.matchingRows, s.currentFolder, s.placements, s.hasActiveQuery, s.browserLoadFailed],
             (
                 rows: WorkflowListRow[],
                 folder: string | null,
                 placements: Record<string, FileSystemEntry> | null,
-                searching: boolean
+                searching: boolean,
+                folderLoadFailed: boolean
             ): WorkflowListRow[] => {
                 if (!placements) {
-                    return []
+                    // Without placements no folder can say what it holds, so a failed scan lists every match.
+                    return folderLoadFailed ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : []
                 }
                 const parentOf = (row: WorkflowListRow): string =>
                     parentPath(placements[`hog_flow::${row.id}`]?.path ?? 'Unfiled/Workflows/')

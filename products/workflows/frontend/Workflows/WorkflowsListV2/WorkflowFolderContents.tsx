@@ -7,6 +7,7 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonMenu, LemonTag, Link } fro
 
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { urls } from 'scenes/urls'
 
 import { getItemId, parentPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -64,6 +65,7 @@ export function WorkflowFolderContents(): JSX.Element {
         submitFolderDraft,
         cancelFolderDraft,
     } = useActions(workflowFoldersLogic)
+    const { setValue } = useActions(workflowsListV2Logic)
     const showFolderDraft = !!folderDraft && folderDraft.parent === (currentFolder ?? '')
     const {
         shownColumns,
@@ -84,7 +86,13 @@ export function WorkflowFolderContents(): JSX.Element {
     const [pageForFilter, setPageForFilter] = useState({ filterKey, page: 1 })
     const currentPage = pageForFilter.filterKey === filterKey ? pageForFilter.page : 1
     const { searchParams } = useValues(router)
-    const sortOrder = String(searchParams[SORTING_URL_PARAM] ?? '').startsWith('-') ? -1 : 1
+    // The table keeps its own sort after a header click, so the address drives it too, or Back would leave the table
+    // and this comparator sorting in opposite directions.
+    const orderParam = String(searchParams[SORTING_URL_PARAM] ?? '')
+    const sorting: Sorting | null = orderParam
+        ? { columnKey: orderParam.replace(/^-/, ''), order: orderParam.startsWith('-') ? -1 : 1 }
+        : null
+    const sortOrder = sorting?.order ?? 1
     const keepRowKindsInPlace =
         (compareSameKind: (a: ContentsRow, b: ContentsRow) => number) =>
         (a: ContentsRow, b: ContentsRow): number =>
@@ -250,13 +258,32 @@ export function WorkflowFolderContents(): JSX.Element {
         })
     )
     // Rows on pages still to come, or on a page that failed, could land here, so nothing is empty yet.
-    const empty = !listComplete
-        ? 'Nothing here among the workflows loaded so far.'
-        : hasActiveQuery
-          ? 'Nothing matches. Remove a filter or the folder to see more.'
-          : currentFolder === 'Unfiled'
-            ? 'Every workflow and email template is in a folder.'
-            : 'This folder is empty. Create a workflow here, or move items in with “Move to”.'
+    const empty = !listComplete ? (
+        'Nothing here among the workflows loaded so far.'
+    ) : hasActiveQuery ? (
+        <div className="flex flex-col items-center gap-2">
+            <span>Nothing matches. Remove a filter or the folder to see more.</span>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() =>
+                    setValue({
+                        text: '',
+                        filters: value.filters.filter((filter) => filter.facet === 'in' && !filter.negated),
+                    })
+                }
+                data-attr="workflows-list-v2-clear-filters"
+            >
+                Clear filters
+            </LemonButton>
+        </div>
+    ) : currentFolder === 'Unfiled' ? (
+        'Every workflow and email template is in a folder.'
+    ) : currentFolder ? (
+        'This folder is empty. Create a workflow here, or move items in with “Move to”.'
+    ) : (
+        'No workflows yet.'
+    )
     return (
         <>
             {otherProductFileCount > 0 && (
@@ -290,6 +317,7 @@ export function WorkflowFolderContents(): JSX.Element {
                     serverSearchStatus === 'pending' ||
                     healthPending
                 }
+                sorting={sorting}
                 pagination={{
                     pageSize: 100,
                     currentPage,
