@@ -10,6 +10,7 @@ from django.db import models, transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -67,6 +68,10 @@ class PlatformAlertRoutingFlagPermission(BasePermission):
         return all(platform_flag_enabled(request, view.team, flag) for flag in (PLATFORM_ALERTS_FLAG, ROUTING_FLAG))
 
 
+# POST only because labels are a map, which a query string cannot carry. They change nothing.
+_READ_ONLY_POST_ACTIONS = frozenset({"matching"})
+
+
 class PlatformAlertRoutingSourceAccessPermission(BasePermission):
     """A route can send any alert on the project to its receiver, so changing routing needs an organization admin,
     the only role that object-level access rules (such as a deny on one insight) never restrict. Reading routing shows
@@ -77,7 +82,7 @@ class PlatformAlertRoutingSourceAccessPermission(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         assert isinstance(view, TeamAndOrgViewSetMixin)
-        reads = request.method in SAFE_METHODS
+        reads = request.method in SAFE_METHODS or getattr(view, "action", None) in _READ_ONLY_POST_ACTIONS
         if not reads and not view.user_access_control.is_organization_admin:
             return False
         return all(
@@ -177,6 +182,18 @@ class AlertRouteWriteSerializer(serializers.Serializer):
         help_text=f"{_EVENT_KINDS_HELP} Defaults to every kind.",
     )
     enabled = serializers.BooleanField(required=False, help_text="Whether this route sends. Defaults to true.")
+
+
+class AlertRouteMatchingRequestSerializer(serializers.Serializer):
+    labels = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        help_text='The alert\'s labels, by name, such as {"team": "checkout"}. Unsaved labels work too.',
+    )
+
+
+class AlertRouteMatchSerializer(serializers.Serializer):
+    route = AlertRouteSerializer(help_text="A route these labels match.")
+    receiver = AlertReceiverSerializer(help_text="The receiver the route sends to.")
 
 
 def _serialized_receiver(receiver: StoredAlertReceiver) -> dict[str, Any]:
@@ -308,6 +325,25 @@ class PlatformAlertRouteViewSet(_RoutingViewSet):
     def list(self, request: Request, **kwargs: Any) -> Response:
         routes = platform_api.list_alert_routes(team_id=self.team_id)
         return Response(AlertRouteSerializer([_serialized_route(r) for r in routes], many=True).data)
+
+    @extend_schema(
+        request=AlertRouteMatchingRequestSerializer,
+        responses=AlertRouteMatchSerializer(many=True),
+        description="List the routes, and their receivers, that an alert with these labels sends through, in "
+        "the order delivery reads them. Changes nothing.",
+    )
+    @action(detail=False, methods=["post"])
+    def matching(self, request: Request, **kwargs: Any) -> Response:
+        serializer = AlertRouteMatchingRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        routes = platform_api.matching_alert_routes(team_id=self.team_id, labels=serializer.validated_data["labels"])
+        receivers = {receiver.id: receiver for receiver in platform_api.list_alert_receivers(team_id=self.team_id)}
+        matches = [
+            {"route": _serialized_route(route), "receiver": _serialized_receiver(receivers[route.receiver_id])}
+            for route in routes
+            if route.receiver_id in receivers
+        ]
+        return Response(AlertRouteMatchSerializer(matches, many=True).data)
 
     @extend_schema(
         request=AlertRouteWriteSerializer,

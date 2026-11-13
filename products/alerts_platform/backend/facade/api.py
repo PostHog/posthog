@@ -897,6 +897,11 @@ def list_alert_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
     return alert_routing.list_routes(team_id=team_id)
 
 
+def matching_alert_routes(*, team_id: int, labels: Mapping[str, str]) -> tuple[StoredAlertRoute, ...]:
+    """The routes delivery would send an alert with these labels through, in the order it reads them."""
+    return alert_routing.matching_routes(team_id=team_id, labels=labels)
+
+
 def create_alert_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
     return alert_routing.create_route(team_id=team_id, edit=edit)
 

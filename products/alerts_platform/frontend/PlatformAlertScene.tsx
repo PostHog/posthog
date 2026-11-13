@@ -22,6 +22,7 @@ import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
 import { PlatformAlertRuleMetadata } from './PlatformAlertRuleMetadata'
 import { PlatformAlertRuleMetadataModal } from './PlatformAlertRuleMetadataModal'
+import { PlatformAlertRoutedReceivers } from './routing/PlatformAlertRoutedReceivers'
 
 export const scene: SceneExport = {
     component: PlatformAlertScene,
@@ -119,6 +120,14 @@ export function PlatformAlertScene(): JSX.Element {
                 <PlatformAlertRuleMetadata configuration={configuration} />
                 <PlatformAlertRuleMetadataModal />
             </SceneSection>
+            {featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING] && (
+                <SceneSection
+                    title="Routing"
+                    description="Team-wide receivers this alert also notifies, because a route matches its labels."
+                >
+                    <PlatformAlertRoutedReceivers labels={configuration.labels} />
+                </SceneSection>
+            )}
             <SceneSection
                 title="Groups"
                 description={

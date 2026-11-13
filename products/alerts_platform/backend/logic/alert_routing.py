@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertRoute,
     UnknownAlertRouting,
 )
+from products.alerts_platform.backend.logic import alert_routes
 from products.alerts_platform.backend.logic.alert_destinations import validate_destination_data, validate_event_kinds
 from products.alerts_platform.backend.logic.rule_metadata import InvalidRuleMetadata, validate_labels
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute
@@ -94,6 +95,10 @@ def delete_receiver(*, team_id: int, receiver_id: UUID) -> None:
 def list_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
     rows = AlertRoute.objects.for_team(team_id).order_by("position", "created_at", "id")
     return tuple(_stored_route(row) for row in rows)
+
+
+def matching_routes(*, team_id: int, labels: Mapping[str, str]) -> tuple[StoredAlertRoute, ...]:
+    return tuple(_stored_route(row) for row in alert_routes.matching_routes(team_id=team_id, labels=labels))
 
 
 def create_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:

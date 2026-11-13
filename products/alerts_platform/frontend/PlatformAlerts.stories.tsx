@@ -7,7 +7,12 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { AlertReceiverApi, AlertRouteApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
+import {
+    AlertReceiverApi,
+    AlertRouteApi,
+    AlertRouteMatchApi,
+    PlatformAlertConfigurationApi,
+} from './generated/api.schemas'
 
 const CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
@@ -202,6 +207,9 @@ const meta: Meta = {
             post: {
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/snooze_group/`]:
                     GROUPED_CONFIGURATION.alerts[0],
+                '/api/projects/:team_id/platform_alert_routes/matching/': [
+                    { route: ROUTES[0], receiver: RECEIVERS[0] },
+                ] satisfies AlertRouteMatchApi[],
             },
         }),
     ],
@@ -253,5 +261,16 @@ export const Routing: Story = {
     parameters: {
         pageUrl: `${urls.platformAlerts()}?tab=routing`,
         featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
+    },
+}
+
+export const DetailWithRouting: Story = {
+    parameters: {
+        pageUrl: urls.platformAlert(CONFIGURATION.id),
+        featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Infra incidents')
     },
 }

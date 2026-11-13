@@ -61,6 +61,18 @@ class TestPlatformAlertRouting(APIBaseTest):
         ]
         assert unmatched == ()
 
+        previewed = self.client.post(
+            f"{self.routes_url}matching/", {"labels": {"team": "apm", "severity": "critical"}}, format="json"
+        )
+        assert previewed.status_code == status.HTTP_200_OK, previewed.json()
+        assert [(m["route"]["id"], m["receiver"]["id"], m["receiver"]["webhook_url"]) for m in previewed.json()] == [
+            (route.json()["id"], receiver["id"], "https://example.com")
+        ]
+        assert (
+            self.client.post(f"{self.routes_url}matching/", {"labels": {"team": "checkout"}}, format="json").json()
+            == []
+        )
+
         listed = self.client.get(self.receivers_url).json()
         assert [(r["name"], r["webhook_url"], r["route_count"]) for r in listed] == [
             ("Infra", "https://example.com", 1)
@@ -116,6 +128,14 @@ class TestPlatformAlertRouting(APIBaseTest):
         response = self.client.post(self.receivers_url, {"name": "Infra", **_WEBHOOK}, format="json")
 
         assert response.status_code == expected, response.json()
+
+    def test_a_member_who_is_not_an_org_admin_can_preview_routing(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        previewed = self.client.post(f"{self.routes_url}matching/", {"labels": {"team": "apm"}}, format="json")
+
+        assert previewed.status_code == status.HTTP_200_OK, previewed.json()
 
     def test_a_route_cannot_send_to_another_projects_receiver(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
