@@ -526,8 +526,15 @@ class TestProcessDueSchedules(APIBaseTest):
 class FakeCdpScheduledRuns:
     URL = f"{CDP_API_URL}/api/hog_flows/scheduled_invocations"
 
+    UNCLAIMED = datetime(2020, 1, 1, tzinfo=UTC)
+    BATCH_HANDOFF_URL = re.compile(
+        rf"{re.escape(CDP_API_URL)}/api/projects/\d+/hog_flows/[^/]+/batch_invocations/[^/]+"
+    )
+
     def __init__(self) -> None:
         self.requests: list[list[dict[str, Any]]] = []
+        self.schedules_unclaimed_at_request: list[int] = []
+        self.runs_received_at_batch_handoff: list[int] = []
         self.outcome_by_hog_flow: dict[str, str] = {}
         self.status_code = 200
 
@@ -535,7 +542,12 @@ class FakeCdpScheduledRuns:
     def installed(self) -> Iterator["FakeCdpScheduledRuns"]:
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             http.add_callback(responses.POST, self.URL, callback=self._answer)
+            http.add_callback(responses.POST, self.BATCH_HANDOFF_URL, callback=self._accept_batch_handoff)
             yield self
+
+    def _accept_batch_handoff(self, request: Any) -> tuple[int, dict[str, str], str]:
+        self.runs_received_at_batch_handoff.append(len(self.received_runs))
+        return 200, {}, "{}"
 
     @staticmethod
     def _token_team_ids(authorization: str) -> set[int]:
@@ -561,12 +573,9 @@ class FakeCdpScheduledRuns:
         if not {run["team_id"] for run in runs} <= self._token_team_ids(request.headers.get("Authorization", "")):
             return 401, {}, json.dumps({"error": "Unauthorized: Invalid scheduled runs token"})
         self.requests.append(runs)
+        self.schedules_unclaimed_at_request.append(HogFlowSchedule.objects.filter(next_run_at=self.UNCLAIMED).count())
         results = [{"status": self.outcome_by_hog_flow.get(run["hog_flow_id"], "queued")} for run in runs]
         return 200, {}, json.dumps({"results": results})
-
-
-class _WorkerKilled(BaseException):
-    pass
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
@@ -633,29 +642,15 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     def test_full_chunks_reach_the_cdp_api_before_the_poll_ends(self):
         for _ in range(3):
-            self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
-        claims = 0
+            self._create_workflow_with_schedule(next_run_at=FakeCdpScheduledRuns.UNCLAIMED)
 
-        def worker_dies_on_third_claim(*args, **kwargs):
-            nonlocal claims
-            claims += 1
-            if claims == 3:
-                raise _WorkerKilled
-            return compute_next_occurrences(*args, **kwargs)
-
-        with (
-            unittest.mock.patch(
-                "products.workflows.backend.services.hog_flow_schedules.SCHEDULED_RUNS_PER_DISPATCH", 2
-            ),
-            unittest.mock.patch(
-                "products.workflows.backend.services.hog_flow_schedules.compute_next_occurrences",
-                side_effect=worker_dies_on_third_claim,
-            ),
-            self.assertRaises(_WorkerKilled),
+        with unittest.mock.patch(
+            "products.workflows.backend.services.hog_flow_schedules.SCHEDULED_RUNS_PER_DISPATCH", 2
         ):
             self._post()
 
-        assert [len(request) for request in self.cdp.requests] == [2]
+        assert [len(request) for request in self.cdp.requests] == [2, 1]
+        assert self.cdp.schedules_unclaimed_at_request == [1, 0]
 
     def test_claimed_runs_reach_the_cdp_api_before_a_batch_job_hands_off(self):
         self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
@@ -671,20 +666,10 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             status="active",
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
-        runs_received_at_handoff: list[int] = []
-
-        def hand_off(*args, **kwargs):
-            runs_received_at_handoff.append(len(self.cdp.received_runs))
-            return unittest.mock.DEFAULT
-
-        with unittest.mock.patch(
-            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation",
-            side_effect=hand_off,
-        ):
-            response = self._post()
+        response = self._post()
 
         assert len(response.json()["processed"]) == 2
-        assert runs_received_at_handoff == [1]
+        assert self.cdp.runs_received_at_batch_handoff == [1]
 
     def test_schedule_trigger_without_the_signing_key_fails_and_stays_due(self):
         _, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
