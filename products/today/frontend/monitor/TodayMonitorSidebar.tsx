@@ -9,11 +9,11 @@ import { todayMonitorLogic } from './todayMonitorLogic'
 import { TodayMonitorProductRow } from './TodayMonitorProductRow'
 import { TodayMonitorRecentRow } from './TodayMonitorRecentRow'
 
-/** The Monitor sub-nav: the tools engineers start from, their pinned and recent issues and log views, then AI. */
+/** The Monitor sub-nav: the tools engineers start from, their pinned and recent issues and log views, then products. */
 export function TodayMonitorSidebar(): JSX.Element {
     const {
         matchingTools,
-        matchingAi,
+        matchingProducts,
         matchingPinnedRows,
         matchingRecentRows,
         activeRow,
@@ -26,7 +26,7 @@ export function TodayMonitorSidebar(): JSX.Element {
     const noMatches =
         isSearching &&
         matchingTools.length === 0 &&
-        matchingAi.length === 0 &&
+        matchingProducts.length === 0 &&
         matchingPinnedRows.length === 0 &&
         matchingRecentRows.length === 0
 
@@ -96,22 +96,22 @@ export function TodayMonitorSidebar(): JSX.Element {
                         ))}
                     </SidebarSection>
                 )}
-                {matchingAi.length > 0 && (
+                {matchingProducts.length > 0 && (
                     <SidebarSection
-                        label="AI"
-                        open={isSectionOpen('ai')}
-                        count={matchingAi.length}
+                        label="Products"
+                        open={isSectionOpen('products')}
+                        count={matchingProducts.length}
                         showCount={false}
-                        onToggle={() => toggleSection('ai')}
+                        onToggle={() => toggleSection('products')}
                         divider
-                        dataAttr="monitor-section-ai"
+                        dataAttr="monitor-section-products"
                     >
-                        {matchingAi.map((product) => (
+                        {matchingProducts.map((product) => (
                             <TodayMonitorProductRow
                                 key={product.key}
                                 product={product}
                                 active={activeRow === `product:${product.key}`}
-                                dataAttr="monitor-sidebar-ai"
+                                dataAttr="monitor-sidebar-product"
                             />
                         ))}
                     </SidebarSection>

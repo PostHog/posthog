@@ -12,7 +12,6 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { initKeaTests } from '~/test/init'
 import { ReplayTabs } from '~/types'
 
-import { isMonitorProduct } from './todayMonitor'
 import { isPeopleListPath } from './todayPeople'
 import { resolveStarredProducts, todayProductsLogic } from './todayProductsLogic'
 
@@ -37,43 +36,29 @@ describe('todayProductsLogic', () => {
         ])
     })
 
-    test.each([false, true])(
-        'lists every product of the current navigation but Home, People pane products included, monitor-area %s',
-        (monitorArea) => {
-            useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
-            initKeaTests()
-            const flags = {
-                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
-                [FEATURE_FLAGS.APPLICATION_OBSERVABILITY]: true,
-                [FEATURE_FLAGS.MONITOR_AREA]: monitorArea,
-            }
-            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
-            const logic = todayProductsLogic()
-            logic.mount()
+    it('lists every product of the current navigation but Home, People pane products included', () => {
+        useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
+        initKeaTests()
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayProductsLogic()
+        logic.mount()
 
-            const hrefs = logic.values.products.map((item) => item.href)
-            const monitorHrefs = [urls.errorTracking(), urls.logs(), urls.aiObservabilityDashboard()]
-            expect(hrefs).toEqual(
-                getNavProductItems(flags)
-                    .map((item) => item.href)
-                    .filter((href) => href !== urls.projectRoot() && !(monitorArea && isMonitorProduct({ href })))
-            )
-            // Application observability shares Tracing's icon but is not a Monitor product, so it stays.
-            expect(hrefs).toContain('/application-observability')
-            for (const href of monitorHrefs) {
-                expect(hrefs.includes(href)).toBe(!monitorArea)
-            }
-            expect(hrefs).toEqual(
-                expect.arrayContaining([
-                    urls.persons(),
-                    urls.customerAnalytics(),
-                    urls.supportTickets(),
-                    urls.replay(ReplayTabs.Home),
-                ])
-            )
-        }
-    )
+        const hrefs = logic.values.products.map((item) => item.href)
+        expect(hrefs).toEqual(
+            getNavProductItems(flags)
+                .map((item) => item.href)
+                .filter((href) => href !== urls.projectRoot())
+        )
+        expect(hrefs).toEqual(
+            expect.arrayContaining([
+                urls.persons(),
+                urls.customerAnalytics(),
+                urls.supportTickets(),
+                urls.replay(ReplayTabs.Home),
+            ])
+        )
+    })
 
     // Cohorts and groups are not products in the Products pane, so the rule is tested on the paths.
     test.each([

@@ -22,7 +22,7 @@ import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptio
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // pinned: persisted section ids and the `section` property of `monitor section toggled`.
-export type TodayMonitorSection = 'pinned' | 'recents' | 'ai'
+export type TodayMonitorSection = 'pinned' | 'recents' | 'products'
 
 export function activeMonitorRow(
     pathname: string,
@@ -51,7 +51,7 @@ export interface todayMonitorLogicValues {
     collapsedSections: TodayMonitorSection[]
     isSearching: boolean
     isSectionOpen: (section: TodayMonitorSection) => boolean
-    matchingAi: MonitorProduct[]
+    matchingProducts: MonitorProduct[]
     matchingPinnedRows: TodayMonitorPin[]
     matchingRecentRows: TodayMonitorRecent[]
     matchingTools: MonitorProduct[]
@@ -75,7 +75,7 @@ export interface todayMonitorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         products: (featureFlags: FeatureFlagsSet) => MonitorProducts
         matchingTools: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
-        matchingAi: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
+        matchingProducts: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
         pinnedRows: (shortcutData: FileSystemEntry[]) => TodayMonitorPin[]
         matchingPinnedRows: (pinnedRows: TodayMonitorPin[], searchQuery: string) => TodayMonitorPin[]
         matchingRecentRows: (
@@ -145,10 +145,10 @@ export const todayMonitorLogic = kea<todayMonitorLogicType>([
             (products: MonitorProducts, searchQuery: string): MonitorProduct[] =>
                 products.tools.filter((product) => matchesPaneQuery(product.label, searchQuery)),
         ],
-        matchingAi: [
+        matchingProducts: [
             (s) => [s.products, s.searchQuery],
             (products: MonitorProducts, searchQuery: string): MonitorProduct[] =>
-                products.ai.filter((product) => matchesPaneQuery(product.label, searchQuery)),
+                products.products.filter((product) => matchesPaneQuery(product.label, searchQuery)),
         ],
         pinnedRows: [
             (s) => [s.shortcutData],

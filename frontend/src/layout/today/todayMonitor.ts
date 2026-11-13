@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
@@ -7,11 +8,16 @@ import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { pinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
+/** Monitor lives on the rail, so it is on only with both the rail and its own flag. */
+export function monitorAreaEnabled(featureFlags: FeatureFlagsSet): boolean {
+    return !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && !!featureFlags[FEATURE_FLAGS.MONITOR_AREA]
+}
+
 // pinned: sidebar `iconType` values from the product manifests, in usage order.
 export const MONITOR_TOOL_ICON_TYPES = ['error_tracking', 'logs', 'metrics', 'tracing', 'uptime_monitoring'] as const
 
 // pinned: sidebar `iconType` values from the product manifests.
-export const MONITOR_AI_ICON_TYPES = [
+export const MONITOR_PRODUCT_ICON_TYPES = [
     'llm_analytics',
     'llm_evaluations',
     'llm_prompts',
@@ -34,7 +40,7 @@ export interface MonitorProduct {
 
 export interface MonitorProducts {
     tools: MonitorProduct[]
-    ai: MonitorProduct[]
+    products: MonitorProduct[]
 }
 
 function productsForIconTypes(products: FileSystemImport[], iconTypes: readonly string[]): MonitorProduct[] {
@@ -56,44 +62,55 @@ function productsForIconTypes(products: FileSystemImport[], iconTypes: readonly 
     })
 }
 
+/** Scouts is a tab of the Self-driving inbox, so it borrows the inbox's entry and keeps its flag. */
+function scoutsProduct(products: FileSystemImport[]): MonitorProduct[] {
+    const inbox = products.find((product) => product.href === urls.inbox())
+    if (!inbox) {
+        return []
+    }
+    const href = urls.inbox('scouts')
+    const item: FileSystemImport = {
+        ...inbox,
+        path: 'Scouts',
+        displayLabel: undefined,
+        href,
+        searchTabs: undefined,
+        sceneKey: undefined,
+    }
+    return [{ key: 'scouts', label: 'Scouts', href, item }]
+}
+
 export function monitorProducts(): MonitorProducts {
     const products = getNavProductPages()
     return {
-        tools: productsForIconTypes(products, MONITOR_TOOL_ICON_TYPES),
-        ai: productsForIconTypes(products, MONITOR_AI_ICON_TYPES),
+        tools: [...productsForIconTypes(products, MONITOR_TOOL_ICON_TYPES), ...scoutsProduct(products)],
+        products: productsForIconTypes(products, MONITOR_PRODUCT_ICON_TYPES),
     }
 }
 
 export function monitorItems(featureFlags: FeatureFlagsSet): MonitorProducts {
-    const { tools, ai } = monitorProducts()
+    const { tools, products } = monitorProducts()
     const shown = (product: MonitorProduct): boolean => isFileSystemImportShown(product.item, featureFlags)
-    return { tools: tools.filter(shown), ai: ai.filter(shown) }
-}
-
-let monitorHrefs: Set<string> | null = null
-
-export function isMonitorProduct(item: Pick<FileSystemImport, 'href'>): boolean {
-    if (!monitorHrefs) {
-        const { tools, ai } = monitorProducts()
-        monitorHrefs = new Set([...tools, ...ai].map((product) => product.href))
-    }
-    return !!item.href && monitorHrefs.has(item.href)
+    return { tools: tools.filter(shown), products: products.filter(shown) }
 }
 
 function firstSegment(path: string): string {
     return path.split(/[?#]/)[0].split('/')[1] ?? ''
 }
 
-/** A page no product links to, such as AI observability's traces, belongs to the first product sharing its first segment. */
+/**
+ * A page of the products section that no row links to, such as AI observability's traces, belongs to the first
+ * product sharing its first segment. The tools' segments are not matched: `/inbox` is not Scouts.
+ */
 export function monitorProductForPath(path: string): MonitorProduct | undefined {
-    const { tools, ai } = monitorProducts()
-    const products = [...tools, ...ai]
+    const { tools, products } = monitorProducts()
+    const all = [...tools, ...products]
     const href = navProductHrefForPath(
         path,
-        products.map((product) => product.item)
+        all.map((product) => product.item)
     )
     if (href) {
-        return products.find((product) => product.href === href)
+        return all.find((product) => product.href === href)
     }
     const segment = firstSegment(path)
     return segment ? products.find((product) => firstSegment(product.href) === segment) : undefined

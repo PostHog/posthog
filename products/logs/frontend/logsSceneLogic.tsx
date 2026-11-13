@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils/url'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -14,7 +15,7 @@ import { Params } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { TODAY_MONITOR_RECENT_KEY, TodayMonitorRecent } from '~/layout/today/todayMonitor'
+import { TODAY_MONITOR_RECENT_KEY, TodayMonitorRecent, monitorAreaEnabled } from '~/layout/today/todayMonitor'
 
 import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import {
@@ -187,6 +188,7 @@ export interface logsSceneLogicValues {
         explicitDate: boolean | null | undefined
     } // logsViewerFiltersLogic
     linkToLogId: string | null // logsViewerLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | string // teamLogic
     activeTab: LogsSceneActiveTab
     expandedAttributeBreaksdowns: string[]
@@ -359,6 +361,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['serviceName as anomaliesService', 'dateRange as anomaliesDateRange'],
             teamLogic,
             ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     urlToAction(({ actions, values, cache }) => {
@@ -494,7 +498,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
 
-            const savedView = typeof params[SAVED_VIEW_PARAM] === 'string' ? params[SAVED_VIEW_PARAM] : null
+            const savedView =
+                monitorAreaEnabled(values.featureFlags) && typeof params[SAVED_VIEW_PARAM] === 'string'
+                    ? params[SAVED_VIEW_PARAM]
+                    : null
             if (savedView && savedView !== values.openSavedView?.short_id) {
                 actions.openSavedViewById(savedView)
             } else if (!savedView && values.openSavedView) {

@@ -1,12 +1,11 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { TODAY_MONITOR_RECENT_KEY, TodayMonitorRecent } from './todayMonitor'
+import { TODAY_MONITOR_RECENT_KEY, TodayMonitorRecent, monitorAreaEnabled } from './todayMonitor'
 import { newestByName } from './todayNewestByName'
 import { TODAY_USER_PERSIST_OPTIONS } from './todayUserPersistOptions'
 
@@ -92,7 +91,7 @@ export const todayMonitorRecentsLogic = kea<todayMonitorRecentsLogicType>([
                 },
             ],
             (featureFlags: FeatureFlagsSet, recent: TodayMonitorRecent | null): TodayMonitorRecent | null =>
-                featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && featureFlags[FEATURE_FLAGS.MONITOR_AREA] ? recent : null,
+                monitorAreaEnabled(featureFlags) ? recent : null,
             { resultEqualityCheck: objectsEqual },
         ],
         recentRows: [
