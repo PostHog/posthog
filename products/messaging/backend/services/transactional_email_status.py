@@ -53,17 +53,22 @@ def is_keyed_message_id(message_id: UUID) -> bool:
 
 
 def message_created_at(
-    team_id: int, message_id: UUID, workload: Workload, lag_fallback_table: str | None = None
+    team_id: int,
+    message_id: UUID,
+    workload: Workload,
+    *,
+    kept_for: timedelta,
+    lag_fallback_table: str | None = None,
 ) -> datetime | None:
-    """When the send was queued, or None when no send the tables still keep can have this ID.
+    """When the send was queued, or None when no send in the last `kept_for` can have this ID.
 
     A keyed ID is looked up in email_status. A reader that reads another table can name it as `lag_fallback_table`,
     so a recent send the email_status consumer has not reached yet is still found there.
     """
     if not is_keyed_message_id(message_id):
-        return queued_at(message_id)
+        return queued_at(message_id, kept_for=kept_for)
     now = datetime.now(UTC)
-    found = _keyed_created_at(team_id, message_id, workload, EMAIL_STATUS_TABLE, since=now - _RETENTION)
+    found = _keyed_created_at(team_id, message_id, workload, EMAIL_STATUS_TABLE, since=now - kept_for)
     if found is None and lag_fallback_table is not None:
         # The fallback table's sort key leads with created_at, so a miss scans every row it reads. Consumer lag is
         # minutes, so a short window keeps a missing ID cheap.
@@ -87,20 +92,20 @@ def _keyed_created_at(
     return rows[0][0].replace(tzinfo=UTC) if rows else None
 
 
-def queued_at(message_id: UUID) -> datetime | None:
-    """When the send with this UUIDT was queued, or None when no send the table still keeps can have this ID."""
+def queued_at(message_id: UUID, *, kept_for: timedelta) -> datetime | None:
+    """When the send with this UUIDT was queued, or None when no send in the last `kept_for` can have this ID."""
     # The first 6 bytes of a UUIDT are the Unix time in milliseconds. They are compared as a number first, because a
     # made-up ID can name a time far past the last year a datetime holds.
     queued_ms = int.from_bytes(message_id.bytes[:6], "big")
     now = datetime.now(UTC)
-    if not (now - _RETENTION).timestamp() * 1000 <= queued_ms <= (now + _CLOCK_SKEW).timestamp() * 1000:
+    if not (now - kept_for).timestamp() * 1000 <= queued_ms <= (now + _CLOCK_SKEW).timestamp() * 1000:
         return None
     return datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
 
 
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     """The send's status, or None when no send of this team has this ID or its first status has not arrived."""
-    created_at = message_created_at(team_id, message_id, Workload.OFFLINE)
+    created_at = message_created_at(team_id, message_id, Workload.OFFLINE, kept_for=_RETENTION)
     if created_at is None:
         return None
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
