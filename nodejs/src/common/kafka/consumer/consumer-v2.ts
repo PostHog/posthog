@@ -442,7 +442,12 @@ export class KafkaConsumerV2 {
         // Only the first pull waits, so a lane that is caught up is not delayed once per message.
         this.rdKafkaConsumer.setDefaultConsumeTimeout(0)
         try {
-            while (batch.length > 0 && batch.length < this.fetchBatchSize && bytes < this.fetchBatchMaxBytes) {
+            while (
+                this.running &&
+                batch.length > 0 &&
+                batch.length < this.fetchBatchSize &&
+                bytes < this.fetchBatchMaxBytes
+            ) {
                 let next: Message[]
                 try {
                     next = await this.consume(1)
