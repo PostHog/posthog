@@ -309,13 +309,17 @@ export function createRunner(
                     edgeUrl,
                     lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
                 })
+                const windowOpen = new AbortController()
+                void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
+                    .then(() => valves.releaseAll())
+                    .catch(() => undefined)
                 const units = await drive(loaded, seeded, judge, signal, {
                     producer,
                     eventsTopic,
                     cdpApi,
                     sesFeedback,
                     runId,
-                })
+                }).finally(() => windowOpen.abort())
                 await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
                 sampled = await sampler.stop()

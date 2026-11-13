@@ -335,8 +335,17 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email', 'emailsandbox'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
+    'hog',
+    'hogoverflow',
+    'hogdlq',
+    'hogflow',
+    'email',
+    'emailsandbox',
+] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
+
+export const DEAD_LETTER_QUEUE = 'hogdlq' satisfies CyclotronJobQueueKind
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
@@ -365,6 +374,7 @@ export type CyclotronJobInvocation = {
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    queueLockId?: string
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
@@ -490,6 +500,8 @@ export type MessageOptOutRecord = {
 export type QueuedIdempotencyKey = {
     hash: string
     fingerprint: string
+    currentFingerprint?: string
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     replayFields?: Record<string, number>
 }
@@ -528,6 +540,9 @@ export type HogFlowInvocationContext = {
     // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
     // `triggered` and clears this flag, so a rescheduled run does not count again.
     triggerMetricPending?: boolean
+    // ISO time the API accepted a transactional email send. It lives in the state so that it travels with the job
+    // through Kafka, the queue and every reschedule, and the send's wait counts from it.
+    acceptedAt?: string
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
@@ -545,6 +560,7 @@ export type HogFlowInvocationContext = {
         // Failed cohort membership lookups so far on this step. The step retries on a backoff while
         // this stays under the limit, because a lookup timeout is usually a short stall.
         cohortLookupAttempts?: number
+        renderTimeoutAttempts?: number
         // Set when a cohort membership lookup failed on every attempt. The run aborts on it whatever
         // on_error says, because the default 'continue' takes the continue edge, and on a branch that
         // edge sends a member down the path for people outside the cohort.
@@ -620,6 +636,7 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
     idempotencyKey?: QueuedIdempotencyKey

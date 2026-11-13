@@ -5,6 +5,7 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
+import { RunIntake } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
@@ -12,20 +13,27 @@ import { createCanceledInvocationResult } from '../../utils/invocation-utils'
 import type { CyclotronV2JobProducer } from '../cyclotron-v2'
 import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import type { InvocationResultsService } from '../invocation-results.service'
-import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
-import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
+import {
+    EmailSkipReason,
+    EmailStatusService,
+    EmailStatusUpdate,
+    jobTriggerEvent,
+    messageCreatedAtOf,
+    uuidtCreatedAt,
+} from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
+import type { CodeSendSender, SandboxCodeSendRefusal } from '../messaging/sandbox/sandbox-code-send'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
-import { IdempotencyKeys } from './idempotency-keys'
+import { FingerprintWithPreviousShape, IdempotencyKeys, SenderKind, storedFingerprint } from './idempotency-keys'
 import {
     AcceptedSend,
     TransactionalEmailRequest,
@@ -40,20 +48,31 @@ const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 
+const latestDueAtOf = (messageId: string): Date => new Date(uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS)
+
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
     send: AcceptedSend | undefined,
     scheduledAt: Date | null
-): string => {
+): string | FingerprintWithPreviousShape => {
     const request: unknown[] = [hogFlowId, to, distinct_id, variables]
-    if (send) {
-        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send))
+    const schedule: unknown[] = scheduledAt ? [SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString()] : []
+    if (!send) {
+        return IdempotencyKeys.fingerprint([...request, ...schedule])
     }
-    if (scheduledAt) {
-        request.push(SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString())
+    const { from, ...rest } = send
+    const withSender = (sender: CallerChosenSender | undefined): string =>
+        IdempotencyKeys.fingerprint([
+            ...request,
+            ACCEPTED_SEND_FINGERPRINT_MARKER,
+            { ...rest, from: sender },
+            ...schedule,
+        ])
+    return {
+        current: withSender(senderTheCallerChose(from)),
+        previousShape: withSender(senderBeforeSandboxSends(from)),
     }
-    return IdempotencyKeys.fingerprint(request)
 }
 
 const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void => {
@@ -65,15 +84,10 @@ const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void =>
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 
-const withSenderTheCallerChose = ({
-    from,
-    ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
-    ...send,
-    from: senderTheCallerChose(from),
-})
+const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined =>
+    from?.email || from?.name ? { email: from.email, name: from.name } : undefined
 
-const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
+const senderBeforeSandboxSends = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
     if (!from) {
         return undefined
     }
@@ -88,6 +102,16 @@ const writeStatus = (
     void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
 }
 
+// The refusals that the email worker records as a skipped send when it finds the same problem. A quota limit and an
+// inactive workflow are not skipped sends, because the caller can send again after it waits or fixes the workflow.
+const isSkippedSendRefusal = (
+    refusal: TransactionalSendRefusal
+): refusal is TransactionalSendRefusal & EmailSkipReason =>
+    refusal === 'sending_suspended' ||
+    refusal === 'sending_paused' ||
+    refusal === 'recipient_suppressed' ||
+    refusal === 'recipient_unreachable'
+
 const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
     const firstScheduledAt = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.firstScheduledAt
     return firstScheduledAt ? DateTime.fromSQL(firstScheduledAt, { zone: 'utc' }) : job.queueScheduledAt
@@ -101,7 +125,7 @@ const recipientOf = (job: CyclotronJobInvocation): string | undefined => {
 export type TransactionalSendsDeps = {
     siteUrl: string
     idempotencyKeys: IdempotencyKeys
-    queue: Pick<JobQueue, 'queueInvocations'>
+    runIntake: RunIntake
     invocationResultsRows: HogInvocationResultsService
     emailStatus: EmailStatusService
     teamWorkflowsConfig: TeamWorkflowsConfigService
@@ -109,6 +133,7 @@ export type TransactionalSendsDeps = {
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
     attachmentUploads: AttachmentUploads
+    refuseSandboxSend: (teamId: number, recipient: string) => Promise<SandboxCodeSendRefusal | null>
 }
 
 export type SendFiles = {
@@ -127,6 +152,7 @@ export type TransactionalSendResult =
           invocationId: string
           scheduledAt: string | null
           replyFields: Record<string, number>
+          senderKind?: SenderKind
       }
     | { outcome: TransactionalSendRefusal }
     | { refused: SendRefusal | { status: 400; body: Extract<FilesWorkflowShape, { refused: unknown }>['refused'] } }
@@ -139,14 +165,16 @@ export class TransactionalSends {
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
         stages: TransactionalEmailStageTimer,
-        files: SendFiles
+        files: SendFiles,
+        sender: CodeSendSender = { kind: 'own' }
     ): Promise<TransactionalSendResult> {
+        const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
         const { to, idempotency_key: idempotencyKey, send } = request
         const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
 
         stages.start('build')
-        const invocation = this.buildInvocation(team, hogFlow, request, send)
+        const invocation = this.buildInvocation(team, hogFlow, request, send, senderKind)
         const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         const releaseKey = async (): Promise<void> => {
             if (idempotencyKey) {
@@ -164,6 +192,7 @@ export class TransactionalSends {
                         invocationId: reservation.invocationId,
                         scheduledAt: reservation.scheduledAt ?? null,
                         replyFields: { ...NO_ATTACHMENTS, ...reservation.replayFields },
+                        senderKind: reservation.senderKind,
                     }
                 case 'in_flight':
                     return { outcome: 'idempotency_key_in_flight' }
@@ -173,6 +202,10 @@ export class TransactionalSends {
                     return { outcome: 'idempotency_unavailable' }
             }
         }
+        if (sender.kind === 'refused') {
+            await releaseKey()
+            return { outcome: sender.refusal }
+        }
         const tooFarAhead =
             requestedAt !== null &&
             requestedAt.getTime() > uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS
@@ -181,7 +214,6 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
-        const latestDueAt = new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
         const statusAt = new Date()
         const { shape } = files
         if (shape && 'refused' in shape) {
@@ -193,9 +225,20 @@ export class TransactionalSends {
             stages.start('checks')
             const refusal = tooFarAhead
                 ? 'invalid_scheduled_at'
-                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
+                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request), senderKind)
             if (refusal) {
                 await releaseKey()
+                if (isSkippedSendRefusal(refusal)) {
+                    this.deps.emailStatus.queueRefusedSend({
+                        teamId: team.id,
+                        messageId: invocation.id,
+                        recipient: to,
+                        functionId: hogFlow.id,
+                        reason: refusal,
+                        messageCreatedAt: messageCreatedAtOf(invocation.state.event),
+                    })
+                    void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, invocation.id))
+                }
                 return { outcome: refusal }
             }
             if (send?.attachments?.length && shape) {
@@ -210,7 +253,7 @@ export class TransactionalSends {
                     })),
                     (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
                     files.deadline,
-                    latestDueAt
+                    latestDueAtOf(invocation.id)
                 )
                 if ('refused' in accepted) {
                     await releaseKey()
@@ -224,13 +267,16 @@ export class TransactionalSends {
             }
             stages.start('queue_insert')
             invocation.state.statusAt = statusAt.toISOString()
-            this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
-            try {
-                await this.deps.queue.queueInvocations([invocation])
-            } catch (error) {
-                this.deps.invocationResultsRows.dropQueuedRowsFor([invocation.id])
-                throw error
+            if (idempotencyKey) {
+                invocation.state.idempotencyKey = {
+                    hash: IdempotencyKeys.hash(idempotencyKey),
+                    ...storedFingerprint(fingerprint),
+                    ...(senderKind ? { senderKind } : {}),
+                    replayFields: attachmentTotals,
+                    ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
+                }
             }
+            await this.deps.runIntake.launch([{ invocation }], { wait: 'committed' })
             cdpEmailQueuedTotal.labels(PRIORITY_CLASS).inc()
         } catch (error) {
             await releaseKey()
@@ -245,7 +291,8 @@ export class TransactionalSends {
                 invocation.id,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                scheduledAt ? latestDueAt : undefined
+                scheduledAt ? latestDueAtOf(invocation.id) : undefined,
+                senderKind
             )
         }
         stages.start('metrics_flush')
@@ -257,6 +304,7 @@ export class TransactionalSends {
             functionId: hogFlow.id,
             scheduledAt: scheduledAt ?? undefined,
             statusAt,
+            messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
@@ -267,6 +315,7 @@ export class TransactionalSends {
             invocationId: invocation.id,
             scheduledAt: scheduledAt?.toISOString() ?? null,
             replyFields: attachmentTotals,
+            senderKind,
         }
     }
 
@@ -274,7 +323,8 @@ export class TransactionalSends {
         team: Team,
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
-        send: AcceptedSend | undefined
+        send: AcceptedSend | undefined,
+        senderKind: SenderKind | undefined
     ) {
         const { to, distinct_id: distinctId, variables } = request
         const event: HogFunctionInvocationGlobals['event'] = {
@@ -308,6 +358,9 @@ export class TransactionalSends {
             const { attachments: _references, ...queuedSend } = send
             invocation.state.send = queuedSend
         }
+        if (senderKind) {
+            invocation.state.senderKind = senderKind
+        }
         // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
         // worker counts it instead.
         invocation.state.triggerMetricPending = true
@@ -324,10 +377,17 @@ export class TransactionalSends {
     private async refusal(
         teamId: number,
         hogFlow: HogFlow,
-        recipients: string[]
+        recipients: string[],
+        senderKind: SenderKind | undefined
     ): Promise<TransactionalSendRefusal | null> {
         if (hogFlow.status !== 'active') {
             return 'not_sendable'
+        }
+        if (senderKind === 'email_sandbox') {
+            const sandboxRefusal = await this.deps.refuseSandboxSend(teamId, recipients[0])
+            if (sandboxRefusal) {
+                return sandboxRefusal
+            }
         }
         // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
@@ -370,6 +430,7 @@ export class TransactionalSends {
 
 export type ScheduledTransactionalSendsDeps = {
     jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    idempotencyKeys: Pick<IdempotencyKeys, 'replayUntilDayAfter'>
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
@@ -379,7 +440,7 @@ export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'cl
 
 export type ScheduledSendRescheduleResult =
     | { outcome: 'rescheduled'; scheduledAt: string }
-    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' | 'idempotency_unavailable' }
 
 export class ScheduledTransactionalSends {
     constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
@@ -408,7 +469,7 @@ export class ScheduledTransactionalSends {
             return { outcome: 'not_found' }
         }
         const now = new Date()
-        if (requestedAt > now && requestedAt.getTime() > uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS) {
+        if (requestedAt > now && requestedAt > latestDueAtOf(messageId)) {
             return { outcome: 'invalid_scheduled_at' }
         }
         const scheduledAt = requestedAt > now ? requestedAt : now
@@ -417,6 +478,10 @@ export class ScheduledTransactionalSends {
             return { outcome: result.outcome }
         }
         const job = v2JobToInvocation(result.job)
+        const idempotencyKey = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKey
+        const keyKept =
+            !idempotencyKey ||
+            (await this.deps.idempotencyKeys.replayUntilDayAfter(teamId, job.id, idempotencyKey, latestDueAtOf(job.id)))
         writeStatus(this.deps.emailStatus, {
             teamId,
             messageId,
@@ -425,7 +490,11 @@ export class ScheduledTransactionalSends {
             functionId: job.functionId,
             scheduledAt,
             statusAt: result.rescheduledAt,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
         })
+        if (!keyKept) {
+            return { outcome: 'idempotency_unavailable' }
+        }
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 
@@ -456,6 +525,7 @@ export class ScheduledTransactionalSends {
             status: 'canceled',
             recipient: recipientOf(job),
             functionId: job.functionId,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
         })
         void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
         const { produced } = await invocationResultsRowsService.handOffQueuedRows()

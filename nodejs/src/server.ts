@@ -27,6 +27,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronDeadLetterWorker } from './cdp/consumers/cdp-cyclotron-dead-letter-worker.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
@@ -62,7 +63,9 @@ import { createSandboxEmailRuntime } from './cdp/services/messaging/sandbox/sand
 import { sandboxEmailTestRouter } from './cdp/services/messaging/sandbox/sandbox-email-test-route'
 import { sandboxTestSendBucket } from './cdp/services/messaging/sandbox/sandbox-ses-bucket'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
+import { createCrashGuardSettings } from './cdp/services/poison-batch/crash-guard'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
+import { DEAD_LETTER_QUEUE } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from './cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from './cdp/utils/scoped-service-jwt'
@@ -183,6 +186,7 @@ export class PluginServer implements NodeServer {
         }
 
         // Create shared job queue backends — each consumer gets the one(s) it needs
+        const crashGuardSettings = capabilities.cdpCyclotronWorker ? createCrashGuardSettings(this.config) : null
         const kafkaQueue = new CyclotronJobQueueKafka(
             this.config.KAFKA_CLIENT_RACK,
             this.config,
@@ -248,6 +252,7 @@ export class PluginServer implements NodeServer {
                 const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
                     ? new CyclotronV2Manager({
                           pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
+                          backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
                           rescheduleFloorSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS,
                           rescheduleWakeRatePerSecond: this.config.CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND,
                           rescheduleMinWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS,
@@ -277,7 +282,11 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorker) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorker(this.config, cdpDeps!, kafkaQueue)
+                const deps = { ...cdpDeps!, crashGuardSettings }
+                const worker =
+                    this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND === DEAD_LETTER_QUEUE
+                        ? new CdpCyclotronDeadLetterWorker(this.config, deps, kafkaQueue)
+                        : new CdpCyclotronWorker(this.config, deps, kafkaQueue)
                 await worker.start()
                 return worker.service
             })

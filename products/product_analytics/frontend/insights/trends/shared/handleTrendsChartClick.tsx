@@ -105,6 +105,7 @@ export function handleTrendsChartClick(
                 timezone={deps.timezone}
                 weekStartDay={deps.weekStartDay ?? undefined}
                 date={day}
+                showFullDate
             />
         </>
     )
