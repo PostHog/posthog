@@ -18,6 +18,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import type { HogFlowBatchJobApi, HogFlowConversionApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { sendingRateSummary } from '../Workflows/emailSending'
+import { EmailSendingPausedBanner } from '../Workflows/EmailSendingPausedBanner'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
@@ -30,9 +32,11 @@ import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { canStillBeSending } from './broadcastRunAudience'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
+import { broadcastSendingLogic } from './broadcastSendingLogic'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
+import { BroadcastStillToSend } from './BroadcastStillToSend'
 import { broadcastPath } from './broadcastUsage'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { ComposerDraftFeedback } from './ComposerDraftFeedback'
@@ -364,6 +368,9 @@ export function BroadcastSummary(): JSX.Element {
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
+    const sendingLogic = broadcastSendingLogic(props)
+    const { emailSendingPause, resumingEmailSending } = useValues(sendingLogic)
+    const { resumeEmailSending } = useActions(sendingLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
@@ -464,6 +471,14 @@ export function BroadcastSummary(): JSX.Element {
             />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
+                <EmailSendingPausedBanner
+                    pause={emailSendingPause}
+                    subject="broadcast"
+                    effect="Emails that haven't gone out yet are skipped."
+                    onResume={resumeEmailSending}
+                    resuming={resumingEmailSending}
+                    resumeDisabledReason={accessReason}
+                />
                 {broadcast?.status === 'draft' && accessReason ? (
                     <LemonBanner type="info">
                         You can view this draft but not edit it. Ask an admin for editor access to make changes.
@@ -512,7 +527,7 @@ export function BroadcastSummary(): JSX.Element {
                                     <div
                                         className={cn(
                                             'grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface-primary p-4',
-                                            goalEnabled ? '@2xl:grid-cols-4' : '@2xl:grid-cols-3'
+                                            '@2xl:grid-cols-3'
                                         )}
                                     >
                                         <SummaryRow label="Audience">
@@ -555,6 +570,16 @@ export function BroadcastSummary(): JSX.Element {
                                             </SummaryRow>
                                         )}
                                         {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
+                                        {channel === 'email' ? (
+                                            <SummaryRow label="Sending rate">
+                                                {broadcast?.email_sending_rate_limit
+                                                    ? sendingRateSummary(broadcast.email_sending_rate_limit)
+                                                    : 'No limit'}
+                                            </SummaryRow>
+                                        ) : null}
+                                        <SummaryRow label="Still to send">
+                                            <BroadcastStillToSend />
+                                        </SummaryRow>
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         <h2 className="m-0 text-base font-semibold">
