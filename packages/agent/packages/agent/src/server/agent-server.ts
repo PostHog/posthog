@@ -1117,6 +1117,7 @@ export class AgentServer {
       if (this.session?.payload.run_id === currentRunId) {
         this.session.contextSelection.resetHistory(
           formatConversationForResume(this.resumeState.conversation),
+          this.resumeState.injectedReferences,
         );
       }
       this.logger.debug("Resume state loaded", {
@@ -1986,6 +1987,7 @@ export class AgentServer {
   private createContextSelection(
     runId: string,
     history: string,
+    injected: string[] = [],
   ): ContextSelection {
     return new ContextSelection(
       this.contextSelectionAPI,
@@ -1999,6 +2001,7 @@ export class AgentServer {
         ),
       this.config.version ?? packageJson.version,
       history,
+      injected,
     );
   }
 
@@ -2637,6 +2640,7 @@ export class AgentServer {
         resumeState
           ? formatConversationForResume(resumeState.conversation)
           : "",
+        resumeState?.injectedReferences ?? [],
       ),
       cancellationVersion: 0,
       payload,
@@ -2852,6 +2856,7 @@ export class AgentServer {
     ) {
       return { stopReason: "cancelled" };
     }
+    session.contextSelection.recordInjected(context);
     const result = await session.clientConnection.prompt({
       ...request,
       prompt: context
@@ -5805,6 +5810,15 @@ export class AgentServer {
       message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
     ) {
       this.session.contextSelection.resetHistory();
+    }
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY
+    ) {
+      this.session.contextSelection.forgetInjected();
     }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {

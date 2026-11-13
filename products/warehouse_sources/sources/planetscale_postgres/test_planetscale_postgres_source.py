@@ -2,9 +2,15 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.sources.planetscale_postgres._config import PlanetScalePostgresSourceConfig
-from products.warehouse_sources.sources.planetscale_postgres.source import PlanetScalePostgresSource, _is_psbouncer_port
+from products.warehouse_sources.sources.planetscale_postgres.source import (
+    _DATABASE_NOT_FOUND_ERROR,
+    PlanetScalePostgresSource,
+    _is_psbouncer_port,
+)
 from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
 from products.warehouse_sources.sources.sdk.internals import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    _INVALID_CREDENTIALS_VALIDATION_ERROR,
     Any_Source_Errors,
     ClientDeadlineExceededError,
     PostgresSource,
@@ -39,6 +45,28 @@ def test_port_field_warns_that_psbouncer_cannot_do_cdc():
 
     assert caption is not None
     assert "6432" in caption
+
+
+def test_database_field_defaults_to_the_postgres_database():
+    field = _field("database")
+
+    assert field.placeholder == "postgres"
+    assert field.caption is not None
+    assert "`postgres`" in field.caption
+
+
+@pytest.mark.parametrize(
+    "postgres_result,expected",
+    [
+        ((False, _DATABASE_NOT_FOUND_VALIDATION_ERROR), (False, _DATABASE_NOT_FOUND_ERROR)),
+        ((False, _INVALID_CREDENTIALS_VALIDATION_ERROR), (False, _INVALID_CREDENTIALS_VALIDATION_ERROR)),
+        ((False, "host error"), (False, "host error")),
+        ((True, None), (True, None)),
+    ],
+)
+def test_validate_credentials_points_a_missing_database_at_the_default_database(postgres_result, expected):
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=postgres_result):
+        assert PlanetScalePostgresSource().validate_credentials(_config(), team_id=1) == expected
 
 
 @pytest.mark.parametrize("host", ["app.planetscale.com", "PLANETSCALE.COM", "  planetscale.com  "])

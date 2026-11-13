@@ -60,18 +60,65 @@ def test_missing_envelope_is_not_a_successful_empty_sync(requests_mock: Mocker, 
         list(get_resource(config, "databases", 1, "test-job"))
 
 
-@pytest.mark.parametrize("empty", [False, True])
-def test_usage_fanout_preserves_database_identity_and_nested_metrics(
-    requests_mock: Mocker, config: TursoSourceConfig, empty: bool
+USAGE = {"total": {"rows_read": 7, "rows_written": 3, "storage_bytes": 4096, "bytes_synced": 128}, "instances": []}
+INSTANCES = [
+    {
+        "uuid": "inst-1",
+        "name": "aws-us-east-1",
+        "type": "primary",
+        "region": "aws-us-east-1",
+        "hostname": "a.example.com",
+    },
+    {
+        "uuid": "inst-2",
+        "name": "aws-eu-west-1",
+        "type": "replica",
+        "region": "aws-eu-west-1",
+        "hostname": "b.example.com",
+    },
+]
+TOP_QUERIES = [{"query": "SELECT 1", "rows_read": 1, "rows_written": 0}]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "suffix", "body", "expected"),
+    [
+        ("database_usage", "usage", {"database": USAGE}, [USAGE]),
+        ("database_usage", "usage", None, []),
+        ("database_instances", "instances", {"instances": INSTANCES}, INSTANCES),
+        ("database_stats", "stats", {"top_queries": TOP_QUERIES}, TOP_QUERIES),
+        ("database_stats", "stats", {"top_queries": None}, []),
+    ],
+)
+def test_database_fanout_preserves_database_identity(
+    requests_mock: Mocker,
+    config: TursoSourceConfig,
+    endpoint: str,
+    suffix: str,
+    body: dict[str, Any] | None,
+    expected: list[dict[str, Any]],
 ) -> None:
-    databases = [] if empty else [{"DbId": "db-1", "Name": "example-db"}, {"DbId": "db-2", "Name": "other/db"}]
+    databases = [] if body is None else [{"DbId": "db-1", "Name": "example-db"}, {"DbId": "db-2", "Name": "other/db"}]
     requests_mock.get(f"{ORG_URL}/databases", json={"databases": databases}, complete_qs=True)
-    usage = {"total": {"rows_read": 7, "rows_written": 3, "storage_bytes": 4096, "bytes_synced": 128}, "instances": []}
-    requests_mock.get(f"{ORG_URL}/databases/example-db/usage", json={"database": usage}, complete_qs=True)
-    requests_mock.get(f"{ORG_URL}/databases/other%2Fdb/usage", json={"database": usage}, complete_qs=True)
-    rows = [row for page in get_resource(config, "database_usage", 1, "test-job") for row in page]
-    assert rows == [dict(usage, database_id=db["DbId"], database_name=db["Name"]) for db in databases]
+    requests_mock.get(f"{ORG_URL}/databases/example-db/{suffix}", json=body, complete_qs=True)
+    requests_mock.get(f"{ORG_URL}/databases/other%2Fdb/{suffix}", json=body, complete_qs=True)
+    rows = [row for page in get_resource(config, endpoint, 1, "test-job") for row in page]
+    assert rows == [
+        dict(item, database_id=db["DbId"], database_name=db["Name"]) for db in databases for item in expected
+    ]
     assert requests_mock.call_count == 1 + len(databases)
+
+
+def test_locations_map_becomes_one_row_per_code(requests_mock: Mocker, config: TursoSourceConfig) -> None:
+    requests_mock.get(
+        f"{BASE_URL}/v1/locations",
+        json={"locations": {"aws-us-east-1": "AWS US East (Virginia)", "aws-eu-west-1": "AWS EU West (Ireland)"}},
+    )
+    rows = [row for page in get_resource(config, "locations", 1, "test-job") for row in page]
+    assert rows == [
+        {"code": "aws-us-east-1", "name": "AWS US East (Virginia)"},
+        {"code": "aws-eu-west-1", "name": "AWS EU West (Ireland)"},
+    ]
 
 
 def test_audit_pages_restart_from_the_first_page(

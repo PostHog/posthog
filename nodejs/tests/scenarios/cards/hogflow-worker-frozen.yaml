@@ -1,0 +1,34 @@
+id: hogflow-worker-frozen
+version: 1
+clock: real
+profile: synthetic
+seed: 3
+setup:
+    teams: 1
+drive:
+    for: 90s
+    traffic:
+        - name: event_email
+        - name: event_webhook
+valves:
+    - valve: role.freeze
+      target: cdp-cyclotron-worker-hogflow
+      dose: {}
+      when:
+          name: running_on_queue
+          params:
+              queue: hogflow
+              atLeast: 1
+      for: 60s
+convergeWithin: 2m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 4
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms
