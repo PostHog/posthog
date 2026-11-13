@@ -9705,9 +9705,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             ("event_property", [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]),
             ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}]),
             ("nested_hogql_expression", {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]}),
+            ("unknown_type", [{"key": "x", "type": "bogus", "value": "y", "operator": "exact"}]),
         ]
     )
-    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self, _name, properties):
+    def test_user_blast_radius_endpoint_rejects_unsupported_property_types(self, _name, properties):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {"condition": {"properties": properties}},
@@ -9715,6 +9716,20 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "filters")
         self.assertIn("isn't supported in release conditions", response.json()["detail"])
+
+    def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
+        for i in range(3):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        self.team.test_account_filters = [{"key": "1 = 0", "type": "hogql"}]
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": {"properties": [], "filter_test_accounts": True}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 3, "total": 3}.items(), response.json().items())
 
     @parameterized.expand(
         [
