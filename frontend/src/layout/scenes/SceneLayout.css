@@ -12,6 +12,6 @@
 
 .scene-content--narrow > :not(header, .scene-menu-bar) {
     width: 100%;
-    max-width: 1600px;
+    max-width: 1800px;
     margin-inline: auto;
 }
