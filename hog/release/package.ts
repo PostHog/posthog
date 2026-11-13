@@ -1,6 +1,5 @@
-// Turns compile.ts's binaries into the release: archives, SHA256SUMS, manifest.json and the install
-// scripts in <out>/assets, the npm packages in <out>/npm, and <out>/hog.rb. --reuse rebuilds the npm
-// packages and formula from a version the bucket already has, because files under a version never change.
+// --reuse rebuilds the npm packages and formula from a version the bucket already has, because files
+// under a version never change.
 
 import { chmod, copyFile, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
