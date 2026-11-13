@@ -14,6 +14,8 @@ All parameters go inside `query` — top-level fields are rejected:
 
 To find **when** the volume is concentrated within the window (rather than just the total), follow up with `logs-count-ranges` — it returns time-bucketed counts with explicit `date_from`/`date_to` per bucket so you can drill into a sub-range without reasoning about interval width.
 
+To split the count by a field, such as per service, per pattern, or per attribute value, call `logs-group-by` once instead of one `logs-count` per value.
+
 # Parameters
 
 ## query.dateRange

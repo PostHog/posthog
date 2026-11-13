@@ -17,7 +17,9 @@ Use `logs-attributes-list` and `logs-attribute-values-list` to discover availabl
 5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).
 6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.
 
-Many cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.
+If the question asks for a breakdown, such as the top 10 teams by error count or which pattern fails most, call `logs-group-by` instead of reading rows. It counts by up to 4 dimensions, which can be columns, attributes, or a JSON path in the body.
+
+Many cheap calls (attribute/value queries, counts, count-ranges, group-by) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 

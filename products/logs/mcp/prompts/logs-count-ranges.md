@@ -12,6 +12,7 @@ Use this to find **where the volume is concentrated** before pulling rows. Cheap
 
 - **`logs-count`** — total volume in a window. Scalar.
 - **`logs-count-ranges`** (this tool) — _when_ in the window the volume sits. Time-bucketed.
+- **`logs-group-by`** — _which_ service, pattern, attribute value, or body field holds the volume. Grouped counts.
 - **`query-logs`** — pull individual log rows. Most expensive; only call after counts confirm the window is right-sized.
 
 # Recursion pattern (the main reason this tool exists)
