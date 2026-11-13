@@ -20,6 +20,8 @@ from products.messaging.backend.facade.contracts import (
     PresentAttachment,
     QueuedEmail,
     SendCategoryDefinition,
+    SendWarning,
+    SendWarningCode,
     TransactionalEmailError,
     UploadQuotaExceeded,
 )
@@ -65,6 +67,8 @@ __all__ = [
     "EmailStatus",
     "EmailTracking",
     "QueuedEmail",
+    "SendWarning",
+    "SendWarningCode",
     "TransactionalEmailError",
     "TransactionalEmailStage",
     "CategoriesNotEnabled",

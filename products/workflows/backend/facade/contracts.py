@@ -740,6 +740,12 @@ class TransactionalEmailContent:
 
 
 @frozen
+class SendingDomainSetup:
+    setup_url: str
+    unverified_sender_id: int | None
+
+
+@frozen
 class CodeEmailWorkflow:
     """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
 

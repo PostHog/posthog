@@ -1204,3 +1204,17 @@ class TaskRunLogLink:
 
     url: str | None
     unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressRegistrationDTO:
+    run_id: UUID
+    team_id: int
+    execution_id: UUID
+    actor_id: int
+    actor_epoch: int
+    relay_key_sha256: str
+    authority: str
+    region: str
+    lease_expires_at: datetime
+    revoked: bool

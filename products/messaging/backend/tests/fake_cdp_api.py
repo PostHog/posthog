@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import requests
 
 from posthog.dataclasses import frozen
+from posthog.models.integration import Integration
 
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 
@@ -213,6 +214,7 @@ class FakeCdpApi:
     takes_categories: bool = True
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
+    idempotency_keys: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def queued_sends(self) -> list[dict[str, Any]]:
@@ -234,11 +236,21 @@ class FakeCdpApi:
             return _response(422, {"error": "recipient_unreachable"})
         if issues:
             return _response(400, {"error": _json_dumps(issues)})
+        key = request.get("idempotency_key") if is_code_send else None
+        fingerprint = _code_send_fingerprint(url, request) if key is not None else ""
+        if key is not None and key in self.idempotency_keys:
+            stored_fingerprint, reply = self.idempotency_keys[key]
+            if stored_fingerprint != fingerprint:
+                return _response(422, {"error": "idempotency_key_reused"})
+            return _response(202, {"status": "queued", "replayed": True, **reply})
         refusal = self.refusal or _opt_out_refusal(url, request)
         if refusal:
             return _response(refusal[0], {"error": refusal[1]})
         self.queued.append({name: value for name, value in request.items() if name in keys})
-        return _response(202, {"invocation_id": str(uuid.uuid4())})
+        reply = {"invocation_id": str(uuid.uuid4()), **(_sender_kind(request["send"]) if is_code_send else {})}
+        if key is not None:
+            self.idempotency_keys[key] = (fingerprint, reply)
+        return _response(202, reply)
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
@@ -293,6 +305,26 @@ class FakeAnalytics:
 
     def properties_of(self, name: str) -> list[dict[str, Any]]:
         return [event["properties"] for event in self.events if event.get("event") == name]
+
+
+def _code_send_fingerprint(url: str, request: dict[str, Any]) -> str:
+    sender = request["send"].get("from") or {}
+    chosen = (
+        {"email": sender.get("email"), "name": sender.get("name")}
+        if sender.get("email") or sender.get("name")
+        else None
+    )
+    return _json_dumps(
+        [url, request["to"], request["distinct_id"], request.get("variables"), {**request["send"], "from": chosen}]
+    )
+
+
+def _sender_kind(send: dict[str, Any]) -> dict[str, str]:
+    integration_id = (send.get("from") or {}).get("integrationId")
+    if integration_id is None:
+        return {}
+    kind = Integration.objects.filter(id=integration_id).values_list("kind", flat=True).first()
+    return {"sender_kind": kind} if kind == "email_sandbox" else {}
 
 
 def _json_loads(data: bytes | str) -> Any:
