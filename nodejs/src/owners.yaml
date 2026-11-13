@@ -26,6 +26,7 @@ rules:
           - '/logs/services/*.test.*'
           - '/logs/transformations/*.test.*'
           - '/logs/transformations/benchmarks/*.test.*'
+          - '/common/services/unknown-token-recorder.test.*'
       owners: team-apm
     - match:
           - '/common/usage-ingestion/*.test.*'
