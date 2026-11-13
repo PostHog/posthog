@@ -2147,6 +2147,61 @@ describe('sqlEditorLogic', () => {
         }
 
         it.each([
+            ['view', 'selection'],
+            ['insight', 'selection'],
+            ['view', 'cursor'],
+            ['insight', 'cursor'],
+        ])('preserves the %s save target through diff acceptance (%s)', async (target, mode) => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            const savedQueries: string[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/': async ({ request }) => {
+                        const body = (await request.json()) as { query: HogQLQuery }
+                        savedQueries.push(body.query.query)
+                        return [200, { ...MOCK_VIEW, ...body }]
+                    },
+                    '/api/environments/:team_id/insights/': async ({ request }) => {
+                        const body = (await request.json()) as { query: DataVisualizationNode }
+                        savedQueries.push(body.query.source.query)
+                        return [200, { ...MOCK_INSIGHT, ...body }]
+                    },
+                },
+            })
+            const editor = {
+                ...createMockEditor(),
+                getModel: () => ({ getValueInRange: () => 'SELECT 2', getOffsetAt: () => 35 }),
+                getSelection: jest.fn(() => ({ isEmpty: () => mode !== 'selection' })),
+                getPosition: jest.fn(() => ({ lineNumber: 1, column: 36 })),
+            }
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1 UNION ALL SELECT 2; SELECT 3')
+            const dataLogic = dataNodeLogic({ key: logic.values.dataLogicKey, query: logic.values.sourceQuery.source })
+            const unmountData = dataLogic.mount()
+            logic.actions.reviewQuerySave((candidates) => {
+                if (target === 'view') {
+                    logic.actions.saveAsView(false, undefined, candidates)
+                } else {
+                    logic.actions.saveAsInsight(candidates)
+                }
+            })
+            editor.getSelection.mockReturnValue({ isEmpty: () => true })
+            editor.getPosition.mockReturnValue({ lineNumber: 1, column: 1 })
+            editor.getModel = () => ({ getValueInRange: () => '', getOffsetAt: () => 0 })
+            expect(openForm).not.toHaveBeenCalled()
+            logic.actions.onAcceptSuggestedQueryInput()
+            await expectLogic(logic).toFinishAllListeners()
+            const form = openForm.mock.calls.at(-1)?.[0] as any
+            expect(form.title).toBe(target === 'view' ? 'Save as view' : 'Save as new insight')
+            await form.onSubmit({ ...form.initialValues, name: 'selected_query', viewName: 'selected_query' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(savedQueries).toEqual([mode === 'selection' ? 'SELECT 2' : 'SELECT 3'])
+            unmountData()
+            openForm.mockRestore()
+        })
+
+        it.each([
             ['view', (): void => logic.actions.saveAsView()],
             ['endpoint', (): void => logic.actions.saveAsEndpoint()],
         ])('refuses to save a selected identifier as a %s', async (_target, openDialog) => {

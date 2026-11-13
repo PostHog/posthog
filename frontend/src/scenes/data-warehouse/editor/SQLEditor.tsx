@@ -67,6 +67,7 @@ import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
 import { SaveAsMetricModal } from './SaveAsMetricModal'
+import type { SaveCandidates } from './SaveTargetCycler'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import { useUpdateEditingView } from './useUpdateEditingView'
@@ -615,7 +616,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const saveAsDisabledReason = saveAsInsightDisabledReason
     const saveAsEndpointQueryDisabledReason = saveAsInsightDisabledReason
     const needsSaveConfirmation = !isSourceQueryLastRun || !response || !!responseError || responseLoading
-    const [pendingSave, setPendingSave] = useState<(() => void) | null>(null)
+    const [pendingSave, setPendingSave] = useState<((candidates?: SaveCandidates) => void) | null>(null)
     const saveConfirmationAnchor = useRef<HTMLSpanElement>(null)
     const saveClickPosition = useRef({ x: 0, y: 0 })
     const [saveConfirmationPosition, setSaveConfirmationPosition] = useState({ x: 0, y: 0 })
@@ -624,7 +625,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setPendingSave(null)
     }, [queryInput, editingView?.id, editingInsight?.id, editingMetricName])
 
-    const confirmSave = (save: () => void): void => {
+    const confirmSave = (save: (candidates?: SaveCandidates) => void): void => {
         if (needsSaveConfirmation) {
             setSaveConfirmationPosition(saveClickPosition.current)
             setPendingSave(() => save)
@@ -685,21 +686,21 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         dataAttr: item.dataAttr ?? `sql-editor-save-as-${item.action}`,
     }))
 
-    const saveAsTarget = (target: SaveAsTargetId): void => {
+    const saveAsTarget = (target: SaveAsTargetId, candidates?: SaveCandidates): void => {
         if (target === 'insight') {
-            saveAsInsight()
+            saveAsInsight(candidates)
         } else if (target === 'view') {
-            saveAsView()
+            saveAsView(false, undefined, candidates)
         } else if (target === 'endpoint') {
-            saveAsEndpoint()
+            saveAsEndpoint(candidates)
         } else {
-            saveAsMetric()
+            saveAsMetric(undefined, candidates)
         }
     }
 
     const onSaveAsTargetSelect = (target: SaveAsTargetId): void => {
         selectSaveAsTarget(target)
-        confirmSave(() => saveAsTarget(target))
+        confirmSave((candidates) => saveAsTarget(target, candidates))
     }
 
     const onSaveAsMenuVisibilityChange = (visible: boolean): void => {
@@ -710,7 +711,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     const secondarySaveMenuItems = saveAsMenuItems.secondary.map((item) => ({
         ...item,
-        onClick: () => confirmSave(() => saveAsTarget(item.action)),
+        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
         disabledReason: disabledReasonForSaveAsTarget(item.action),
     }))
 
@@ -720,11 +721,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         { action: 'endpoint' as const, label: 'Save as endpoint...' },
     ].map((item) => ({
         ...item,
-        onClick: () => confirmSave(() => saveAsTarget(item.action)),
+        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
         disabledReason: disabledReasonForSaveAsTarget(item.action),
     }))
 
-    const onPrimarySaveClick = (): void => confirmSave(() => saveAsTarget(saveAsMenuItems.primary.action))
+    const onPrimarySaveClick = (): void =>
+        confirmSave((candidates) => saveAsTarget(saveAsMenuItems.primary.action, candidates))
     const primarySaveDisabledReason = disabledReasonForSaveAsTarget(saveAsMenuItems.primary.action)
 
     const {
@@ -865,7 +867,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             closeObjectTooltip={closeObjectTooltip}
                             editingViewDisabledReason={editingViewDisabledReason}
                             editingViewLoading={editingViewLoading}
-                            onUpdateView={() => confirmSave(updateEditingView)}
+                            onUpdateView={() => confirmSave(() => updateEditingView())}
                             confirmSave={confirmSave}
                             needsSaveConfirmation={needsSaveConfirmation}
                             saveAsInsightDisabledReason={saveAsInsightDisabledReason}
@@ -900,7 +902,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         userAccessLevel={editingView.user_access_level}
                                     >
                                         <LemonButton
-                                            onClick={() => confirmSave(updateEditingView)}
+                                            onClick={() => confirmSave(() => updateEditingView())}
                                             disabledReason={editingViewDisabledReason}
                                             icon={<EditingViewButtonIcon />}
                                             type="primary"

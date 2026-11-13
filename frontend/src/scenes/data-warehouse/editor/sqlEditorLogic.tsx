@@ -1054,8 +1054,8 @@ export interface sqlEditorLogicActions {
     reviewEditingViewUpdate: () => {
         value: true
     }
-    reviewQuerySave: (save: () => void) => {
-        save: () => void
+    reviewQuerySave: (save: (candidates?: SaveCandidates) => void) => {
+        save: (candidates?: SaveCandidates | undefined) => void
     }
     reviewViewUpdate: (
         view: UpdateViewPayload,
@@ -1076,8 +1076,8 @@ export interface sqlEditorLogicActions {
     runSubquery: () => {
         value: true
     }
-    saveAsEndpoint: () => {
-        value: true
+    saveAsEndpoint: (candidates?: SaveCandidates) => {
+        candidates: SaveCandidates | undefined
     }
     saveAsEndpointSubmit: (
         name: string,
@@ -1088,8 +1088,8 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
-    saveAsInsight: () => {
-        value: true
+    saveAsInsight: (candidates?: SaveCandidates) => {
+        candidates: SaveCandidates | undefined
     }
     saveAsInsightSubmit: (
         name: string,
@@ -1098,7 +1098,11 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
-    saveAsMetric: (queryOverride?: string) => {
+    saveAsMetric: (
+        queryOverride?: string,
+        candidates?: SaveCandidates
+    ) => {
+        candidates: SaveCandidates | undefined
         queryOverride: string | undefined
     }
     saveAsMetricSubmit: (
@@ -1114,8 +1118,10 @@ export interface sqlEditorLogicActions {
     }
     saveAsView: (
         materializeAfterSave?: any,
-        fromDraft?: string
+        fromDraft?: string,
+        candidates?: SaveCandidates
     ) => {
+        candidates: SaveCandidates | undefined
         fromDraft: string | undefined
         materializeAfterSave: any
     }
@@ -1468,9 +1474,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
-        saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({
+        saveAsView: (materializeAfterSave = false, fromDraft?: string, candidates?: SaveCandidates) => ({
             fromDraft,
             materializeAfterSave,
+            candidates,
         }),
         saveAsViewSubmit: (
             name: string,
@@ -1494,18 +1501,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
             incremental,
         }),
-        saveAsInsight: true,
+        saveAsInsight: (candidates?: SaveCandidates) => ({ candidates }),
         saveAsInsightSubmit: (name: string, queryOverride?: string) => ({
             name,
             queryOverride,
         }),
-        saveAsEndpoint: true,
+        saveAsEndpoint: (candidates?: SaveCandidates) => ({ candidates }),
         saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string) => ({
             name,
             description,
             queryOverride,
         }),
-        saveAsMetric: (queryOverride?: string) => ({ queryOverride }),
+        saveAsMetric: (queryOverride?: string, candidates?: SaveCandidates) => ({ queryOverride, candidates }),
         saveAsMetricSubmit: (
             fields: SaveAsMetricFields,
             queryOverride?: string,
@@ -1589,7 +1596,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         updateEditingView: (review: boolean = false) => ({ review }),
         reviewEditingViewUpdate: true,
         reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({ view, draftId }),
-        reviewQuerySave: (save: () => void) => ({ save }),
+        reviewQuerySave: (save: (candidates?: SaveCandidates) => void) => ({ save }),
         updateView: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -2581,13 +2588,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     )
                 }
             },
-            saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+            saveAsView: async ({ fromDraft, materializeAfterSave = false, candidates: savedCandidates }) => {
                 if (values.saveAsViewDisabledReason) {
                     lemonToast.error(values.saveAsViewDisabledReason)
                     return
                 }
                 const isStaff = values.user?.is_staff ?? false
-                const candidates = resolveSaveCandidates()
+                const candidates = savedCandidates ?? resolveSaveCandidates()
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
@@ -2940,7 +2947,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setViewLoading(false)
                 }
             },
-            saveAsInsight: async () => {
+            saveAsInsight: async ({ candidates: savedCandidates }) => {
                 const currentVisualizationQuery = getCurrentVisualizationQuery(
                     values.dataLogicKey,
                     values.sourceQuery,
@@ -2959,7 +2966,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     effectiveVisualizationType
                 )
 
-                const candidates = resolveSaveCandidates()
+                const candidates = savedCandidates ?? resolveSaveCandidates()
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
@@ -3084,8 +3091,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     router.actions.push(withBackLink(urls.insightView(insight.short_id)))
                 }
             },
-            saveAsEndpoint: async () => {
-                const candidates = resolveSaveCandidates()
+            saveAsEndpoint: async ({ candidates: savedCandidates }) => {
+                const candidates = savedCandidates ?? resolveSaveCandidates()
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
@@ -3152,8 +3159,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
-            saveAsMetric: async ({ queryOverride }) => {
-                const resolved = resolveSaveCandidates()
+            saveAsMetric: async ({ queryOverride, candidates: savedCandidates }) => {
+                const resolved = savedCandidates ?? resolveSaveCandidates()
                 // Reopening after a name conflict keeps the statement the user picked, not the cursor default.
                 const restoredIndex = queryOverride === undefined ? -1 : resolved.queries.indexOf(queryOverride)
                 const candidates = restoredIndex >= 0 ? { ...resolved, initialIndex: restoredIndex } : resolved
@@ -3570,6 +3577,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             reviewQuerySave: ({ save }) => {
+                const candidates = resolveSaveCandidates()
                 const savedQuery =
                     values.editingView?.query?.query ??
                     toDataVisualizationNode(values.editingInsight?.query)?.source.query ??
@@ -3587,7 +3595,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                           : 'Save query',
                     rejectText: 'Cancel',
                     diffShowRunButton: false,
-                    onAccept: save,
+                    onAccept: () => save(candidates),
                     onReject: () => {},
                 })
             },
