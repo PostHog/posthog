@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -988,24 +989,37 @@ describe('broadcastWizardLogic', () => {
             answer: 'the rejection of an unfinished filter',
             response: [400, { type: 'validation_error', code: 'invalid', detail: 'An audience filter is incomplete.' }],
             settledBy: 'loadBlastRadiusSuccess',
+            reported: false,
         },
         {
             answer: 'a server error',
             response: [500, { detail: 'Simulated outage' }],
             settledBy: 'loadBlastRadiusFailure',
+            reported: true,
         },
-    ])('settles the audience size without a count on $answer', async ({ response, settledBy }) => {
-        await expectLogic(logic).toFinishAllListeners().clearHistory()
-        useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => response } })
-        logic.actions.setAudienceProperties([
-            { type: PropertyFilterType.Person, key: 'plan', operator: PropertyOperator.Exact } as AnyPropertyFilter,
-        ])
+    ])('settles the audience size without a count on $answer', async ({ response, settledBy, reported }) => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+        try {
+            await expectLogic(logic).toFinishAllListeners().clearHistory()
+            useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => response } })
+            logic.actions.setAudienceProperties([
+                { type: PropertyFilterType.Person, key: 'plan', operator: PropertyOperator.Exact } as AnyPropertyFilter,
+            ])
 
-        await expectLogic(logic, () => {
-            logic.actions.loadBlastRadius()
-        })
-            .toDispatchActions([settledBy])
-            .toMatchValues({ blastRadius: null })
+            await expectLogic(logic, () => {
+                logic.actions.loadBlastRadius()
+            })
+                .toDispatchActions([settledBy])
+                .toMatchValues({ blastRadius: null })
+            expect({
+                reported: captureException.mock.calls.length > 0,
+                toasted: toastError.mock.calls.length > 0,
+            }).toEqual({ reported, toasted: reported })
+        } finally {
+            captureException.mockRestore()
+            toastError.mockRestore()
+        }
     })
 
     const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }

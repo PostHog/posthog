@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -216,16 +219,25 @@ describe('batchTriggerLogic', () => {
                     ],
                 },
             })
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             initKeaTests()
             const logic = batchTriggerLogic({
                 id: 'test-unfinished-filter',
                 filters: { properties: [{ key: 'plan', type: 'person', operator: 'exact' }] as any },
             })
-            logic.mount()
-            await expectLogic(logic)
-                .toDispatchActions(['loadBlastRadiusSuccess'])
-                .toMatchValues({ blastRadius: null, blastRadiusError: rejection })
-            logic.unmount()
+            try {
+                logic.mount()
+                await expectLogic(logic)
+                    .toDispatchActions(['loadBlastRadiusSuccess'])
+                    .toMatchValues({ blastRadius: null, blastRadiusError: rejection })
+                expect(captureException).not.toHaveBeenCalled()
+                expect(toastError).not.toHaveBeenCalled()
+            } finally {
+                logic.unmount()
+                captureException.mockRestore()
+                toastError.mockRestore()
+            }
         })
     })
 })
