@@ -124,7 +124,7 @@ Divide opens and clicks by `email_sent` minus `email_untracked`. `conversion` co
 ### Engagement by version
 
 One step's callbacks split by the version that sent them.
-Use it for openers and clickers per version. Report them as counts, because the sent event carries no version, so no count of people sent exists per version. Per-version ratios come from `posthog:workflows-version-stats` or the **Counters by version** recipe, as period occurrence ratios over tracked sends.
+Use it for openers and clickers per version. Report them as counts, because the sent event carries a version only from 2026-11-10, so no count of people sent exists per version before then. Per-version ratios come from `posthog:workflows-version-stats` or the **Counters by version** recipe, as period occurrence ratios over tracked sends.
 
 ```sql
 SELECT
