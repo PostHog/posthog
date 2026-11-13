@@ -4323,6 +4323,44 @@ describe('Cyclotron V2', () => {
             expect(row.janitor_touch_count).toBe(1)
         })
 
+        it('still recovers stalled jobs, but not poison pills, when cleanup and poison handling fail', async () => {
+            const stalledId = uuidv7()
+            const poisonId = uuidv7()
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            await insertRawJob({ id: uuidv7(), status: 'completed', last_transition: staleHeartbeat })
+            await insertRawJob({ id: stalledId, status: 'running', lock_id: uuidv7(), last_heartbeat: staleHeartbeat })
+            await insertRawJob({
+                id: poisonId,
+                queue_name: 'rerun',
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 2,
+            })
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION fail_terminal_delete() RETURNS trigger AS $$
+                BEGIN RAISE EXCEPTION 'canceling statement due to statement timeout'; END $$ LANGUAGE plpgsql;
+                CREATE TRIGGER fail_terminal_delete BEFORE DELETE ON cyclotron_jobs
+                FOR EACH ROW EXECUTE FUNCTION fail_terminal_delete();
+            `)
+
+            const janitor = createJanitor({ stallTimeoutMs: 1_000 })
+            try {
+                const result = await janitor.runOnce()
+                expect(result.deleted).toBe(0)
+                expect(result.stalled).toBe(1)
+                expect(result.depths.get('hogflow')).toBe(1)
+            } finally {
+                await janitor.stop()
+                await assertPool.query(`
+                    DROP TRIGGER fail_terminal_delete ON cyclotron_jobs;
+                    DROP FUNCTION fail_terminal_delete();
+                `)
+            }
+            expect((await queryJob(stalledId)).status).toBe('available')
+            expect((await queryJob(poisonId)).status).toBe('running')
+        })
+
         // Backoff on the reset job's next scheduled time, keyed on
         // janitor_touch_count. The FIRST stall retries within the small jittered
         // spread (~5s), not the full base — the exponential term is shifted
