@@ -206,13 +206,13 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                     <SelectTriggerIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
-                    <DropdownMenuList>
+                    <DropdownMenuList className="-mx-1 overflow-x-hidden px-2">
                         <DropdownMenuRadioGroup value={selectedValue}>
                             <ScrollArea
                                 hideScrollbars
-                                // Bleeds into the menu padding so the scroll shadows span the full width
-                                className="-mx-2 -mt-2"
-                                viewportClassName="max-h-80 px-2 pt-2 scroll-py-4"
+                                // Overhangs the menu edge, where the list clips it, so the shadows' tapered ends don't show
+                                className="-mx-3 -mt-2"
+                                viewportClassName="max-h-80 px-3 pt-2 scroll-py-4"
                             >
                                 {visibleOptions.map(({ key: optionKey, values }) => (
                                     <DropdownMenuRadioItem
@@ -277,7 +277,7 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                     </div>
                                 </div>
                             </ScrollArea>
-                            <DropdownMenuSeparator className="mt-0" />
+                            <DropdownMenuSeparator className="-mx-2 mt-0" />
                             <DropdownMenuRadioItem value={DATE_TO_NOW_VALUE} onClick={openDateToNow}>
                                 From custom date until now…
                             </DropdownMenuRadioItem>
