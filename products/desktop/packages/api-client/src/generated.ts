@@ -5018,6 +5018,7 @@ export namespace Schemas {
         valueColumn: string | null;
         xAxisColumn: string | null;
         xAxisLabel: string | null;
+        xAxisSortOrder: HeatmapSortOrder | null;
         yAxisColumn: string | null;
         yAxisLabel: string | null;
     }>;
