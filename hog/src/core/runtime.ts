@@ -78,9 +78,7 @@ export interface Runtime {
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
     secrets: Secrets
-    // Hands a telemetry batch to a detached hog process that sends it, so this run can exit without
-    // waiting on the network. Resolves to false when no process could start, and the caller sends
-    // the batch itself. Undefined in tests, which read the batch from the request it sends.
+    // Resolves to false when no process could start, and the caller then sends the batch itself.
     sendTelemetryInBackground: ((body: string) => Promise<boolean>) | undefined
     // The project token for anonymous usage events. Undefined turns them off, as in tests.
     telemetryToken: string | undefined
@@ -321,9 +319,8 @@ export function processRuntime(): Runtime {
                         ? [process.execPath, '--no-env-file', Bun.main, TELEMETRY_WORKER_ARG]
                         : [process.execPath, TELEMETRY_WORKER_ARG],
                     {
-                        // Its own session, and no stdout or stderr, so a pipe or an agent reading hog's
-                        // output sees it end when this process exits. It runs in a folder nobody
-                        // deletes, so it never holds open a folder that a person or a test removes.
+                        // No stdout or stderr, so a pipe or an agent reading hog's output sees it end
+                        // when hog exits. tmpdir() keeps the worker from holding the caller's folder open.
                         detached: true,
                         stdin: 'pipe',
                         stdout: 'ignore',
