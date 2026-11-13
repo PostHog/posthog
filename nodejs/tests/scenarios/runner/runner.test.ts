@@ -605,7 +605,10 @@ describe('runner through seed, drive and judge', () => {
         { role, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
 
-    const environmentOf = (delivering: 'none' | 'all' | 'all, leaving one job running'): Environment => ({
+    const environmentOf = (
+        delivering: 'none' | 'all' | 'all, leaving one job running',
+        roleUrl = 'http://127.0.0.1:1'
+    ): Environment => ({
         up: () => Promise.resolve(),
         async reset(settings: Profile['settings']) {
             await roles?.stop()
@@ -619,7 +622,7 @@ describe('runner through seed, drive and judge', () => {
                       )
         },
         edgeUrl: () => edge.url,
-        role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, url: roleUrl, metricsUrl: processMetrics.url }),
         actuate(action) {
             exits.push(...killExits(action.role))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
@@ -923,4 +926,31 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+
+    it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {
+        const slowIntake = http.createServer((_request, response) => {
+            setTimeout(() => response.writeHead(503).end(), 3_000)
+        })
+        await new Promise<void>((resolve) => slowIntake.listen(0, '127.0.0.1', resolve))
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(slowIntake.address() as AddressInfo).port}`),
+                env
+            ).run(shortSmoke([{ ...KILL_EMAIL_WORKER, at: '2500ms' }], 'transactional_email'), NEVER_ABORTED)
+            results.push(result)
+
+            expect(result.timeline).toEqual([
+                {
+                    valve: 'role.kill',
+                    target: 'cdp-cyclotron-worker-email',
+                    requestedAt: expect.any(String),
+                    error: 'never applied: released before its offset',
+                },
+            ])
+            expect(exits).toEqual([])
+        } finally {
+            slowIntake.closeAllConnections()
+            await new Promise((resolve) => slowIntake.close(resolve))
+        }
+    }, 30_000)
 })
