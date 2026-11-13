@@ -255,6 +255,24 @@ def native_configuration_keys(
     )
 
 
+def owned_copy_ids(*, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
+    """The source row id of every copy of a kind the platform owns, for a source that lists those
+    alerts from the platform. With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.owned_copy_ids(
+        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
+def owned_copies(
+    *, team_id: int, source_kind: SourceKind, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies the platform owns of these source rows, keyed by source row id, for a source that
+    shows such an alert's settings from its copy. Each view carries no instances."""
+    return platform_reads.owned_copies(
+        team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
+    )
+
+
 def native_configuration_matches(
     *, team_id: int, source_kind: SourceKind, search: str | None = None
 ) -> tuple[NativeConfigurationMatch, ...]:
@@ -828,8 +846,11 @@ def destination_hears_kind(
     )
 
 
-def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
-    """Deletes the named destinations of one alert. An id of another alert is left alone."""
+def delete_alert_destinations(
+    *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
+) -> dict[UUID, str]:
+    """Deletes the named destinations of one alert, and returns the type of each one it deleted, by id.
+    An id of another alert is left alone."""
     return alert_destinations.delete_alert_destinations(
         team_id=team_id, configuration_id=configuration_id, destination_ids=destination_ids
     )

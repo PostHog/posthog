@@ -874,6 +874,28 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert (tested.status_code, tested.json()["email_recipient_count"]) == (status.HTTP_202_ACCEPTED, 1)
         assert mock_send.call_args.kwargs["recipients"] == [self.user.email]
 
+        self.client.patch(f"{self.url}/{self.copy_id}/", {"subscribed_users": [denied.id]}, format="json")
+
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="AlertConfiguration",
+            item_id=str(self.copy_id),
+            detail__type="alert_subscription_change",
+        ).order_by("created_at")
+        assert [
+            (
+                row.activity,
+                row.user_id,
+                (row.detail or {})["context"]["subscriber_email"],
+                (row.detail or {})["context"]["insight_name"],
+            )
+            for row in logged
+        ] == [
+            ("created", self.user.id, self.user.email, self.alert.insight.name),
+            ("created", self.user.id, denied.email, "Signups"),
+            ("deleted", self.user.id, self.user.email, "Signups"),
+        ]
+
     def test_enabling_an_alert_insight_keeps_no_row_for_keeps_its_requested_start_time(self) -> None:
         self._forget_the_insight_row()
         with team_scope(self.team.id):
@@ -1562,6 +1584,22 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="AlertConfiguration",
+            item_id=str(self.copy_id),
+            detail__type="alert_destination_change",
+        ).order_by("created_at")
+        assert [
+            (
+                row.user_id,
+                [(change["action"], change["before"] or change["after"]) for change in (row.detail or {})["changes"]],
+            )
+            for row in logged
+        ] == [
+            (self.user.id, [("created", {"id": hog_function_id, "type": "slack"})]),
+            (self.user.id, [("deleted", {"id": hog_function_id, "type": "slack"})]),
+        ]
 
     def _destination(self, alert_id: UUID | None = None) -> HogFunction:
         return HogFunction.objects.create(

@@ -23,6 +23,7 @@ ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS = (
     "alerts_platform_batch_duration_ms",
     "alerts_platform_scheduler_lag_ms",
     "alerts_platform_delivery_lag_ms",
+    "alerts_platform_check_completion_lag_ms",
 )
 
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
@@ -278,7 +279,16 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
 
 
 DeliveryOutcomeLabel = Literal[
-    "sent", "failed", "misconfigured", "ambiguous", "already_delivered", "busy", "no_transport"
+    "sent",
+    "failed",
+    "misconfigured",
+    "ambiguous",
+    "already_delivered",
+    "busy",
+    "no_transport",
+    "announcement_empty",
+    "announcement_superseded",
+    "announcement_missing",
 ]
 
 _DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
@@ -362,5 +372,16 @@ def record_scheduler_lag(source: str, lag_ms: int) -> None:
     get_metric_meter({"source": source}).create_histogram_timedelta(
         name="alerts_platform_scheduler_lag_ms",
         description="Delay between a check's due time and the evaluation that took it",
+        unit="ms",
+    ).record(dt.timedelta(milliseconds=lag_ms))
+
+
+def record_check_completion_lag(source: str, lag_ms: int) -> None:
+    """How far past its due time a check's outcome was recorded. Every source records through the
+    platform's one write, so a source that never measures its own scheduler lag is still measured.
+    A check that never completes adds no sample; the overdue gauge covers those."""
+    get_metric_meter({"source": source}).create_histogram_timedelta(
+        name="alerts_platform_check_completion_lag_ms",
+        description="Delay between a check's due time and the commit that recorded its outcome",
         unit="ms",
     ).record(dt.timedelta(milliseconds=lag_ms))

@@ -1102,6 +1102,172 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    export interface AEOSetupConflict {
+      /** Why the request was refused. */
+      detail: string;
+      /** The setup job already running. Poll GET aeo_setup/<id>/ with it. */
+      job_id: string;
+    }
+
+    /**
+     * * `own_brand` - Own Brand
+     * * `app_urls` - App Urls
+     * * `recording_domains` - Recording Domains
+     * * `pageviews` - Pageviews
+     */
+    export type WebsiteSourceEnum = typeof WebsiteSourceEnum[keyof typeof WebsiteSourceEnum];
+
+
+    export const WebsiteSourceEnum = {
+      OwnBrand: 'own_brand',
+      AppUrls: 'app_urls',
+      RecordingDomains: 'recording_domains',
+      Pageviews: 'pageviews',
+    } as const;
+
+    export interface AEOWebsiteCandidate {
+      /** A registrable domain the project may be about, for example example.com. */
+      domain: string;
+      /** Where PostHog found it: own_brand (an own brand in the catalog), app_urls (the project's authorized URLs), recording_domains (the domains allowed to record sessions) or pageviews (hosts with pageviews in the last 7 days).
+       *
+       * * `own_brand` - Own Brand
+       * * `app_urls` - App Urls
+       * * `recording_domains` - Recording Domains
+       * * `pageviews` - Pageviews */
+      source: WebsiteSourceEnum;
+      /**
+         * Pageviews on the domain in the last 7 days. Null unless source is pageviews.
+         * @nullable
+         */
+      pageviews?: number | null;
+    }
+
+    export interface AEOSetupContext {
+      /** Up to 5 domains the project may be about, the most likely first. */
+      websites: AEOWebsiteCandidate[];
+      /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
+      engines: AEOEngineSetting[];
+      /** Domains already set as the project's own brands. */
+      own_domains: string[];
+      /** Active, unarchived prompts the project tracks. */
+      active_prompts: number;
+      /** Unarchived prompts that are turned off. No run checks them. */
+      paused_prompts: number;
+      /** Keywords in the project's keyword list. */
+      keywords: number;
+      /** Whether any citation check has been recorded for the project. */
+      has_checks: boolean;
+      /** Whether the organization approved AI data processing. Setup needs it. */
+      ai_data_processing_approved: boolean;
+      /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+      first_run_available: boolean;
+      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      prompt_target: number;
+      /** The window, in days, that pageview hosts among the websites cover. */
+      website_days: number;
+    }
+
+    /**
+     * * `brand` - Brand
+     * * `prompts` - Prompts
+     * * `keywords` - Keywords
+     * * `first_run` - First Run
+     */
+    export type SetupStepEnum = typeof SetupStepEnum[keyof typeof SetupStepEnum];
+
+
+    export const SetupStepEnum = {
+      Brand: 'brand',
+      Prompts: 'prompts',
+      Keywords: 'keywords',
+      FirstRun: 'first_run',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `done` - Done
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type SetupStepStatusEnum = typeof SetupStepStatusEnum[keyof typeof SetupStepStatusEnum];
+
+
+    export const SetupStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOSetupStep {
+      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+       *
+       * * `brand` - Brand
+       * * `prompts` - Prompts
+       * * `keywords` - Keywords
+       * * `first_run` - First Run */
+      step: SetupStepEnum;
+      /** pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `done` - Done
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: SetupStepStatusEnum;
+      /** How many brands, prompts or keywords the step added. */
+      added?: number;
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      detail?: string;
+    }
+
+    export interface AEOSetupJob {
+      /** The setup steps in the order they run. */
+      steps: AEOSetupStep[];
+      /** Job id. Poll GET aeo_setup/<id>/ with it. */
+      id: string;
+      /** pending while PostHog works, then completed or failed. A failed keywords step does not fail the job.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
+    }
+
+    export interface AEOSetupRequest {
+      /**
+         * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.
+         * @maxLength 200
+         */
+      domain?: string;
+      /**
+         * The brand name. Inferred from the site when empty.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      engines?: string[];
+      /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts. */
+      run_first_check?: boolean;
+      /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
+      only_first_run?: boolean;
+      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      activate_paused_prompts?: boolean;
+    }
+
     export interface AEOVisibilityDashboard {
       /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
       id: number;
@@ -3810,6 +3976,29 @@ export namespace Schemas {
       account_first_seen: string;
       /** Latest account activity across current distinct IDs, in UTC. */
       account_last_seen: string;
+    }
+
+    export interface PersonAccount {
+      /** Accessible account ID. */
+      id: string;
+      /** Account display name. */
+      name: string;
+    }
+
+    export interface AccountPersonMemberships {
+      /** Current person ID from the requested account. */
+      person_id: string;
+      /** Accessible accounts this person belongs to. */
+      accounts: PersonAccount[];
+    }
+
+    export interface AccountPersonMembershipsRequest {
+      /**
+         * Loaded person IDs to enrich, up to 500.
+         * @minItems 1
+         * @maxItems 500
+         */
+      person_ids: string[];
     }
 
     export interface PersonPropertyFilter {
@@ -9456,14 +9645,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -9518,6 +9710,7 @@ export namespace Schemas {
       name?: string | null;
       /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
       offset?: number | null;
+      /** The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. With `sendRawQuery`, no default limit applies and `hasMore` is not set. */
       query: string;
       response?: HogQLQueryResponse | null;
       /** Run the selected connection query directly without translating it through HogQL first */
@@ -9829,14 +10022,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -13867,6 +14063,15 @@ export namespace Schemas {
       default_reasoning_effort: string | null;
       /** Models a pipeline may set as agent_model. */
       models: AgentModelOption[];
+    }
+
+    export interface AgentSource {
+      /** Distinct people whose agents ran the query, without scouts. */
+      people: number;
+      /** Agent sessions that ran the query, without scouts. */
+      sessions: number;
+      /** Query runs by agents, without scouts. */
+      runs: number;
     }
 
     export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
@@ -27201,6 +27406,25 @@ export namespace Schemas {
       insight_id: number;
       /** When the explanation was first saved. */
       created_at: string;
+    }
+
+    export interface ChartSource {
+      /** Short ID of the saved chart, for a link to it. */
+      insight_short_id: string;
+      /** Name of the saved chart. */
+      insight_name: string;
+      /**
+         * The dashboard that ran the chart, if any.
+         * @nullable
+         */
+      dashboard_id: number | null;
+      /**
+         * Name of the dashboard, if any.
+         * @nullable
+         */
+      dashboard_name: string | null;
+      /** Distinct people whose visit ran the chart. Viewers count. */
+      people: number;
     }
 
     /**
@@ -71280,6 +71504,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `points` - points
+     * * `summary` - summary
+     */
+    export type MetricQueryOutputEnum = typeof MetricQueryOutputEnum[keyof typeof MetricQueryOutputEnum];
+
+
+    export const MetricQueryOutputEnum = {
+      Points: 'points',
+      Summary: 'summary',
+    } as const;
+
+    /**
      * * `rate` - rate
      * * `increase` - increase
      */
@@ -71381,6 +71617,40 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered
+     */
+    export type UsageSectionEnum = typeof UsageSectionEnum[keyof typeof UsageSectionEnum];
+
+
+    export const UsageSectionEnum = {
+      MetricRuns: 'metric_runs',
+      Conversations: 'conversations',
+      AdjustedRuns: 'adjusted_runs',
+      Topics: 'topics',
+      TableSources: 'table_sources',
+      Uncovered: 'uncovered',
+    } as const;
+
+    export interface SectionFailure {
+      /** The payload section whose step failed.
+       *
+       * * `metric_runs` - Metric runs
+       * * `conversations` - Conversations
+       * * `adjusted_runs` - Adjusted runs
+       * * `topics` - Topics
+       * * `table_sources` - Table sources
+       * * `uncovered` - Uncovered */
+      section: UsageSectionEnum;
+      /** Why the scan step failed. */
+      reason: string;
+    }
+
     export interface MetricUsage {
       /** ID of the catalog metric. */
       metric_id: string;
@@ -71399,6 +71669,8 @@ export namespace Schemas {
       runs: MetricRunCounts | null;
       /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
       adjusted_runs: AdjustedRun[];
+      /** Failed sections that these numbers read, so a missing count is not a zero. */
+      failed_sections: SectionFailure[];
     }
 
     /**
@@ -100541,6 +100813,42 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface SurfaceSource {
+      /** The web app area that ran the query. Empty when it is unknown. */
+      product: string;
+      /** Distinct people who ran the query there. */
+      people: number;
+      /** Query runs from that area. */
+      runs: number;
+    }
+
+    export interface ProposedMetric {
+      /** Proposed metric name. */
+      name: string;
+      /** What the proposed metric counts. */
+      description: string;
+      /** Proposed HogQL definition. */
+      definition: string;
+      /** Recurring measures that this proposal merges. */
+      measures: number;
+      /** Distinct people across the measures, without scouts. */
+      people: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+      built: number;
+      /** The saved charts with the most people. */
+      charts: ChartSource[];
+      /** Saved charts that are not listed in charts. */
+      other_charts: number;
+      /** Web app areas that ran it outside a saved chart. */
+      surfaces: SurfaceSource[];
+      /** Agent use, or null when no agent ran it. */
+      agents: AgentSource | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
+    }
+
     /**
      * * `queued` - Waiting to start
      * * `running` - Importing
@@ -101929,14 +102237,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -102912,14 +103223,17 @@ export namespace Schemas {
       error?: string | null;
       /** Query explanation output */
       explain?: string[] | null;
+      /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Rows skipped before the default row limit applied. */
       offset?: number | null;
       /** Input query string */
       query?: string | null;
@@ -122023,10 +122337,12 @@ export namespace Schemas {
          * @nullable
          */
       matched_metric_id: string | null;
-      /** Distinct people who ran the measure, without scouts. */
+      /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
       distinct_people: number;
-      /** Query runs of the measure, without scouts. */
-      runs: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+      built: number;
       /** One query that computes the measure. */
       sample_sql: string;
       /**
@@ -122039,6 +122355,13 @@ export namespace Schemas {
          * @nullable
          */
       draft_description: string | null;
+      /**
+         * Proposed HogQL definition, when one was drafted.
+         * @nullable
+         */
+      draft_definition: string | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
     }
 
     export interface UnquarantineQuery {
@@ -122330,6 +122653,13 @@ export namespace Schemas {
          * @nullable
          */
       uncovered: UncoveredGroup[] | null;
+      /**
+         * Proposed metrics with their sources. Null until drafted.
+         * @nullable
+         */
+      proposed_metrics: ProposedMetric[] | null;
+      /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+      failed_sections: SectionFailure[];
     }
 
     export interface UsageSnapshot {
@@ -126832,8 +127162,38 @@ export namespace Schemas {
     export interface _MetricSeries {
       /** Label values identifying this series. Empty for an ungrouped query. */
       labels: _MetricSeriesLabels;
-      /** Time-bucketed points, ordered by time ascending. */
-      points: _MetricQueryPoint[];
+      /** Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output. */
+      points?: _MetricQueryPoint[];
+      /**
+         * Instant queries only: the series' value at 'time'.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.
+         * @nullable
+         */
+      time?: string | null;
+      /**
+         * Summary output only: the last non-null value.
+         * @nullable
+         */
+      last?: number | null;
+      /**
+         * Summary output only: the smallest non-null value.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Summary output only: the largest non-null value.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Summary output only: the mean of the non-null values.
+         * @nullable
+         */
+      avg?: number | null;
       /**
          * Metric the series was computed from. Null for formula results.
          * @nullable
@@ -126897,6 +127257,11 @@ export namespace Schemas {
          * @nullable
          */
       onset_time: string | null;
+      /**
+         * Start of the last bucket when it ends after anomalyTo or now, so it holds only part of its samples. It stays in series but is left out of every statistic, the onset and the movers. Null when every bucket is complete.
+         * @nullable
+         */
+      partial_bucket_time?: string | null;
       /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
       top_movers: _MetricAnomalyDimension[];
       /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
@@ -127219,6 +127584,15 @@ export namespace Schemas {
          * @nullable
          */
       limit?: number | null;
+      /** Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'. */
+      instant?: boolean;
+      /** Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant. */
+      time?: string;
+      /** 'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.
+       *
+       * * `points` - points
+       * * `summary` - summary */
+      output?: MetricQueryOutputEnum;
     }
 
     export interface _MetricQueryCount {
@@ -127249,6 +127623,8 @@ export namespace Schemas {
       omitted_empty_series?: number;
       /** Number of series left out by 'limit'. Set only when it left some out. */
       omitted_by_limit?: number;
+      /** Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it. */
+      url_params?: string;
     }
 
     export interface _MetricSamplesBody {
@@ -127755,6 +128131,111 @@ export namespace Schemas {
       events?: _SpanEvent[];
     }
 
+    /**
+     * Span count per service, largest first (top 10).
+     */
+    export type _TraceSummaryServices = {[key: string]: number};
+
+    export interface _TraceSummarySpan {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+    }
+
+    export interface _TraceSummaryPathEntry {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /** Nesting depth below the root, which is 0. */
+      depth: number;
+      /** Present when consecutive same-named siblings were collapsed into this entry; durations are summed. */
+      count?: number;
+    }
+
+    export interface _TraceSummaryRepeated {
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the spans. Omitted when it is the root span's service. */
+      service?: string;
+      /** How many spans in the trace have this service and name. */
+      count: number;
+      /** Summed duration of those spans, in milliseconds. */
+      total_ms: number;
+      /** Longest of those spans, in milliseconds. */
+      max_ms: number;
+    }
+
+    export interface _TraceSummaryError {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /**
+         * The exception message, or the error attribute the span carries. Null when the span records none.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface _TraceSummary {
+      /** The trace ID. */
+      trace_id?: string;
+      /** When the earliest span started (ISO 8601). */
+      start?: string;
+      /** First span start to last span end, in milliseconds. */
+      duration_ms?: number;
+      /** Spans summarized. */
+      span_count: number;
+      /** Distinct services in the trace. */
+      service_count?: number;
+      /** Spans with error status. */
+      error_count?: number;
+      /** True when the trace has more spans than were summarized, so counts are lower bounds. */
+      truncated: boolean;
+      /** The trace's root span. */
+      root?: _TraceSummarySpan;
+      /** Span count per service, largest first (top 10). */
+      services?: _TraceSummaryServices;
+      /** Spans with the most self time, largest first. Self time on a parent is uninstrumented work. */
+      top_self_time?: _TraceSummarySpan[];
+      /** The spans the trace's end time waits on, in start order, walking back from the root's end. Spans that ran in parallel and finished earlier are left out. */
+      critical_path?: _TraceSummaryPathEntry[];
+      /** Spans on the critical path left out because each took under 1% of the root's duration. */
+      critical_path_omitted?: number;
+      /** True when the critical path was cut at summaryLimit entries (at most 20). */
+      critical_path_truncated?: boolean;
+      /** Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern. */
+      repeated_spans?: _TraceSummaryRepeated[];
+      /** Error spans, earliest first. */
+      errors?: _TraceSummaryError[];
+    }
+
     export interface _TracingAggregationQueryBody {
       /** Date range for the primary window. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -128255,11 +128736,21 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span/service/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`. */
+      summary?: boolean;
+      /**
+         * With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.
+         * @minimum 1
+         * @maximum 50
+         */
+      summaryLimit?: number;
     }
 
     export interface _TracingTraceResponse {
-      /** Spans in the trace, earliest first. */
+      /** Spans in the trace, earliest first. Empty when `summary` is requested. */
       results: _TraceSpan[];
+      /** The trace digest, present when `summary` is true. */
+      summary?: _TraceSummary;
       /** Whether a further page of spans exists. */
       hasMore: boolean;
       /**
