@@ -24,7 +24,7 @@ import {
 } from '../monitoring/hog-invocation-results.service'
 import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager } from './manager'
+import { CyclotronV2Manager, IDEMPOTENCY_KEY_TTL_MS } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -1659,6 +1659,32 @@ describe('Cyclotron V2', () => {
                 })
                 expect(row).toMatchObject({ status: 'available', transition_count: 0 })
                 expect(row.dequeue_seq).toEqual(before.dequeue_seq)
+            })
+
+            it('keeps a keyed job claimed for a day past the latest time it was rescheduled to', async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([
+                    {
+                        job: { id, teamId: 1, queueName: 'email', functionId: uuidv7(), scheduled: IN_A_WEEK() },
+                        fingerprint: 'a',
+                    },
+                ])
+                const claimExpiry = async (): Promise<Date> =>
+                    new Date(
+                        (
+                            await assertPool.query('SELECT expires_at FROM cyclotron_idempotency_keys WHERE id = $1', [
+                                id,
+                            ])
+                        ).rows[0].expires_at
+                    )
+                const inTwentyDays = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000)
+
+                await manager.rescheduleUnclaimed(1, id, inTwentyDays)
+                const extended = await claimExpiry()
+                await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+
+                expect(extended).toEqual(new Date(inTwentyDays.getTime() + IDEMPOTENCY_KEY_TTL_MS))
+                expect(await claimExpiry()).toEqual(extended)
             })
 
             it('times a reschedule after the stored time of the previous status row, even when that is ahead', async () => {
@@ -4321,6 +4347,44 @@ describe('Cyclotron V2', () => {
             expect(row.status).toBe('available')
             expect(row.lock_id).toBeNull()
             expect(row.janitor_touch_count).toBe(1)
+        })
+
+        it('still recovers stalled jobs, but not poison pills, when cleanup and poison handling fail', async () => {
+            const stalledId = uuidv7()
+            const poisonId = uuidv7()
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            await insertRawJob({ id: uuidv7(), status: 'completed', last_transition: staleHeartbeat })
+            await insertRawJob({ id: stalledId, status: 'running', lock_id: uuidv7(), last_heartbeat: staleHeartbeat })
+            await insertRawJob({
+                id: poisonId,
+                queue_name: 'rerun',
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 2,
+            })
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION fail_terminal_delete() RETURNS trigger AS $$
+                BEGIN RAISE EXCEPTION 'canceling statement due to statement timeout'; END $$ LANGUAGE plpgsql;
+                CREATE TRIGGER fail_terminal_delete BEFORE DELETE ON cyclotron_jobs
+                FOR EACH ROW EXECUTE FUNCTION fail_terminal_delete();
+            `)
+
+            const janitor = createJanitor({ stallTimeoutMs: 1_000 })
+            try {
+                const result = await janitor.runOnce()
+                expect(result.deleted).toBe(0)
+                expect(result.stalled).toBe(1)
+                expect(result.depths.get('hogflow')).toBe(1)
+            } finally {
+                await janitor.stop()
+                await assertPool.query(`
+                    DROP TRIGGER fail_terminal_delete ON cyclotron_jobs;
+                    DROP FUNCTION fail_terminal_delete();
+                `)
+            }
+            expect((await queryJob(stalledId)).status).toBe('available')
+            expect((await queryJob(poisonId)).status).toBe('running')
         })
 
         // Backoff on the reset job's next scheduled time, keyed on

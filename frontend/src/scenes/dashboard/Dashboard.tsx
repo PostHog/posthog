@@ -29,7 +29,6 @@ import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
-import { DashboardFlagCalledBanner } from 'products/dashboards/frontend/DashboardFlagCalledBanner'
 import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
 import { DashboardItems } from 'products/dashboards/frontend/DashboardItems'
 import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
@@ -282,7 +281,6 @@ function DashboardScene({
                         </LemonBanner>
                     )}
                     <DashboardRetentionBanner />
-                    <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
                     <DashboardWarehouseSyncBanner />
 

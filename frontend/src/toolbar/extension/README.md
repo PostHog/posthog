@@ -83,6 +83,8 @@ When the release pull request merges, the workflow runs again:
 6. It creates the `toolbar-extension/vX.Y.Z` GitHub release with the zip.
 7. It replies in the Slack approval thread that the version went to the store. It finds the thread through a hidden marker in the release pull request body.
 
+When the build or the publish fails or is cancelled, the reply in the thread says that the release did not finish and links to the run.
+
 An approval whose changesets another run already released gets a "superseded" reply in its thread.
 
 Changesets that land while a release is open go into the next release.

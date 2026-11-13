@@ -4081,20 +4081,6 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
     return {"surveys": surveys}
 
 
-def _survey_page_site_url() -> str:
-    """
-    Origin for the hosted survey page's static assets. Assets must load from the app
-    origin even when the page is served through a reverse-proxy domain, which doesn't
-    serve Django staticfiles. A localhost SITE_URL (the unset default) would emit asset
-    URLs no external browser can reach, so fall back to host-relative paths — those at
-    least keep direct app-origin access working.
-    """
-    hostname = urlparse(settings.SITE_URL).hostname
-    if hostname in (None, "localhost", "127.0.0.1", "::1"):
-        return ""
-    return settings.SITE_URL
-
-
 def _public_survey_csp(request: HttpRequest) -> str:
     nonce = getattr(request, "csp_nonce", "")
     script_sources = ["'self'", f"'nonce-{nonce}'", "'strict-dynamic'"]
@@ -4134,7 +4120,6 @@ def _survey_error_response(
     context: dict[str, Any] = {
         "error_title": error_title,
         "error_message": error_message,
-        "site_url": _survey_page_site_url(),
     }
     if appearance is not None:
         context["appearance"] = appearance
@@ -4240,7 +4225,6 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
-        "site_url": _survey_page_site_url(),
         "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",

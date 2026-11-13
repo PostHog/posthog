@@ -12,6 +12,8 @@ import type {
     AlertReceiverApi,
     AlertReceiverWriteApi,
     AlertRouteApi,
+    AlertRouteMatchApi,
+    AlertRouteMatchingRequestApi,
     AlertRouteWriteApi,
     PaginatedPlatformAlertConfigurationListApi,
     PatchedAlertReceiverWriteApi,
@@ -177,6 +179,26 @@ export const platformAlertRoutesDestroy = async (
     return apiMutator<void>(getPlatformAlertRoutesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getPlatformAlertRoutesMatchingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/matching/`
+}
+
+/**
+ * List the routes, and their receivers, that an alert with these labels sends through, in the order delivery reads them. Changes nothing.
+ */
+export const platformAlertRoutesMatchingCreate = async (
+    projectId: string,
+    alertRouteMatchingRequestApi: AlertRouteMatchingRequestApi,
+    options?: RequestInit
+): Promise<AlertRouteMatchApi[]> => {
+    return apiMutator<AlertRouteMatchApi[]>(getPlatformAlertRoutesMatchingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertRouteMatchingRequestApi),
     })
 }
 
