@@ -33,5 +33,7 @@ A personal API key can't add scopes this way. The hint names the scopes to add t
 
 Don't log in in CI.
 From a logged-in checkout, `hog ci setup --scope <scopes>` asks an organization admin to trust the repository, so its jobs use their OIDC token.
-It returns a link like `hog auth login`, and `hog ci setup --wait` finishes it.
+Without `--preset`, it returns `"status": "input_required"` with the run restrictions PostHog offers, such as pushes to one branch, and starts nothing.
+Ask the person which runs to trust, then run it again with those options, such as `--preset branch_push=main`.
+Then it returns a link like `hog auth login`, and `hog ci setup --wait` finishes it.
 Then add the `host` and `projectId` it prints to `posthog.json`, and the snippet it prints to the job.

@@ -25,7 +25,7 @@ materialization:
 
 1. Pull what PostHog has: `hog endpoints pull <name> --yes`, or `hog endpoints pull --all --yes`.
 2. Edit the file, or write a new one.
-3. Try the query without saving it: `hog endpoints run --file <file> --var 'event_type=$pageview'`.
+3. Try the query without saving it: `hog endpoints run --file <file> --var 'event_type=$pageview'`. Each variable must already exist in the project, or the run fails with `unknown_variable`. `push` creates new variables, so before the first push, try the query with the value written in place of the variable.
 4. Run `hog endpoints diff` to see how the files differ from PostHog. It exits with code 1 when they differ.
 5. Run `hog endpoints push --dry-run` and show the person the changes.
 6. Run `hog endpoints push --yes` to save them.

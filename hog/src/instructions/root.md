@@ -13,13 +13,13 @@ This guide comes with the installed hog, so it matches its commands.
 
 ## Exit codes
 
-| Code | Meaning                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------- |
-| 0    | Success                                                                                     |
-| 1    | The command failed, or a check found problems                                               |
-| 2    | Usage error. Fix the command and run it again                                               |
-| 3    | Needs a person: to log in, to approve in the browser, or to add a scope. The hint says what |
-| 4    | Started but not finished. Run the `--wait` command the output names                         |
+| Code | Meaning                                       |
+| ---- | --------------------------------------------- |
+| 0    | Success                                       |
+| 1    | The command failed, or a check found problems |
+| 2    | Usage error. Fix the command and run it again |
+
+The error `code` says why a command stopped, such as `step_up_required` when a person must add a scope.
 
 ## When a person must approve
 
