@@ -59,7 +59,6 @@ function DashboardImageTileInternal(
                 className={clsx(
                     'DashboardTileCard DashboardImageTile rounded flex flex-col',
                     !isTransparent && 'bg-surface-primary border',
-                    isTransparent && showResizeHandles && 'border border-dashed border-border',
                     className
                 )}
                 data-attr="image-tile"
