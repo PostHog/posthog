@@ -391,9 +391,9 @@ function natAddress({ address, family }: LookupAddress): string | null {
 }
 
 // A new connection resolves its hostname once and a kept-alive request resolves nothing, so this sees each new
-// connection once. The first address with a token pays for the connection. When the limit is enforced, an address
-// with no token left is removed, so the socket cannot fall back to it. Addresses that still have a token stay as
-// fallbacks. In count-only mode every address stays, so the result is the same as with no limit.
+// connection once. The socket may try every address it gets, so each IPv4 address takes a token. When the limit is
+// enforced, an address with no token left is removed. In count-only mode every address stays, so the result is the
+// same as with no limit.
 function admitNewConnection(hostname: string, addresses: LookupAddress[]): LookupAddress[] {
     const natAddresses = addresses.map(natAddress)
     const limited = natAddresses.filter((address): address is string => address !== null)
@@ -415,13 +415,13 @@ function admitNewConnection(hostname: string, addresses: LookupAddress[]): Looku
             })
         }
     }
+    const kept = addresses.filter((_, index) => {
+        const address = natAddresses[index]
+        return address === null || address === admitted || connectionRateLimiter.tryTake(address)
+    })
     if (!enforced) {
         return addresses
     }
-    const kept = addresses.filter((_, index) => {
-        const address = natAddresses[index]
-        return address === null || address === admitted || connectionRateLimiter.hasToken(address)
-    })
     if (kept.length === 0) {
         throw new ConnectionRateLimitError(limited[0])
     }

@@ -30,11 +30,6 @@ export class ConnectionRateLimiter {
         return true
     }
 
-    /** Returns whether the address has a token, without taking it. */
-    hasToken(address: string): boolean {
-        return this.refilled(address).tokens >= 1
-    }
-
     private refilled(address: string): Bucket {
         const now = Date.now()
         const bucket = this.buckets.get(address) ?? { tokens: this.options.burst, updatedAt: now }
