@@ -1,7 +1,7 @@
 import json
 import base64
 from datetime import UTC, datetime, timedelta
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -18,6 +18,11 @@ from rest_framework import status
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.device import DEVICE_CODE_GRANT_TYPE
+from posthog.helpers.oauth_pending_connection import (
+    PENDING_OAUTH_CONNECTION_COOKIE,
+    PendingOAuthConnection,
+    PendingOAuthFlow,
+)
 from posthog.models import Organization, Team
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -477,6 +482,56 @@ class TestOAuthDeviceGrant(APIBaseTest):
 
         self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
         self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
+
+    def test_a_signed_out_visitor_can_type_the_code_before_logging_in(self) -> None:
+        self.client.logout()
+
+        response = self.client.get("/device")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("a live code", None, True, 0, True),
+            ("a wrong code", "BCDF-GHJK", True, 0, False),
+            ("the code of an unverified app", None, False, 0, False),
+            ("a live code after too many guesses", None, True, 10, False),
+        ]
+    )
+    def test_a_signed_out_visitor_with_a_code_logs_in_first(
+        self, _name: str, wrong_code: str | None, app_verified: bool, prior_guesses: int, names_the_app: bool
+    ) -> None:
+        started = self._start()
+        OAuthApplication.objects.filter(pk=self.device_app.pk).update(is_verified=app_verified)
+        self.client.logout()
+        for _ in range(prior_guesses):
+            self.client.get("/device?code=BCDF-GHJK")
+        path = f"/device?{urlencode({'code': wrong_code or started['user_code'].lower()})}"
+
+        response = self.client.get(path)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        login = urlparse(response["Location"])
+        self.assertEqual((login.path, parse_qs(login.query)["next"]), ("/login", [path]))
+        cookie = response.cookies.get(PENDING_OAUTH_CONNECTION_COOKIE)
+        self.assertEqual(
+            cookie and PendingOAuthConnection.from_cookie_value(cookie.value),
+            PendingOAuthConnection(client_name="hog", client_id="hog-device-client", flow=PendingOAuthFlow.DEVICE)
+            if names_the_app
+            else None,
+        )
+
+    @parameterized.expand([("approve", "authorized"), ("deny", "denied")])
+    def test_a_decision_ends_the_pending_connection(self, decision: str, expected_status: str) -> None:
+        started = self._start()
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = "stale"
+
+        response = self.client.post(
+            f"/api/oauth_device/{decision}/", {"user_code": started["user_code"], "project_id": self.team.id}
+        )
+
+        self.assertEqual(response.json(), {"status": expected_status})
+        self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
 
     def test_entering_codes_is_throttled(self) -> None:
         responses = [

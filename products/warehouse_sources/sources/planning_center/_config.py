@@ -6,4 +6,5 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class PlanningCenterSourceConfig(config.Config):
-    pass
+    application_id: str
+    secret: str

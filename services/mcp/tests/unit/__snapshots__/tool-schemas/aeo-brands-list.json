@@ -15,6 +15,11 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "search": {
+            "description": "Only list brands whose domain or name contains this text, ignoring case.",
+            "maxLength": 200,
+            "type": "string"
+        },
         "status": {
             "description": "Only list brands with this review status.\n\n* `suggested` - Suggested\n* `confirmed` - Confirmed\n* `ignored` - Ignored",
             "enum": ["suggested", "confirmed", "ignored"],

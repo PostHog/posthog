@@ -1,7 +1,8 @@
 import { getDomain } from 'tldts'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
-import { LiquidRenderer } from '~/cdp/utils/liquid'
+import { throwIfDeadlinePassed } from '~/cdp/utils/deadline'
+import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
 import { escapeHtml } from './escape-html'
@@ -24,6 +25,16 @@ export type WorkflowRunTag = {
 }
 
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as const
+
+export const UTM_VALUE_LIMIT_CHARS = 1_000
+
+export const utmValueOverLimit = (raw: unknown): (typeof UTM_KEYS)[number] | undefined =>
+    raw && typeof raw === 'object'
+        ? UTM_KEYS.find((key) => {
+              const value = (raw as Record<string, unknown>)[key]
+              return typeof value === 'string' && value.length > UTM_VALUE_LIMIT_CHARS
+          })
+        : undefined
 
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
 // inside another attribute's value or as part of a longer name like `data-href`.
@@ -57,7 +68,8 @@ const isOptedOutOfUtmTags = ({ attributes }: Anchor): boolean =>
 export const renderUtmOverrides = (
     raw: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    onError: (key: string, message: string) => void
+    onError: (key: string, message: string) => void,
+    deadline?: AbortSignal
 ): Record<string, string> => {
     const rendered: Record<string, string> = {}
     if (!raw || typeof raw !== 'object') {
@@ -68,9 +80,12 @@ export const renderUtmOverrides = (
         if (typeof value !== 'string' || !value.trim()) {
             continue
         }
+        throwIfDeadlinePassed(deadline)
         try {
             // Liquid escapes HTML in what it renders, and a URL needs the plain text.
-            rendered[key] = decodeHtmlEntitiesInHref(LiquidRenderer.renderWithHogFunctionGlobals(value, globals))
+            rendered[key] = decodeHtmlEntitiesInHref(
+                LiquidRenderer.renderWithHogFunctionGlobals(value, globals, new LiquidRenderBudget(deadline))
+            )
         } catch (error) {
             onError(key, error instanceof Error ? error.message : String(error))
         }

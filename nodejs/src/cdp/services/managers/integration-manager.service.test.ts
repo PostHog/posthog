@@ -79,6 +79,24 @@ describe('IntegrationManagerService', () => {
             expect(integrations[5]).toBe(source.records['5'].integration)
         })
 
+        it('returns decrypt failures under the same key for a legacy number and string', async () => {
+            const failures = [{ path: 'token', reason: 'undecryptable' as const }]
+            source.records['5'].decryptFailures = failures
+
+            const result = await manager.getDecryptFailures([5, '5'])
+
+            expect(result).toEqual({ '5': failures })
+            expect(result[5]).toBe(failures)
+            expect(source.load).toHaveBeenCalledWith(['5'])
+        })
+
+        it.each([
+            ['a clean record', UUID_REFERENCE],
+            ['an unknown id', '7'],
+        ])('returns no decrypt failures for %s', async (_, id) => {
+            expect(await manager.getDecryptFailures([id])).toEqual({ [id]: [] })
+        })
+
         it.each<[string, number | string]>([
             ['a negative number', -1],
             ['a fraction', 1.5],

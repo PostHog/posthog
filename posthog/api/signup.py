@@ -43,7 +43,7 @@ from posthog.helpers.email_utils import (
     validate_display_name,
 )
 from posthog.helpers.oauth_pending_connection import (
-    apply_connector_signup_onboarding_skip,
+    apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
@@ -370,7 +370,7 @@ class SignupSerializer(serializers.Serializer):
         user = self._user
         oauth_connection = read_pending_oauth_connection(request)
         if oauth_connection is not None:
-            apply_connector_signup_onboarding_skip(user, self._organization)
+            apply_pending_connection_onboarding_skip(user, self._organization, oauth_connection)
 
         report_user_signed_up(
             user,
@@ -782,7 +782,7 @@ class InviteSignupSerializer(serializers.Serializer):
             oauth_connection = read_pending_oauth_connection(request)
             # A delegated invitee is the teammate asked to run onboarding, so they keep it.
             if oauth_connection is not None and not is_delegation:
-                apply_connector_signup_onboarding_skip(user, invite.organization)
+                apply_pending_connection_onboarding_skip(user, invite.organization, oauth_connection)
 
             verify_email_or_login(self.context["request"], user)
 
@@ -816,6 +816,13 @@ class InviteSignupSerializer(serializers.Serializer):
 class InviteSignupViewset(generics.CreateAPIView):
     serializer_class = InviteSignupSerializer
     permission_classes = (permissions.AllowAny,)
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        # The GET only loads the invite page, so page loads do not spend the signup attempts.
+        if self.request.method == "POST" and not settings.E2E_TESTING:
+            throttles.append(SignupAttemptIPThrottle())
+        return throttles
 
     def get(self, request, *args, **kwargs):
         """
@@ -1312,7 +1319,7 @@ def social_create_user(
     # A delegated invitee is the teammate asked to run onboarding, so they keep it.
     is_delegated_invitee = strategy.session_get("next") == DELEGATED_ONBOARDING_NEXT
     if oauth_connection is not None and user.organization is not None and not is_delegated_invitee:
-        apply_connector_signup_onboarding_skip(user, user.organization)
+        apply_pending_connection_onboarding_skip(user, user.organization, oauth_connection)
 
     report_user_signed_up(
         user,

@@ -24,6 +24,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { hasIntegrationRef } from '../utils/integration-input-refs'
 import { createInvocationResult } from '../utils/invocation-utils'
+import { findRebuildMapping } from '../utils/rebuildable-inputs'
 import { HogInputsService } from './hog-inputs.service'
 import type { PreferencesTokenSource } from './messaging/recipient-tokens.service'
 
@@ -103,13 +104,15 @@ export class HogExecutorService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return this.hogInputsService.buildInputsWithGlobals(
             hogFunction,
             globals,
             additionalInputs,
-            preferencesTokenSource
+            preferencesTokenSource,
+            signal
         )
     }
 
@@ -159,6 +162,22 @@ export class HogExecutorService {
         return merged
     }
 
+    /**
+     * Builds the inputs that the job queue did not store, from the current function config and the stored
+     * globals. The stored mapping identity selects the mapping inputs, so the result matches the invocation
+     * that the queue received and not every mapping that matches the event.
+     */
+    private async rebuildOmittedInputs(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        const mapping = findRebuildMapping(invocation.hogFunction, invocation.state.inputsSource ?? {})
+        return this.hogInputsService.buildInputsWithGlobals(
+            invocation.hogFunction,
+            invocation.state.globals,
+            mapping ? (mapping.inputs ?? {}) : undefined
+        )
+    }
+
     @instrumented({ key: 'hog-executor.execute', sendException: false })
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
@@ -194,7 +213,11 @@ export class HogExecutorService {
                 // the bare globals so the run resolves inputs against the
                 // current hog function config. Callers that pre-resolve inputs
                 // (e.g. the mappings path) skip the rebuild.
-                if (invocation.state.globals.inputs) {
+                if (invocation.state.inputsOmitted && !invocation.state.globals.inputs) {
+                    globals = await this.rebuildOmittedInputs(invocation)
+                    // Later steps in this process use these values. The job queue drops them again when it stores the job.
+                    result.invocation.state.globals = globals
+                } else if (invocation.state.globals.inputs) {
                     // The resolved values stay local to this run, so the state the queue persists keeps references.
                     const inputs = hasIntegrationRef(invocation.state.globals.inputs)
                         ? await this.hogInputsService.resolveIntegrationRefs(

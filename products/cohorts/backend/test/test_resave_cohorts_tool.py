@@ -35,7 +35,7 @@ class TestResaveCohortsTool(BaseTest):
         return [(message.level_tag, str(message)) for message in get_messages(response.wsgi_request)]
 
     def test_a_dry_run_shows_what_the_command_printed(self) -> None:
-        response = self.client.post(RUN_URL, {"team_id": self.team.pk, "batch_size": 500, "dry_run": "on"})
+        response = self.client.post(RUN_URL, {"team_id": self.team.pk, "batch_size": 500, "dry_run": "on"}, follow=True)
 
         assert response.status_code == 200
         content = response.content.decode()
@@ -100,7 +100,7 @@ class TestResaveCohortsTool(BaseTest):
 
         call_command.side_effect = print_teams
 
-        content = self.client.post(RUN_URL, {"batch_size": 500, "dry_run": "on"}).content.decode()
+        content = self.client.post(RUN_URL, {"batch_size": 500, "dry_run": "on"}, follow=True).content.decode()
 
         assert f"Showing the last {MAX_OUTPUT_LINES} of {MAX_OUTPUT_LINES + 50} lines." in content
         assert f"Processing team {MAX_OUTPUT_LINES + 50}" in content

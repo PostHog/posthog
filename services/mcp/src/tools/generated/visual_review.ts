@@ -166,6 +166,9 @@ const visualReviewReposPartialUpdate = (): ToolBase<
         if (params.debt_digest_enabled !== undefined) {
             body['debt_digest_enabled'] = params.debt_digest_enabled
         }
+        if (params.auto_quarantine_mode !== undefined) {
+            body['auto_quarantine_mode'] = params.auto_quarantine_mode
+        }
         const result = await context.api.request<Schemas.Repo>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/`,

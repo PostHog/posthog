@@ -1033,6 +1033,11 @@ pub struct Config {
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
 
+    // Self-hosted installs turn this off: only the cloud billing task reads and
+    // deletes the request counters, so elsewhere they grow in Redis forever.
+    #[envconfig(from = "FLAGS_BILLING_COUNTERS_ENABLED", default = "true")]
+    pub billing_counters_enabled: FlexBool,
+
     // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
     // rejects zero values at boot — see the module docs on
     // `src/billing/aggregator.rs` for the durability trade-offs that hang
@@ -1428,6 +1433,7 @@ impl Config {
             batch_flag_eval_max_limit: 10_000,
             batch_flag_eval_timeout_ms: 120_000,
             batch_flag_eval_scan_statement_timeout_ms: 10_000,
+            billing_counters_enabled: FlexBool(true),
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1511,6 +1517,7 @@ impl Config {
                 self.billing_shutdown_flush_timeout_ms,
             ),
             jitter_override: None,
+            enabled: *self.billing_counters_enabled,
         }
     }
 
@@ -1620,6 +1627,8 @@ mod tests {
         assert!(!config.flags_session_replay_quota_check);
         assert!(!config.flags_v4_response_enabled);
         assert_eq!(config.skip_writes, FlexBool(false));
+        // Cloud billing reads these counters, so they must stay on unless a deploy turns them off.
+        assert_eq!(config.billing_counters_enabled, FlexBool(true));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
@@ -2167,6 +2176,7 @@ mod service_mode_tests {
         config.billing_max_pending_entries = 99;
         config.billing_per_flush_batch_size = 7;
         config.billing_shutdown_flush_timeout_ms = 5_000;
+        config.billing_counters_enabled = FlexBool(false);
 
         let bcfg = config.get_billing_aggregator_config();
 
@@ -2175,6 +2185,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
         assert_eq!(bcfg.jitter_override, None);
+        assert!(!bcfg.enabled);
     }
 }
 

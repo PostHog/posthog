@@ -9,9 +9,12 @@ export interface TraceDrawerToolbarProps {
     showNavigation?: boolean
     /** Null when the open trace is not in the list. */
     position: TraceDrawerPosition | null
+    /** Why the open trace is in the list, when the list says. */
+    label?: string | null
     onPrevious: (() => void) | null
     onNext: (() => void) | null
     fullPageHref: string
+    fullPageInNewTab?: boolean
     onClose: () => void
 }
 
@@ -20,9 +23,11 @@ const NOT_IN_LIST_REASON = "This trace isn't in the list"
 export function TraceDrawerToolbar({
     showNavigation = true,
     position,
+    label,
     onPrevious,
     onNext,
     fullPageHref,
+    fullPageInNewTab = false,
     onClose,
 }: TraceDrawerToolbarProps): JSX.Element {
     return (
@@ -64,6 +69,15 @@ export function TraceDrawerToolbar({
                             {`${position.index + 1} of ${position.total}`}
                         </span>
                     ) : null}
+                    {label ? (
+                        <span
+                            className="ml-2 min-w-0 truncate text-xs"
+                            title={label}
+                            data-attr="trace-drawer-row-label"
+                        >
+                            {label}
+                        </span>
+                    ) : null}
                 </>
             )}
             <div className="ml-auto flex items-center gap-1">
@@ -72,6 +86,7 @@ export function TraceDrawerToolbar({
                     type="secondary"
                     icon={<IconExpand45 />}
                     to={fullPageHref}
+                    targetBlank={fullPageInNewTab}
                     data-attr="trace-drawer-full-page"
                 >
                     Open full page

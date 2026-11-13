@@ -1,6 +1,6 @@
 import type { WorkflowRunDetailApi } from '../generated/api.schemas'
 
-/** Keep engine and attempt distinct when runs share a compatible integer ID. */
+/** Engine and attempt stay in the key, because runs of two engines can share an integer id. */
 export function jobCacheKey(
     runId: number,
     runAttempt: number | null,

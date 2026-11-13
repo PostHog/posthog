@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cdc_auto_drop_slot": {
+            "description": "Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true.",
+            "type": "boolean"
+        },
+        "cdc_lag_critical_threshold_mb": {
+            "description": "Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "cdc_lag_warning_threshold_mb": {
+            "description": "Replication lag in MB above which a warning shows. Must be lower than the critical threshold.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "cdc_management_mode": {
+            "default": "posthog",
+            "description": "Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.\n\n* `posthog` - PostHog\n* `self_managed` - Self managed",
+            "enum": ["posthog", "self_managed"],
+            "type": "string"
+        },
+        "cdc_publication_name": {
+            "description": "Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode.",
+            "type": "string"
+        },
+        "cdc_slot_name": {
+            "description": "Name of the replication slot to use. Defaults to a name derived from the source id.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

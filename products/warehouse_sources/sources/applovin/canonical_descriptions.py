@@ -77,7 +77,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Publisher-side AppLovin monetization: revenue, impressions and clicks earned by your apps, broken down by day, app, placement and geography.",
         "docs_url": _REPORT_DOCS_URL,
         "columns": {
-            **_APP_DIMENSIONS,
+            "day": _APP_DIMENSIONS["day"],
+            "package_name": _APP_DIMENSIONS["package_name"],
+            "store_id": _APP_DIMENSIONS["store_id"],
+            "platform": _APP_DIMENSIONS["platform"],
+            "country": _APP_DIMENSIONS["country"],
+            "device_type": _APP_DIMENSIONS["device_type"],
             "ad_type": "Ad type served: APPOPEN, GRAPHIC, MRAID, PLAY, REWARD or VIDEO.",
             "placement_type": "Placement type: APP_OPEN, BANNER, INTER, LEADER, MREC, NATIVE or REWARDED_INTER.",
             "size": "Ad size: BANNER, INTER, LEADER, MREC or NATIVE.",
@@ -90,7 +95,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "advertiser_report": {
-        "description": "Advertiser-side AppLovin campaign performance: spend, installs and attributed sales by day, campaign, traffic source app and geography.",
+        "description": "Advertiser-side AppLovin campaign performance: spend, installs and attributed sales by day, campaign, platform and geography.",
         "docs_url": _REPORT_DOCS_URL,
         "columns": {
             "day": _APP_DIMENSIONS["day"],
@@ -99,8 +104,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_type": "The campaign optimization type: CPP, CPE, ad ROAS, IAP ROAS or ROAS.",
             "campaign_ad_type": "ua for user acquisition, or rt for retargeting.",
             "campaign_package_name": "Package name or bundle ID of the promoted app.",
-            "application": "Name of the source application the ad ran in.",
-            "app_id_external": "Hashed application ID of the source app, commonly called the site ID.",
             "platform": "Platform of the source application: android, fireos, ios or tvos.",
             "country": _APP_DIMENSIONS["country"],
             "device_type": _APP_DIMENSIONS["device_type"],

@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
 
-const OPTIONAL_VALKEY_TIMEOUT_MS = 250
+export const OPTIONAL_VALKEY_TIMEOUT_MS = 250
 
 export type RateLimiterValkeyConfig = Pick<
     CdpConfig,

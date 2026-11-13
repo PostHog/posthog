@@ -8,12 +8,12 @@
             "type": "string"
         },
         "host": {
-            "description": "The PostHog host for this project, like https://eu.posthog.com. `hog auth login` uses it, and other commands stop when your credentials are for another host. --host and HOG_HOST override it.",
+            "description": "The PostHog host for this project, like https://eu.posthog.com. With projectId, it picks which of your hog logins commands in this folder use. `hog auth login` writes it, and other commands stop when your credentials are for another host. --host and HOG_HOST override it.",
             "type": "string",
             "format": "uri"
         },
         "projectId": {
-            "description": "The PostHog project ID, like the 2 in https://us.posthog.com/project/2. HOG_PROJECT_ID overrides it. Never put a personal API key here.",
+            "description": "The PostHog project ID, like the 2 in https://us.posthog.com/project/2. Each project keeps its own hog login, and this picks the one commands in this folder use. `hog auth login` writes it. HOG_PROJECT_ID overrides it. Never put a personal API key here.",
             "anyOf": [
                 {
                     "type": "integer",
@@ -135,6 +135,11 @@
                         "type": "string",
                         "minLength": 1,
                         "description": "Where the generated module goes, relative to posthog.json."
+                    },
+                    "sdk": {
+                        "description": "TypeScript only: the SDK the module wraps. `none` generates only the event types. Without it, `posthog-js`.",
+                        "type": "string",
+                        "enum": ["posthog-js", "none"]
                     },
                     "schema_hash": {
                         "description": "The hash of the event definitions the module was generated from.",

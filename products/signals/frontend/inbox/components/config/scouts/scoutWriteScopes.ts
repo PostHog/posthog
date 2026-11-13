@@ -70,6 +70,14 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
             'Create, update, and delete insight alerts, and post them to a Slack channel your project has connected',
     },
     {
+        scope: 'account_note:write',
+        group: 'Customer analytics',
+        label: 'Account notes',
+        description:
+            "Write notes on any account in this project and change their tags. Every note is tagged scout and with this scout's name automatically. Account notes are notebooks too, so Notebooks access also lets a scout edit or trash one",
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+    },
+    {
         scope: 'customer_task:write',
         group: 'Customer analytics',
         label: 'Customer tasks',

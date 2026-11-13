@@ -1,4 +1,7 @@
+from contextlib import nullcontext
+from datetime import UTC, datetime
 from hashlib import sha256
+from uuid import UUID
 
 import pytest
 from unittest.mock import patch
@@ -6,17 +9,25 @@ from unittest.mock import patch
 from django.conf import settings
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
+    GitRepositoryWorkspace,
     LocalFolderWorkspace,
     WizardRunDTO,
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
-from products.wizard.backend.facade.enums import WizardRunArtifactType, WizardRunEnvironment, WizardRunStatus
+from products.wizard.backend.facade.enums import (
+    WizardPullRequestState,
+    WizardRunArtifactType,
+    WizardRunEnvironment,
+    WizardRunStatus,
+)
 from products.wizard.backend.facade.errors import WizardRunArtifactTooLargeError, WizardRunNotFoundError
+from products.wizard.backend.logic.artifacts import pull_requests
 from products.wizard.backend.logic.registry.config import FALLBACK_REGISTRY
 from products.wizard.backend.logic.runs import store as run_store
 from products.wizard.backend.models import WizardRunArtifact
@@ -31,6 +42,139 @@ def _create_run(team_id: int, user_id: int) -> WizardRunDTO:
         program=FALLBACK_REGISTRY.programs[0],
         status=WizardRunStatus.RUNNING,
     ).run
+
+
+_REPOSITORY = "acme/widgets"
+_PULL_REQUEST_URL = "https://github.com/acme/widgets/pull/7"
+_INSTALLATION_ID = 424242
+
+
+def _create_cloud_run(team_id: int, user_id: int) -> WizardRunDTO:
+    return run_store.create_run(
+        team_id=team_id,
+        created_by_id=user_id,
+        environment=WizardRunEnvironment.CLOUD,
+        workspace=GitRepositoryWorkspace(repository=_REPOSITORY),
+        program=FALLBACK_REGISTRY.programs[0],
+        status=WizardRunStatus.RUNNING,
+    ).run
+
+
+def _create_pull_request_artifact(team_id: int, run_id: UUID) -> WizardRunPullRequestArtifactDTO:
+    return wizard_facade.create_pull_request_artifact(
+        CreatePullRequestArtifactInput(
+            team_id=team_id,
+            run_id=run_id,
+            url=_PULL_REQUEST_URL,
+            number=7,
+            repository=_REPOSITORY,
+            head_branch=f"posthog/wizard-{run_id.hex[:12]}",
+            base_branch="main",
+        )
+    )
+
+
+def _pull_request_payload(action: str, *, updated_at: str, merged: bool = False, closed: bool = False) -> dict:
+    return {
+        "action": action,
+        "installation": {"id": _INSTALLATION_ID},
+        "pull_request": {
+            "html_url": _PULL_REQUEST_URL,
+            "merged": merged,
+            "updated_at": updated_at,
+            "merged_at": updated_at if merged else None,
+            "closed_at": updated_at if closed else None,
+        },
+    }
+
+
+@pytest.fixture
+def installation(team) -> None:
+    Integration.objects.create(team=team, kind="github", integration_id=str(_INSTALLATION_ID), config={})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("merged", "state", "event"),
+    [
+        (True, WizardPullRequestState.MERGED, "wizard run pull request merged"),
+        (False, WizardPullRequestState.CLOSED, "wizard run pull request closed"),
+    ],
+)
+def test_closed_pull_request_records_state_and_captures_event(
+    team, user, installation, merged: bool, state: WizardPullRequestState, event: str
+) -> None:
+    run = _create_cloud_run(team.id, user.id)
+    artifact = _create_pull_request_artifact(team.id, run.id)
+
+    with patch("products.wizard.backend.logic.artifacts.pull_requests.ph_scoped_capture") as capture:
+        pull_requests.handle_pull_request_event(
+            _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=merged, closed=True)
+        )
+
+    [stored] = wizard_facade.list_run_artifacts(team.id, run.id)
+    assert isinstance(stored, WizardRunPullRequestArtifactDTO)
+    assert stored.state == state
+    assert stored.closed_at == datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+    captured = capture.return_value.__enter__.return_value.call_args.kwargs
+    assert captured["event"] == event
+    assert captured["distinct_id"] == user.distinct_id
+    assert captured["properties"]["wizard_run_id"] == str(run.id)
+    assert captured["properties"]["artifact_id"] == str(artifact.id)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("scope", "action", "raises"),
+    [
+        ("other_team", "closed", True),
+        ("other_url", "closed", True),
+        ("other_url", "reopened", False),
+    ],
+)
+def test_pull_request_event_without_a_matching_artifact_changes_nothing(
+    team, user, installation, scope: str, action: str, raises: bool
+) -> None:
+    other_team = Team.objects.create(organization=team.organization, project=team.project, name="Other environment")
+    run_team = other_team if scope == "other_team" else team
+    run = _create_cloud_run(run_team.id, user.id)
+    _create_pull_request_artifact(run_team.id, run.id)
+    payload = _pull_request_payload(action, updated_at="2026-11-10T12:00:00Z", merged=True, closed=action == "closed")
+    if scope == "other_url":
+        payload["pull_request"]["html_url"] = "https://github.com/acme/widgets/pull/8"
+
+    with (
+        patch("products.wizard.backend.logic.artifacts.pull_requests.ph_scoped_capture") as capture,
+        # A close can arrive before the handoff stores the artifact, so it asks the task to retry.
+        pytest.raises(pull_requests.PullRequestArtifactNotStoredError) if raises else nullcontext(),
+    ):
+        pull_requests.handle_pull_request_event(payload)
+
+    [stored] = wizard_facade.list_run_artifacts(run_team.id, run.id)
+    assert isinstance(stored, WizardRunPullRequestArtifactDTO)
+    assert stored.state == WizardPullRequestState.OPEN
+    capture.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_pull_request_state_keeps_the_newest_delivery(team, user, installation) -> None:
+    run = _create_cloud_run(team.id, user.id)
+    _create_pull_request_artifact(team.id, run.id)
+
+    with patch("products.wizard.backend.logic.artifacts.pull_requests.ph_scoped_capture"):
+        pull_requests.handle_pull_request_event(
+            _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=True, closed=True)
+        )
+        pull_requests.handle_pull_request_event(
+            _pull_request_payload("converted_to_draft", updated_at="2026-11-10T11:00:00Z")
+        )
+    # A retried handoff rewrites the artifact identity and must keep the recorded state.
+    _create_pull_request_artifact(team.id, run.id)
+
+    [stored] = wizard_facade.list_run_artifacts(team.id, run.id)
+    assert isinstance(stored, WizardRunPullRequestArtifactDTO)
+    assert stored.state == WizardPullRequestState.MERGED
+    assert stored.merged_at == datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 
 
 @pytest.mark.django_db

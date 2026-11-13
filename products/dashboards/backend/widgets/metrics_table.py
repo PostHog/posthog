@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -14,7 +15,7 @@ from posthog.utils import relative_date_parse
 
 from products.dashboards.backend.constants import METRICS_TABLE_RETRY_BUCKETS, METRICS_TABLE_SPARKLINE_POINTS
 from products.dashboards.backend.feature_flags import widget_flag_enabled
-from products.dashboards.backend.widget_specs.configs import METRICS_TABLE_WIDGET_TYPE
+from products.dashboards.backend.widget_specs.configs import METRICS_TABLE_WIDGET_TYPE, metrics_table_group_by_labels
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.metrics.backend.facade.api import (
     MAX_SERIES_PER_CLAUSE,
@@ -39,7 +40,7 @@ DEFAULT_METRICS_TABLE_DATE_FROM = "-1h"
 _COUNTER_FUNCTIONS = {"rate": MetricRangeFunction.RATE, "increase": MetricRangeFunction.INCREASE}
 
 
-def _clause(index: int, column: dict[str, Any], group_by: str) -> MetricQueryClause:
+def _clause(index: int, column: dict[str, Any], group_by: list[str]) -> MetricQueryClause:
     aggregation = column["aggregation"]
     range_function = _COUNTER_FUNCTIONS.get(aggregation)
     return MetricQueryClause(
@@ -52,7 +53,7 @@ def _clause(index: int, column: dict[str, Any], group_by: str) -> MetricQueryCla
             MetricFilter(key=item["key"], op=FilterOp(item["op"]), value=item["value"])
             for item in column.get("filters", [])
         ),
-        group_by=(MetricGroupBy(key=group_by),),
+        group_by=tuple(MetricGroupBy(key=label) for label in group_by),
     )
 
 
@@ -126,7 +127,7 @@ def run_metrics_table_widget(
     if not widget_flag_enabled(METRICS_FEATURE_FLAG, team=team, user=user):
         raise exceptions.PermissionDenied("Metrics are not enabled for this project.")
     typed_config = validate_widget_config(METRICS_TABLE_WIDGET_TYPE, config)
-    group_by = typed_config.get("groupBy")
+    group_by = metrics_table_group_by_labels(typed_config.get("groupBy"))
     columns: list[dict[str, Any]] = typed_config["columns"]
     if not group_by or not columns:
         return {"needsConfiguration": True, "groupBy": group_by, "columns": [], "rows": [], "totalCount": 0}
@@ -172,7 +173,7 @@ def run_metrics_table_widget(
             "queryError": str(error),
         }
 
-    rows_by_key: dict[str, dict[str, Any]] = {}
+    rows_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     units: list[str | None] = [None] * len(columns)
     present: set[tuple[str, int]] = set()
     series_counts = [0] * len(columns)
@@ -180,15 +181,19 @@ def run_metrics_table_widget(
         if item.clause is None:
             continue
         index = int(item.clause.removeprefix("c"))
-        # The series cap counts every series of the clause, also one without the label.
+        # The series cap counts every series of the clause, also one without a group-by label.
         series_counts[index] += 1
-        key = item.labels.get(group_by)
-        if key is None:
+        if any(label not in item.labels for label in group_by):
             continue
+        label_values = [item.labels[label] for label in group_by]
+        # Joining the values could make two combinations one key, so a row grouped by several labels has
+        # its values as a JSON list for a key. The frontend shows its labels.
+        key = label_values[0] if len(label_values) == 1 else json.dumps(label_values)
         units[index] = units[index] or item.unit
         present.add((key, index))
         row = rows_by_key.setdefault(
-            key, {"key": key, "values": [None] * len(columns), "sparklines": [[] for _ in columns]}
+            tuple(label_values),
+            {"key": key, "labels": label_values, "values": [None] * len(columns), "sparklines": [[] for _ in columns]},
         )
         values = [point.value for point in item.points if point.value is not None]
         # An increase bucket holds the change in that bucket, so the total over the range does not depend on

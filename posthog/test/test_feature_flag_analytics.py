@@ -17,7 +17,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -48,6 +48,7 @@ from products.feature_flags.backend.flag_analytics import (
     get_cached_evaluations_7d_by_team,
     get_evaluations_7d_by_team,
     get_team_request_library_key,
+    increment_local_evaluation_request_counts,
     increment_request_count,
     report_django_local_evaluation_usage,
 )
@@ -100,6 +101,14 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 {b"165192618": b"7", b"165192619": b"3"},
             )
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
+
+    @override_settings(FLAGS_BILLING_COUNTERS_ENABLED=False)
+    def test_disabled_counters_write_nothing_to_redis(self):
+        increment_request_count(3)
+        increment_request_count(3, 1, FlagRequestType.REMOTE_CONFIG)
+        increment_local_evaluation_request_counts(3)
+
+        self.assertEqual(list(redis.get_client().scan_iter("*")), [])
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_increment_request_count_uses_one_bucket_per_request_type(self):

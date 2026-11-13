@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from unittest.mock import patch
@@ -15,9 +16,9 @@ from products.warehouse_sources.sources.sdk.testing import (
 )
 from products.warehouse_sources.sources.unleash import unleash
 from products.warehouse_sources.sources.unleash._config import UnleashSourceConfig
+from products.warehouse_sources.sources.unleash.settings import PAGE_SIZE
 from products.warehouse_sources.sources.unleash.source import UnleashSource
 from products.warehouse_sources.sources.unleash.unleash import (
-    PAGE_SIZE,
     UnleashHostNotAllowedError,
     UnleashResumeConfig,
     check_endpoint_permissions,
@@ -124,6 +125,211 @@ class TestPipelineTransport:
         assert result.response is not None
         assert result.response.name == endpoint
         assert result.response.primary_keys == expected_keys
+
+
+def _features_page(request: RecordedRequest, features: list[dict[str, Any]]) -> ScriptedResponse:
+    offset = int(request.param("offset") or 0)
+    limit = int(request.param("limit") or PAGE_SIZE)
+    return ScriptedResponse(json={"features": features[offset : offset + limit], "total": len(features)})
+
+
+class TestEvents:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, datetime(2026, 3, 10, 0, 30, tzinfo=UTC), [None]),
+            # `from` is a day-granular, server-timezone date, so the cutoff steps back one day.
+            ("incremental_datetime", True, datetime(2026, 3, 10, 0, 30, tzinfo=UTC), ["IS:2026-03-09"]),
+            ("incremental_iso_string", True, "2026-03-01T23:59:59.000Z", ["IS:2026-02-28"]),
+            ("incremental_first_sync", True, None, [None]),
+        ]
+    )
+    def test_from_filter_follows_the_watermark(
+        self, _name: str, incremental: bool, last_value: Any, expected_from: list[Optional[str]]
+    ) -> None:
+        result = _driver().run(
+            "events",
+            [ScriptedResponse(json={"events": [{"id": 1, "createdAt": "2026-03-10T01:00:00.000Z"}], "total": 1})],
+            should_use_incremental_field=incremental,
+            incremental_field="createdAt",
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/admin/search/events"]
+        assert result.params("from") == expected_from
+        assert result.rows == [{"id": 1, "createdAt": "2026-03-10T01:00:00.000Z"}]
+
+    def test_walks_offsets_and_resumes_from_saved_offset(self) -> None:
+        events = [{"id": i} for i in range(1500, 0, -1)]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            offset = int(request.param("offset") or 0)
+            return ScriptedResponse(json={"events": events[offset : offset + 1000], "total": len(events)})
+
+        result = _driver().run("events", respond)
+        resumed = _driver().run("events", respond, resume_state=UnleashResumeConfig(offset=1000))
+
+        assert len(result.rows) == 1500
+        assert result.params("offset") == ["0", "1000"]
+        assert result.params("limit") == ["1000", "1000"]
+        assert result.saved_states == [UnleashResumeConfig(offset=1000)]
+        assert resumed.params("offset") == ["1000"]
+        assert len(resumed.rows) == 500
+
+
+class TestFeatureFanout:
+    FEATURES = [
+        {"name": "checkout", "project": "web"},
+        {"name": "gone", "project": "web"},
+        {"name": "search", "project": "api"},
+    ]
+
+    def test_feature_strategies_flattens_environments_and_skips_archived_flags(self) -> None:
+        feature_bodies: dict[str, Any] = {
+            "/api/admin/projects/web/features/checkout": {
+                "name": "checkout",
+                "environments": [
+                    {
+                        "name": "production",
+                        "enabled": True,
+                        "strategies": [
+                            {"id": "s-1", "name": "flexibleRollout", "parameters": {"rollout": "25"}},
+                            {"id": "s-2", "name": "default", "featureName": "checkout"},
+                        ],
+                    },
+                    {"name": "development", "enabled": False, "strategies": []},
+                ],
+            },
+            "/api/admin/projects/api/features/search": {
+                "name": "search",
+                "environments": [{"name": "development", "enabled": False, "strategies": [{"id": "s-3"}]}],
+            },
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/admin/search/features":
+                return _features_page(request, self.FEATURES)
+            if request.path in feature_bodies:
+                return ScriptedResponse(json=feature_bodies[request.path])
+            # A flag archived after the listing.
+            return ScriptedResponse(status=404, json={"message": "not found"})
+
+        result = _driver().run("feature_strategies", respond)
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/admin/search/features",
+            "/api/admin/projects/web/features/checkout",
+            "/api/admin/projects/web/features/gone",
+            "/api/admin/projects/api/features/search",
+        ]
+        assert result.rows == [
+            {
+                "id": "s-1",
+                "name": "flexibleRollout",
+                "parameters": {"rollout": "25"},
+                "featureName": "checkout",
+                "project": "web",
+                "environment": "production",
+                "environmentEnabled": True,
+            },
+            {
+                "id": "s-2",
+                "name": "default",
+                "featureName": "checkout",
+                "project": "web",
+                "environment": "production",
+                "environmentEnabled": True,
+            },
+            {
+                "id": "s-3",
+                "featureName": "search",
+                "project": "api",
+                "environment": "development",
+                "environmentEnabled": False,
+            },
+        ]
+
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental_recent_watermark", True, "2099-01-01T00:00:00.000Z"),
+        ]
+    )
+    def test_feature_metrics_reads_the_full_window_and_fills_the_flag_name(
+        self, _name: str, incremental: bool, last_value: Optional[str]
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/admin/search/features":
+                return _features_page(request, self.FEATURES[:1])
+            return ScriptedResponse(
+                json={
+                    "version": 1,
+                    "maturity": "stable",
+                    "data": [
+                        {"appName": "shop", "environment": "production", "timestamp": "2026-03-10T10:00:00.000Z"},
+                    ],
+                }
+            )
+
+        result = _driver().run(
+            "feature_metrics",
+            respond,
+            should_use_incremental_field=incremental,
+            incremental_field="timestamp",
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/admin/search/features", "/api/admin/client-metrics/features/checkout/raw"]
+        assert result.params("hoursBack") == [None, "48"]
+        assert result.rows == [
+            {
+                "appName": "shop",
+                "environment": "production",
+                "timestamp": "2026-03-10T10:00:00.000Z",
+                "featureName": "checkout",
+            }
+        ]
+
+    def test_fanout_checkpoint_tracks_the_parent_page_and_resumes_there(self) -> None:
+        features = [{"name": f"flag-{i}", "project": "web"} for i in range(2 * PAGE_SIZE + 1)]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/admin/search/features":
+                return _features_page(request, features)
+            return ScriptedResponse(json={"data": []})
+
+        first = _driver().run("feature_metrics", respond)
+        last_state = first.saved_states[-1].fanout_state
+
+        assert first.raised is None
+        # A resume starts one parent page back, so the checkpoint keeps at most two pages of flags.
+        assert last_state["parent"] == {"offset": PAGE_SIZE}
+        assert len(last_state["completed"]) <= PAGE_SIZE + 1
+
+        resumed = _driver().run("feature_metrics", respond, resume_state=first.saved_states[-1])
+
+        assert resumed.raised is None
+        assert [offset for offset in resumed.params("offset") if offset] == [str(PAGE_SIZE), str(2 * PAGE_SIZE)]
+        assert len(resumed.requests) == 2
+
+    def test_flag_names_stay_one_path_segment(self) -> None:
+        features = [{"name": "x/../../user-admin", "project": "a?b"}, {"name": "..", "project": "web"}]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/admin/search/features":
+                return _features_page(request, features)
+            return ScriptedResponse(json={"environments": [{"name": "dev", "strategies": [{"id": "s"}]}]})
+
+        result = _driver().run("feature_strategies", respond)
+
+        assert result.raised is None
+        assert [url.split("/", 3)[3].split("?")[0] for url in result.urls] == [
+            "api/admin/search/features",
+            "api/admin/projects/a%3Fb/features/x%2F..%2F..%2Fuser-admin",
+        ]
+        assert [(row["featureName"], row["project"]) for row in result.rows] == [("x/../../user-admin", "a?b")]
 
 
 class TestErrorHandling:
@@ -268,6 +474,24 @@ class TestCheckEndpointPermissions:
         assert result["projects"] is None
         assert result["features"] is None
         assert result["users"] is not None and "Admin root role" in result["users"]
+
+    def test_fanout_tables_probe_the_flag_listing_they_walk(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/admin/search/features":
+                return ScriptedResponse(status=403, json={"message": "No access to flags."})
+            return ScriptedResponse(json={"events": [], "total": 0})
+
+        with scripted_network(respond) as network:
+            result = check_endpoint_permissions(
+                BASE_URL, TOKEN, ["feature_strategies", "feature_metrics", "events"], team_id=1
+            )
+
+        assert result == {
+            "feature_strategies": "No access to flags.",
+            "feature_metrics": "No access to flags.",
+            "events": None,
+        }
+        assert "{" not in "".join(request.path for request in network.requests_log)
 
     @parameterized.expand(
         [

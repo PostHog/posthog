@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 
-import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+import type {
+    ApiToolLibrary,
+    ApiToolLibraryOptions,
+    SkillsLibrary,
+    SkillsLibraryOptions,
+} from '@posthog/mcp/src/cli/library-types'
 
 import type { WorkloadProvider } from '@/ci/providers/registry'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
@@ -13,13 +19,18 @@ import { parseProviderIdToken } from './posthog/tokens'
 
 export interface FakeRuntimeOptions {
     env?: Env
+    platform?: NodeJS.Platform
     stdoutIsTTY?: boolean
     columns?: number
     cwd?: string
     files?: Record<string, string>
     stdin?: string
+    // Milliseconds since the epoch when the run starts. Defaults to 2026-01-01.
+    now?: number
     // Read files from disk instead of `files`, for commands that scan real build output.
     useDisk?: boolean
+    // Links from a path to the absolute path they point to, which `realPath` follows.
+    links?: Record<string, string>
     // Answers to prompts, in the order hog asks them. A prompt with no answer left fails the test.
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
@@ -27,11 +38,15 @@ export interface FakeRuntimeOptions {
     respond?: (
         url: string,
         body: unknown,
-        authorization: string | null
+        authorization: string | null,
+        headers: Headers
     ) => { status: number; body: unknown; headers?: Record<string, string> }
     telemetryToken?: string
-    // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
-    apiTools?: ApiToolLibrary
+    // The MCP tool catalog `hog api` loads, or a function that builds it from the catalog hog downloaded.
+    // Without it, loading the catalog fails the test.
+    apiTools?: ApiToolLibrary | ((options: ApiToolLibraryOptions) => ApiToolLibrary)
+    // Builds the skills library `hog skills read` loads. Without it, loading the skills fails the test.
+    skills?: (options: SkillsLibraryOptions) => SkillsLibrary
     // Items already in the keychain, by name.
     keychain?: Record<string, string>
     // Replaces the keychain, to fake one that is slow, unavailable or denied.
@@ -58,6 +73,8 @@ function fakePrompts(answers: string[]): Prompts {
     }
     return {
         select: (message) => next(message) as never,
+        // The answer lists the values picked, separated by commas.
+        multiselect: async (message) => (await next(message)).split(',').filter(Boolean) as never,
         text: (message) => next(message),
         password: (message) => next(message),
         confirm: async (message) => (await next(message)) === 'yes',
@@ -144,10 +161,10 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const opened: string[] = []
     const tls = { verify: true }
     const keychain = { ...options.keychain }
-    const clock = fakeClock(Date.UTC(2026, 0, 1))
+    const clock = fakeClock(options.now ?? Date.UTC(2026, 0, 1))
     const runtime: FakeRuntime = {
         env: options.env ?? {},
-        platform: 'linux',
+        platform: options.platform ?? 'linux',
         isDevelopment: false,
         stdinIsTTY: options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
@@ -163,12 +180,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             const url = String(input)
             const body = init?.body === undefined ? undefined : parseBody(String(init.body))
             requests.push({ method: init?.method ?? 'GET', url, body })
-            const authorization = new Headers(init?.headers).get('authorization')
-            const reply = options.respond?.(url, body, authorization) ?? {
+            const headers = new Headers(init?.headers)
+            const reply = options.respond?.(url, body, headers.get('authorization'), headers) ?? {
                 status: 500,
                 body: { detail: 'no fake response' },
             }
-            const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
+            const text =
+                reply.status === 304 ? null : typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
             return new Response(text, { status: reply.status, headers: reply.headers })
         }) as typeof fetch,
         now: clock.now,
@@ -212,6 +230,16 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         writeFile: async (path, contents) => {
             files[path] = contents
         },
+        realPath: async (path) => {
+            const resolved = resolve(path)
+            const link = Object.keys(options.links ?? {}).find(
+                (from) => resolved === from || resolved.startsWith(`${from}/`)
+            )
+            return link === undefined ? resolved : `${options.links?.[link]}${resolved.slice(link.length)}`
+        },
+        replaceFile: async (path, contents) => {
+            files[path] = contents
+        },
         writePrivateFile: async (path, contents) => {
             files[path] = contents
         },
@@ -236,11 +264,17 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         skipTlsVerification: () => {
             tls.verify = false
         },
-        loadApiTools: async () => {
+        loadApiTools: async (libraryOptions = {}) => {
             if (!options.apiTools) {
                 throw new Error('This test loads the API tools without passing apiTools')
             }
-            return options.apiTools
+            return typeof options.apiTools === 'function' ? options.apiTools(libraryOptions) : options.apiTools
+        },
+        loadSkills: async (skillsOptions) => {
+            if (!options.skills) {
+                throw new Error('This test loads the skills without passing skills')
+            }
+            return options.skills(skillsOptions)
         },
         stdout: () => stdout,
         stderr: () => stderr,

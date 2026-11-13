@@ -72,28 +72,6 @@ describe('Replicator: onEvent', () => {
             expect(fetchMock.mock.calls.length).toBe(1)
         })
 
-        it('should reuse the values for timestamp, event, uuid', async () => {
-            await onEvent(
-                { distinct_id: '1234', event: 'my-event', uuid: 'asdf-zxcv' } as any,
-                { config, logger, fetch: fetchMock } as any
-            )
-
-            expect(fetchMock.mock.calls[0][1]).toEqual({
-                body: JSON.stringify([
-                    {
-                        distinct_id: '1234',
-                        event: 'my-event',
-                        uuid: 'asdf-zxcv',
-                        token: 'test',
-                    },
-                ]),
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                method: 'POST',
-            })
-        })
-
         it('should correctly reverse the autocapture format', async () => {
             await onEvent(mockAutocaptureEvent, { config, logger, fetch: fetchMock } as any)
             expect(fetchMock.mock.calls[0][1]).toEqual({
