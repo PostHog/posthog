@@ -1612,7 +1612,7 @@ class TestPersistReplyActivity:
         )
 
         with patch(
-            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            "products.conversations.backend.services.email_delivery.EmailOutboxMessage.objects.get_or_create",
             side_effect=RuntimeError("outbox write failed"),
         ):
             with pytest.raises(RuntimeError, match="outbox write failed"):

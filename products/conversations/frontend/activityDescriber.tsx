@@ -130,6 +130,15 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    email_delivery: function onEmailDelivery(change) {
+        if (change?.after === 'pending') {
+            return { description: [<>sent the customer a confirmation email to turn on email delivery</>] }
+        }
+        if (change?.after === 'active') {
+            return { description: [<>turned on email delivery after the customer confirmed their email address</>] }
+        }
+        return { description: [<>turned off email delivery</>] }
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {

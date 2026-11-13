@@ -1197,6 +1197,115 @@ class TestWidgetIdentityVerification(BaseTest):
             unread_customer_count=unread_customer_count,
         )
 
+    @parameterized.expand(
+        [
+            (
+                "signed_email_and_authenticated_mail",
+                "person@example.com",
+                True,
+                ["From the team", "From the mailbox", "Written for the confirmed address"],
+            ),
+            ("no_signed_email", None, True, ["From the team"]),
+            ("signed_email_for_another_address", "other@example.com", True, ["From the team"]),
+            ("mail_that_failed_sender_authentication", "person@example.com", False, ["From the team"]),
+        ]
+    )
+    def test_widget_ticket_emails_are_read_only_under_the_email_bridge_conditions(
+        self, _name, claimed_email, sender_authenticated, expected
+    ):
+        ticket = self._create_ticket()
+        Ticket.objects.filter(id=ticket.id).update(email_from="Person@Example.com")
+        for content, context in [
+            ("From the team", {"author_type": "support", "is_private": False}),
+            (
+                "From the mailbox",
+                {
+                    "author_type": "customer",
+                    "is_private": False,
+                    "from_email": True,
+                    "email_from": "person@example.com",
+                    "email_sender_authenticated": sender_authenticated,
+                },
+            ),
+            (
+                "From an address the ticket had before",
+                {
+                    "author_type": "customer",
+                    "is_private": False,
+                    "from_email": True,
+                    "email_from": "earlier@example.com",
+                    "email_sender_authenticated": True,
+                },
+            ),
+            (
+                "Written for the confirmed address",
+                {
+                    "author_type": "support",
+                    "is_private": False,
+                    "delivered_by_email": True,
+                    "email_queued_for": "person@example.com",
+                },
+            ),
+            (
+                "Written for an address the ticket had before",
+                {
+                    "author_type": "support",
+                    "is_private": False,
+                    "delivered_by_email": True,
+                    "email_queued_for": "earlier@example.com",
+                },
+            ),
+        ]:
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                item_context=context,
+            )
+
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **(self._email_claim(claimed_email) if claimed_email else {}),
+            },
+            **self._get_headers(),
+        )
+
+        assert [message["content"] for message in response.json()["messages"]] == expected
+
+    def test_emails_read_by_a_signed_viewer_are_not_cached_for_the_widget_session(self):
+        ticket = self._create_ticket()
+        Ticket.objects.filter(id=ticket.id).update(email_from="person@example.com")
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="From the mailbox",
+            item_context={
+                "author_type": "customer",
+                "is_private": False,
+                "from_email": True,
+                "email_from": "person@example.com",
+                "email_sender_authenticated": True,
+            },
+        )
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+        signed = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+            **self._email_claim("person@example.com"),
+        }
+
+        def contents(params):
+            return [m["content"] for m in self.client.get(url, params, **self._get_headers()).json()["messages"]]
+
+        assert contents(signed) == ["From the mailbox"]
+        assert contents({"widget_session_id": self.widget_session_id}) == []
+        assert contents(signed) == ["From the mailbox"]
+
     def test_list_tickets_email_bridge_includes_verified_ticket(self):
         email = "person@example.com"
         self._create_email_ticket("Person@Example.com", identity_verified=True)

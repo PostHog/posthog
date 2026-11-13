@@ -6,7 +6,7 @@ from django.db import models, transaction
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
-from .constants import Channel, ChannelDetail, Priority, Status
+from .constants import EMAIL_DELIVERY_OFF, Channel, ChannelDetail, EmailDelivery, Priority, Status
 from .purged_ticket_thread import PurgedTicketThread, ticket_thread_key
 from .team_conversations_ticket_config import TeamConversationsTicketConfig
 
@@ -152,7 +152,7 @@ class Ticket(Taggable, UUIDTModel):
     github_repo = models.CharField(max_length=256, null=True, blank=True)  # owner/repo
     github_issue_number = models.PositiveIntegerField(null=True, blank=True)
 
-    # Email channel fields (only set for channel_source="email")
+    # Email channel fields. Also set on another channel's ticket once email delivery is requested for it.
     email_config = models.ForeignKey(
         "conversations.EmailChannel",
         null=True,
@@ -163,6 +163,7 @@ class Ticket(Taggable, UUIDTModel):
     email_subject = models.CharField(max_length=500, null=True, blank=True)
     email_from = models.EmailField(null=True, blank=True)
     cc_participants = models.JSONField(default=list, blank=True)
+    email_delivery = models.CharField(max_length=20, choices=EmailDelivery, null=True, blank=True)
 
     # Session context (captured when ticket is created)
     session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID
@@ -312,6 +313,16 @@ class Ticket(Taggable, UUIDTModel):
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."
+
+    @property
+    def email_delivery_state(self) -> str:
+        """Whether team replies on this ticket are emailed, as workflows and events see it.
+
+        An email ticket always delivers by email and has no email_delivery of its own.
+        """
+        if self.channel_source == Channel.EMAIL:
+            return EmailDelivery.ACTIVE
+        return self.email_delivery or EMAIL_DELIVERY_OFF
 
     def inbound_thread_keys(self) -> list[str]:
         """Keys of the external threads that route inbound messages to this ticket."""

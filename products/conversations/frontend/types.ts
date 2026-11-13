@@ -2,7 +2,7 @@ import type { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
-import type { AiTriageResultEnumApi, TicketViewFiltersApi } from './generated/api.schemas'
+import type { AiTriageResultEnumApi, TicketApi, TicketViewFiltersApi } from './generated/api.schemas'
 
 export type { AssigneeFilterEntry }
 
@@ -176,6 +176,7 @@ export interface Ticket {
     email_subject?: string | null
     email_from?: string | null
     email_to?: string | null
+    email_delivery?: TicketApi['email_delivery']
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
@@ -241,6 +242,7 @@ export interface ChatMessage {
     /** Edit count from the comment row. 0 means never edited. */
     version?: number
     emailDeliveryStatus?: EmailDeliveryStatus
+    isEmailConfirmation?: boolean
     /** Imported from an external tool (Zendesk, Intercom, Pylon). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */
     fromExternalImport?: boolean

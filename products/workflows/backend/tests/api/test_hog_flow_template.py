@@ -13,7 +13,7 @@ from products.cdp.backend.models.hog_function_template import HogFunctionTemplat
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
-from products.workflows.backend.templates import clear_template_cache, load_global_templates
+from products.workflows.backend.templates import TEMPLATE_FILES, clear_template_cache, load_global_templates
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -600,7 +600,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         file_templates = load_global_templates()
 
-        assert len(file_templates) > 0, "No templates loaded from template files"
+        assert len(file_templates) == len(TEMPLATE_FILES), "A template file failed validation and was skipped"
 
         file_template_ids = {t["id"] for t in file_templates}
         file_template_names = {t["name"] for t in file_templates}

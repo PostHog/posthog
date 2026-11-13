@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from email.utils import formataddr
+from typing import Any
 from uuid import UUID
 
 from django.core import mail
@@ -26,9 +27,16 @@ from products.conversations.backend.mailgun import (
     send_mime,
 )
 from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
+from products.conversations.backend.models.constants import Channel, EmailDelivery
+from products.conversations.backend.services.email_confirmation import (
+    confirmation_email_html,
+    confirmation_email_text,
+    is_email_confirmation,
+)
 from products.conversations.backend.services.mailgun_domain_cleanup import (
     cleanup_mailgun_domains as run_mailgun_domain_cleanup,
 )
+from products.conversations.backend.services.messages import EMAIL_QUEUED_FOR_CONTEXT_KEY
 
 logger = structlog.get_logger(__name__)
 
@@ -43,9 +51,8 @@ EMAIL_OUTBOX_MAX_AGE = timedelta(days=5)  # give up past this (comfortably > a F
 EMAIL_OUTBOX_FLUSH_BATCH_SIZE = 100
 
 
-def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str) -> None:
-    """Denormalize delivery status onto the comment's item_context so the agent UI can
-    show a sending/failed badge. Uses a queryset update to avoid re-firing Comment signals.
+def merge_comment_context(team_id: int, comment_id: UUID, values: dict[str, Any]) -> None:
+    """Set keys on a comment's item_context. Uses a queryset update to avoid re-firing Comment signals.
 
     Merges at the DB level (JSONB ``||``) rather than read-modify-write: a concurrent
     edit to another key (e.g. an agent flipping ``is_private``) must not be clobbered.
@@ -53,12 +60,18 @@ def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: s
     """
     merged = models.Func(
         Coalesce("item_context", models.Value({}, output_field=JSONField())),
-        models.Value({"email_delivery_status": status_value}, output_field=JSONField()),
+        models.Value(values, output_field=JSONField()),
         template="%(expressions)s",
         arg_joiner=" || ",
         output_field=JSONField(),
     )
     CommentModel.objects.filter(id=comment_id, team_id=team_id).update(item_context=merged)
+
+
+def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str) -> None:
+    """Denormalize delivery status onto the comment's item_context so the agent UI can
+    show a sending/failed badge."""
+    merge_comment_context(team_id, comment_id, {"email_delivery_status": status_value})
 
 
 def _mark_outbox_sent(outbox: EmailOutboxMessage) -> None:
@@ -87,8 +100,10 @@ def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
 
 
-def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
-    """Stop queued replies for a ticket that was just soft-deleted.
+def cancel_pending_email_replies_for_ticket(
+    *, team_id: int, ticket_id: UUID | str, reason: str = "ticket deleted"
+) -> None:
+    """Stop queued emails for a ticket that was just soft-deleted or had email delivery turned off.
 
     Rows under an active send lease are left alone. Their worker checks the delete
     right before it sends, and it owns the final status of the row.
@@ -105,7 +120,7 @@ def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | s
             return
         EmailOutboxMessage.objects.filter(id__in=[outbox.id for outbox in pending]).update(
             status=EmailOutboxMessage.Status.FAILED_PERMANENT,
-            last_error="ticket deleted",
+            last_error=reason,
             locked_until=None,
             updated_at=now,
         )
@@ -124,6 +139,45 @@ def _schedule_outbox_retry(outbox: EmailOutboxMessage, error: str) -> None:
     outbox.locked_until = None
     outbox.save(update_fields=["attempts", "next_attempt_at", "last_error", "locked_until", "updated_at"])
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "sending")
+
+
+def _threading_headers(ticket_id: UUID, team_id: int) -> dict[str, str]:
+    """Headers that thread a reply onto the ticket's email conversation, from the messages mapped to it."""
+    message_ids = list(
+        EmailMessageMapping.objects.filter(ticket_id=ticket_id, team_id=team_id)
+        .order_by("created_at")
+        .values_list("message_id", flat=True)
+    )
+    if not message_ids:
+        return {}
+    return {"In-Reply-To": message_ids[-1], "References": " ".join(message_ids)}
+
+
+def _email_delivery_blocked_reason(ticket: Ticket, comment: CommentModel, is_confirmation: bool) -> str | None:
+    """Why this ticket's email delivery state does not allow the send, or None when it does.
+
+    The state and the address are read again here. The ticket on the outbox row was loaded when
+    the row was claimed, and a sweep claims a whole batch before it sends the first row. So
+    without this read, turning delivery off would not stop the rest of a claimed batch.
+    """
+    if ticket.channel_source == Channel.EMAIL:
+        return None
+    current = (
+        Ticket.all_objects.filter(id=ticket.id, team_id=ticket.team_id)
+        .values_list("email_delivery", "email_from")
+        .first()
+    )
+    state, address = current or (None, None)
+    # Until the customer confirms the address, only the confirmation email may go to it.
+    required_state = EmailDelivery.PENDING if is_confirmation else EmailDelivery.ACTIVE
+    if state != required_state:
+        return f"email delivery is not {required_state.value}"
+    # A row can outlive a stop under a worker's lease, and delivery can restart for another address.
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    queued_for = context.get(EMAIL_QUEUED_FOR_CONTEXT_KEY)
+    if queued_for is None or {(address or "").lower(), (ticket.email_from or "").lower()} != {queued_for}:
+        return "the customer email changed after this email was queued"
+    return None
 
 
 def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
@@ -154,6 +208,8 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         _mark_outbox_failed(outbox, "no customer email")
         return
 
+    is_confirmation = is_email_confirmation(comment.item_context)
+
     # Defense-in-depth: never send out a comment that itself arrived via inbound
     # email — mirrors the from_email signal guard at the last mile, so a future
     # regression in outbox enqueueing can't echo inbound mail back to recipients.
@@ -167,37 +223,32 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
             f"{comment.created_by.first_name} {comment.created_by.last_name}".strip() or comment.created_by.email
         )
 
-    # Build threading headers from the latest inbound message on this ticket
-    latest_mapping = (
-        EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id)
-        .only("message_id")
-        .order_by("-created_at")
-        .first()
-    )
     headers: dict[str, str] = {"Message-ID": outbox.message_id}
-    if latest_mapping:
-        headers["In-Reply-To"] = latest_mapping.message_id
-        all_ids = list(
-            EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id)
-            .order_by("created_at")
-            .values_list("message_id", flat=True)
-        )
-        if all_ids:
-            headers["References"] = " ".join(all_ids)
-
-    if comment.rich_content:
-        html_body = rich_content_to_html(comment.rich_content)
-        txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
+    copied_addresses: list[str] = ticket.cc_participants or []
+    if is_confirmation:
+        # A reply naming this email's Message-ID confirms the address. So it goes only to that
+        # address, and it starts its own thread: earlier messages may have gone to another one.
+        copied_addresses = []
+        headers["Auto-Submitted"] = "auto-generated"
+        headers["X-Auto-Response-Suppress"] = "OOF, AutoReply"
+        # The comment is a private note about the confirmation. Its text must not be emailed.
+        txt_body = confirmation_email_text(ticket.ticket_number)
+        html_body = confirmation_email_html(ticket.ticket_number)
     else:
-        txt_body = comment.content or ""
-        # Deferred: the renderer pulls posthog.api onto the Django startup path.
-        from posthog.helpers.email_formatting import render_markdown_email_html
+        headers.update(_threading_headers(ticket.id, outbox.team_id))
+        if comment.rich_content:
+            html_body = rich_content_to_html(comment.rich_content)
+            txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
+        else:
+            txt_body = comment.content or ""
+            # Deferred: the renderer pulls posthog.api onto the Django startup path.
+            from posthog.helpers.email_formatting import render_markdown_email_html
 
-        # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
-        html_body = render_markdown_email_html(txt_body)
+            # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
+            html_body = render_markdown_email_html(txt_body)
 
     subject = ticket.email_subject or "Your support request"
-    is_reply = latest_mapping is not None
+    is_reply = "In-Reply-To" in headers
     if is_reply and not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
@@ -205,7 +256,7 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     # Tickets created before To/Cc participant filtering may still have the requester
     # persisted in cc_participants; drop them here so they aren't delivered to twice.
-    cc = [addr for addr in (ticket.cc_participants or []) if addr.lower() != ticket.email_from.lower()]
+    cc = [addr for addr in copied_addresses if addr.lower() != ticket.email_from.lower()]
 
     email_message = mail.EmailMultiAlternatives(
         subject=subject,
@@ -224,6 +275,9 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     # and a row lock held across the Mailgun call would block every write to the ticket.
     if Ticket.all_objects.filter(id=ticket.id, deleted_at__isnull=False).exists():
         _mark_outbox_failed(outbox, "ticket deleted")
+        return
+    if blocked_reason := _email_delivery_blocked_reason(ticket, comment, is_confirmation):
+        _mark_outbox_failed(outbox, blocked_reason)
         return
 
     try:

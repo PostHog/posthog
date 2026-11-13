@@ -955,6 +955,6 @@ class TestIsOutboundReply:
         ]
     )
     def test_outbound_reply_gating(self, _name, item_context, created_by_id, expected):
-        from products.conversations.backend.signals import _is_outbound_reply
+        from products.conversations.backend.services.messages import is_outbound_reply
 
-        assert _is_outbound_reply(item_context, created_by_id) is expected
+        assert is_outbound_reply(item_context, created_by_id) is expected

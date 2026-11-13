@@ -1,8 +1,7 @@
-from email.utils import make_msgid
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Case, F, Q, When
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -15,7 +14,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user
 from posthog.models.comment import Comment
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_backup_deleted, secret_api_token_rotated
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import content_type_for
@@ -29,11 +27,11 @@ from .events import (
     capture_private_message_sent,
     capture_ticket_created,
 )
-from .models import ConversationDeliveryPart, EmailOutboxMessage, SigningSecret, Ticket
-from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel
+from .models import ConversationDeliveryPart, SigningSecret, Ticket
+from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel, EmailDelivery
 from .services.delivery import enqueue_slack_body_delivery
-from .services.messages import visible_ticket_messages
-from .tasks.email import send_email_reply
+from .services.email_delivery import enqueue_email_reply, ticket_delivering_replies_by_email
+from .services.messages import is_delivered_by_email, is_outbound_reply, is_private_message, visible_ticket_messages
 from .tasks.github import post_reply_to_github
 from .tasks.slack import wake_delivery_part
 from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
@@ -43,36 +41,9 @@ from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 logger = structlog.get_logger(__name__)
 
 
-def _is_private_message(item_context: dict | None) -> bool:
-    """Check if a message is marked as private."""
-    if not isinstance(item_context, dict):
-        return False
-    return item_context.get("is_private", False) is True
-
-
 def _get_comment_created_by_id(comment: Comment) -> int | None:
     created_by_id = getattr(comment, "created_by_id", None)
     return created_by_id if isinstance(created_by_id, int) else None
-
-
-def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> bool:
-    """True for messages that should be delivered to the customer's channel.
-
-    This includes human team replies (has created_by, non-customer, non-private) and
-    public AI replies (author_type == "AI" with is_private == False).
-    """
-    if not isinstance(item_context, dict):
-        return False
-    if _is_private_message(item_context):
-        return False
-    author_type = item_context.get("author_type")
-    if created_by_id and author_type != "customer":
-        return True
-    # No created_by: only these authors are team replies. A workflow message with any other
-    # type would be stored and never delivered.
-    if author_type in ("AI", WORKFLOW_AUTHOR_TYPE):
-        return True
-    return False
 
 
 def _unattributed_author_name(item_context: dict | None) -> str:
@@ -227,7 +198,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         # that carries no note body — so workflows on `$conversation_message_sent`
         # (e.g. customer notifications) never receive private content, and the event
         # stream never exposes note text to members without access to the ticket.
-        if _is_private_message(item_context):
+        if is_private_message(item_context):
             if not (created_by_id and author_type != "customer"):
                 return
             try:
@@ -244,7 +215,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         # New message: update denormalized stats
         is_team_message = (created_by_id and author_type != "customer") or (
-            author_type in ("AI", WORKFLOW_AUTHOR_TYPE) and not _is_private_message(item_context)
+            author_type in ("AI", WORKFLOW_AUTHOR_TYPE) and not is_private_message(item_context)
         )
 
         update_fields = {
@@ -255,7 +226,14 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         }
 
         if is_team_message:
-            update_fields["unread_customer_count"] = F("unread_customer_count") + 1
+            # A reply delivered by email is not shown to a widget session, so it must not raise its unread count.
+            update_fields["unread_customer_count"] = Case(
+                When(
+                    ~Q(channel_source=Channel.EMAIL) & Q(email_delivery=EmailDelivery.ACTIVE),
+                    then=F("unread_customer_count"),
+                ),
+                default=F("unread_customer_count") + 1,
+            )
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
@@ -367,7 +345,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
         created_by_id = _get_comment_created_by_id(instance)
 
         def do_soft_delete_update():
-            is_private = _is_private_message(item_context)
+            is_private = is_private_message(item_context)
 
             # Only decrement counts if this wasn't a private message
             # (private messages weren't counted in the first place)
@@ -377,7 +355,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
 
                 # Use Greatest to prevent negative counts from race conditions or data inconsistencies
                 update_fields = {"message_count": Greatest(F("message_count") - 1, 0)}
-                if is_team_message:
+                if is_team_message and not is_delivered_by_email(item_context):
                     update_fields["unread_customer_count"] = Greatest(F("unread_customer_count") - 1, 0)
 
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
@@ -424,7 +402,7 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
     item_context = instance.item_context
     created_by_id = _get_comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from Slack back to Slack
@@ -450,13 +428,13 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
 @receiver(post_save, sender=Comment)
 def send_email_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member or AI bot replies to an email-sourced ticket, send the reply
-    back to the customer via email through a Celery task.
+    When a team member or AI bot replies to a ticket that delivers replies by email, send
+    the reply to the customer via email through a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
     - Outbound replies (human team or public AI)
-    - Tickets with channel_source="email"
+    - Tickets with channel_source="email", or with email delivery active
     """
     if instance.scope != "conversations_ticket":
         return
@@ -467,7 +445,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     item_context = instance.item_context
     created_by_id = _get_comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from email back via email
@@ -481,11 +459,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # Resolve the ticket + email config now (synchronously, in the comment's transaction)
     # so the durable outbox row commits atomically with the reply. If Celery/the broker
     # is down, the row still exists and flush_pending_email_replies will send it.
-    ticket = (
-        Ticket.objects.select_related("team", "email_config")
-        .filter(id=item_id, team_id=team_id, channel_source=Channel.EMAIL)
-        .first()
-    )
+    ticket = ticket_delivering_replies_by_email(team_id, item_id)
     if not ticket:
         return
 
@@ -493,31 +467,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # checked here: every customer-facing reply on an email ticket gets an outbox row, and
     # _process_outbox_row fails undeliverable ones with a reason. Skipping row creation instead
     # would leave the reply looking sent in the agent UI, with no record of why nothing went out.
-
-    config = ticket.email_config
-    inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)
-    message_id = make_msgid(domain=inbound_domain) if inbound_domain else make_msgid()
-
-    # One outbox row per reply comment; get_or_create keeps the signal idempotent.
-    outbox, _ = EmailOutboxMessage.objects.get_or_create(
-        comment=comment,
-        defaults={
-            "team_id": team_id,
-            "ticket": ticket,
-            "message_id": message_id,
-        },
-    )
-
-    outbox_id = str(outbox.id)
-
-    def enqueue_immediate_send():
-        # Low-latency happy path; the periodic sweeper is the durability backstop.
-        try:
-            cast(Any, send_email_reply).delay(outbox_id=outbox_id)
-        except Exception:
-            logger.exception("email_reply_signal_failed", item_id=item_id)
-
-    transaction.on_commit(enqueue_immediate_send)
+    enqueue_email_reply(ticket, comment, written_for_confirmed_address=ticket.channel_source != Channel.EMAIL)
 
 
 @receiver(post_save, sender=Comment)
@@ -541,7 +491,7 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
     item_context = instance.item_context
     created_by_id = _get_comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from Teams back to Teams
@@ -630,7 +580,7 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
     item_context = instance.item_context
     created_by_id = _get_comment_created_by_id(instance)
 
-    if not _is_outbound_reply(item_context, created_by_id):
+    if not is_outbound_reply(item_context, created_by_id):
         return
 
     if isinstance(item_context, dict) and item_context.get("from_github"):

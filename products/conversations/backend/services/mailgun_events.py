@@ -59,6 +59,7 @@ from products.conversations.backend.services.email_channel_setup import (
     capture_google_forwarding_confirmation,
     process_forwarding_challenges,
 )
+from products.conversations.backend.services.email_delivery import confirm_email_delivery, copied_addresses_from_email
 from products.conversations.backend.services.email_links import recover_links_from_html
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
@@ -790,6 +791,16 @@ def _process_support_email(
                     unread_team_count=0 if is_team_member else 1,
                     identity_verified=email.sender_authenticated,
                 )
+            elif ticket.channel_source != Channel.EMAIL:
+                # On a ticket from another channel identity_verified attests the signed widget distinct ID,
+                # so an email must not set it.
+                confirm_email_delivery(
+                    ticket,
+                    sender_email=sender_email,
+                    sender_authenticated=email.sender_authenticated,
+                    thread_message_ids=(email.in_reply_to, *email.references),
+                    auto_generated=email.auto_generated,
+                )
             elif (
                 email.sender_authenticated
                 and not ticket.identity_verified
@@ -831,8 +842,12 @@ def _process_support_email(
                 # The requester is already the reply target (to=email_from); when another
                 # participant reply-alls, the requester shows up in their To/Cc and must not
                 # be folded into cc_participants or replies would deliver to them twice.
-                ticket_from = (ticket.email_from or "").lower()
-                cc_list = [addr for addr in cc_list if addr != ticket_from]
+                cc_list = copied_addresses_from_email(
+                    ticket,
+                    sender_email=sender_email,
+                    sender_authenticated=email.sender_authenticated,
+                    addresses=cc_list,
+                )
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
                 if not is_team_member and cc_list:
                     qs.update(

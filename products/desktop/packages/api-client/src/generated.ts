@@ -9365,6 +9365,11 @@ export namespace Schemas {
      */
     export type DeviceTypesEnum = "Desktop" | "Mobile" | "Tablet";
     /**
+     * * `pending` - Waiting for confirmation
+     * * `active` - Active
+     */
+    export type EmailDeliveryEnum = "pending" | "active";
+    /**
      * * `off` - Off
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In
@@ -19106,6 +19111,13 @@ export namespace Schemas {
         email_subject: string | null;
         email_from: string | null;
         email_to: string | null;
+        /**
+         * Email delivery of team replies on a ticket that is not an email ticket. 'pending' means a confirmation email was sent and the customer has not replied to it, so replies are not emailed yet. 'active' means replies are also sent by email. Null when off.
+         *
+         * * `pending` - Waiting for confirmation
+         * * `active` - Active
+         */
+        email_delivery: EmailDeliveryEnum | NullEnum;
         cc_participants: unknown;
         github_repo: string | null;
         github_issue_number: number | null;

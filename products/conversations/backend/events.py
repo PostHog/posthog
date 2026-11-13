@@ -416,6 +416,7 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
         "channel_detail": ticket.channel_detail,
         "status": ticket.status,
         "priority": ticket.priority,
+        "email_delivery": ticket.email_delivery_state,
     }
 
 

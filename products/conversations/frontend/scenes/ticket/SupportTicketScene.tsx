@@ -40,6 +40,7 @@ import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { SupportTicketSidebarWidgets } from '../../components/SupportTicketSidebarWidgets/SupportTicketSidebarWidgets'
+import { TicketEmailDelivery } from '../../components/TicketEmailDelivery/TicketEmailDelivery'
 import { TicketTags } from '../../components/TicketTags'
 import {
     type Ticket,
@@ -495,6 +496,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            <TicketEmailDelivery ticket={ticket} />
                             {ticket?.channel_source === 'github' &&
                                 ticket?.github_repo &&
                                 ticket?.github_issue_number && (

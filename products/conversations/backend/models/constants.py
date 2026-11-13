@@ -26,6 +26,20 @@ class ChannelDetail(models.TextChoices):
     GITHUB_ISSUE = "github_issue", "GitHub issue"
 
 
+class EmailDelivery(models.TextChoices):
+    """Email delivery of team replies on a ticket from a channel other than email.
+
+    A NULL column means it is off. PENDING means the confirmation email went out and the
+    customer has not replied to it, so no reply is emailed yet.
+    """
+
+    PENDING = "pending", "Waiting for confirmation"
+    ACTIVE = "active", "Active"
+
+
+EMAIL_DELIVERY_OFF = "off"
+
+
 class TicketStatus(models.TextChoices):
     NEW = "new", "New"
     OPEN = "open", "Open"

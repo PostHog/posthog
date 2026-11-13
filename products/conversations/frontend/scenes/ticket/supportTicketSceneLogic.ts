@@ -1273,6 +1273,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         automatedUpdate: !!message.item_context?.automated_update_key,
                         version: message.version,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
+                        isEmailConfirmation: message.item_context?.email_delivery_confirmation === true,
                         fromExternalImport:
                             message.item_context?.from_zendesk === true ||
                             message.item_context?.from_intercom === true ||

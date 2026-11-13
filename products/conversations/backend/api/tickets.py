@@ -479,6 +479,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "email_subject",
             "email_from",
             "email_to",
+            "email_delivery",
             "cc_participants",
             "github_repo",
             "github_issue_number",
@@ -512,6 +513,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "email_subject",
             "email_from",
             "email_to",
+            "email_delivery",
             "cc_participants",
             "github_repo",
             "github_issue_number",
@@ -531,6 +533,13 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
                     "(widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). "
                     "True when verified, false when assessed but not attested, null when unknown "
                     "(e.g. created before this signal existed)."
+                )
+            },
+            "email_delivery": {
+                "help_text": (
+                    "Email delivery of team replies on a ticket that is not an email ticket. "
+                    "'pending' means a confirmation email was sent and the customer has not replied to it, "
+                    "so replies are not emailed yet. 'active' means replies are also sent by email. Null when off."
                 )
             },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
