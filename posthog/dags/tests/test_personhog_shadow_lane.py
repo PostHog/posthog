@@ -210,12 +210,14 @@ def test_stop_leaves_processors_up_while_a_consumer_pod_lingers(
 
 
 class _FakeAppsApi:
-    def __init__(self, desired_replicas: int) -> None:
+    def __init__(self, desired_replicas: int, replicas_by_deployment: dict[str, int] | None = None) -> None:
         self.desired_replicas = desired_replicas
+        self.replicas_by_deployment = replicas_by_deployment or {}
 
     def read_namespaced_deployment(self, name: str, namespace: str) -> SimpleNamespace:
+        replicas = self.replicas_by_deployment.get(name, self.desired_replicas)
         return SimpleNamespace(
-            spec=SimpleNamespace(replicas=self.desired_replicas, selector=SimpleNamespace(match_labels={"app": name}))
+            spec=SimpleNamespace(replicas=replicas, selector=SimpleNamespace(match_labels={"app": name}))
         )
 
 
@@ -225,9 +227,9 @@ class _NoPodsCoreApi:
 
 
 @pytest.fixture
-def stopped_lane(monkeypatch: pytest.MonkeyPatch) -> _FakeAppsApi:
+def lane_without_consumers(monkeypatch: pytest.MonkeyPatch) -> _FakeAppsApi:
     monkeypatch.setattr("posthog.dags.personhog_shadow_lane.k8s_client.CoreV1Api", _NoPodsCoreApi)
-    return _FakeAppsApi(desired_replicas=0)
+    return _FakeAppsApi(desired_replicas=0, replicas_by_deployment={SHADOW_PROCESSOR_DEPLOYMENT: 8})
 
 
 class _FakeKafkaAdmin:
@@ -299,7 +301,7 @@ def test_offset_move_refuses_while_lane_wants_pods() -> None:
 
 
 def test_offsets_move_to_the_time_and_past_the_end_to_the_end_before_the_lookup(
-    stopped_lane: _FakeAppsApi,
+    lane_without_consumers: _FakeAppsApi,
 ) -> None:
     admin = _FakeKafkaAdmin(
         at_time={0: 10, 1: -1, 2: 30},
@@ -308,18 +310,21 @@ def test_offsets_move_to_the_time_and_past_the_end_to_the_end_before_the_lookup(
     )
 
     moved = _move_consumer_offsets(
-        dagster.build_op_context(), ShadowLaneStartConfig(start_offsets_at_ms=1), stopped_lane, lambda: admin
+        dagster.build_op_context(), ShadowLaneStartConfig(start_offsets_at_ms=1), lane_without_consumers, lambda: admin
     )
 
     assert moved == 3
     assert admin.altered == [(SHADOW_CONSUMER_GROUP, [(0, 10), (1, 99), (2, 30)])]
 
 
-def test_offset_move_fails_when_kafka_refuses_it(stopped_lane: _FakeAppsApi) -> None:
+def test_offset_move_fails_when_kafka_refuses_it(lane_without_consumers: _FakeAppsApi) -> None:
     admin = _FakeKafkaAdmin(at_time={0: 10}, latest={0: 10}, refuse=True)
     with pytest.raises(dagster.Failure, match="Kafka refused to move"):
         _move_consumer_offsets(
-            dagster.build_op_context(), ShadowLaneStartConfig(start_offsets_at_ms=1), stopped_lane, lambda: admin
+            dagster.build_op_context(),
+            ShadowLaneStartConfig(start_offsets_at_ms=1),
+            lane_without_consumers,
+            lambda: admin,
         )
 
 

@@ -11,7 +11,7 @@ The Dagster service account needs get/patch on deployments and
 deployments/scale plus list on pods in the lane namespace, and the lane's
 ArgoCD Applications must ignore Deployment spec.replicas, or ArgoCD self-heal
 reverts every scale these jobs apply. Both are charts-side prerequisites.
-Resetting the lane's offsets also needs the Kafka bootstrap servers of the
+Moving the lane's offsets also needs the Kafka bootstrap servers of the
 lane's cluster in PERSONHOG_SHADOW_KAFKA_BOOTSTRAP_SERVERS on the Dagster
 deployment.
 """
@@ -121,17 +121,19 @@ class ShadowLaneStartConfig(dagster.Config):
     ready_timeout_seconds: int = 600
 
 
-def _require_lane_stopped(config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api, option: str, reason: str) -> None:
-    for deployment in (config.consumer_deployment, config.processor_deployment):
-        pods = deployment_pod_count(apps, config.namespace, deployment)
-        if pods > 0:
-            raise dagster.Failure(
-                description=(
-                    f"Deployment {deployment} still wants or has {pods} pod(s). "
-                    f"{reason} "
-                    f"Run the stop job first, then start with {option}."
-                )
+def _require_consumers_stopped(
+    config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api, option: str, reason: str
+) -> None:
+    # Only the consumers join the lane's consumer group. The processors take work from them over gRPC.
+    pods = deployment_pod_count(apps, config.namespace, config.consumer_deployment)
+    if pods > 0:
+        raise dagster.Failure(
+            description=(
+                f"Deployment {config.consumer_deployment} still wants or has {pods} pod(s). "
+                f"{reason} "
+                f"Run the stop job first, then start with {option}."
             )
+        )
 
 
 class ConsumerGroupAdmin(Protocol):
@@ -205,7 +207,7 @@ def _move_consumer_offsets(
 ) -> int:
     """Move the lane's consumer group to the offsets at config.start_offsets_at_ms. Returns the partitions moved."""
     assert config.start_offsets_at_ms is not None
-    _require_lane_stopped(
+    _require_consumers_stopped(
         config, apps, "start_offsets_at_ms", "Kafka refuses to move the offsets of a consumer group with members."
     )
     admin = admin_factory()
@@ -328,7 +330,7 @@ def personhog_shadow_lane_start_job():
 
     Run with default config to resume consuming from the committed offsets.
     Set start_offsets_at_ms to replay the topic from that time instead,
-    which refuses to run while the lane has pods. Processors scale up in
+    which refuses to run while the lane has consumer pods. Processors scale up in
     steps of processor_step_replicas, and the consumers start only once every
     processor is ready.
     """
