@@ -1653,19 +1653,24 @@ async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
 
 
 @pytest.mark.parametrize(
-    ("origin_product", "team_id"),
+    ("origin_product", "team_id", "provisioning_fallback_reason", "expected_custom_image_id"),
     [
-        ("signals_scout", 314),  # platform start the alert must exclude
-        ("user_created", 42),  # customer start the alert must count
+        ("signals_scout", 314, None, "image-id"),  # platform start the alert must exclude
+        ("user_created", 42, None, "image-id"),  # customer start the alert must count
+        ("user_created", 42, "boot_failed", None),
     ],
 )
-async def test_sandbox_started_carries_run_attribution(origin_product, team_id, monkeypatch):
+async def test_sandbox_started_carries_run_attribution(
+    origin_product, team_id, provisioning_fallback_reason, expected_custom_image_id, monkeypatch
+):
     # The sandboxes-started alert filters platform work out by origin_product, and
     # cross-references team_id and task_run_id. Dropping any of them from this payload
     # blinds the alert to who a sandbox belongs to, so lock the three fields in.
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = dataclasses.replace(
-        _build_context(github_integration_id=123, origin_product=origin_product), team_id=team_id
+        _build_context(github_integration_id=123, origin_product=origin_product),
+        team_id=team_id,
+        state={"custom_image_id": "image-id"},
     )
 
     monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
@@ -1689,6 +1694,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
                 agent_invoke_ms=6,
                 agent_server_launched=False,
                 agent_shadow_launched=False,
+                custom_image_fallback_reason=provisioning_fallback_reason,
             )
         ),
     )
@@ -1724,6 +1730,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
     assert sandbox_started["team_id"] == team_id
     assert sandbox_started["task_run_id"] == "run-id"
     assert sandbox_started["agent_launcher_to_process_ms"] == 7
+    assert sandbox_started["custom_image_id"] == expected_custom_image_id
 
 
 @pytest.mark.django_db
