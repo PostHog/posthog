@@ -587,6 +587,12 @@ def _count_per_team(
     return counts
 
 
+_MATERIALIZED_GEOIP_TEAMS_QUERY = f"""
+    SELECT DISTINCT team_id FROM {DMAT_SLOT_ASSIGNMENTS_TABLE_NAME} FINAL
+    WHERE team_id IN %(team_ids)s AND startsWith(property_name, '$geoip')
+"""
+
+
 def _teams_with_materialized_geoip(
     cluster: ClickhouseCluster, query_tags: DagsterTags, team_ids: Collection[int]
 ) -> set[int]:
@@ -597,10 +603,7 @@ def _teams_with_materialized_geoip(
 
     def read(client: Client) -> set[int]:
         rows = sync_execute(
-            f"""
-            SELECT DISTINCT team_id FROM {DMAT_SLOT_ASSIGNMENTS_TABLE_NAME} FINAL
-            WHERE team_id IN %(team_ids)s AND startsWith(property_name, '$geoip')
-            """,
+            _MATERIALIZED_GEOIP_TEAMS_QUERY,
             {"team_ids": tuple(team_ids)},
             workload=workload,
             sync_client=client,
