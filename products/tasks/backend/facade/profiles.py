@@ -7,8 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
 
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+
 if TYPE_CHECKING:
     from posthog.temporal.oauth import PosthogMcpScopes
+
+TRUSTED_DOMAINS: tuple[str, ...] = tuple(DEFAULT_TRUSTED_DOMAINS)
 
 
 class Read(StrEnum):
