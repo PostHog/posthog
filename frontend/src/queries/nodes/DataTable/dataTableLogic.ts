@@ -18,7 +18,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils/objects'
 import { RequiredExcept } from 'lib/utils/types'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
@@ -36,7 +35,6 @@ import { QueryContext } from '~/queries/types'
 import { isEventsQuery } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { TeamPublicType, TeamType } from '../../../types'
 import type {
     ErrorTrackingQueryResponse,
     HogQLAutocompleteResponse,
@@ -95,7 +93,6 @@ export interface dataTableLogicValues {
     responseLoading: boolean // dataNodeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[] // tabUiStateLogic
-    currentTeam: TeamPublicType | TeamType | null // teamLogic
     canSort: boolean
     columnsInQuery: string[]
     columnsInResponse: string[] | null
@@ -181,8 +178,7 @@ export interface dataTableLogicMeta {
                 | TraceSpansTreeQueryResponse
                 | null,
             columnsInResponse: string[] | null,
-            rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null,
-            currentTeam: TeamPublicType | TeamType | null
+            rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null
         ) => DataTableRow[] | null
         queryWithDefaults: (
             query: DataTableNode,
@@ -239,8 +235,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            teamLogic,
-            ['currentTeam'],
             tabUiStateLogic,
             ['expandedRowsFor'],
             dataNodeLogic({
@@ -301,14 +295,13 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, s.rowsTransformer, s.currentTeam],
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, s.rowsTransformer],
             (
                 sourceKind: NodeKind | null,
                 orderBy: string[] | null,
                 response: AnyDataNode['response'],
                 columnsInResponse: string[] | null,
-                rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null,
-                currentTeam: { timezone?: string } | null
+                rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const queryResponse = response as AnyResponseType
@@ -335,21 +328,20 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             ) ?? -1
 
                         // Add a label between results if the day changed for events with timestamp.
-                        // Use the project timezone so date headers match the date filter.
+                        // Use the browser timezone because TZLabel shows the row times in it, so each
+                        // row stays under its own date. The date filter uses the project timezone, so
+                        // a one-day filter can show two labels when the two timezones differ.
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
-                            const tz = currentTeam?.timezone ?? 'UTC'
                             let lastResult: any = null
                             const newResults: DataTableRow[] = []
                             for (const result of results) {
                                 if (
                                     result &&
                                     lastResult &&
-                                    !dayjs(result[orderKeyIndex])
-                                        .tz(tz)
-                                        .isSame(dayjs(lastResult[orderKeyIndex]).tz(tz), 'day')
+                                    !dayjs(result[orderKeyIndex]).isSame(dayjs(lastResult[orderKeyIndex]), 'day')
                                 ) {
                                     newResults.push({
-                                        label: dayjs(result[orderKeyIndex]).tz(tz).format('LL'),
+                                        label: dayjs(result[orderKeyIndex]).format('LL'),
                                     })
                                 }
                                 newResults.push({ result })
