@@ -1,8 +1,13 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { findSqlTableReference, sqlTableHoverContents } from './sqlTableHover'
+import { DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
+import { findSqlCatalogTable, findSqlTableReference, sqlTableHoverContents } from './sqlTableHover'
 
 describe('SQL table hover', () => {
+    beforeEach(() => initKeaTests(false))
+
     it.each([
         ['SELECT * FROM events', 'events', 'events'],
         ['SELECT * FROM events e JOIN persons p ON e.person_id = p.id', 'persons', 'persons'],
@@ -11,6 +16,24 @@ describe('SQL table hover', () => {
         ['SELECT 1; SELECT * FROM events', 'events', 'events'],
         ["SELECT '🦔' FROM events", 'events', 'events'],
         ['WITH sample AS (SELECT * FROM events) SELECT * FROM sample', 'events', 'events'],
+        ['WITH events AS (SELECT * FROM events) SELECT * FROM events', 'events)', 'events'],
+        ['WITH first AS (SELECT * FROM events), events AS (SELECT 1) SELECT * FROM first', 'events)', 'events'],
+        ['WITH events AS (SELECT 1), second AS (SELECT * FROM events) SELECT * FROM second', 'events)', null],
+        [
+            'WITH events AS (SELECT * FROM events) SELECT * FROM events UNION ALL SELECT * FROM events',
+            'events)',
+            'events',
+        ],
+        [
+            'WITH RECURSIVE sample AS (SELECT * FROM events UNION ALL SELECT * FROM sample) SELECT * FROM sample',
+            'events',
+            'events',
+        ],
+        [
+            'WITH RECURSIVE sample AS (SELECT * FROM events UNION ALL SELECT * FROM sample) SELECT * FROM sample',
+            'sample)',
+            null,
+        ],
         ["SELECT 'events' FROM persons", 'events', null],
         ['SELECT 1 -- events', 'events', null],
         ['WITH events AS (SELECT 1) SELECT * FROM events', 'events', null],
@@ -25,6 +48,26 @@ describe('SQL table hover', () => {
             expect(reference?.name).toEqual(expected)
             expect(query.slice(reference!.start, reference!.end).replace(/`/g, '')).toEqual(expected)
         }
+    })
+
+    it.each([
+        ['sample_orders', 'sample.orders'],
+        ['sample.orders', 'sample.orders'],
+        ['events', 'events'],
+        ['missing', undefined],
+    ])('resolves catalog metadata for %s', (name, expected) => {
+        const tables: Record<string, DatabaseSchemaTable> = {
+            'sample.orders': {
+                type: 'data_warehouse',
+                id: 'sample-orders',
+                name: 'sample.orders',
+                search_aliases: ['sample_orders', 'events'],
+                fields: {},
+            },
+            events: { type: 'posthog', id: 'events', name: 'events', fields: {} },
+        }
+
+        expect(findSqlCatalogTable(tables, name)?.name).toEqual(expected)
     })
 
     it('keeps view SQL and descriptions as code instead of active markdown', () => {
@@ -43,7 +86,7 @@ describe('SQL table hover', () => {
             value: "````sql\nSELECT '``` [Example](https://example.com)'\n````",
         })
         expect(contents).toContainEqual({
-            value: expect.stringMatching(/^\[Open view definition\]\(http:\/\/localhost\/.*example-view.*\)$/),
+            value: `[Open view definition](http://localhost/project/${getCurrentTeamId()}/sql?open_view=example-view)`,
         })
     })
 })

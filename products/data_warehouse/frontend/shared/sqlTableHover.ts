@@ -2,63 +2,23 @@ import type { Monaco } from '@monaco-editor/react'
 import type { CancellationToken, Position, editor, languages } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import type { ASTNode } from '@posthog/hogql-parser'
-
 import { findStatementAtOffset } from 'lib/monaco/multiQueryUtils'
 import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
-import { parseSelect } from 'scenes/data-warehouse/editor/hogqlParserSingleton'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { analyzeTableReference } from 'scenes/data-warehouse/editor/hogqlParserWorkerManager'
 import { urls } from 'scenes/urls'
 
 import type { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
-interface TableReference {
-    name: string
-    start: number
-    end: number
-}
+import type { SqlTableReference } from './sqlTableReference'
 
-function tableReferenceInJoin(ast: ASTNode, offset: number, ctes: Set<string>): TableReference | null {
-    if (ast.node !== 'JoinExpr' || ast.table?.node !== 'Field') {
-        return null
-    }
-    const field = ast.table
-    const name = field.chain.join('.')
-    return offset >= field.start.offset && offset < field.end.offset && !ctes.has(name)
-        ? { name, start: field.start.offset, end: field.end.offset }
-        : null
-}
-
-function tableReferenceAtOffset(node: unknown, offset: number, ctes: Set<string>): TableReference | null {
-    if (!node || typeof node !== 'object') {
-        return null
-    }
-    const ast = node as ASTNode
-    const declaredCtes = ast.ctes ?? ast.initial_select_query?.ctes
-    const scope = declaredCtes ? new Set([...ctes, ...declaredCtes.map((cte: ASTNode) => cte.name)]) : ctes
-    const reference = tableReferenceInJoin(ast, offset, scope)
-    if (reference) {
-        return reference
-    }
-    for (const child of Object.values(ast)) {
-        const reference = tableReferenceAtOffset(child, offset, scope)
-        if (reference) {
-            return reference
-        }
-    }
-    return null
-}
-
-export async function findSqlTableReference(query: string, offset: number): Promise<TableReference | null> {
+export async function findSqlTableReference(query: string, offset: number): Promise<SqlTableReference | null> {
     const statement = findStatementAtOffset(query, offset, { hogql: true })
     if (!statement) {
         return null
     }
-    const ast = JSON.parse(await parseSelect(statement.query)) as ASTNode
-    if (ast.error) {
-        return null
-    }
     const characterOffset = Array.from(statement.query.slice(0, offset - statement.start)).length
-    const reference = tableReferenceAtOffset(ast, characterOffset, new Set())
+    const reference = await analyzeTableReference(statement.query, characterOffset)
     return reference
         ? {
               ...reference,
@@ -81,10 +41,23 @@ export function sqlTableHoverContents(table: DatabaseSchemaTable): languages.Hov
     if (table.type === 'view') {
         const query = table.query.query
         contents.push({ value: codeBlock(query.length > 5000 ? `${query.slice(0, 5000)}\n…` : query, 'sql') })
-        const definitionUrl = new URL(urls.sqlEditor({ view_id: table.id }), window.location.origin).href
+        const definitionUrl = new URL(
+            addProjectIdIfMissing(urls.sqlEditor({ view_id: table.id })),
+            window.location.origin
+        ).href
         contents.push({ value: `[Open view definition](${definitionUrl})` })
     }
     return contents
+}
+
+export function findSqlCatalogTable(
+    tables: Record<string, DatabaseSchemaTable>,
+    name: string
+): DatabaseSchemaTable | undefined {
+    return (
+        tables[name] ??
+        Object.values(tables).find((table) => table.type === 'data_warehouse' && table.search_aliases?.includes(name))
+    )
 }
 
 export function registerSqlTableHover(
@@ -108,7 +81,7 @@ export function registerSqlTableHover(
                 ) {
                     return null
                 }
-                const table = getTables()[reference.name]
+                const table = findSqlCatalogTable(getTables(), reference.name)
                 if (!table) {
                     return null
                 }
