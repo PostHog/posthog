@@ -3,6 +3,8 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationResolutionState as ResolutionState,
 )
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.marketing_analytics.backend.hogql_queries.recommendation_identity import validate_identity
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution, subject_hash
 
@@ -15,8 +17,10 @@ def resolve(
 ) -> tuple[RecommendationResolution, bool]:
     validate_identity(identity)
     # Resolving a recommendation again, for example from another tab, replaces the earlier resolution.
-    return RecommendationResolution.objects.for_team(team_id).update_or_create(
-        team_id=team_id,
+    # Resolutions belong to the project, so a child environment writes the parent's row.
+    project_id = resolve_effective_team_id(team_id)
+    return RecommendationResolution.objects.for_team(project_id, canonical=True).update_or_create(
+        team_id=project_id,
         rule=identity.rule,
         source_type=identity.source_type,
         customer_id=identity.customer_id,

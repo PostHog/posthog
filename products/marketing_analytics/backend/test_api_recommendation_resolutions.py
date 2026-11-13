@@ -127,15 +127,19 @@ class TestRecommendationResolutionsWarehouseAccess(WarehouseAccessControlTestMix
 
     @parameterized.expand(
         [
-            ("allowed_member", "editor_user", False, (200, 204)),
-            ("denied_member", "no_access_user", False, (403, 403)),
-            ("denied_member_on_a_paused_source", "no_access_user", True, (403, 403)),
+            ("allowed_member", "editor_user", False, False, (200, 204)),
+            ("denied_member", "no_access_user", False, False, (403, 403)),
+            ("denied_member_on_a_paused_source", "no_access_user", True, False, (403, 403)),
+            ("denied_member_from_another_environment", "no_access_user", False, True, (403, 403)),
         ]
     )
     def test_resolving_needs_access_to_every_recommendation_source(
-        self, _name: str, user_attr: str, paused: bool, statuses: tuple[int, int]
+        self, _name: str, user_attr: str, paused: bool, via_environment: bool, statuses: tuple[int, int]
     ) -> None:
-        base = f"/api/projects/{self.team.pk}/marketing_analytics_recommendation_resolutions/"
+        team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team) if via_environment else self.team
+        )
+        base = f"/api/projects/{team.pk}/marketing_analytics_recommendation_resolutions/"
         existing = RecommendationResolution.objects.for_team(self.team.pk).create(
             team=self.team, **IDENTITY, resolution="dismissed"
         )
