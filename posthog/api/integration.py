@@ -2350,6 +2350,8 @@ class IntegrationViewSet(
         try:
             search_stream = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+            # Still captured although the user gets a 400: it is the only signal that retries were not enough.
+            capture_exception(error)
             raise ValidationError("Google Ads did not respond in time. Try again.") from error
 
         if not search_stream or "results" not in search_stream[0]:

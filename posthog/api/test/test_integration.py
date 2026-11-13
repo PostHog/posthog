@@ -8762,14 +8762,16 @@ class TestGoogleAdsConversionActions(APIBaseTest):
                 {"id": "111", "name": "Purchase", "resourceName": "customers/1234567890/conversionActions/111"}
             ]
         }
-        assert mock_request.call_count == len(timeouts) + 1
 
+    @patch("posthog.api.integration.capture_exception")
     def test_asks_the_user_to_try_again_when_every_attempt_times_out(
-        self, mock_request: MagicMock, _sleep: MagicMock
+        self, mock_capture_exception: MagicMock, mock_request: MagicMock, _sleep: MagicMock
     ) -> None:
-        mock_request.side_effect = requests.exceptions.ReadTimeout("read timed out")
+        timeout = requests.exceptions.ReadTimeout("read timed out")
+        mock_request.side_effect = timeout
 
         response = self._get_conversion_actions()
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Google Ads did not respond in time. Try again."
+        mock_capture_exception.assert_called_once_with(timeout)
