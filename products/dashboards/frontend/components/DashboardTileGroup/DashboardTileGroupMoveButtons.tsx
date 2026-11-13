@@ -19,8 +19,8 @@ const MOVE_BUTTONS: Record<
 > = {
     sections: {
         noun: 'group',
-        up: { label: 'Move up', icon: <IconArrowUp /> },
-        down: { label: 'Move down', icon: <IconArrowDown /> },
+        up: { label: 'Move up', icon: <IconArrowUp className="text-base" /> },
+        down: { label: 'Move down', icon: <IconArrowDown className="text-base" /> },
     },
     tabs: {
         noun: 'tab',

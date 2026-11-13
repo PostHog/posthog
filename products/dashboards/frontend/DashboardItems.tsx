@@ -939,29 +939,34 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         )
     }
 
-    const renderSection = (section: DashboardSection, index: number): JSX.Element => (
-        <DashboardTileSectionBand
-            key={section.key}
-            section={section}
-            isFirst={index === 0}
-            isDropTarget={dropTargetKey === section.key}
-            collapsedTileGroupKeys={collapsedTileGroupKeys}
-            onToggleTileGroup={toggleTileGroup}
-            onRenameTileGroup={onRenameTileGroup}
-            renamingTileGroupKey={renamingTileGroupKey}
-            onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
-            getTileGroupMoveActions={getTileGroupMoveActions}
-            onRemoveTileGroup={onRemoveTileGroup}
-            copyToDestinations={copyToDestinations}
-            onCopyGroupToDashboard={onCopyGroupToDashboard}
-            copyLoading={copyGroupToDashboardLoading}
-            onChangeGroupDisplay={onChangeGroupDisplay}
-            getAddTileOptions={getAddTileOptions}
-            getEmptyGroupAddAction={getBandEmptyAddAction}
-        >
-            {renderSectionGrid(section, index)}
-        </DashboardTileSectionBand>
-    )
+    const renderSection = (section: DashboardSection, index: number): JSX.Element => {
+        const previous = tileGroupSections[index - 1]
+        return (
+            <DashboardTileSectionBand
+                key={section.key}
+                section={section}
+                showDivider={
+                    !!previous && !(previous.kind === 'group' && collapsedTileGroupKeys.includes(previous.groupKey))
+                }
+                isDropTarget={dropTargetKey === section.key}
+                collapsedTileGroupKeys={collapsedTileGroupKeys}
+                onToggleTileGroup={toggleTileGroup}
+                onRenameTileGroup={onRenameTileGroup}
+                renamingTileGroupKey={renamingTileGroupKey}
+                onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
+                getTileGroupMoveActions={getTileGroupMoveActions}
+                onRemoveTileGroup={onRemoveTileGroup}
+                copyToDestinations={copyToDestinations}
+                onCopyGroupToDashboard={onCopyGroupToDashboard}
+                copyLoading={copyGroupToDashboardLoading}
+                onChangeGroupDisplay={onChangeGroupDisplay}
+                getAddTileOptions={getAddTileOptions}
+                getEmptyGroupAddAction={getBandEmptyAddAction}
+            >
+                {renderSectionGrid(section, index)}
+            </DashboardTileSectionBand>
+        )
+    }
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>

@@ -12,7 +12,8 @@ import type { TileGroupMoveActions } from './DashboardTileGroup/DashboardTileGro
 
 interface DashboardTileSectionBandProps {
     section: DashboardSection
-    isFirst: boolean
+    /** Off when nothing sits above, or a collapsed group's underline already separates the loose tiles. */
+    showDivider: boolean
     isDropTarget: boolean
     collapsedTileGroupKeys: string[]
     onToggleTileGroup: (groupKey: string) => void
@@ -32,7 +33,7 @@ interface DashboardTileSectionBandProps {
 
 export function DashboardTileSectionBand({
     section,
-    isFirst,
+    showDivider,
     isDropTarget,
     collapsedTileGroupKeys,
     onToggleTileGroup,
@@ -54,7 +55,7 @@ export function DashboardTileSectionBand({
             {section.kind === 'tiles' ? (
                 <>
                     {/* Without a line, viewers read loose tiles under a closed group as part of that group. */}
-                    {!isFirst && <LemonDivider className="mb-4" />}
+                    {showDivider && <LemonDivider className="mb-4" />}
                     {children}
                 </>
             ) : (

@@ -68,7 +68,7 @@ export function DashboardTileGroup({
 
     return (
         <section className="DashboardTileGroup" data-attr="dashboard-tile-group">
-            <div className="group/tile-group-header flex min-w-0 items-center gap-2 pb-2">
+            <div className="group/tile-group-header mb-2 flex min-w-0 items-center gap-2 border-b border-primary pb-1">
                 <DashboardTileGroupContextMenu className="flex min-w-0" {...menuActions}>
                     <LemonButton
                         size="small"
@@ -79,7 +79,7 @@ export function DashboardTileGroup({
                         icon={
                             <IconChevronRight
                                 className={clsx(
-                                    'transition-transform motion-reduce:transition-none',
+                                    'text-sm transition-transform motion-reduce:transition-none',
                                     !collapsed && 'rotate-90'
                                 )}
                             />
@@ -106,7 +106,7 @@ export function DashboardTileGroup({
                     </LemonButton>
                 </DashboardTileGroupContextMenu>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
-                <div className="min-w-4 flex-1 border-t border-primary" />
+                <div className="min-w-4 flex-1" />
                 {moveActions && (
                     <DashboardTileGroupMoveButtons
                         groupDisplay="sections"
