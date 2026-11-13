@@ -6,6 +6,7 @@ from email import message_from_bytes, policy
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import Client
 
 from parameterized import parameterized
@@ -34,6 +35,7 @@ INBOUND_TOKEN = "ab01cd23ef45"
 class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
+        cache.clear()
         self.team.conversations_enabled = True
         self.team.conversations_settings = {"email_enabled": True}
         self.team.secret_api_token = generate_random_token_secret()
@@ -189,10 +191,19 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
         assert self.ticket.email_delivery == EmailDelivery.PENDING
         self._email_from(second_address, in_reply_to=second.message_id)
         self._email_from("earlier@customer.example", in_reply_to=first.message_id, Cc="added-later@customer.example")
+        self._email_from(
+            second_address,
+            in_reply_to=second.message_id,
+            Cc="added-by-forged-sender@customer.example",
+            **{"X-Mailgun-Spf": "Fail"},
+        )
         self.ticket.refresh_from_db()
         assert self.ticket.email_delivery == EmailDelivery.ACTIVE
         assert self.ticket.cc_participants == expected_cc
         self._send(queued_for_first_address).assert_not_called()
+        self._email_from(second_address, in_reply_to=second.message_id, Cc="colleague@customer.example")
+        self.ticket.refresh_from_db()
+        assert self.ticket.cc_participants == [*expected_cc, "colleague@customer.example"]
 
     def test_widget_session_does_not_read_what_arrives_by_email(self):
         widget_token = "widget-token-for-email-delivery"

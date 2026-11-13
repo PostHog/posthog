@@ -73,7 +73,7 @@ from products.conversations.backend.services.identity import (
 from products.conversations.backend.services.messages import (
     last_message_texts_shown_in_widget,
     messages_shown_in_widget,
-    widget_viewer_reads_emails,
+    widget_email_reader_address,
 )
 
 logger = logging.getLogger(__name__)
@@ -684,13 +684,13 @@ class WidgetMessagesView(APIView):
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        reads_emails = widget_viewer_reads_emails(ticket, verified_email)
+        reader_address = widget_email_reader_address(ticket, verified_email)
 
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
         # Only cache the limit used by widget polling. The cache is keyed by ticket and holds what
         # a widget session reads, so a viewer who also reads a widget ticket's emails bypasses it.
-        use_cache = limit == 50 and (ticket.channel_source == Channel.EMAIL or not reads_emails)
+        use_cache = limit == 50 and reader_address is None
         if use_cache:
             cached = get_cached_messages(team.id, ticket_id, after_str)
             if cached is not None:
@@ -713,7 +713,7 @@ class WidgetMessagesView(APIView):
         messages_query = messages_query.filter(
             ~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True)
         )
-        messages_query = messages_shown_in_widget(messages_query, reads_emails=reads_emails)
+        messages_query = messages_shown_in_widget(ticket, messages_query, reader_address)
 
         # Order and limit
         messages = messages_query.order_by("created_at")[:limit]

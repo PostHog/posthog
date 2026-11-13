@@ -8,13 +8,14 @@ confirmation email. That reply proves they receive mail at the address.
 from collections.abc import Iterable
 from datetime import timedelta
 from email.utils import make_msgid
+from hashlib import sha256
 from typing import Any, cast
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxLengthValidator, validate_email
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import Q
-from django.utils import timezone
 
 import structlog
 
@@ -169,21 +170,18 @@ def _check_confirmation_email_quota(team_id: int, recipient: str) -> None:
     """Refuse another confirmation email to an address that got several of them recently.
 
     Each new widget ticket can request one, and a visitor can type someone else's address into
-    many tickets. The advisory lock makes the count and the new outbox row one step for a
-    recipient, so concurrent requests on different tickets cannot both pass the last slot.
+    many tickets. The count lives in the cache, where the increment is one atomic step for
+    concurrent requests on different tickets.
     """
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-            [f"conversations-email-confirmation:{team_id}:{recipient.lower()}"],
-        )
-    recent = EmailOutboxMessage.objects.filter(
-        team_id=team_id,
-        ticket__email_from__iexact=recipient,
-        created_at__gte=timezone.now() - CONFIRMATION_EMAIL_WINDOW,
-        **{f"comment__item_context__{EMAIL_CONFIRMATION_CONTEXT_KEY}": True},
-    ).count()
-    if recent >= MAX_CONFIRMATION_EMAILS_PER_RECIPIENT:
+    recipient_hash = sha256(recipient.strip().lower().encode()).hexdigest()
+    key = f"conversations-email-confirmation:{team_id}:{recipient_hash}"
+    cache.add(key, 0, timeout=int(CONFIRMATION_EMAIL_WINDOW.total_seconds()))
+    try:
+        requested = cache.incr(key)
+    except ValueError:
+        # The window ended between the two calls, so this request starts a new one.
+        return
+    if requested > MAX_CONFIRMATION_EMAILS_PER_RECIPIENT:
         raise EmailDeliveryUnavailable("This address received several confirmation emails recently. Try again later.")
 
 
@@ -253,14 +251,17 @@ def stop_email_delivery(ticket: Ticket) -> str:
     """
     if ticket.channel_source == Channel.EMAIL:
         return ticket.email_delivery_state
-    stopped = Ticket.objects.filter(id=ticket.id, team_id=ticket.team_id, email_delivery__isnull=False).update(
-        email_delivery=None, updated_at=timezone.now()
-    )
-    if stopped:
-        cancel_pending_email_replies_for_ticket(
-            team_id=ticket.team_id, ticket_id=ticket.id, reason="email delivery was turned off"
-        )
-        _report_usage(ticket, "support ticket email delivery stopped")
+    # Under the ticket lock, so a new request cannot queue its confirmation between the two steps
+    # and have it cancelled.
+    with transaction.atomic():
+        locked = Ticket.objects.select_for_update().filter(id=ticket.id, team_id=ticket.team_id).first()
+        if locked is not None and locked.email_delivery is not None:
+            locked.email_delivery = None
+            locked.save(update_fields=["email_delivery", "updated_at"])
+            cancel_pending_email_replies_for_ticket(
+                team_id=locked.team_id, ticket_id=locked.id, reason="email delivery was turned off"
+            )
+            _report_usage(locked, "support ticket email delivery stopped")
     return EMAIL_DELIVERY_OFF
 
 
@@ -375,16 +376,19 @@ def enqueue_replies_awaiting_confirmation(ticket: Ticket) -> None:
             break
 
 
-def copied_addresses_from_email(ticket: Ticket, sender_email: str, addresses: list[str]) -> list[str]:
+def copied_addresses_from_email(
+    ticket: Ticket, *, sender_email: str, sender_authenticated: bool, addresses: list[str]
+) -> list[str]:
     """The addresses an inbound email may add to the ticket's copied addresses.
 
     On an email ticket any participant can copy someone in. On a ticket from another channel
-    only the confirmed address can. Otherwise an address the ticket had before could use the
-    old thread to copy in a mailbox that then receives the replies.
+    only the confirmed address can, in mail that passed sender authentication. Otherwise an
+    address the ticket had before, or anyone who forges the From header, could use the thread
+    to copy in a mailbox that then receives the replies.
     """
     requester = (ticket.email_from or "").lower()
     if ticket.channel_source != Channel.EMAIL:
         is_confirmed_address = ticket.email_delivery == EmailDelivery.ACTIVE and sender_email.lower() == requester
-        if not is_confirmed_address:
+        if not (is_confirmed_address and sender_authenticated):
             return []
     return [address for address in addresses if address != requester]

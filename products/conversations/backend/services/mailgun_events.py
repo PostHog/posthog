@@ -842,7 +842,12 @@ def _process_support_email(
                 # The requester is already the reply target (to=email_from); when another
                 # participant reply-alls, the requester shows up in their To/Cc and must not
                 # be folded into cc_participants or replies would deliver to them twice.
-                cc_list = copied_addresses_from_email(ticket, sender_email, cc_list)
+                cc_list = copied_addresses_from_email(
+                    ticket,
+                    sender_email=sender_email,
+                    sender_authenticated=email.sender_authenticated,
+                    addresses=cc_list,
+                )
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
                 if not is_team_member and cc_list:
                     qs.update(

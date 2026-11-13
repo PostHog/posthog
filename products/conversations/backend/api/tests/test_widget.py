@@ -1222,6 +1222,16 @@ class TestWidgetIdentityVerification(BaseTest):
                     "email_sender_authenticated": sender_authenticated,
                 },
             ),
+            (
+                "From an address the ticket had before",
+                {
+                    "author_type": "customer",
+                    "is_private": False,
+                    "from_email": True,
+                    "email_from": "earlier@example.com",
+                    "email_sender_authenticated": True,
+                },
+            ),
         ]:
             Comment.objects.create(
                 team=self.team,
