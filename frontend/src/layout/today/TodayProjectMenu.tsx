@@ -42,25 +42,32 @@ export function TodayProjectMenu({ placement = 'top-bar' }: { placement?: 'top-b
     return (
         <TodaySwitcherMenu
             trigger={
-                <Button
-                    className={asTitle ? 'min-w-0 shrink gap-1.5 px-1.5 text-base font-bold' : 'min-w-0 gap-1.5 px-1.5'}
-                    data-attr="today-top-bar-project-menu"
-                >
-                    {currentTeam && (
-                        <TodayLogo
-                            name={currentTeam.name}
-                            mediaId={currentProject?.logo_media_id}
-                            colorSeed={null}
-                            size={asTitle ? 'title' : 'trigger'}
-                        />
-                    )}
-                    <span className={asTitle ? 'min-w-0 truncate' : 'max-w-48 min-w-0 truncate'}>
-                        {currentTeam
-                            ? nameBesideLogo(currentTeam.name, currentProject?.logo_media_id)
-                            : 'Select project'}
-                    </span>
-                    {asTitle && <IconChevronDown className="-ms-1 size-5 shrink-0 text-muted-foreground" />}
-                </Button>
+                asTitle ? (
+                    <Button
+                        size="lg"
+                        className="ms-0.5 min-w-0 shrink gap-0.5 pe-1.5 text-base font-semibold tracking-[-0.015em]"
+                        data-attr="today-top-bar-project-menu"
+                    >
+                        <span className="min-w-0 truncate">{currentTeam?.name ?? 'Select project'}</span>
+                        <IconChevronDown className="size-4.5 shrink-0 text-muted-foreground" />
+                    </Button>
+                ) : (
+                    <Button className="min-w-0 gap-1.5 px-1.5" data-attr="today-top-bar-project-menu">
+                        {currentTeam && (
+                            <TodayLogo
+                                name={currentTeam.name}
+                                mediaId={currentProject?.logo_media_id}
+                                colorSeed={null}
+                                size="trigger"
+                            />
+                        )}
+                        <span className="max-w-48 min-w-0 truncate">
+                            {currentTeam
+                                ? nameBesideLogo(currentTeam.name, currentProject?.logo_media_id)
+                                : 'Select project'}
+                        </span>
+                    </Button>
+                )
             }
             open={isProjectSwitcherOpen}
             onOpenChange={(open) => (open ? openProjectSwitcher() : closeProjectSwitcher())}

@@ -9,7 +9,6 @@ import { leadingEmoji } from './leadingEmoji'
 const SIZE_CLASSES = {
     tile: 'size-7 text-xs',
     trigger: undefined,
-    title: 'size-6 text-xs',
     row: 'size-4 text-[8px]',
 } as const
 

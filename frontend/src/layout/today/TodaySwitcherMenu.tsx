@@ -94,6 +94,7 @@ export function TodaySwitcherMenu({
     resizeKey,
 }: TodaySwitcherMenuProps): JSX.Element {
     const triggerRef = useRef<HTMLButtonElement>(null)
+    const searchRef = useRef<HTMLInputElement>(null)
     const popupRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
         logicKey: resizeKey,
@@ -139,6 +140,8 @@ export function TodaySwitcherMenu({
                 ref={popupRef}
                 anchor={triggerRef}
                 align="start"
+                // A tap keeps focus off the search field, so the phone keyboard stays closed until the person asks for it.
+                initialFocus={(openType: string) => (openType === 'touch' ? false : searchRef.current)}
                 className="[&_[data-slot=combobox-input-group-wrapper]]:border-b-0"
                 // quill caps the popup at 24rem, so the cap moves out to the widest the user can drag it.
                 // eslint-disable-next-line react/forbid-dom-props
@@ -148,7 +151,7 @@ export function TodaySwitcherMenu({
                 }}
                 popupSibling={<TodayPopupResizeHandle resizerProps={resizerProps} />}
             >
-                <ComboboxInput placeholder={searchPlaceholder} autoFocus showTrigger={false} className="h-7">
+                <ComboboxInput ref={searchRef} placeholder={searchPlaceholder} showTrigger={false} className="h-7">
                     <InputGroupAddon align="inline-start">
                         <IconSearch className="size-3" />
                     </InputGroupAddon>
