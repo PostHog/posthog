@@ -1,16 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import {
-    IconArrowUpRight,
-    IconCopy,
-    IconEllipsis,
-    IconFolderMove,
-    IconPencil,
-    IconPlus,
-    IconTrash,
-    IconX,
-} from '@posthog/icons'
+import { IconArrowUpRight, IconCopy, IconEllipsis, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -25,21 +16,21 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
+import { AnalyticsCollectionMenuItems } from './AnalyticsCollectionMenuItems'
 import { isTaggableAnalyticsType } from './analyticsFeed'
-import { analyticsItemActionsLogic, analyticsItemKey } from './analyticsItemActionsLogic'
+import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
-import { analyticsShareLogic } from './analyticsShareLogic'
+import { analyticsShareLogic, shareTargetKey } from './analyticsShareLogic'
 import { AnalyticsTagIcon } from './AnalyticsTagIcon'
 import { analyticsTagsLogic } from './analyticsTagsLogic'
-import { AnalyticsItem, analyticsOpenHref } from './analyticsUtils'
+import { AnalyticsItem, analyticsItemTarget, analyticsOpenHref } from './analyticsUtils'
 
-/** A row's own actions: open it, copy it, tag it, file it, pin it, or delete it. */
 export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; backUrl: string }): JSX.Element {
-    const { openShareToSpace, moveItem } = useActions(analyticsShareLogic)
+    const { openShareToSpace } = useActions(analyticsShareLogic)
     const { openTagEditor } = useActions(analyticsTagsLogic)
     const { duplicating } = useValues(analyticsItemActionsLogic)
     const { duplicateItem, openDeleteConfirm } = useActions(analyticsItemActionsLogic)
-    const target = { type: item.type, ref: item.id, name: item.name }
+    const target = analyticsItemTarget(item)
     const { type } = item
     const taggable = isTaggableAnalyticsType(type)
 
@@ -78,7 +69,7 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
                     {taggable && (
                         <DropdownMenuItem
                             onClick={() => duplicateItem({ ...item, type })}
-                            disabledReason={duplicating[analyticsItemKey(item)] ? 'Duplicating...' : undefined}
+                            disabledReason={duplicating[shareTargetKey(target)] ? 'Duplicating...' : undefined}
                             data-attr="analytics-list-row-duplicate"
                         >
                             <IconCopy />
@@ -90,7 +81,7 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
                 <DropdownMenuGroup>
                     {taggable && (
                         <DropdownMenuItem
-                            onClick={() => openTagEditor({ type, ref: item.id, name: item.name, tags: item.tags })}
+                            onClick={() => openTagEditor({ ...target, type })}
                             data-attr="analytics-list-row-manage-tags"
                         >
                             <AnalyticsTagIcon className="size-3.5" />
@@ -98,33 +89,18 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
                         </DropdownMenuItem>
                     )}
                     {item.spaceName ? (
-                        <>
-                            <DropdownMenuItem
-                                onClick={() => openShareToSpace(target)}
-                                data-attr="analytics-list-row-move"
-                            >
-                                <IconFolderMove />
-                                Move to another collection
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                variant="destructive"
-                                onClick={() => moveItem(target, null)}
-                                data-attr="analytics-list-row-remove-from-space"
-                            >
-                                <IconX />
-                                Remove from collection
-                            </DropdownMenuItem>
-                        </>
+                        <AnalyticsCollectionMenuItems
+                            item={item}
+                            moveDataAttr="analytics-list-row-move"
+                            removeDataAttr="analytics-list-row-remove-from-space"
+                        />
                     ) : (
                         <DropdownMenuItem onClick={() => openShareToSpace(target)} data-attr="analytics-list-row-share">
                             <IconPlus />
                             Add to a collection
                         </DropdownMenuItem>
                     )}
-                    <AnalyticsPinMenuItem
-                        target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
-                        dataAttr="analytics-list-row-pin"
-                    />
+                    <AnalyticsPinMenuItem target={target} dataAttr="analytics-list-row-pin" />
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

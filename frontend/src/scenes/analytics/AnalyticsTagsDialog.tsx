@@ -17,7 +17,6 @@ import { useTagPages } from 'lib/components/useTagPages'
 
 import { analyticsTagsLogic } from './analyticsTagsLogic'
 
-/** Edits one list row's tags, opened from the row's tag menu. */
 export function AnalyticsTagsDialog(): JSX.Element {
     const { target, draftTags, saving, hasChanges } = useValues(analyticsTagsLogic)
     const { closeTagEditor, setDraftTags, saveTags } = useActions(analyticsTagsLogic)

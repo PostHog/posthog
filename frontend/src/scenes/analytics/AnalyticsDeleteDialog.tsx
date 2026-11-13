@@ -13,7 +13,6 @@ import {
 
 import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
 
-/** Confirms deleting the row whose menu asked. */
 export function AnalyticsDeleteDialog(): JSX.Element {
     const { deleteTarget, deleting } = useValues(analyticsItemActionsLogic)
     const { closeDeleteConfirm, deleteItem } = useActions(analyticsItemActionsLogic)

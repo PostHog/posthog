@@ -62,7 +62,6 @@ export type analyticsTagsLogicType = MakeLogicType<
     analyticsTagsLogicMeta
 >
 
-/** Edits the tags of one dashboard or insight from the Analytics list. */
 export const analyticsTagsLogic = kea<analyticsTagsLogicType>([
     path(['scenes', 'analytics', 'analyticsTagsLogic']),
     actions({

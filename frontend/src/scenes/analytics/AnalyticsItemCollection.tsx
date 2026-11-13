@@ -1,7 +1,6 @@
-import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconFolderMove, IconFolderOpen, IconX } from '@posthog/icons'
+import { IconFolderOpen } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -17,24 +16,18 @@ import { urls } from 'scenes/urls'
 
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
-import { analyticsShareLogic } from './analyticsShareLogic'
+import { AnalyticsCollectionMenuItems } from './AnalyticsCollectionMenuItems'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsItem } from './analyticsUtils'
 
 // Long collection names would push the other columns around, so the pill stops at this many characters.
 const MAX_NAME_LENGTH = 16
 
-/**
- * The collection a row sits in, as a gray pill with the collection's colored initial and its name, opening a menu to
- * view it, move the row out of it or leave it. A row in no collection shows nothing.
- */
 export function AnalyticsItemCollection({ item }: { item: AnalyticsItem }): JSX.Element | null {
-    const { openShareToSpace, moveItem } = useActions(analyticsShareLogic)
     const collection = item.spaceName
     if (!collection) {
         return null
     }
-    const target = { type: item.type, ref: item.id, name: item.name }
     const label = collection.length > MAX_NAME_LENGTH ? `${collection.slice(0, MAX_NAME_LENGTH)}…` : collection
 
     return (
@@ -68,18 +61,11 @@ export function AnalyticsItemCollection({ item }: { item: AnalyticsItem }): JSX.
                     </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => openShareToSpace(target)} data-attr="analytics-list-row-move">
-                    <IconFolderMove />
-                    Move to another collection
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => moveItem(target, null)}
-                    data-attr="analytics-list-row-remove-from-space"
-                >
-                    <IconX />
-                    Remove from collection
-                </DropdownMenuItem>
+                <AnalyticsCollectionMenuItems
+                    item={item}
+                    moveDataAttr="analytics-list-row-space-move"
+                    removeDataAttr="analytics-list-row-space-remove"
+                />
             </DropdownMenuContent>
         </DropdownMenu>
     )

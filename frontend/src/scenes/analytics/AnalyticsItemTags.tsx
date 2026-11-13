@@ -17,13 +17,9 @@ import { isTaggableAnalyticsType } from './analyticsFeed'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsTagIcon } from './AnalyticsTagIcon'
 import { analyticsTagsLogic } from './analyticsTagsLogic'
-import { AnalyticsItem } from './analyticsUtils'
+import { AnalyticsItem, analyticsItemTarget } from './analyticsUtils'
 
-/**
- * A row's tags folded into a count. While the list is filtered by one of them, the chip names that tag instead, so
- * the reason the row matched stays visible. Picking a tag in the menu adds or removes it as a filter, and Manage edits
- * them. A row with no tags, or of a type that cannot carry them, shows nothing.
- */
+/** While the list is filtered by one of the row's tags, the chip names that tag, so the reason the row matched stays visible. */
 export function AnalyticsItemTags({ item }: { item: AnalyticsItem }): JSX.Element | null {
     const { filters } = useValues(analyticsListLogic)
     const { setFilters } = useActions(analyticsListLogic)
@@ -69,8 +65,8 @@ export function AnalyticsItemTags({ item }: { item: AnalyticsItem }): JSX.Elemen
                         <DropdownMenuLabel>{pluralize(tags.length, 'tag')}</DropdownMenuLabel>
                         <DropdownMenuItem
                             className="w-auto shrink-0"
-                            onClick={() => openTagEditor({ type, ref: item.id, name: item.name, tags })}
-                            data-attr="analytics-list-row-manage-tags"
+                            onClick={() => openTagEditor({ ...analyticsItemTarget(item), type })}
+                            data-attr="analytics-list-row-tags-manage"
                         >
                             Manage
                         </DropdownMenuItem>
