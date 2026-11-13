@@ -337,12 +337,13 @@ describe('broadcast previews', () => {
         expect(action?.config.inputs.distinctId.value).toBe('{% raw %}user-1{% endraw %}')
     })
 
-    it.each<['email' | 'push', string, string, string]>([
-        ['email', 'reviewer@example.com', 'reviewer@example.com', 'Check it in your inbox, on desktop'],
-        ['push', 'user-1', "user-1's devices", 'Check it on your phone and tap it'],
-    ])('vouches for a sent %s test on the review step', async (channel, to, sentTo, followUp) => {
+    it.each<['email' | 'push', string, string, string, string]>([
+        ['email', 'reviewer@example.com', 'reviewer@example.com', 'Read the email in a real', 'Check it in your inbox'],
+        ['push', 'user-1', "user-1's devices", 'See the notification on a real', 'Check it on your phone'],
+    ])('vouches for a sent %s test on the review step', async (channel, to, sentTo, before, followUp) => {
         sendResult = { status: 'success', logs: [log('Push accepted by FCM')] }
         renderReview(channel)
+        expect(screen.getByText(new RegExp(`^${before}`))).toBeInTheDocument()
         click('broadcast-review-send-test')
         type(`broadcast-test-${channel}-recipient`, to)
         click('broadcast-send-test-email')
