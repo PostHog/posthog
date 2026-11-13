@@ -16,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import serializers
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+from posthog.scopes import translate_renamed_scopes
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.credentials import validate_label_prefix
@@ -105,7 +106,7 @@ class AccountRequestSerializer(serializers.Serializer):
         # Treat explicit null on optional fields as absent, so downstream code
         # sees the declared default rather than None.
         attrs["id"] = attrs.get("id") or ""
-        attrs["scopes"] = attrs.get("scopes") or []
+        attrs["scopes"] = translate_renamed_scopes(attrs.get("scopes") or [])
         attrs["code_challenge"] = attrs.get("code_challenge") or ""
         attrs["code_challenge_method"] = attrs.get("code_challenge_method") or "S256"
 

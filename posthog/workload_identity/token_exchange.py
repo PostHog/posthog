@@ -43,6 +43,7 @@ from posthog.models.workload_trust_policy import (
     workload_trust_policy_version,
 )
 from posthog.rate_limit import IPThrottle
+from posthog.scopes import translate_renamed_scopes
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 from posthog.utils import get_trusted_client_ip
 from posthog.workload_identity.providers import (
@@ -470,7 +471,7 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
 
     # Checked again at mint time so a scope that became ungrantable after the policy was saved is never issued.
     grantable = workload_trust_policy_grantable_scopes()
-    scopes = sorted(scope for scope in policy.scopes if scope in grantable)
+    scopes = sorted(scope for scope in translate_renamed_scopes(policy.scopes) if scope in grantable)
     if not scopes:
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.NO_USABLE_SCOPES,

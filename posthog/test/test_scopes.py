@@ -30,9 +30,9 @@ from posthog.scopes import (
     is_truncated_scope_request,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
-    resolve_requested_scopes,
     scopes_outside_ceiling,
     scopes_within_ceiling,
+    translate_renamed_scopes,
 )
 
 
@@ -390,19 +390,12 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
                 ["@default", "llm_gateway:read"],
                 ["llm_gateway:read", "query:read"],
             ),
-            # A token and a ceiling that each hold only one side of the code review rename still
-            # overlap, so a refresh during the rename keeps the scope.
+            # A token stored before the code review rename refreshes under the new names.
             (
                 "renamed_token_scope_meets_new_ceiling",
                 ["stamphog:read"],
                 ["code_review_approval:read"],
                 ["code_review_approval:read"],
-            ),
-            (
-                "new_token_scope_meets_renamed_ceiling",
-                ["code_review:write"],
-                ["review_hog:write"],
-                ["code_review:write"],
             ),
             (
                 "token_holding_both_names_keeps_one",
@@ -481,23 +474,25 @@ class TestClampScopesToCeiling(SimpleTestCase):
             assert scopes_within_ceiling(clamped, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
 
-class TestResolveRequestedScopes(SimpleTestCase):
+class TestTranslateRenamedScopes(SimpleTestCase):
     @parameterized.expand(
         [
-            # Shipped desktop builds still request the old object names. Clamping them would drop
-            # their code review access on the next sign-in.
+            # Shipped desktop builds still request the old object names.
             (
                 "renamed_objects_translate_to_new_names",
                 ["query:read", "review_hog:write", "stamphog:read"],
                 ["query:read", "code_review:write", "code_review_approval:read"],
-                ["code_review:write", "code_review_approval:read", "query:read"],
             ),
-            ("bare_old_object_name_is_not_a_scope", ["stamphog"], ["code_review_approval:read"], []),
-            ("ceiling_holding_only_old_names", ["stamphog:read"], ["stamphog:read"], ["code_review_approval:read"]),
+            (
+                "both_names_collapse_to_one",
+                ["stamphog:read", "code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
+            ("bare_old_object_name_is_not_a_scope", ["stamphog", "*"], ["stamphog", "*"]),
         ]
     )
-    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
-        assert resolve_requested_scopes(requested, app_scopes) == expected
+    def test_translation(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert translate_renamed_scopes(given) == expected
 
 
 def _real_scopes(count: int) -> list[str]:
@@ -566,6 +561,13 @@ class TestFilterSelfRegisteredCeiling(SimpleTestCase):
             ("introspection_is_not_an_identity_scope", ["introspection"], []),
             ("nothing_grantable", ["llm_gateway:read", "garbage"], []),
             ("empty_in_empty_out", [], []),
+            # CIMD and DCR metadata written before the code review rename keeps code review access.
+            (
+                "renamed_scopes_translated",
+                ["stamphog:read", "insight:read"],
+                ["code_review_approval:read", "insight:read"],
+            ),
+            ("only_renamed_scopes", ["review_hog:read", "review_hog:write"], ["code_review:read", "code_review:write"]),
         ]
     )
     def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:

@@ -2124,6 +2124,27 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
 
+    def test_refresh_accepts_an_explicit_scope_under_its_old_name(self):
+        # Shipped desktop builds name scopes from before the code review rename. The subset check
+        # against the token's scopes has to see the new name, or the refresh fails with invalid_scope.
+        self.confidential_application.scopes = ["code_review_approval:read"]
+        self.confidential_application.save()
+        refresh_token = self._create_refreshable_token_pair("stamphog:read code_review_approval:read")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+                "scope": "stamphog:read",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["scope"], "code_review_approval:read")
+
     def test_refresh_of_an_empty_grant_succeeds_instead_of_looping(self):
         # A request that clamps to nothing mints a scope-less token. Rejecting its
         # refresh would send the client back to /authorize, which now clamps rather
@@ -4063,6 +4084,27 @@ class TestOAuthAPI(APIBaseTest):
         token_data = token_response.json()
         self.assertEqual(token_data["scoped_teams"], scoped_teams)
         self.assertEqual(token_data["scoped_organizations"], scoped_organizations)
+
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_auto_approval_holds_for_required_scopes_stored_under_old_names(self) -> None:
+        # The app's required scopes still name `stamphog:read`; the request and the existing token
+        # use the new name. Comparing raw names would show the consent screen again.
+        self._set_scope_split(["stamphog:read"], [])
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="existing_renamed_scope_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="code_review_approval:read",
+            scoped_teams=[self.team.id],
+            scoped_organizations=[],
+        )
+
+        response = self.client.get(f"{self.base_authorization_url}&scope=stamphog:read&approval_prompt=auto")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        self.assertEqual(OAuthGrant.objects.get(code=code).scope, "code_review_approval:read")
 
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])
