@@ -23,6 +23,7 @@ export function HighlightFeedExampleCards(): JSX.Element {
                             </span>
                         }
                         meta={<LemonTag type="highlight">Example</LemonTag>}
+                        metaInline
                         title={card.headline}
                         why={card.why}
                         poster={

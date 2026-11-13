@@ -8,6 +8,8 @@ import { cn } from 'lib/utils/css-classes'
 export interface HighlightFeedCardLayoutProps {
     scanner: React.ReactNode
     meta: React.ReactNode
+    /** Short meta, like a pill, stays on the scanner's line at every width. */
+    metaInline?: boolean
     action?: React.ReactNode
     title: string
     titlePrefix?: React.ReactNode
@@ -27,6 +29,7 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
         {
             scanner,
             meta,
+            metaInline = false,
             action,
             title,
             titlePrefix,
@@ -69,12 +72,29 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
                   short. pl-8 is the chip's size-6 icon plus gap-2, so that line starts under the name. A wide card keeps
                   one line, and the person and age keep up to 45% of it, so a long email is cut before the scanner name.
                 */}
-                <header className="flex min-w-0 flex-wrap items-center gap-x-2 @[28rem]/highlight-card:flex-nowrap">
-                    <div className="flex min-w-0 flex-1 @[28rem]/highlight-card:flex-initial">{scanner}</div>
-                    <span className="hidden text-xs text-muted @[28rem]/highlight-card:inline" aria-hidden>
+                <header
+                    className={cn(
+                        'flex min-w-0 items-center gap-x-2',
+                        !metaInline && 'flex-wrap @[28rem]/highlight-card:flex-nowrap'
+                    )}
+                >
+                    <div className={cn('flex min-w-0', !metaInline && 'flex-1 @[28rem]/highlight-card:flex-initial')}>
+                        {scanner}
+                    </div>
+                    <span
+                        className={cn('text-xs text-muted', !metaInline && 'hidden @[28rem]/highlight-card:inline')}
+                        aria-hidden
+                    >
                         ·
                     </span>
-                    <div className="order-last flex min-w-0 basis-full pl-8 @[28rem]/highlight-card:order-none @[28rem]/highlight-card:max-w-[45%] @[28rem]/highlight-card:shrink-0 @[28rem]/highlight-card:basis-auto @[28rem]/highlight-card:pl-0">
+                    <div
+                        className={cn(
+                            'flex min-w-0',
+                            metaInline
+                                ? 'max-w-[45%] shrink-0'
+                                : 'order-last basis-full pl-8 @[28rem]/highlight-card:order-none @[28rem]/highlight-card:max-w-[45%] @[28rem]/highlight-card:shrink-0 @[28rem]/highlight-card:basis-auto @[28rem]/highlight-card:pl-0'
+                        )}
+                    >
                         {meta}
                     </div>
                     {action && <div className="relative z-10 ml-auto shrink-0">{action}</div>}
