@@ -173,8 +173,9 @@ Django must be up at that moment.
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
 > manifest must declare them first. Slack refuses an authorize request for an undeclared scope. With the
-> `slack-app-slack-mcp` flag on and the Slack MCP available to the team in the MCP store, the link also asks for
-> `channels:read` and `channels:history`, and the same token connects the person's Slack MCP. Drop those if you don't want either feature
+> `slack-app-slack-mcp` flag on and the Slack MCP available to the team in the MCP store, the link asks for exactly
+> the Slack MCP template's scopes instead (so no optional private search), and the same token connects the person's
+> Slack MCP. Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
 

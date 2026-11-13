@@ -976,7 +976,9 @@ class MCPGatewayServerViewSet(
                 Prefetch(
                     "installations",
                     # The token resolver reads the template of a link-backed installation.
-                    queryset=MCPServerInstallation.objects.select_related("user", "template").order_by("created_at"),
+                    queryset=MCPServerInstallation.objects.select_related(
+                        "user", "template", "linked_user_integration"
+                    ).order_by("created_at"),
                 ),
                 Prefetch(
                     "agent_access",

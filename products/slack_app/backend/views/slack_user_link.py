@@ -52,6 +52,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_slack_mcp_enabled,
 )
 from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
+from products.slack_app.backend.logic.onboarding.step import OnboardingContext
 from products.slack_app.backend.logic.onboarding.work_focus import start_work_focus
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
@@ -155,7 +156,7 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
             slack_team_id=invite.slack_team_id,
             search_scopes=search_scopes,
             # The same token then connects the person's Slack MCP, so they see one consent screen.
-            extra_user_scopes=slack_mcp_user_scopes(invite.posthog_team_id, request.user.id)
+            mcp_user_scopes=slack_mcp_user_scopes(invite.posthog_team_id, request.user.id)
             if search_scopes and is_slack_app_slack_mcp_enabled(workspace_integration)
             else (),
         )
@@ -302,6 +303,10 @@ def _connect_slack_mcp(
     integration: WorkspaceIntegration, posthog_user: User, link: UserIntegration, slack_user_id: str
 ) -> None:
     """Never raises, so the Slack MCP never fails the account link. The person can still connect it in PostHog."""
+    # The link is an organization matter. The installation is a project write, so a member who cannot reach this
+    # project gets the link and nothing in the project.
+    if not OnboardingContext(integration=integration, slack_user_id=slack_user_id).has_project_access:
+        return
     try:
         connected = connect_slack_mcp_from_slack_link(integration.team_id, posthog_user, slack_link_id=str(link.id))
     except Exception:

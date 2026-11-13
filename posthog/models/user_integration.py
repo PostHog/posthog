@@ -74,8 +74,7 @@ class UserIntegration(UUIDModel):
     - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, scope,
       linked_at}; `scope` is the user scopes Slack granted, space-delimited as OIDC
       returns them (the workspace row's `Integration.config["scope"]` is Slack's
-      comma-separated bot list, so don't parse the two the same way). `slack_mcp_opted_out`
-      is set when the person removes the Slack MCP that came with the link, and stays across relinks
+      comma-separated bot list, so don't parse the two the same way)
     - `sensitive_config` holds {user_access_token, user_refresh_token?} — the
       Slack user-to-server token plus, when the Slack app has
       `token_rotation_enabled`, a refresh token used to rotate it. Today's
@@ -1058,16 +1057,6 @@ def user_slack_integration_from_identity(
     }
     if user_refresh_token is not None:
         sensitive_config["user_refresh_token"] = user_refresh_token
-    previous_config = (
-        UserIntegration.objects.filter(
-            user=user, kind=UserIntegration.IntegrationKind.SLACK, integration_id=slack_user_id
-        )
-        .values_list("config", flat=True)
-        .first()
-        or {}
-    )
-    if previous_config.get(SLACK_MCP_OPTED_OUT_CONFIG_KEY):
-        config[SLACK_MCP_OPTED_OUT_CONFIG_KEY] = True
     integration, _created = UserIntegration.objects.update_or_create(
         user=user,
         kind=UserIntegration.IntegrationKind.SLACK,
@@ -1078,9 +1067,6 @@ def user_slack_integration_from_identity(
         },
     )
     return integration
-
-
-SLACK_MCP_OPTED_OUT_CONFIG_KEY = "slack_mcp_opted_out"
 
 
 def slack_link_scopes(integration: UserIntegration) -> frozenset[str]:
@@ -1095,17 +1081,12 @@ def slack_link_for(integration_id: str, *, user_id: int) -> UserIntegration | No
     ).first()
 
 
-def slack_link_grants(integration: UserIntegration, scopes: Iterable[str]) -> bool:
-    return set(scopes) <= slack_link_scopes(integration)
-
-
-def mark_slack_mcp_opted_out(integration_id: str, *, user_id: int) -> None:
-    """The person removed the Slack MCP that came with their Slack link, so a relink must not connect it again."""
-    link = slack_link_for(integration_id, user_id=user_id)
-    if link is None:
-        return
-    link.config = {**(link.config or {}), SLACK_MCP_OPTED_OUT_CONFIG_KEY: True}
-    link.save(update_fields=["config"])
+def slack_link_fits(integration: UserIntegration, allowlist: Iterable[str]) -> bool:
+    """The link grants every scope in ``allowlist`` and nothing outside it. The MCP store sends the link's token
+    upstream, so the allowlist is a ceiling as well as a floor: a link that can read more than the server may read
+    does not connect it."""
+    allowed = set(allowlist)
+    return bool(allowed) and slack_link_scopes(integration) == allowed
 
 
 def revoke_slack_user_token(integration: UserIntegration) -> None:

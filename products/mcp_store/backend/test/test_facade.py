@@ -34,7 +34,6 @@ from products.mcp_store.backend.facade.contracts import (
     UnmountedInstallationReason,
 )
 from products.mcp_store.backend.models import (
-    LINKED_SLACK_USER_INTEGRATION_KEY,
     MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPOrgRule,
@@ -260,6 +259,8 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
         [
             ("connects", "slack_app", True, SCOPES, None, True),
             ("missing_scope", "slack_app", True, SCOPES[:1], None, False),
+            # The allowlist is a ceiling too: a link that can read DMs never connects a public-only server.
+            ("wider_than_allowlist", "slack_app", True, [*SCOPES, "search:read.im"], None, False),
             ("dev_app_template", "slack_dev_app", True, SCOPES, None, False),
             ("turned_off_for_the_team", "slack_app", False, SCOPES, None, False),
             ("keeps_a_working_connection", "slack_app", True, SCOPES, "tok-existing", True),
@@ -300,8 +301,16 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
         if existing_token:
             assert installation.sensitive_configuration == {"access_token": existing_token}
             return
-        assert installation.sensitive_configuration == {LINKED_SLACK_USER_INTEGRATION_KEY: str(link.id)}
+        assert installation.sensitive_configuration == {}
+        assert installation.linked_user_integration_id == link.id
         assert installation.gateway_server is not None
+        # The resolver holds the ceiling too: a link that later grants more than the allowlist stops connecting.
+        link.config = {**link.config, "scope": " ".join([*self.SCOPES, "search:read.im"])}
+        link.save(update_fields=["config"])
+        assert get_active_installations(self.team.id, self.user.id) == []
+        link.config = {**link.config, "scope": " ".join(self.SCOPES)}
+        link.save(update_fields=["config"])
+        assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
         # The installation keeps no copy of the token, so an unlink also ends its access.
         link.delete()
         assert get_active_installations(self.team.id, self.user.id) == []

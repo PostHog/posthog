@@ -37,7 +37,6 @@ from posthog.event_usage import report_user_action
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.models.user_integration import mark_slack_mcp_opted_out
 from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
@@ -57,6 +56,7 @@ from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
     APPROVAL_STATES,
     MCPGatewayServer,
+    MCPMemberAutoConnectOptOut,
     MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
@@ -778,7 +778,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 team_id=self.team_id,
             )
             .filter(Q(scope="shared") | Q(user=self.request.user))
-            .select_related("template", "gateway_server")
+            .select_related("template", "gateway_server", "linked_user_integration")
             .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
             .order_by("-created_at")
         )
@@ -1004,10 +1004,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
             request=request,
         )
-        # A member who removes the Slack MCP that came with their Slack link opts out of it, so a relink does
-        # not connect it again.
-        if (link_id := installation.linked_slack_user_integration_id) is not None:
-            mark_slack_mcp_opted_out(link_id, user_id=installation.user_id)
+        # A member who removes a server that came with their account link opts out of it, so a relink does not
+        # connect it again. The row outlives the link, which an unlink deletes.
+        if installation.linked_user_integration_id is not None:
+            MCPMemberAutoConnectOptOut.objects.for_team(installation.team_id).get_or_create(
+                team_id=installation.team_id, user_id=installation.user_id, url=installation.url
+            )
         installation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1127,6 +1129,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if installation.scope != "personal":
             return Response(
                 {"detail": "Only personal installations can be shared."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if installation.linked_user_integration_id is not None:
+            return Response(
+                {
+                    "detail": "A connection made from your Slack account link can't be shared. "
+                    "Connect Slack from the MCP store to share it with the project."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if installation.user_id != request.user.id:
@@ -2110,7 +2120,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             .filter(Q(user=user) | Q(scope="shared"))
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user=user)
-            .select_related("template", "gateway_server")
+            .select_related("template", "gateway_server", "linked_user_integration")
             .prefetch_related("tools")
             .order_by("id")
         )

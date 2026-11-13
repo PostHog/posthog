@@ -343,7 +343,7 @@ def build_authorize_url(
     state: str,
     slack_team_id: str,
     search_scopes: bool = False,
-    extra_user_scopes: tuple[str, ...] = (),
+    mcp_user_scopes: tuple[str, ...] = (),
 ) -> str:
     """The full Slack OIDC URL the user is redirected to. Only identity
     scopes are requested — bot scopes belong to the separate workspace
@@ -352,14 +352,15 @@ def build_authorize_url(
 
     With ``search_scopes``, the URL asks for user scopes at ``oauth.v2.authorize`` instead, because Sign in with
     Slack cannot grant the search scopes. ``team`` keeps the consent screen on the invite's workspace.
-    ``extra_user_scopes`` joins them, such as the scopes that let the same token connect the Slack MCP.
+    ``mcp_user_scopes``, the Slack MCP's allowlist, replaces them: the MCP store sends the link's token upstream, so
+    the link must hold exactly what the server may read. The work focus needs nothing outside that list.
     """
     client_id, _ = _credentials()
     if search_scopes:
         search_params = {
             "client_id": client_id,
             "user_scope": ",".join(
-                dict.fromkeys((*SEARCH_USER_SCOPES, *extra_user_scopes, *OPTIONAL_SEARCH_USER_SCOPES))
+                dict.fromkeys(mcp_user_scopes or (*SEARCH_USER_SCOPES, *OPTIONAL_SEARCH_USER_SCOPES))
             ),
             "redirect_uri": redirect_uri,
             "state": state,

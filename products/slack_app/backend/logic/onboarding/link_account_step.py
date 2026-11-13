@@ -39,11 +39,14 @@ class LinkAccountStep(OnboardingStep):
                 )
             else:
                 text += "\nAfter you link, I read your recent Slack messages once to suggest what I can help with. "
-            text += "Slack lets you choose which kinds of conversations I can search."
-            if is_slack_app_slack_mcp_enabled(ctx.integration) and slack_mcp_user_scopes(
-                ctx.integration.team_id, ctx.posthog_user.id if ctx.posthog_user else None
-            ):
-                text += " Your PostHog tasks can also read and search Slack's public channels as you."
+            connects_slack_mcp = is_slack_app_slack_mcp_enabled(ctx.integration) and bool(
+                slack_mcp_user_scopes(ctx.integration.team_id, ctx.posthog_user.id if ctx.posthog_user else None)
+            )
+            if connects_slack_mcp:
+                # The link then asks for exactly the Slack MCP's scopes, so there is no private search to choose.
+                text += "I read public channels only, and your PostHog tasks can search them as you."
+            else:
+                text += "Slack lets you choose which kinds of conversations I can search."
         return [
             section_block(text),
             {
