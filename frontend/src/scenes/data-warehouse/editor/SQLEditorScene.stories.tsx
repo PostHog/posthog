@@ -584,9 +584,11 @@ export const NewQuerySaveDiff: Story = {
         testOptions: { snapshotBrowsers: [] },
     },
     play: async ({ canvasElement }) => {
+        await waitForEditor(canvasElement)
+        const logic = sqlEditorLogic({ tabId: 'default' })
+        await waitFor(() => expect(logic.values.queryInput).toBe('SELECT 2'))
         await openSaveMenu(canvasElement)
         const body = within(canvasElement.ownerDocument.body)
-        const logic = sqlEditorLogic({ tabId: 'default' })
         await userEvent.click(
             canvasElement.ownerDocument.querySelector<HTMLElement>('[data-attr="sql-editor-save-view-button"]')!
         )
