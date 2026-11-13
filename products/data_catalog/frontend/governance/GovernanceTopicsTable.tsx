@@ -27,29 +27,44 @@ const PAGE_SIZE = 6
 const AGENT_COUNTS_MISSING =
     'Coverage can miss metrics that agents adapted, because the agent query check failed in the last scan.'
 
+// The topics come ranked, and sort buttons would widen a table that shares its row with the sources.
 const COLUMNS: DataTableProps<TopicClusterApi, unknown>['columns'] = [
     {
         accessorKey: 'title',
         header: 'Topic',
+        meta: { expand: true },
         enableSorting: false,
         cell: ({ row }) => (
-            <Text size="xs" weight="semibold" className="block max-w-64 min-w-40 truncate" title={row.original.title}>
-                {row.original.title}
-            </Text>
+            // Zero width keeps a long title out of the column's natural width, so it truncates instead of widening the table.
+            <div className="min-w-24">
+                <Text
+                    size="xs"
+                    weight="semibold"
+                    className="block w-0 min-w-full truncate"
+                    title={row.original.title}
+                    render={<span />}
+                >
+                    {row.original.title}
+                </Text>
+            </div>
         ),
     },
-    { accessorKey: 'people', header: 'People', meta: { align: 'right' } },
-    { accessorKey: 'session_count', header: 'Sessions', meta: { align: 'right' } },
+    { accessorKey: 'people', header: 'People', meta: { align: 'right' }, enableSorting: false },
+    { accessorKey: 'session_count', header: 'Sessions', meta: { align: 'right' }, enableSorting: false },
     {
         id: 'coverage',
+        enableSorting: false,
         header: () => (
             <GovernanceColumnHeader
                 label="Catalog coverage"
                 tooltip="The number is how many sessions looked for a metric in the catalog. Each bar splits those sessions by what they found: a metric that fits, a table but no metric, or nothing. Hover a part of the bar to see its sessions. Each session counts once, and a metric comes first."
             />
         ),
-        meta: { expand: true },
-        cell: ({ row }) => <TopicCoverageBar coverage={row.original.coverage} />,
+        cell: ({ row }) => (
+            <div className="w-36">
+                <TopicCoverageBar coverage={row.original.coverage} />
+            </div>
+        ),
     },
 ]
 
