@@ -54,7 +54,7 @@ import {
     convertToHogFunctionInvocationGlobals,
     getPersonDisplayName,
 } from '../utils'
-import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
+import { convertToHogFunctionFilterGlobal, rejectsEventName } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { convertCohortMembershipChangeToGlobals } from './cdp-cohort-membership-trigger.consumer'
 import { CohortMembershipChangeSchema, isCohortMembershipControlRecord } from './cdp-cohort-membership.consumer'
@@ -70,6 +70,8 @@ const startAtLatest = START_AT_LATEST
 // How stale the has-live-watchers gate may be. A team that just enrolled its first run while its only
 // goal flow was already paused waits at most this long to be admitted.
 const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 30_000
+// Covers how long a worker can keep running a flow version after it was replaced.
+const PINNED_GOAL_CACHE_LAG_MS = 60 * 60 * 1000
 
 const counterHogflowMatcherCandidatesEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_candidates_evaluated',
@@ -129,6 +131,11 @@ const counterHogflowMatcherWatchersEvaluated = new Counter({
 const gaugeHogflowMatcherTeamsWithWatchers = new Gauge({
     name: 'cdp_hogflow_matcher_teams_with_live_watchers',
     help: 'Teams admitted through the parse gate purely because they still have unexpired conversion watchers.',
+})
+
+const counterHogflowMatcherWatcherEventsSkipped = new Counter({
+    name: 'cdp_hogflow_matcher_watcher_events_skipped',
+    help: 'Events left out of the conversion_watchers lookup because no conversion goal of their team can match their name.',
 })
 
 const histogramHogflowMatcherFindWatchers = new Histogram({
@@ -262,7 +269,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
     // before consuming, so the gate is never consulted against an unpopulated set.
-    private teamsWithLiveWatchers: Set<number> = new Set()
+    // Team -> workflow id -> when its oldest unexpired watcher was created.
+    private liveWatcherFlowsByTeam: Map<number, Map<string, number>> = new Map()
     // A watcher written just before its flow was paused stays unseen until a refresh that starts after the change.
     private teamsWithChangedFlows: Map<number, number> = new Map()
     private watcherRefreshNumber = 0
@@ -393,14 +401,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
         // exactly the blind spot watchers exist to remove. Only a goal flow's run writes a watcher.
-        const watcherTeams = new Set(
-            teamIds.filter(
-                (teamId) => this.mayHaveLiveWatchers(teamId) || (hogFlowsByTeam[teamId] ?? []).some(hasConversionGoal)
-            )
+        const goalFlowsByTeam = new Map<number, HogFlow[] | 'any'>()
+        for (const teamId of teamIds) {
+            const flows = hogFlowsByTeam[teamId] ?? []
+            if (this.mayHaveLiveWatchers(teamId) || flows.some(hasConversionGoal)) {
+                goalFlowsByTeam.set(teamId, this.goalFlowsForWatchers(teamId, flows))
+            }
+        }
+        const watcherGlobals = invocationGlobals.filter((globals) => {
+            const goalFlows = goalFlowsByTeam.get(globals.project.id)
+            return goalFlows === 'any' || goalFlows?.some((flow) => goalAdmitsEventName(flow, globals.event.event))
+        })
+        counterHogflowMatcherWatcherEventsSkipped.inc(
+            invocationGlobals.filter((globals) => goalFlowsByTeam.has(globals.project.id)).length -
+                watcherGlobals.length
         )
-        if (watcherTeams.size > 0) {
+        if (watcherGlobals.length > 0) {
             const conversionsCounted = await this.claimConversionWatchers(
-                restrictToTeams(indexed, watcherTeams),
+                indexBatch(watcherGlobals),
                 filterGlobalsFor,
                 eventsOnly
             )
@@ -865,7 +883,23 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private mayHaveLiveWatchers(teamId: number): boolean {
-        return this.teamsWithLiveWatchers.has(teamId) || this.teamsWithChangedFlows.has(teamId)
+        return this.liveWatcherFlowsByTeam.has(teamId) || this.teamsWithChangedFlows.has(teamId)
+    }
+
+    // The flows whose current goals cover every goal the team's live watchers pinned, or 'any' when a
+    // watcher may hold a goal that no cached flow still shows: a paused flow, or one edited since.
+    private goalFlowsForWatchers(teamId: number, flows: HogFlow[]): HogFlow[] | 'any' {
+        if (this.teamsWithChangedFlows.has(teamId)) {
+            return 'any'
+        }
+        for (const [functionId, oldestCreatedAt] of this.liveWatcherFlowsByTeam.get(teamId) ?? []) {
+            const flow = flows.find((f) => f.id === functionId)
+            const updatedAt = flow ? toMillis(flow.updated_at) : null
+            if (updatedAt === null || oldestCreatedAt <= updatedAt + PINNED_GOAL_CACHE_LAG_MS) {
+                return 'any'
+            }
+        }
+        return flows.filter(hasConversionGoal)
     }
 
     // One small query per refresh, returning at most one row per team that has ever enrolled a run on
@@ -874,15 +908,27 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private async refreshTeamsWithLiveWatchers(): Promise<void> {
         const refreshNumber = ++this.watcherRefreshNumber
         const result = await this.cyclotronPool.query(
-            `SELECT DISTINCT team_id FROM conversion_watchers WHERE expires_at > NOW()`
+            `SELECT team_id, function_id, MIN(created_at) AS oldest_created_at
+             FROM conversion_watchers
+             WHERE expires_at > NOW()
+             GROUP BY team_id, function_id`
         )
-        this.teamsWithLiveWatchers = new Set(result.rows.map((row) => row.team_id))
+        const liveWatcherFlowsByTeam = new Map<number, Map<string, number>>()
+        for (const row of result.rows) {
+            let flows = liveWatcherFlowsByTeam.get(row.team_id)
+            if (!flows) {
+                flows = new Map()
+                liveWatcherFlowsByTeam.set(row.team_id, flows)
+            }
+            flows.set(row.function_id, new Date(row.oldest_created_at).getTime())
+        }
+        this.liveWatcherFlowsByTeam = liveWatcherFlowsByTeam
         for (const [teamId, changedAt] of this.teamsWithChangedFlows) {
             if (changedAt < refreshNumber) {
                 this.teamsWithChangedFlows.delete(teamId)
             }
         }
-        gaugeHogflowMatcherTeamsWithWatchers.set(this.teamsWithLiveWatchers.size)
+        gaugeHogflowMatcherTeamsWithWatchers.set(this.liveWatcherFlowsByTeam.size)
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
@@ -1452,28 +1498,22 @@ function hasConversionGoal(hogflow: HogFlow): boolean {
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
 }
 
-function restrictToTeams(indexed: IndexedBatch, teams: Set<number>): IndexedBatch {
-    const keep = (teamIds: number[], ids: string[]): [number[], string[]] => {
-        const keptTeamIds: number[] = []
-        const keptIds: string[] = []
-        teamIds.forEach((teamId, i) => {
-            if (teams.has(teamId)) {
-                keptTeamIds.push(teamId)
-                keptIds.push(ids[i])
-            }
-        })
-        return [keptTeamIds, keptIds]
+// A property goal can be met by any event that carries the person, so it admits every name.
+function goalAdmitsEventName(hogflow: HogFlow, eventName: string): boolean {
+    if (hogflow.conversion?.filters?.length) {
+        return true
     }
-    const [distinctTeamIds, distinctIds] = keep(indexed.distinctTeamIds, indexed.distinctIds)
-    const [personTeamIds, personIds] = keep(indexed.personTeamIds, indexed.personIds)
-    return {
-        ...indexed,
-        teamIds: indexed.teamIds.filter((teamId) => teams.has(teamId)),
-        distinctTeamIds,
-        distinctIds,
-        personTeamIds,
-        personIds,
+    return (hogflow.conversion?.events ?? [])
+        .filter(hasEventOrActionTarget)
+        .some((eventConfig) => !rejectsEventName(eventConfig.filters, eventName))
+}
+
+function toMillis(value: HogFlow['updated_at']): number | null {
+    if (value === undefined || value === null) {
+        return null
     }
+    const millis = value instanceof Date ? value.getTime() : typeof value === 'number' ? value : Date.parse(value)
+    return Number.isFinite(millis) ? millis : null
 }
 
 // Compiled filters read `person.properties.<key>` by pushing the string 'person' as the root of the field
