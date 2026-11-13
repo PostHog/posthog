@@ -836,29 +836,16 @@ describe('EmailService', () => {
                 message: 'Service unavailable',
             }
 
-            it.each<[string, () => EmailService, Record<string, unknown>]>([
+            it.each<[string, () => EmailService]>([
                 [
                     'answers 503',
                     () => {
                         ses.failWith(unavailable)
                         return service
                     },
-                    {},
                 ],
-                ['refuses the connection', () => createService({ sesEndpoint: 'http://127.0.0.1:1' }), {}],
-                [
-                    'answers 503 to a workflow with a sending rate limit',
-                    () => {
-                        ses.failWith(unavailable)
-                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
-                        return createService(
-                            {},
-                            { workflowEmailRateLimiter: createRateLimiter('ses-outage-rate-test') }
-                        )
-                    },
-                    { workflowRateClaimed: expect.any(String) },
-                ],
-            ])('reschedules the email when SES %s, and sends it once SES is back', async (_name, outage, claims) => {
+                ['refuses the connection', () => createService({ sesEndpoint: 'http://127.0.0.1:1' })],
+            ])('reschedules the email when SES %s, and sends it once SES is back', async (_name, outage) => {
                 const now = Date.now()
                 const result = await outage().executeSendEmail(invocation)
 
@@ -867,7 +854,6 @@ describe('EmailService', () => {
                 expect(result.invocation.queueMetadata).toEqual({
                     ...invocation.queueMetadata,
                     sesUnavailableRetries: 1,
-                    ...claims,
                 })
                 expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(now + 2_000)
 

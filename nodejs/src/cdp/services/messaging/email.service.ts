@@ -726,10 +726,6 @@ export class EmailService {
         let failureReason: EmailStatusReason = 'provider_error'
         let messageId: string | undefined
         let teamBudgetCharged = false
-        const sendStep = invocation.state.actionId
-            ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
-            : invocation.id
-        let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -910,6 +906,10 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
+            const sendStep = invocation.state.actionId
+                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+                : invocation.id
+            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
@@ -1117,7 +1117,6 @@ export class EmailService {
                     ...invocation.queueMetadata,
                     sesUnavailableRetries: retries,
                     ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
-                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStep } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
