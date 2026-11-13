@@ -387,19 +387,22 @@ class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
 
         mock_delete_identity.assert_called_once_with("partner.com")
 
+    @patch("posthog.tasks.integrations.remove_ses_tenant_associations")
     @patch("posthog.tasks.integrations.delete_ses_identity")
     @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
     def test_cascade_delete_skips_ses_cleanup_while_domain_still_in_use(
-        self, _mock_get_mail_from, mock_delete_identity
+        self, _mock_get_mail_from, mock_delete_identity, mock_remove_links
     ):
         team = Team.objects.create(organization=self.organization, name="doomed team")
         self._create_email_integration("owner@partner.com", team.id, str(self.organization.id))
         self._create_email_integration("sibling@partner.com", self.team.id, str(self.organization.id))
 
+        team_id = team.id
         with self.captureOnCommitCallbacks(execute=True):
             team.delete()
 
         mock_delete_identity.assert_not_called()
+        mock_remove_links.assert_called_once_with("partner.com", team_ids=[team_id])
 
 
 class TestEmailIntegrationDefaultSender(BaseTest):

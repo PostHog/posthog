@@ -140,6 +140,21 @@ def _release_claims(domain: str, claimants: Sequence[model.Integration]) -> None
     transaction.on_commit(lambda: remove_ses_tenant_associations(domain, team_ids=team_ids), robust=True)
 
 
+def lock_sender_if_expirable(sender: IntegrationRecord) -> bool:
+    """Lock the sender row for the rest of the transaction, and say whether it is still unverified and uncontested.
+
+    A verification, or another organization's claim that marks the domain contested, that lands meanwhile either
+    finishes first or waits until the transaction ends.
+    """
+    config = (
+        model.Integration.objects.select_for_update()
+        .filter(team_id=sender.team_id, id=sender.id, kind="email", config__verified=False)
+        .values_list("config", flat=True)
+        .first()
+    )
+    return config is not None and not config.get(ORGANIZATION_PROOF_REQUIRED_KEY)
+
+
 @frozen
 class EmailDomainStatusReport:
     check: "EmailDomainCheck"
@@ -548,7 +563,7 @@ def cleanup_ses_identity_of_integration(row: IntegrationRecord) -> None:
         delete_ses_identity_if_unused,  # noqa: PLC0415 - breaks circular import with the tasks module
     )
 
-    transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
+    transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain, row.team_id))
 
 
 register_delete_hook(clear_default_email_sender_of_integration)
