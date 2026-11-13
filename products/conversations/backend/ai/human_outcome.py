@@ -28,8 +28,19 @@ USED_RATIO = 0.85
 EDITED_RATIO = 0.4
 
 
+# SequenceMatcher is quadratic without autojunk, and this runs under the ticket row lock.
+MAX_COMPARED_CHARS = 4000
+
+
 def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
-    ratio = SequenceMatcher(None, ai_draft.strip(), human_reply.strip()).ratio()
+    # autojunk treats every character that fills more than 1% of a 200+ character text as junk.
+    # In prose that is most letters, so a draft sent with a new greeting scored near zero.
+    ratio = SequenceMatcher(
+        None,
+        ai_draft.strip()[:MAX_COMPARED_CHARS],
+        human_reply.strip()[:MAX_COMPARED_CHARS],
+        autojunk=False,
+    ).ratio()
     if ratio >= USED_RATIO:
         return "used"
     if ratio >= EDITED_RATIO:
@@ -128,7 +139,11 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         if first_after is None or str(first_after.id) != str(comment_id):
             return
 
-        classified = classify_human_outcome(_inserted_draft_text(ai_note), human_content)
+        draft_text = _inserted_draft_text(ai_note)
+        if not draft_text.strip():
+            # Investigation notes with no suggested question give the human nothing to adopt.
+            return
+        classified = classify_human_outcome(draft_text, human_content)
         if current == classified:
             return
         if current and current != "used":

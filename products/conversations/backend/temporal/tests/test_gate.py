@@ -79,6 +79,7 @@ class TestDecideReplyAction(SimpleTestCase):
         attempt: int = 0,
         max_attempts: int = 2,
         allow_clarify: bool = True,
+        **grounding: bool,
     ):
         return decide_reply_action(
             grounded=grounded,
@@ -90,7 +91,43 @@ class TestDecideReplyAction(SimpleTestCase):
             attempt=attempt,
             max_attempts=max_attempts,
             allow_clarify=allow_clarify,
+            **grounding,
         )
+
+    @parameterized.expand(
+        [
+            (
+                "blocked_draft_is_not_retried",
+                {"blocker": "knowledge", "verdict": "blocked_on_knowledge", "validator_confidence": 0.2},
+                "findings",
+            ),
+            ("empty_retrieval_is_not_retried", {"blocker": "knowledge", "has_seed_chunks": False}, "findings"),
+            ("answerable_knowledge_gap_still_retries", {"blocker": "knowledge"}, "retry"),
+            (
+                "answerable_draft_without_question_is_suggested",
+                {"blocker": "customer_info", "validator_confidence": 0.7, "has_clarifying_questions": False},
+                "suggest",
+            ),
+            (
+                "answerable_draft_on_second_round_is_suggested",
+                {"blocker": "customer_info", "allow_clarify": False},
+                "suggest",
+            ),
+            ("question_wins_over_suggestion", {"blocker": "customer_info", "validator_confidence": 0.7}, "clarify"),
+            (
+                "ungrounded_draft_without_question_is_not_suggested",
+                {"blocker": "customer_info", "grounded": False, "has_clarifying_questions": False},
+                "clarify",
+            ),
+            (
+                "low_confidence_draft_without_question_is_not_suggested",
+                {"blocker": "customer_info", "validator_confidence": 0.3, "has_clarifying_questions": False},
+                "clarify",
+            ),
+        ]
+    )
+    def test_grounding_aware_gate(self, _name, overrides, expected):
+        assert self._decide(grounding_aware=True, **overrides) == expected
 
     def test_auto_send_when_both_judges_agree(self):
         assert self._decide() == "auto_send"

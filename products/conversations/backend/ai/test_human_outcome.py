@@ -16,6 +16,17 @@ class TestClassifyHumanOutcome(SimpleTestCase):
         reply = "Drop the recorder snippet on checkout only, then hard-refresh to send a pageview."
         assert classify_human_outcome(draft, reply) == "edited"
 
+    def test_long_draft_sent_with_a_new_greeting_is_used(self):
+        body = (
+            "Session recordings can go missing when an ad blocker stops the recorder or when the domain is not "
+            "in your authorized domains list. Open Project settings, go to Session replay, and add your domain. "
+            "Then check the network tab for a request to the recorder script. If recordings still do not appear, "
+            "check that your sampling rate is not zero."
+        )
+        draft = f"Hi there, thanks for reaching out. {body} Let me know if that helps."
+        reply = f"Hey Sam! {body} I looked at your project and the sampling rate is fine. Cheers, Alex"
+        assert classify_human_outcome(draft, reply) == "used"
+
     def test_unrelated_reply_is_ignored(self):
         assert (
             classify_human_outcome(
