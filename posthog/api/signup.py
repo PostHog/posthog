@@ -817,6 +817,13 @@ class InviteSignupViewset(generics.CreateAPIView):
     serializer_class = InviteSignupSerializer
     permission_classes = (permissions.AllowAny,)
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        # The GET only loads the invite page, so page loads do not spend the signup attempts.
+        if self.request.method == "POST" and not settings.E2E_TESTING:
+            throttles.append(SignupAttemptIPThrottle())
+        return throttles
+
     def get(self, request, *args, **kwargs):
         """
         Pre-validates an invite code.

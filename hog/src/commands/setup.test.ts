@@ -310,6 +310,7 @@ describe('hog setup', () => {
         const instructions = (reviewed.json() as any).next.instructions
         expect(instructions).toContain("PostHog hasn't received any events yet.")
         expect(instructions).toContain('At the end of your turn, tell the user')
+        expect(instructions).toContain('`hog skills read instrument-reverse-proxy` sets one up')
         expect(instructions).toContain("connect PostHog's MCP server with `hog mcp add --agent claude-code`")
         expect((reviewed.json() as any).context.mcp).toEqual({
             agent: 'claude-code',
@@ -332,6 +333,7 @@ describe('hog setup', () => {
         expect(agentsMd).toContain(
             '- Logs, metrics, and tracing (APM): `hog skills search logs`, `hog skills read instrument-metrics`'
         )
+        expect(agentsMd).toContain('(reverse proxy): `hog skills read instrument-reverse-proxy`')
         expect(agentsMd.indexOf('Session replay')).toBeLessThan(agentsMd.indexOf('Debugging errors'))
 
         machine.events.push(START + 60_000)
@@ -531,6 +533,45 @@ describe('hog setup', () => {
         expect(started.json()).toMatchObject({ next: { kind: 'wait', url: `${host}/device?code=BCDF-GHJK` } })
         expect(resumed.requests.filter((request) => request.url.endsWith('/oauth/device-authorization/'))).toEqual([])
         expect(resumed.json()).toMatchObject({ step: 'install', context: { host, projectId: '42' } })
+    })
+
+    test('an agent can move a login it started in the US to the EU before it is approved', async () => {
+        const machine = world()
+
+        const started = await machine.run(['setup', 'next', ...ONE_PRODUCT])
+        const moved = await machine.run(['setup', 'next', '--region', 'eu'])
+
+        expect((started.json() as any).next.instructions).toContain(
+            "hog defaults to US Cloud (us.posthog.com). If they want their data hosted in EU Cloud, or their account is on eu.posthog.com, they shouldn't open the link"
+        )
+        expect(moved.json()).toMatchObject({
+            code: 'setup_login_pending',
+            next: { url: `${EU}/device?code=BCDF-GHJK` },
+        })
+        expect((moved.json() as any).next.instructions).not.toContain('--region')
+    })
+
+    test('a folder set up after an earlier login logs in to that region first', async () => {
+        const machine = world({}, '/repo/web')
+        await machine.run(['setup', 'next', ...ANSWERS])
+        await machine.run(['setup', 'next'])
+
+        const fresh = await machine.run(['setup'], { cwd: '/repo/api' })
+        const started = await machine.run(['setup', 'next', ...ONE_PRODUCT], { cwd: '/repo/api' })
+
+        expect(fresh.json()).toMatchObject({
+            next: { instructions: expect.stringContaining(EU) },
+            context: { lastLoginHost: EU },
+        })
+        expect(started.json()).toMatchObject({
+            code: 'setup_login_pending',
+            next: {
+                url: `${EU}/device?code=BCDF-GHJK`,
+                instructions: expect.stringContaining(
+                    'where they last logged in. If they want their data hosted in US Cloud'
+                ),
+            },
+        })
     })
 
     test.each<[string, Record<string, string>, string | null]>([

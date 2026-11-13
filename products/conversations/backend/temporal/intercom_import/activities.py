@@ -12,6 +12,7 @@ from temporalio import activity, workflow
 # The package __init__ imports this module inside the Temporal workflow sandbox; only the activity
 # sync helpers touch Django/models at runtime, so pass them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
+    from django.db import InterfaceError, OperationalError
     from django.utils import timezone
 
     from posthog.dataclasses import frozen
@@ -36,7 +37,6 @@ with workflow.unsafe.imports_passed_through():
         save_file_to_uploaded_media,
     )
     from products.conversations.backend.temporal.intercom_import.client import (
-        IntercomAttachmentTooLargeError,
         IntercomCredentials,
         IntercomImportClient,
         IntercomNotFoundError,
@@ -48,6 +48,7 @@ with workflow.unsafe.imports_passed_through():
         map_intercom_priority,
         map_intercom_state,
     )
+    from products.conversations.backend.temporal.ticket_import.attachment_download import AttachmentTooLargeError
     from products.conversations.backend.temporal.ticket_import.persistence import (
         BuiltTicket,
         persist_ticket_batch,
@@ -250,7 +251,7 @@ def _process_attachments(
             continue
         try:
             raw = client.download_attachment(url, max_bytes=max_bytes)
-        except IntercomAttachmentTooLargeError as exc:
+        except AttachmentTooLargeError as exc:
             # The bytes streamed before the cap tripped still count, or repeated oversized files
             # without an honest Content-Length would bypass the conversation budget.
             budget.remaining -= exc.bytes_read
@@ -421,7 +422,7 @@ def _build_ticket(
 
 
 def _should_retry_batch(exc: BaseException) -> bool:
-    return is_retryable_error(exc) or isinstance(exc, AttachmentStorageError)
+    return is_retryable_error(exc) or isinstance(exc, AttachmentStorageError | OperationalError | InterfaceError)
 
 
 def _fetch_and_build_tickets(
@@ -535,6 +536,9 @@ def _update_job_status_sync(input: UpdateJobStatusInput) -> None:
 
 def _update_job_progress_sync(input: UpdateJobProgressInput) -> None:
     updates: dict[str, Any] = {
+        # QuerySet.update() skips auto_now. The settings API reads a stale updated_at on a running
+        # job as a sign that its workflow stopped.
+        "updated_at": timezone.now(),
         "total_conversations": input.total,
         "processed_conversations": input.processed,
         "imported_conversations": input.imported,

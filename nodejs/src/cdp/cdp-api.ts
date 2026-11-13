@@ -32,6 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
@@ -99,6 +100,11 @@ import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import {
+    SANDBOX_CODE_SEND_REFUSAL_STATUS,
+    refuseSandboxCodeSend,
+    senderOfCodeSend,
+} from './services/messaging/sandbox/sandbox-code-send'
 import { SandboxFeedbackService } from './services/messaging/sandbox/sandbox-feedback.service'
 import {
     HogWatcherService,
@@ -284,6 +290,7 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     quota_limited: 429,
     recipient_unreachable: 422,
     invalid_scheduled_at: 400,
+    ...SANDBOX_CODE_SEND_REFUSAL_STATUS,
 }
 
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
@@ -476,6 +483,7 @@ export class CdpApi {
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
                 runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
+                backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
             })
             await this.rerunJobManager.connect()
         }
@@ -1461,7 +1469,8 @@ export class CdpApi {
                     })
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
-                const references = parsed.data.send?.attachments ?? []
+                const { send } = parsed.data
+                const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
                 }
@@ -1469,8 +1478,12 @@ export class CdpApi {
                 stages.start('load')
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
                 const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
-                // A missing team returns before the workflow lookup is awaited, so its failure must not go unhandled.
+                const senderLookup = send?.from
+                    ? this.deps.integrationManager.getCheckingPrimaryOnMiss(send.from.integrationId)
+                    : Promise.resolve(null)
+                // A missing team returns before the other lookups are awaited, so their failures must not go unhandled.
                 hogFlowLookup.catch(() => undefined)
+                senderLookup.catch(() => undefined)
                 const team = await teamLookup
                 if (!team) {
                     return reply('not_found', 404, { error: 'Team not found' })
@@ -1482,14 +1495,22 @@ export class CdpApi {
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
+                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
                 const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
 
-                const result = await this.transactionalSendsForRequest().accept(team, hogFlow, parsed.data, stages, {
-                    shape: filesShape,
-                    sizeMessageBodies: (invocation, emailStep, deadline) =>
-                        this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
-                    deadline: verificationDeadline,
-                })
+                const result = await this.transactionalSendsForRequest().accept(
+                    team,
+                    hogFlow,
+                    parsed.data,
+                    stages,
+                    {
+                        shape: filesShape,
+                        sizeMessageBodies: (invocation, emailStep, deadline) =>
+                            this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
+                        deadline: verificationDeadline,
+                    },
+                    sender
+                )
                 if ('invocationId' in result) {
                     return reply(result.outcome, 202, {
                         status: result.scheduledAt ? 'scheduled' : 'queued',
@@ -1497,6 +1518,7 @@ export class CdpApi {
                         scheduled_at: result.scheduledAt,
                         replayed: result.outcome === 'replayed',
                         ...result.replyFields,
+                        ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
                     })
                 }
                 if ('refused' in result) {
@@ -1649,7 +1671,10 @@ export class CdpApi {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
             idempotencyKeys: this.transactionalEmailIdempotencyKeys,
-            queue: this.hogflowQueue,
+            runIntake: new RunIntake({
+                hogflowQueue: this.hogflowQueue,
+                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+            }),
             invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
@@ -1657,6 +1682,13 @@ export class CdpApi {
             emailValidation: this.emailValidationService,
             quotaLimiting: this.deps.quotaLimiting,
             attachmentUploads: this.attachmentUploads,
+            refuseSandboxSend: (teamId, recipient) =>
+                refuseSandboxCodeSend(this.deps.postgres, {
+                    enabled: this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                    teamId,
+                    recipient,
+                    tenantName: this.config.SES_SANDBOX_TENANT_NAME,
+                }),
         })
     }
 

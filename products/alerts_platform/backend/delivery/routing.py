@@ -30,7 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.logic.alert_routes import RoutedReceiver, routed_receivers
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 
 logger = structlog.get_logger(__name__)
 
@@ -72,19 +72,14 @@ def deliver_routes(request: AlertDeliveryRequest) -> int:
     team = _routing_team(request)
     if team is None:
         return 0
-    labels = (
-        PlatformAlertConfiguration.objects.for_team(request.team_id)
-        .filter(id=request.configuration_id)
-        .values_list("labels", flat=True)
-        .first()
-    )
-    receivers = routed_receivers(team_id=request.team_id, labels=labels or {})
+    rule = rule_metadata(request.team_id, request.configuration_id)
+    receivers = routed_receivers(team_id=request.team_id, labels=rule.labels)
     if not receivers:
         return 0
     announced = announcement_to_deliver(request, path="routed")
     if announced is None:
         return 0
-    return _deliver_to(receivers, request=request, team=team, announced=announced)
+    return _deliver_to(receivers, request=request, team=team, announced=replace(announced, rule=rule))
 
 
 def _deliver_to(
