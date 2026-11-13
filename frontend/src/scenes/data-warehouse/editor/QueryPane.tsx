@@ -38,7 +38,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 enabled: false,
             },
             wordWrap: 'on',
-            scrollBeyondLastLine: !!props.originalValue,
+            scrollBeyondLastLine: props.originalValue !== undefined,
             automaticLayout: true,
             fixedOverflowWidgets: true,
             glyphMargin: true,
@@ -112,7 +112,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             <span>Loading query…</span>
                         </div>
                     )}
-                    {props.originalValue && (
+                    {props.originalValue !== undefined && (
                         <div
                             className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
                             // eslint-disable-next-line react/forbid-dom-props

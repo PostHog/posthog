@@ -2213,9 +2213,8 @@ describe('sqlEditorLogic', () => {
                 })
                 dataLogic.mount()
                 dataLogic.actions.loadDataSuccess({ results: [[1]], columns: ['value'], types: [['value', 'UInt8']] })
-                logic.actions.reviewEditingViewUpdate()
-                await expectLogic(logic).toDispatchActions(['reviewViewUpdate'])
-                logic.actions.onAcceptSuggestedQueryInput()
+                logic.actions.updateEditingView()
+                expect(logic.values.suggestionPayload).toBeNull()
                 await expectLogic(logic).toDispatchActions(['updateViewSuccess']).toFinishAllListeners()
                 expect(updateBodies).toHaveLength(1)
                 expect(updateBodies[0]).toMatchObject({
@@ -2409,38 +2408,45 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            [false, 'Update view'],
-            [true, 'Update and re-materialize view'],
-        ])(
-            'reviewViewUpdate gates the save behind the inline diff (shouldRematerialize=%s)',
-            async (shouldRematerialize, acceptText) => {
-                logic = sqlEditorLogic({
-                    tabId: TAB_ID,
-                    monaco: createMockMonaco(),
-                    editor: createMockEditor(),
-                })
-                logic.mount()
+            ['view', 'Update view'],
+            ['materialized', 'Update and re-materialize view'],
+            ['insight', 'Update insight'],
+            ['new', 'Save query'],
+        ])('shows a save diff for %s without saving until accepted', async (kind, acceptText) => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const savedQuery = kind === 'insight' ? MOCK_INSIGHT_QUERY.source.query : MOCK_VIEW.query.query
+            logic.actions.createTab(
+                savedQuery,
+                kind === 'view' || kind === 'materialized'
+                    ? { ...MOCK_VIEW, is_materialized: kind === 'materialized' }
+                    : undefined,
+                kind === 'insight' ? MOCK_INSIGHT : undefined
+            )
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setLastRunQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, query: savedQuery },
+            })
+            logic.actions.setQueryInput('SELECT 2')
+            const save = jest.fn()
+            logic.actions.reviewQuerySave(save)
+            expect(logic.values.suggestionPayload).toMatchObject({
+                originalValue: savedQuery,
+                suggestedValue: 'SELECT 2',
+                acceptText,
+            })
+            expect(save).not.toHaveBeenCalled()
+            logic.actions.onRejectSuggestedQueryInput()
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.queryInput).toBe('SELECT 2')
+            logic.actions.reviewQuerySave(save)
+            logic.actions.onAcceptSuggestedQueryInput()
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(logic.values.suggestionPayload).toBeNull()
+        })
 
-                logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
-                await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
-
-                logic.actions.setQueryInput('SELECT 2')
-                logic.actions.reviewViewUpdate({
-                    id: MOCK_VIEW.id,
-                    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
-                    shouldRematerialize,
-                    types: [],
-                })
-                await expectLogic(logic).toDispatchActions(['reviewViewUpdate']).toFinishAllListeners()
-
-                // The edit is shown as an accept/reject diff (saved query vs edits), not saved
-                // immediately, and the accept label reflects whether it re-materializes.
-                expect(logic.values.suggestionPayload?.originalValue).toBe(MOCK_VIEW.query.query)
-                expect(logic.values.suggestionPayload?.acceptText).toBe(acceptText)
-            }
-        )
-
-        it('reviewEditingViewUpdate builds the update from the open view, the edit and the last run', async () => {
+        it('updateEditingView builds the update from the open view, the edit and the last run', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 mode: SQLEditorMode.Embedded,
@@ -2464,12 +2470,12 @@ describe('sqlEditorLogic', () => {
             editorDataNodeLogic.mount()
             editorDataNodeLogic.actions.loadDataSuccess({ results: [], types: [['two', 'UInt8']] } as any)
 
-            logic.actions.reviewEditingViewUpdate()
+            logic.actions.updateEditingView()
             await expectLogic(logic)
                 .toDispatchActions([
-                    'reviewEditingViewUpdate',
+                    'updateEditingView',
                     (action) =>
-                        action.type === logic.actionTypes.reviewViewUpdate &&
+                        action.type === logic.actionTypes.updateView &&
                         action.payload.view.id === MOCK_VIEW.id &&
                         action.payload.view.query.query === 'SELECT 2' &&
                         action.payload.view.shouldRematerialize === true &&

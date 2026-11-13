@@ -1054,6 +1054,9 @@ export interface sqlEditorLogicActions {
     reviewEditingViewUpdate: () => {
         value: true
     }
+    reviewQuerySave: (save: () => void) => {
+        save: () => void
+    }
     reviewViewUpdate: (
         view: UpdateViewPayload,
         draftId?: string
@@ -1270,6 +1273,9 @@ export interface sqlEditorLogicActions {
     }
     updateEditingMetric: () => {
         value: true
+    }
+    updateEditingView: (review?: boolean) => {
+        review: boolean
     }
     updateInsight: () => {
         value: true
@@ -1580,11 +1586,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        updateEditingView: (review: boolean = false) => ({ review }),
         reviewEditingViewUpdate: true,
-        reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
-            view,
-            draftId,
-        }),
+        reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({ view, draftId }),
+        reviewQuerySave: (save: () => void) => ({ save }),
         updateView: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -3513,7 +3518,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
             },
-            reviewEditingViewUpdate: () => {
+            reviewEditingViewUpdate: () => actions.updateEditingView(true),
+            updateEditingView: ({ review }) => {
                 const view = values.editingView
                 if (!view) {
                     return
@@ -3525,7 +3531,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // The data node is bound inside the editor, so the response is read from the mounted instance.
                 const dataNode = dataNodeLogic.findMounted({ key: values.dataLogicKey })
                 const response = dataNode?.values.response
-                actions.reviewViewUpdate({
+                const save = review ? actions.reviewViewUpdate : actions.updateView
+                save({
                     id: view.id,
                     query: { ...values.sourceQuery.source, query: values.queryInput ?? '' },
                     types:
@@ -3559,6 +3566,28 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     onAccept: () => {
                         actions.updateView(view, draftId)
                     },
+                    onReject: () => {},
+                })
+            },
+            reviewQuerySave: ({ save }) => {
+                const savedQuery =
+                    values.editingView?.query?.query ??
+                    toDataVisualizationNode(values.editingInsight?.query)?.source.query ??
+                    values.lastRunQuery?.source.query ??
+                    ''
+                actions._setSuggestionPayload({
+                    suggestedValue: values.queryInput ?? '',
+                    originalValue: savedQuery,
+                    acceptText: values.editingView
+                        ? values.editingView.is_materialized
+                            ? 'Update and re-materialize view'
+                            : 'Update view'
+                        : values.editingInsight
+                          ? 'Update insight'
+                          : 'Save query',
+                    rejectText: 'Cancel',
+                    diffShowRunButton: false,
+                    onAccept: save,
                     onReject: () => {},
                 })
             },
@@ -3813,7 +3842,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // If we have a suggestion payload, always show diff mode
                 if (suggestionPayload?.suggestedValue) {
                     // Prefer the stored originalValue if available, otherwise use current queryInput
-                    return suggestionPayload?.originalValue || queryInput
+                    return suggestionPayload.originalValue ?? queryInput
                 }
 
                 return undefined

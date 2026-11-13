@@ -24,7 +24,7 @@ export function useUpdateEditingView(): UpdateEditingView {
         sourceQuery,
         isSourceQueryLastRun,
     } = useValues(sqlEditorLogic)
-    const { reviewEditingViewUpdate } = useActions(sqlEditorLogic)
+    const { updateEditingView } = useActions(sqlEditorLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
@@ -79,5 +79,5 @@ export function useUpdateEditingView(): UpdateEditingView {
         responseLoading,
     ])
 
-    return { disabledReason, loading, isMaterializedView, update: reviewEditingViewUpdate }
+    return { disabledReason, loading, isMaterializedView, update: updateEditingView }
 }

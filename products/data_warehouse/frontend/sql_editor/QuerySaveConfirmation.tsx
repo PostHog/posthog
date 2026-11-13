@@ -8,6 +8,7 @@ export interface QuerySaveConfirmationProps {
     anchor: RefObject<HTMLSpanElement>
     onClose: () => void
     onRunLatest: () => void
+    onShowDiff: () => void
     onSaveAnyway: () => void
 }
 
@@ -16,6 +17,7 @@ export function QuerySaveConfirmation({
     anchor,
     onClose,
     onRunLatest,
+    onShowDiff,
     onSaveAnyway,
 }: QuerySaveConfirmationProps): JSX.Element {
     return (
@@ -25,7 +27,7 @@ export function QuerySaveConfirmation({
             placement="bottom-end"
             onClickOutside={onClose}
             overlay={
-                <div className="max-w-80 p-2" role="dialog" aria-label="Save query without running">
+                <div className="max-w-96 p-2" role="dialog" aria-label="Save query without running">
                     <p>The query you’re saving has not been run successfully. Results may be from a different query.</p>
                     <div className="flex flex-wrap justify-end gap-2">
                         <LemonButton
@@ -35,6 +37,14 @@ export function QuerySaveConfirmation({
                             data-attr="sql-editor-save-run-latest"
                         >
                             Run latest
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={onShowDiff}
+                            data-attr="sql-editor-save-show-diff"
+                        >
+                            Show diff
                         </LemonButton>
                         <LemonButton
                             type="primary"

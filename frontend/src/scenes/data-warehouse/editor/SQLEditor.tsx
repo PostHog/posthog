@@ -546,6 +546,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget } = useActions(editorSceneLogic)
     const {
         runQuery,
+        reviewQuerySave,
         updateInsight,
         closeEditingObject,
         saveAsInsight,
@@ -642,6 +643,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         closeSaveConfirmation()
         posthog.capture('sql-editor-save-confirmation-selected', { choice: 'save_anyway' })
         pendingSave?.()
+    }
+    const showSaveDiff = (): void => {
+        closeSaveConfirmation()
+        posthog.capture('sql-editor-save-confirmation-selected', { choice: 'show_diff' })
+        if (pendingSave) {
+            reviewQuerySave(pendingSave)
+        }
     }
     const SaveConfirmation = todayRailNav ? QuillQuerySaveConfirmation : QuerySaveConfirmation
     const saveWarning = needsSaveConfirmation ? (
@@ -808,6 +816,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 anchor={saveConfirmationAnchor}
                 onClose={closeSaveConfirmation}
                 onRunLatest={runLatestBeforeSave}
+                onShowDiff={showSaveDiff}
                 onSaveAnyway={saveAnyway}
             />
             <SceneTitleSection
