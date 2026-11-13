@@ -220,6 +220,31 @@ describe('projectTreeDataLogic', () => {
         )
     })
 
+    it.each([
+        { type: 'dashboard', path: 'Weekly KPIs', itemName: 'Weekly KPIs' },
+        { type: 'person', path: 'ada@example.com', itemName: undefined },
+    ])('leaves customer record names out of star telemetry ($type)', async ({ type, path, itemName }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const star = { id: 'star-1', path, type, href: '/somewhere' }
+        logic.actions.loadShortcutsSuccess([])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: star, created: true })
+        jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue(undefined as any)
+        const capture = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'item', path, type, href: '/somewhere' })
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.deleteShortcut('star-1')
+        }).toFinishAllListeners()
+
+        const starEvents = capture.mock.calls.filter(([event]) => String(event).startsWith('navbar starred item'))
+        expect(starEvents).toEqual([
+            ['navbar starred item added', { item_type: type, item_name: itemName }],
+            ['navbar starred item removed', { item_type: type, item_name: itemName }],
+        ])
+    })
+
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
         const projectTree = projectTreeLogic({ key: 'navbar-files', root: 'project://' })
         projectTree.mount()
