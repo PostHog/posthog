@@ -252,7 +252,7 @@ class TestWarehouseNativeMetric(APIBaseTest):
         with self.assertRaises(ValidationError) as raised:
             self._calculate()
 
-        self.assertIn("Invalid connectionId", str(raised.exception))
+        self.assertIn("does not exist, or you do not have access", str(raised.exception))
         self.warehouse.assert_not_called()
 
     def test_cached_totals_are_not_served_to_a_user_without_connection_access(self) -> None:
@@ -275,7 +275,7 @@ class TestWarehouseNativeMetric(APIBaseTest):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
             )
 
-        self.assertIn("Invalid connectionId", str(raised.exception))
+        self.assertIn("does not exist, or you do not have access", str(raised.exception))
 
         # The dashboard results widget reads the same cache for the viewer.
         widget = experiment_results_widget(

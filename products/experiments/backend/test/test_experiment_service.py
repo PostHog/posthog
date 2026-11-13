@@ -8348,7 +8348,7 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
                 "connection_does_not_exist",
                 "missing",
                 ["missing"],
-                "Invalid connectionId",
+                "does not exist, or you do not have access",
             ),
             (
                 "flag_off",
