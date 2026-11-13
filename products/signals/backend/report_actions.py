@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from django.db import transaction
 
@@ -15,6 +16,8 @@ from products.signals.backend.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+SlackStateOutcome = Literal["changed", "unchanged", "refused"]
 
 # The statuses a report resolves from directly. A report in monitoring has open checks to cancel, and an
 # archived one must not reach resolved through the archive, so both go through the inbox instead.
@@ -30,10 +33,10 @@ _SLACK_RESOLVABLE_STATUSES = frozenset(
 
 def suppress_report_from_slack(
     team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
-) -> bool:
+) -> SlackStateOutcome:
     """Suppress (dismiss) a report from a Slack 'Dismiss' click. Idempotent — an
-    already-suppressed report is treated as success; returns False if the report
-    doesn't exist or the transition isn't allowed.
+    already-suppressed report returns "unchanged", so a repeat click credits nobody; returns
+    "refused" if the report doesn't exist or the transition isn't allowed.
 
     `user_id` is the PostHog user the clicking Slack identity resolved to — the caller already
     resolves it to gate the dismiss to org members. When present the dismissal is attributed to
@@ -46,10 +49,10 @@ def suppress_report_from_slack(
             logger.warning(
                 "suppress_report_from_slack: report not found", extra={"report_id": report_id, "team_id": team_id}
             )
-            return False
+            return "refused"
 
         if report.status == SignalReport.Status.SUPPRESSED:
-            return True
+            return "unchanged"
 
         try:
             updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
@@ -58,7 +61,7 @@ def suppress_report_from_slack(
                 "suppress_report_from_slack: invalid transition",
                 extra={"report_id": report_id, "team_id": team_id, "status": report.status},
             )
-            return False
+            return "refused"
 
         # Attribute to the resolved PostHog user when the caller mapped the Slack click to one;
         # fall back to system if not. The receivers name this actor in the GitHub comments and in
@@ -75,15 +78,16 @@ def suppress_report_from_slack(
         )
     # The linked implementation PR is closed by the post_save receiver on suppression or snooze
     # (see receivers.close_pr_when_report_dismissed) — no per-caller call needed here.
-    return True
+    return "changed"
 
 
 def resolve_report_from_slack(
     team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
-) -> bool:
+) -> SlackStateOutcome:
     """Resolve a report from a Slack 'Mark resolved' click. Idempotent — an already-resolved
-    report is treated as success; returns False if the report doesn't exist or the transition
-    isn't allowed, which includes every status outside `_SLACK_RESOLVABLE_STATUSES`.
+    report returns "unchanged", so a repeat click credits nobody; returns "refused" if the report
+    doesn't exist or the transition isn't allowed, which includes every status outside
+    `_SLACK_RESOLVABLE_STATUSES`.
 
     Like a resolve through the state API, it says the work is done without the inbox pull request,
     so that pull request is superseded and the receiver closes it.
@@ -94,17 +98,17 @@ def resolve_report_from_slack(
             logger.warning(
                 "resolve_report_from_slack: report not found", extra={"report_id": report_id, "team_id": team_id}
             )
-            return False
+            return "refused"
 
         if report.status == SignalReport.Status.RESOLVED:
-            return True
+            return "unchanged"
 
         if report.status not in _SLACK_RESOLVABLE_STATUSES:
             logger.warning(
                 "resolve_report_from_slack: status not resolvable from Slack",
                 extra={"report_id": report_id, "team_id": team_id, "status": report.status},
             )
-            return False
+            return "refused"
 
         try:
             updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
@@ -113,7 +117,7 @@ def resolve_report_from_slack(
                 "resolve_report_from_slack: invalid transition",
                 extra={"report_id": report_id, "team_id": team_id, "status": report.status},
             )
-            return False
+            return "refused"
 
         attribution = ArtefactAttribution.from_user(user_id) if user_id is not None else ArtefactAttribution.system()
         report._transition_actor = attribution  # type: ignore[attr-defined]
@@ -126,4 +130,4 @@ def resolve_report_from_slack(
             content=Dismissal(state="resolved", reason="slack_resolve", slack_user_id=slack_user_id),
             attribution=attribution,
         )
-    return True
+    return "changed"

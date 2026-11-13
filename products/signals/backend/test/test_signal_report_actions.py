@@ -25,10 +25,12 @@ class TestSignalReportSlackActions(BaseTest):
     def test_slack_dismissal_records_its_verdict_once(self) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
 
-        for _ in range(2):
-            assert suppress_report_from_slack(
-                self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id
-            )
+        outcomes = [
+            suppress_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
+            for _ in range(2)
+        ]
+
+        assert outcomes == ["changed", "unchanged"]
 
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
@@ -41,10 +43,12 @@ class TestSignalReportSlackActions(BaseTest):
     def test_slack_resolve_records_its_verdict_once(self) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
 
-        for _ in range(2):
-            assert resolve_report_from_slack(
-                self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id
-            )
+        outcomes = [
+            resolve_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
+            for _ in range(2)
+        ]
+
+        assert outcomes == ["changed", "unchanged"]
 
         report.refresh_from_db()
         assert report.status == SignalReport.Status.RESOLVED
@@ -70,7 +74,7 @@ class TestSignalReportSlackActions(BaseTest):
             team=self.team, status=status, status_before_suppression=status_before_suppression, title="A report"
         )
 
-        assert not resolve_report_from_slack(self.team.id, str(report.id), user_id=self.user.id)
+        assert resolve_report_from_slack(self.team.id, str(report.id), user_id=self.user.id) == "refused"
 
         report.refresh_from_db()
         assert report.status == status

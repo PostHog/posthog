@@ -697,6 +697,29 @@ class TestSignalsDismissReport(TestCase):
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_repeat_resolve_click_does_not_credit_the_second_clicker(
+        self, mock_config, mock_requests_post, mock_is_org_member
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+        payload = self._dismiss_payload(str(report.id), action_id="signals_resolve_report")
+
+        self._post_interactivity(payload)
+        self._post_interactivity({**payload, "user": {"id": "U888"}})
+
+        first, second = (call.kwargs["json"] for call in mock_requests_post.call_args_list)
+        assert first["replace_original"] is True
+        assert "Resolved by <@U777>" in first["text"]
+        assert second == {
+            "response_type": "ephemeral",
+            "replace_original": False,
+            "text": "This report is already resolved.",
+        }
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_resolve_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member):
         from products.signals.backend.models import SignalReport
 

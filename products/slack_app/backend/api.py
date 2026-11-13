@@ -6129,9 +6129,23 @@ def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
 
     resolving = action_id == SIGNALS_RESOLVE_REPORT_ACTION_ID
     apply_state = resolve_report_from_slack if resolving else dismiss_report_from_slack
-    changed = apply_state(report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id)
+    outcome = apply_state(report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id)
 
-    _post_signals_report_state_feedback(payload, resolving=resolving, changed=changed, slack_user_id=slack_user_id)
+    if outcome == "unchanged":
+        # Someone else got there first. Replacing the message would credit this clicker instead of them.
+        inbox_interactivity.post_response_url(
+            payload.get("response_url", ""),
+            {
+                "response_type": "ephemeral",
+                "replace_original": False,
+                "text": f"This report is already {'resolved' if resolving else 'dismissed'}.",
+            },
+        )
+        return HttpResponse(status=200)
+
+    _post_signals_report_state_feedback(
+        payload, resolving=resolving, changed=outcome == "changed", slack_user_id=slack_user_id
+    )
     return HttpResponse(status=200)
 
 
