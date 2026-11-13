@@ -14,7 +14,8 @@ import structlog
 from requests import Response
 
 from posthog.dataclasses import frozen
-from posthog.security.pinned_requests import pinned_session
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
 from products.conversations.backend.temporal.pylon_import.constants import MAX_CONCURRENT_BATCH_WORKFLOWS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -53,6 +54,8 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 ATTACHMENT_CHUNK_BYTES = 64 * 1024
 MAX_ATTACHMENT_REDIRECTS = 3
 MAX_ATTACHMENT_RATE_LIMIT_RETRIES = 3
+MAX_ATTACHMENT_DNS_RETRIES = 2
+ATTACHMENT_DNS_RETRY_SLEEP_SECONDS = 2
 
 
 class PylonRateLimitError(Exception):
@@ -298,11 +301,21 @@ class PylonImportClient:
         lose it for good, because a later import skips the issue as already imported.
         """
         attempt = 0
+        dns_attempt = 0
         while True:
             try:
                 return self._download_attachment(url, max_bytes=max_bytes)
             except requests.RequestException:
                 raise PylonAttachmentDownloadError(None) from None
+            except SSRFBlockedError as error:
+                # pinned_session reports a DNS timeout and a host that does not exist the same
+                # way. A timeout passes within seconds, so wait for it here. A host that stays
+                # unresolved is treated as gone and its file is skipped, because retrying the
+                # batch for it would fail the whole import over one dead link.
+                if str(error) != UNRESOLVED_HOST_REASON or dns_attempt >= MAX_ATTACHMENT_DNS_RETRIES:
+                    raise
+                time.sleep(ATTACHMENT_DNS_RETRY_SLEEP_SECONDS)
+                dns_attempt += 1
             except PylonAttachmentDownloadError as error:
                 wait = DEFAULT_RATE_LIMIT_SLEEP_SECONDS if error.retry_after is None else max(1, error.retry_after)
                 if (

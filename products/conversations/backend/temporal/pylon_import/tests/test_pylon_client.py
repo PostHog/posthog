@@ -7,7 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
+from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON
+
 from products.conversations.backend.temporal.pylon_import.client import (
+    MAX_ATTACHMENT_DNS_RETRIES,
     MAX_ATTACHMENT_RATE_LIMIT_RETRIES,
     MAX_MESSAGE_PAGES,
     MAX_RATE_LIMIT_RETRIES,
@@ -252,6 +256,38 @@ class TestPylonAttachmentDownload:
 
         assert attachment.content == b"abc"
         assert [c.args[0] for c in sleep.call_args_list] == [2]
+
+    @pytest.mark.parametrize(
+        "failures,expected_attempts,downloaded",
+        [
+            pytest.param([UNRESOLVED_HOST_REASON], 2, True, id="dns_recovers"),
+            pytest.param(
+                [UNRESOLVED_HOST_REASON] * 5, MAX_ATTACHMENT_DNS_RETRIES + 1, False, id="host_stays_unresolved"
+            ),
+            pytest.param(["Disallowed target IP: 10.0.0.1"], 1, False, id="blocked_address_is_not_retried"),
+        ],
+    )
+    def test_unresolved_host_is_retried_before_the_file_is_given_up(
+        self, failures: list[str], expected_attempts: int, downloaded: bool
+    ) -> None:
+        client, _ = _client()
+        session = MagicMock()
+        session.get.return_value = _FakeResponse(chunks=[b"abc"])
+
+        @contextmanager
+        def resolved(url: str) -> Iterator[MagicMock]:
+            yield session
+
+        outcomes = [SSRFBlockedError(reason) for reason in failures] + [resolved("https://files.example.com/file")]
+        with patch(f"{M}.pinned_session", side_effect=outcomes) as pinned, patch(f"{M}.time.sleep"):
+            if downloaded:
+                assert client.download_attachment("https://files.example.com/file", max_bytes=100).content == b"abc"
+            else:
+                with pytest.raises(SSRFBlockedError) as caught:
+                    client.download_attachment("https://files.example.com/file", max_bytes=100)
+                assert not is_retryable_error(caught.value)
+
+        assert pinned.call_count == expected_attempts
 
     def test_transport_error_is_retryable_without_the_signed_url(self) -> None:
         client, _ = _client()
