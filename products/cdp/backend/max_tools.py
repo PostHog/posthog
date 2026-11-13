@@ -5,9 +5,9 @@ from typing import Optional
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
+from rest_framework import serializers
 
 from posthog.hogql import errors as hogql_errors
-from posthog.hogql.parser import parse_program
 
 from products.cdp.backend.prompts import (
     DESTINATION_LIMITATIONS_MESSAGE,
@@ -131,21 +131,22 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         try:
             compile_hog(hog_code, "transformation")
-        except Exception:
-            # Try to get a more specific error by parsing directly
-            try:
-                parse_program(hog_code)
-            except hogql_errors.SyntaxError as parse_err:
-                raise PydanticOutputParserException(
-                    llm_output=hog_code,
-                    validation_message=f"The Hog code failed to compile: {parse_err}",
-                )
+        except serializers.ValidationError as e:
             raise PydanticOutputParserException(
                 llm_output=hog_code,
-                validation_message="The Hog code failed to compile.",
+                validation_message=f"The Hog code failed to compile: {_compile_error_message(e)}",
             )
 
         return HogTransformationOutput(hog_code=hog_code)
+
+
+def _compile_error_message(error: serializers.ValidationError) -> str:
+    # compile_hog replaces a parser or compiler error with a generic message, but the original error
+    # stays on the exception chain. The retry prompt needs that original text, or the model repeats its mistake.
+    if isinstance(error.__context__, hogql_errors.ExposedHogQLError):
+        return str(error.__context__)
+    errors = serializers.as_serializer_error(error)
+    return " ".join(str(message) for messages in errors.values() for message in messages)
 
 
 class CreateHogFunctionFiltersTool(MaxTool):

@@ -386,6 +386,14 @@ async function clickWhenRendered(attr: string): Promise<void> {
 export const ListShareDialog: Story = {
     parameters: { pageUrl: urls.analyticsList() },
     play: async () => {
+        // The notebook is the one row outside a collection, so its menu offers to add it to one.
+        await userEvent.click(
+            await within(document.body).findByRole(
+                'button',
+                { name: 'Actions for Q4 experiment plan' },
+                { timeout: 15000 }
+            )
+        )
         await clickWhenRendered('analytics-list-row-share')
         await within(document.body).findAllByText('Finance', {}, { timeout: 15000 })
     },

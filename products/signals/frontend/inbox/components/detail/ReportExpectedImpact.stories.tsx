@@ -120,7 +120,7 @@ const meta: Meta<typeof ReportExpectedImpact> = {
         layout: 'centered',
         viewMode: 'story',
         mockDate: '2026-08-29T12:00:00Z',
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
     },
     args: { report, reportUrl: 'https://example.com/report' },
     decorators: [
@@ -162,7 +162,7 @@ export const MonitoringDefinition: Story = {
     args: { report: { ...report, monitoring_started_at: monitoringStartedAt } },
     parameters: {
         check: monitoringCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
     },
 }
 
@@ -171,7 +171,7 @@ export const MonitoringDefinitionNarrow: Story = {
     parameters: {
         check: monitoringCheck,
         narrow: true,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
     },
 }
 
@@ -179,11 +179,12 @@ export const MonitoringFixedTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
         check: fixedTargetCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
     },
 }
 
 export const MetricCheck: Story = {}
+export const Approved: Story = { parameters: { check: { ...check, approved_at: '2026-08-29T00:00:00Z' } } }
 export const MonitoringWindowEnded: Story = {
     args: MonitoringDefinition.args,
     parameters: {
@@ -198,7 +199,7 @@ export const MonitoringWindowEnded: Story = {
                 next_measurement_at: null,
             },
         },
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
     },
 }
 export const RangeGoal: Story = { parameters: { check: rangeCheck } }
@@ -210,6 +211,6 @@ export const MonitoringRateTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
         check: rateTargetCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
     },
 }

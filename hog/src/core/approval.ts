@@ -70,6 +70,8 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> extends Ap
     approver?: (pending: Pending) => { who: string; names: string[] } | undefined
     // `timeoutMs` is how long the poll request may take before the request expires.
     poll: (pending: Pending, timeoutMs: number) => Promise<PollOutcome<Value>>
+    // Set for a login, where the person may have no PostHog account yet, so the link explains signing up.
+    signUp?: boolean
     // Caps one wait for a request that stays open for days, so an agent never blocks on a person for long.
     maxWaitMs?: number
     checkResumable?: (pending: Pending) => void
@@ -93,6 +95,12 @@ export type ApprovalResult<Value> =
           approverNames?: string[]
       }
     | { status: 'approved'; value: Value }
+
+// For the agent that hands the link over, and for the person who opens it.
+export const SIGN_UP_INSTRUCTIONS =
+    "If the user doesn't have a PostHog account yet, they sign up on that page and confirm their email first. PostHog then asks them to approve the code. Once they approve it, they can come back to the terminal."
+export const SIGN_UP_NOTE =
+    "If you don't have a PostHog account yet, sign up on that page and confirm your email first. PostHog then asks you to approve the code. Once you approve it, come back to the terminal."
 
 const MAX_RETRIES = 3
 const REQUEST_TIMEOUT_MS = 30_000
@@ -289,7 +297,7 @@ function expired<Pending extends PendingApproval>(
 }
 
 export function pendingResult<Pending extends PendingApproval>(
-    flow: Pick<ApprovalFlow<Pending, unknown>, 'resume' | 'approver'>,
+    flow: Pick<ApprovalFlow<Pending, unknown>, 'resume' | 'approver' | 'signUp'>,
     pending: Pending
 ): Extract<ApprovalResult<never>, { status: 'pending' }> {
     const code = pending.userCode ?? null
@@ -304,7 +312,7 @@ export function pendingResult<Pending extends PendingApproval>(
         url: pending.url,
         code,
         expiresAt: new Date(pending.expiresAt).toISOString(),
-        instructions: `Ask the person to ${approve}. Then run \`${flow.resume}\` yourself. It returns once they approve, and if it times out, run it again.`,
+        instructions: `Ask the user to ${approve}.${flow.signUp ? ` ${SIGN_UP_INSTRUCTIONS}` : ''} Then run \`${flow.resume}\`. It returns once they approve. If it times out, run it again.`,
         next: flow.resume,
         ...(approver ? { approver: approver.who, approverNames: approver.names } : {}),
     }
@@ -330,7 +338,7 @@ export function refuseInCi(ctx: Context, command: string, hint: string): void {
     if (inCIWithoutAPerson(ctx)) {
         throw new HogError(
             'login_needs_a_person',
-            `${command} needs a person to approve it in a browser, so it does not run in CI.`,
+            `${command} needs someone to approve it in a browser, so it can't run in CI.`,
             hint
         )
     }
@@ -352,7 +360,8 @@ export async function runApproval<Pending extends PendingApproval, Value>(
         return pendingResult(flow, pending)
     }
     const code = pending.userCode ? `\n\nCode: ${escapeControls(pending.userCode)}` : ''
-    prompts.note(`${escapeControls(pending.url)}${code}`, `Approve the ${flow.noun} in your browser`)
+    const signUp = flow.signUp ? `\n\n${SIGN_UP_NOTE}` : ''
+    prompts.note(`${escapeControls(pending.url)}${code}${signUp}`, `Approve the ${flow.noun} in your browser`)
     // Over SSH, a browser would open on the remote machine, where nobody sees it.
     const overSsh = runtime.env.SSH_CONNECTION !== undefined || runtime.env.SSH_TTY !== undefined
     const opened = !overSsh && (await runtime.openUrl(pending.url))
@@ -376,19 +385,33 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
         )
     }
     flow.checkResumable?.(pending)
-    const spinner = ctx.prompts?.spinner(`Waiting for the ${flow.noun} to be approved in the browser`)
+    const spinner = ctx.prompts?.spinner(`Waiting for you to approve the ${flow.noun} in the browser`)
     return { pending, value: await withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending)) }
 }
 
-// What a person sees when an agent or a script started the request.
-export function printPending(out: Output, result: PendingResult): void {
-    out.line(
-        result.approver
-            ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
-            : result.code
-              ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
-              : 'Open this link to approve:'
-    )
-    out.line(`  ${escapeControls(result.url)}`)
-    out.line(`Then run ${out.style(result.next, 'bold')}.`)
+// What a person sees when an agent or a script started the request. `noun` names what waits, like `login`.
+// `after` holds the command's own notes, which follow the approval steps. `signUp` is set for a login.
+export function printPending(
+    out: Output,
+    result: PendingResult,
+    noun: string,
+    { after = [], signUp = false }: { after?: readonly string[]; signUp?: boolean } = {}
+): void {
+    const approve = result.approver
+        ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
+        : result.code
+          ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
+          : 'Open this link to approve:'
+
+    out.report({
+        status: 'partial',
+        result: `The ${noun} is waiting for approval`,
+        notes: [
+            approve,
+            `  ${escapeControls(result.url)}`,
+            ...(signUp ? [SIGN_UP_NOTE] : []),
+            `Then run ${out.style(result.next, 'bold')}.`,
+            ...after,
+        ],
+    })
 }

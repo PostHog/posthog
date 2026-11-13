@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import React from 'react'
 
 import { IconExpand45, IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { DEFAULT_PAID_RESPONSE_TIME, getSupportPlanRows } from 'lib/components/Support/supportResponseTime'
@@ -102,10 +102,10 @@ const SupportMessageOverride = (): JSX.Element | null => {
     }
 
     return (
-        <div className="border bg-surface-primary p-2 rounded gap-2 mb-3">
+        <LemonBanner type="info" hideIcon={false} className="mb-3">
             <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
-            <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
-        </div>
+            <p className="mt-1 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
+        </LemonBanner>
     )
 }
 

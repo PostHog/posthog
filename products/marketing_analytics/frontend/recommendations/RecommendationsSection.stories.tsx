@@ -12,6 +12,7 @@ import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
 } from '~/queries/schema/schema-general'
@@ -73,6 +74,14 @@ function recommendation(
         impactDirection: 'save',
         impactType: 'measured',
         currency: 'USD',
+        identity: {
+            rule: overrides.rule,
+            source_type: 'google_ads',
+            customer_id: '1234567890',
+            campaign_id: '',
+            subject: overrides.subject,
+        },
+        key: `${overrides.rule}:${overrides.subject}`,
         ...overrides,
     }
 }
@@ -94,7 +103,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         level: 'campaign',
         subject: 'Search - Competitors',
         action: 'Review bids, ads and landing page, or pause',
-        reason: "Its non-brand CPA is $412, 4.1x the account's non-brand CPA of $100.",
+        reason: "Its non-brand CPA is 4.1x the account's non-brand CPA.",
         impact: 3100,
         cpa: cpa(412, 100, 'account'),
     }),
@@ -173,10 +182,11 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'budget_constrained',
         level: 'campaign',
-        subject: 'Search - Brand',
+        subject: 'Search - Generic',
         action: 'Raise the daily budget from $50 to $80',
-        reason: 'Google Ads reports this campaign as limited by budget and recommends $80 a day.',
+        reason: "Limited by budget, and its non-brand CPA is at or below the account's non-brand CPA. 22% of eligible impressions are lost because the budget runs out. $80 a day is Google's recommended budget.",
         impact: 900,
+        cpa: cpa(85, 100, 'account'),
         impactDirection: 'invest',
         impactType: 'estimated',
     }),
@@ -185,7 +195,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         level: 'campaign',
         subject: 'Search - Product',
         action: 'Raise the budget',
-        reason: "Its non-brand CPA is $62, against the account's non-brand CPA of $100. It loses 31% of impressions to budget and 12% to ad rank.",
+        reason: "Its non-brand CPA is at or below the account's non-brand CPA. It loses 31% of impressions to budget and 12% to ad rank.",
         impact: 1500,
         cpa: cpa(62, 100, 'account'),
         impactDirection: 'invest',
@@ -205,7 +215,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         subject: 'event tracking setup',
         campaign: 'Search - Product',
         action: 'Create or improve a page for this search',
-        reason: "You pay $600/mo in Ads for this search, which converts at a CPA of $45 (the account's non-brand CPA is $100). It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
+        reason: "You pay $600/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
         cpa: cpa(45, 100, 'account'),
         impact: 600,
         impactDirection: 'gain',
@@ -390,5 +400,117 @@ export const MissingTablesInModal: Story = {
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+    },
+}
+
+function withResolved(
+    state: (row: MarketingAnalyticsRecommendation) => MarketingAnalyticsRecommendationResolutionState | null
+): Mocks {
+    const results = RESULTS.map((row) => {
+        const resolved = state(row)
+        return resolved
+            ? {
+                  ...row,
+                  resolution: {
+                      id: `resolution-${row.subject}`,
+                      resolution: resolved,
+                      resolved_at: '2025-02-14T12:00:00Z',
+                  },
+              }
+            : row
+    })
+    return {
+        ...MOCKS,
+        post: {
+            '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
+                200,
+                { results, disclaimer: DISCLAIMER },
+            ],
+        },
+    }
+}
+
+const BRAND_OVERLAP = RESULTS.filter((row) => row.rule === 'brand_overlap')
+
+export const ResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: withResolved((row) =>
+                row === BRAND_OVERLAP[0] ? 'dismissed' : row === BRAND_OVERLAP[1] ? 'applied' : null
+            ),
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Review 2 dismissed or applied'))
+        await userEvent.click(await modal.findByText('Brand overlap', { selector: 'button *' }))
+    },
+}
+
+const ALL_DISMISSED = withResolved(() => 'dismissed')
+
+export const AllDismissed: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+}
+
+export const AllDismissedInModal: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    },
+}
+
+const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
+
+async function dismissHighCostCampaign(canvasElement: HTMLElement): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    const modal = within(canvasElement.ownerDocument.body)
+    await userEvent.click(await modal.findByText('High cost per conversion', { selector: 'button *' }))
+    await userEvent.click(await modal.findByLabelText('Dismiss Search - Competitors'))
+}
+
+export const ResolvingInModal: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [RESOLUTIONS_URL]: () => new Promise(() => {}) } } },
+        // The request never finishes, so the buttons keep their spinner.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => dismissHighCostCampaign(canvasElement),
+}
+
+export const RuleResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    [RESOLUTIONS_URL]: async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return [
+                            201,
+                            {
+                                id: 'resolution-review',
+                                ...body,
+                                key: 'review_campaign:Search - Competitors',
+                                resolved_by: null,
+                                resolved_at: '2025-02-15T12:00:00Z',
+                                created_at: '2025-02-15T12:00:00Z',
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await dismissHighCostCampaign(canvasElement)
+        await within(canvasElement.ownerDocument.body).findByText(
+            'Every recommendation in this rule is dismissed or applied. Review them to restore one.'
+        )
     },
 }

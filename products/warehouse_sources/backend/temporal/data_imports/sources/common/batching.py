@@ -16,7 +16,7 @@ class TableBatcher(Generic[T]):
     """Accumulate tables until a row or byte limit, carrying each table's source item alongside.
 
     Accumulation only: when a file may be deleted differs per manager — the change buffer deletes on
-    proof of consumption, the webhook producer deletes once its batch is yielded — and that contract
+    proof of consumption, the webhook reader deletes once the job that read the file completes — and that contract
     stays with the caller.
     """
 

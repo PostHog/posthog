@@ -79,7 +79,7 @@ from products.alerts_platform.backend.facade.temporal import (
     AlertsPlatformTelemetryInterceptor,
 )
 from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
-from products.experiments.backend.temporal.recalculation_metrics import (
+from products.experiments.backend.facade.temporal import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
@@ -250,6 +250,11 @@ class ManagedWorker:
 
 
 DEFAULT_MAX_CONCURRENT_TASKS = 50
+
+
+def max_heartbeat_throttle_interval() -> dt.timedelta:
+    """The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this)."""
+    return dt.timedelta(seconds=settings.TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS)
 
 
 def build_poller_autoscaling(
@@ -582,9 +587,7 @@ async def create_worker(
                     ramp_throttle=activity_ramp_throttle,
                 ),
             ),
-            # Worker will flush heartbeats every
-            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
             **poller_kwargs,
         )
     else:
@@ -599,9 +602,7 @@ async def create_worker(
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS,
-            # Worker will flush heartbeats every
-            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
             **poller_kwargs,
         )
 
@@ -618,7 +619,7 @@ async def create_worker(
                 for interceptor in ALL_INTERCEPTOR_CLASSES
                 if is_task_queue_supported(config.task_queue, interceptor)
             ],
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
             **poller_kwargs,
         )
         for config in activity_worker_configs

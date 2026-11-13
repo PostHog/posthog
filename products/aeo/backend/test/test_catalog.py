@@ -1,7 +1,10 @@
 import uuid
+import datetime as dt
 from typing import Any
 
 from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -9,8 +12,10 @@ from posthog.models.team import Team
 
 from products.aeo.backend.catalog import recompute_own_citations, registrable_domain, sync_brands_from_run
 from products.aeo.backend.engines import MAX_URLS_PER_CHECK, own_domains_key
+from products.aeo.backend.facade.api import list_domains_across_teams
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
+from products.aeo.backend.test.factories import create_brand, create_citation_check, create_own_brand
 
 
 class TestSyncBrandsFromRun(BaseTest):
@@ -225,3 +230,23 @@ class TestSyncBrandsFromRun(BaseTest):
     )
     def test_registrable_domain(self, _name: str, url: str, expected: str | None) -> None:
         assert registrable_domain(url) == expected
+
+
+class TestListDomainsAcrossTeams(BaseTest):
+    def test_lists_brand_domains_and_recently_cited_hosts_from_every_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other aeo team")
+        create_own_brand(self.team, "example.com")
+        create_brand(other_team, "rival")
+        cited = {
+            create_citation_check(self.team, "recent"): (["docs.example.com", "www.g2.com"], 1),
+            create_citation_check(other_team, "other"): (["news.example.net", ""], 2),
+            create_citation_check(self.team, "old"): (["old.example.org"], 31),
+        }
+        for check_id, (hosts, days_ago) in cited.items():
+            AEOCitationCheck.objects.unscoped().filter(id=check_id).update(
+                top_cited_domains=hosts, created_at=timezone.now() - dt.timedelta(days=days_ago)
+            )
+
+        domains = list_domains_across_teams(cited_since=timezone.now() - dt.timedelta(days=30))
+
+        assert domains == {"example.com", "rival.example.com", "docs.example.com", "www.g2.com", "news.example.net"}

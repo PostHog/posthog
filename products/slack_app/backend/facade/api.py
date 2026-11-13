@@ -32,6 +32,9 @@ from products.slack_app.backend.facade.enums import SlackSetupEntry
 from products.slack_app.backend.facade.types import ChannelJoinResult, ChannelOption, SlackSetupNotFound, WorkspaceSetup
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.inbox_report_actions import (
+    report_state_followup_blocks as slack_report_state_followup_blocks,
+)
 from products.slack_app.backend.logic.progress_phases import (
     ANSWER_LINE_TITLE,
     OTHER_WORK,
@@ -91,6 +94,7 @@ __all__ = [
     "slack_followup_invite",
     "slack_followup_invite_text",
     "slack_report_implementation_button",
+    "slack_report_state_followup_blocks",
 ]
 
 logger = structlog.get_logger(__name__)

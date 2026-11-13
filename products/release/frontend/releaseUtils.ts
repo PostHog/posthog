@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -11,6 +13,11 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import {
+    NAME_PREFILL_PARAM,
+    SOURCE_PREFILL_PARAM,
+    SOURCE_RECORD_PREFILL_PARAM,
+} from 'products/workflows/frontend/Broadcasts/broadcastAudiencePrefill'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
@@ -57,6 +64,7 @@ export interface ReleaseEvent {
     detail?: string
     href?: string
     upcoming?: boolean
+    flagId?: number
 }
 
 export interface ReleaseSuggestion {
@@ -66,6 +74,8 @@ export interface ReleaseSuggestion {
     label: string
     to: string
 }
+
+export const releaseSourceRecord = (releaseId: string): string => `release:${releaseId}`
 
 export type ReleaseSpanTone = 'default' | 'info' | 'warning' | 'success'
 
@@ -140,6 +150,18 @@ export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | '
     early_access: 'warning',
     released: 'success',
     ended: 'default',
+}
+
+export const STAGE_COLOR_VARS =
+    '[--release-flag:#1d4aff] [--release-experiment:#c0339a] [--release-early-access:#a87400] [--release-released:#1f7a4a] dark:[--release-flag:#6b8bff] dark:[--release-experiment:#e45bb8] dark:[--release-early-access:#e8ac10] dark:[--release-released:#3fb878]'
+
+export const STAGE_COLOR: Record<ReleaseStage, string> = {
+    planned: 'var(--muted-foreground)',
+    flag: 'var(--release-flag)',
+    experiment: 'var(--release-experiment)',
+    early_access: 'var(--release-early-access)',
+    released: 'var(--release-released)',
+    ended: 'var(--muted-foreground)',
 }
 
 export function badgeVariantForTag(type: LemonTagType): ReleaseBadgeVariant {
@@ -328,7 +350,7 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     const denied = hasDeniedApprovalRequest(change as never)
     const expired = !!change.end_date && dayjs(change.end_date).isBefore(dayjs())
     const live = !isSchedulePaused(change as never) && !denied && !expired
-    const base = { kind: 'schedule' as const, href }
+    const base = { kind: 'schedule' as const, href, flagId: Number(change.record_id) }
 
     if (change.is_recurring) {
         const events: ReleaseEvent[] = []
@@ -438,7 +460,7 @@ function upcomingSendEvents(flow: SendCalendarFlowApi, now: dayjs.Dayjs): Releas
                 key: `send-schedule-${schedule.id}-${time.valueOf()}`,
                 date: time.toISOString(),
                 kind: 'broadcast' as const,
-                title: `Broadcast: ${flow.name || 'Untitled broadcast'}`,
+                title: `Broadcast scheduled: ${flow.name || 'Untitled broadcast'}`,
                 detail: 'Scheduled to send',
                 href: urls.broadcast(flow.id),
                 upcoming: true,
@@ -589,6 +611,7 @@ interface ReleaseFacts {
     unloadedFlagIds: number[]
     missingFlagIds: number[]
     hasHiddenFlags: boolean
+    pendingFlags: boolean
     complete: boolean
     experiments: ExperimentBasicApi[]
     earlyAccess: EarlyAccessFeatureApi[]
@@ -657,6 +680,7 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         unloadedFlagIds,
         missingFlagIds,
         hasHiddenFlags: release.has_hidden_flags,
+        pendingFlags: unloadedFlagIds.some((id) => !index.resolvedFlagIds.has(id)),
         complete,
         experiments,
         earlyAccess,
@@ -683,7 +707,9 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         audiences,
         audienceSummary:
             new Set(audiences.map((audience) => audience.summary)).size > 1
-                ? `Differs across ${audiences.length} flags`
+                ? audiences.every((audience) => audience.percent !== null)
+                    ? `${audiences.filter((audience) => isFullyRolledOut(audience.flag)).length} of ${audiences.length} flags reach everyone`
+                    : `Differs across ${audiences.length} flags`
                 : audiences[0]?.summary,
         firstFlagCreated: flags.map((flag) => flag.created_at).sort()[0] ?? null,
     }
@@ -705,7 +731,7 @@ function releaseStage(facts: ReleaseFacts): ReleaseStage {
     if (openEarlyAccess) {
         return 'early_access'
     }
-    return flags.length || facts.hasHiddenFlags ? 'flag' : 'planned'
+    return flags.length || facts.hasHiddenFlags || facts.pendingFlags ? 'flag' : 'planned'
 }
 
 function lastDoneCopy(lastDone: ExperimentBasicApi): { headline: string; detail: string } {
@@ -770,9 +796,14 @@ function releaseCopy(facts: ReleaseFacts): { status: string; headline: string; d
     if (flags.length) {
         return {
             status: 'Behind a flag',
-            headline: 'Behind a flag',
-            detail: audienceSummary ? `${audienceSummary}.` : '',
+            headline: audienceSummary
+                ? `${audienceSummary.charAt(0).toUpperCase()}${audienceSummary.slice(1)}`
+                : 'Behind a flag',
+            detail: '',
         }
+    }
+    if (facts.pendingFlags) {
+        return { status: 'Loading flags…', headline: 'Loading flags…', detail: '' }
     }
     if (facts.hasHiddenFlags) {
         return {
@@ -881,6 +912,9 @@ function rolloutNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
 }
 
 function releaseNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
+    if (facts.pendingFlags && !facts.flags.length) {
+        return null
+    }
     if (!facts.flags.length && !facts.hasHiddenFlags) {
         return {
             title: 'Link a feature flag',
@@ -991,7 +1025,7 @@ function releaseSuggestions(facts: ReleaseFacts, stage: ReleaseStage): ReleaseSu
         suggestions.push({
             key: 'broadcast',
             title: 'Tell users about it',
-            detail: 'Send a broadcast when the release reaches more users, then link it here to see it on the calendar.',
+            detail: 'Send a broadcast when the release reaches more users. It links to this release on its own.',
             label: 'New broadcast',
             to: urls.broadcastNew(),
         })
@@ -1121,7 +1155,18 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         lifecycle: releaseLifecycle(release, facts, stage),
         audiences: facts.audiences,
         events,
-        suggestions: releaseSuggestions(facts, stage),
+        suggestions: releaseSuggestions(facts, stage).map((suggestion) =>
+            suggestion.key === 'broadcast'
+                ? {
+                      ...suggestion,
+                      to: combineUrl(urls.broadcastNew(), {
+                          [NAME_PREFILL_PARAM]: release.name,
+                          [SOURCE_PREFILL_PARAM]: 'release',
+                          [SOURCE_RECORD_PREFILL_PARAM]: releaseSourceRecord(release.id),
+                      }).url,
+                  }
+                : suggestion
+        ),
         flags: facts.flags,
         experiments: facts.experiments,
         earlyAccess: facts.earlyAccess,
