@@ -165,6 +165,13 @@ class SendGridClient:
             self._respect_exhausted_limit(response)
             try:
                 return _parse(response, path)
+            except requests.RequestException as e:
+                # The body arrives after the headers, so a connection that drops while it streams is retried too.
+                if retries_left:
+                    time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (MAX_TRANSIENT_RETRIES - retries_left + 1))
+                    retries_left -= 1
+                    continue
+                raise SendGridAPIError(f"Couldn't reach SendGrid ({type(e).__name__}).") from None
             finally:
                 response.close()
 

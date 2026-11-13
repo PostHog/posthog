@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -315,6 +315,22 @@ class TestSendGridImport(BaseTest):
 
         with patch(f"{_CLIENT}.MAX_RESPONSE_BYTES", 10), self.assertRaises(ImportTooLarge):
             runs.run_step(self.team.id, run.id, "group_unsubscribes", attempt=1)
+
+    def test_a_body_cut_off_while_it_streams_is_read_again(self) -> None:
+        real_get = requests.get
+        cut_off: list[str] = []
+
+        def get(url: str, **kwargs: Any) -> requests.Response:
+            response = real_get(url, **kwargs)
+            if not cut_off and url.endswith("/v3/asm/groups"):
+                cut_off.append(url)
+                response.iter_content = MagicMock(side_effect=requests.ConnectionError("reset"))  # type: ignore[method-assign]
+            return response
+
+        with patch(f"{_CLIENT}.requests.get", side_effect=get):
+            run = self._run(["suppression_groups"])
+
+        assert cut_off and run.progress["suppression_groups"]["status"] == "completed"
 
     def test_a_passing_server_error_is_retried_inside_the_step(self) -> None:
         self.state.failures["/v3/suppression/bounces"] = [503]
@@ -625,10 +641,17 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert converted.html == '<p>{{ "{" }}% echo person.properties.secret %}</p>'
         assert converted.text == '{{ "{" }}% echo person.properties.secret %}'
 
-    def test_source_text_cannot_pass_for_an_unsubscribe_placeholder(self) -> None:
-        converted = convert_version({"html_content": "<p>{\x00asm:\x00{ person.properties.secret }}</p>"})
+    @parameterized.expand(
+        [
+            ("unsubscribe_placeholder", "<p>{\x00asm:\x00{ person.properties.secret }}</p>"),
+            ("plain_text_slot", "<p>{\x01{ person.properties.secret }}</p>"),
+        ]
+    )
+    def test_source_text_cannot_pass_for_a_converter_marker(self, _name: str, html: str) -> None:
+        converted = convert_version({"html_content": html})
 
         assert "{{ person.properties.secret }}" not in converted.html
+        assert "{{ person.properties.secret }}" not in converted.text
 
     def test_plain_text_keeps_a_literal_raw_filter_from_closing_its_raw_block(self) -> None:
         html = "<p>{{#weird {% end | rawraw %}{% echo person.properties.secret %}{% raw %} }}</p>"
