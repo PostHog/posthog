@@ -32,6 +32,9 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     Task.Status.IDLE: frozenset({Task.Status.QUEUED, Task.Status.DONE}),
     Task.Status.DONE: frozenset(),
 }
+_SEEN_WHEN_A_RUN_STARTS_BEFORE_ITS_FIRST_SYNC: dict[str, frozenset[str]] = {
+    Task.Status.IDLE: frozenset({Task.Status.RUNNING}),
+}
 
 _DONE_ONLY_REASONS: frozenset[str | None] = frozenset(
     {Task.StatusReason.FINISHED, Task.StatusReason.CLOSED, Task.StatusReason.CANCELLED}
@@ -403,7 +406,11 @@ def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -
             return False
         if _keeps_stored_done(stored):
             return False
-        if previous is not None and derived.status not in {previous.status, *TRANSITIONS[previous.status]}:
+        if previous is not None and derived.status not in {
+            previous.status,
+            *TRANSITIONS[previous.status],
+            *_SEEN_WHEN_A_RUN_STARTS_BEFORE_ITS_FIRST_SYNC.get(previous.status, ()),
+        }:
             observe_task_status_outside_transitions(from_status=previous.status, to_status=derived.status)
         _write_status(
             stored,

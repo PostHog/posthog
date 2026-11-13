@@ -24,7 +24,7 @@ import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPServiceComponent, geoipServerDefaultMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -200,6 +200,13 @@ export class IngestionGeneralServer implements NodeServer {
                     })
                 )
                 .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
+                .add(
+                    'geoipService',
+                    new GeoIPServiceComponent(
+                        this.config.MMDB_FILE_LOCATION,
+                        geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT)
+                    )
+                )
         )
 
         const sharedServices = await sharedServicesScope.start()
@@ -207,6 +214,7 @@ export class IngestionGeneralServer implements NodeServer {
         this.redisPool = sharedServices.container.redisPool
         const teamManager = sharedServices.container.teamManager
         const cookielessManager = sharedServices.container.cookielessManager
+        const geoipService = sharedServices.container.geoipService
         this.stopSharedServices = sharedServices.stop
         logger.info('👍', 'Postgres Router ready')
         logger.info('👍', 'Ingestion Redis ready')
@@ -214,10 +222,7 @@ export class IngestionGeneralServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        // 2. Ingestion + CDP shared services (geoip, repos, encryption)
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
-        await geoipService.get()
-
+        // 2. Ingestion + CDP shared services (repos, encryption)
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
 

@@ -1,3 +1,4 @@
+import { EXIT_SUCCESS } from './errors'
 import { parseJsonOrUndefined } from './json'
 import { postBatch, SEND_TIMEOUT_MS, TelemetryBatch } from './telemetry'
 
@@ -5,7 +6,7 @@ import { postBatch, SEND_TIMEOUT_MS, TelemetryBatch } from './telemetry'
 export const TELEMETRY_WORKER_ARG = 'telemetry-worker'
 
 export async function runTelemetryWorker(): Promise<void> {
-    setTimeout(() => process.exit(0), SEND_TIMEOUT_MS + 1000).unref()
+    setTimeout(() => process.exit(EXIT_SUCCESS), SEND_TIMEOUT_MS + 1000).unref()
     try {
         const body = await new Response(Bun.stdin.stream()).text()
         if (parseJsonOrUndefined(body, TelemetryBatch) !== undefined) {
@@ -14,5 +15,5 @@ export async function runTelemetryWorker(): Promise<void> {
     } catch {
         // No retry, so a worker never outlives its timeout.
     }
-    process.exit(0)
+    process.exit(EXIT_SUCCESS)
 }
