@@ -376,6 +376,10 @@ The agent uses the clicking member's project access and can ask them to select a
 Implementation requires task editor access and claims the report's implementation slot before creating a task.
 Slack implementations use manual AI billing, including when a discussion becomes an implementation.
 The button remains available if startup fails. Slack removes it after startup succeeds.
+For organizations with the `signals-inbox-slack-report-actions` flag, a report that can be claimed also gets an I'm on it button and a Copy prompt button.
+I'm on it claims the report for the clicking member, who needs task editor access, and replaces the button with a line that names them.
+The click never takes a claim over, so a report that already has a claim gets no I'm on it button.
+Copy prompt shows the clicking member the same agent prompt as the web inbox, in a message that only they can see.
 Review in PostHog opens the report page.
 
 When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.

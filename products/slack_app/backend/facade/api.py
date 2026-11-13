@@ -32,6 +32,10 @@ from products.slack_app.backend.facade.enums import SlackSetupEntry
 from products.slack_app.backend.facade.types import ChannelJoinResult, ChannelOption, SlackSetupNotFound, WorkspaceSetup
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.inbox_report_buttons import (
+    report_claim_button as slack_report_claim_button,
+    report_copy_prompt_button as slack_report_copy_prompt_button,
+)
 from products.slack_app.backend.logic.progress_phases import (
     ANSWER_LINE_TITLE,
     OTHER_WORK,
@@ -90,6 +94,8 @@ __all__ = [
     "slack_channel_is_approved",
     "slack_followup_invite",
     "slack_followup_invite_text",
+    "slack_report_claim_button",
+    "slack_report_copy_prompt_button",
     "slack_report_implementation_button",
 ]
 

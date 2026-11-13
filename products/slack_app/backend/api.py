@@ -55,7 +55,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_onboarding_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
-from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
+from products.slack_app.backend.logic import inbox_report_buttons, interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.connect_tool import CONNECT_TOOL_SKIP_ACTION_ID, resume_mention_workflow
 from products.slack_app.backend.logic.daily_focus import (
     DAILY_FOCUS_OFF_ACTION_ID,
@@ -94,6 +94,7 @@ from products.slack_app.backend.models import (
 from products.slack_app.backend.services import (
     bare_mention,
     inbox_interactivity,
+    inbox_report_actions,
     project_picker,
     slack_welcome_messages,
     turn_feedback,
@@ -6554,6 +6555,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
         or interview_recruitment.interview_integration_hint(payload)
         or onboarding_interactivity.onboarding_integration_hint(payload)
+        or inbox_report_buttons.report_action_integration_hint(payload)
         or _extract_action_value_hints(payload, CONNECT_TOOL_SKIP_ACTION_ID)[0]
         or _extract_action_value_hints(payload, DAILY_FOCUS_OFF_ACTION_ID)[0]
     )
@@ -6732,6 +6734,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_project_picker_pick(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
+            if action_id == inbox_report_buttons.REPORT_CLAIM_ACTION_ID:
+                return inbox_report_actions.handle_report_claim(payload)
+            if action_id == inbox_report_buttons.REPORT_COPY_PROMPT_ACTION_ID:
+                return inbox_report_actions.handle_report_copy_prompt(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
             if action_id == slack_welcome_messages.INBOX_CREATE_ACTION_ID:

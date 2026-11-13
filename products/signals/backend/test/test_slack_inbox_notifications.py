@@ -31,6 +31,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.slack_inbox_notifications import (
     _build_message_blocks,
@@ -473,6 +474,10 @@ def test_dispatch_sends_to_configured_reviewer(
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
             return_value=flag_result,
         ) as evaluate_flag,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.organization_inbox_slack_report_actions_enabled",
+            return_value=False,
+        ),
     ):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
@@ -823,6 +828,46 @@ def _implement_offered(post_message: MagicMock) -> bool:
         if block["type"] == "actions"
         for element in block["elements"]
     )
+
+
+@pytest.mark.parametrize(
+    "gate_enabled, claimed, expected_buttons",
+    [
+        (False, False, ["Implement", "Review in PostHog"]),
+        (True, False, ["Implement", "I'm on it", "Copy prompt", "Review in PostHog"]),
+        (True, True, ["Implement", "Copy prompt", "Review in PostHog"]),
+    ],
+)
+@pytest.mark.django_db
+def test_dispatch_offers_claim_and_copy_prompt_buttons_behind_the_gate(
+    org_and_team, gate_enabled, claimed, expected_buttons
+):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "claim@example.com", "claim-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    if claimed:
+        create_claim(report, ArtefactAttribution.from_user(reviewer.id))
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.organization_inbox_slack_report_actions_enabled",
+            return_value=gate_enabled,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert [
+        element["text"]["text"]
+        for block in fake_client.chat_postMessage.call_args.kwargs["blocks"]
+        if block["type"] == "actions"
+        for element in block["elements"]
+    ] == expected_buttons
 
 
 @pytest.mark.parametrize("trigger", ["report_ready", "reviewer_added"])

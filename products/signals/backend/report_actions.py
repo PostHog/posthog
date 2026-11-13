@@ -3,16 +3,25 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
+from typing import Literal
 
 from django.db import transaction
 
+from posthog.dataclasses import frozen
+from posthog.models.user import User
+
 from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import (
     ArtefactAttribution,
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
 )
+from products.signals.backend.report_assignments import ReportClaimConflict, claim_holder, claim_report
+from products.signals.backend.report_claim_follow_up import record_report_claimed
+from products.signals.backend.report_claims import get_active_claim, is_claim_of_person
 
 logger = logging.getLogger(__name__)
 
@@ -65,3 +74,49 @@ def suppress_report_from_slack(
     # The linked implementation PR is closed by the post_save receiver on suppression or snooze
     # (see receivers.close_pr_when_report_dismissed) — no per-caller call needed here.
     return True
+
+
+@frozen
+class SlackClaimOutcome:
+    status: Literal["claimed", "already_yours", "claimed_by_other", "not_claimable", "not_found"]
+    holder_name: str | None = None
+
+
+def claim_report_from_slack(team_id: int, report_id: str, *, user_id: int) -> SlackClaimOutcome:
+    """Claim a report for the PostHog user behind a Slack "I'm on it" click.
+
+    The click never takes a claim over. A person who wants a report that someone else holds does that
+    in PostHog, where they can see who holds it.
+    """
+    report = SignalReport.objects.filter(id=report_id, team_id=team_id).first()
+    user = User.objects.filter(id=user_id).first()
+    if report is None or user is None:
+        return SlackClaimOutcome(status="not_found")
+
+    held = get_active_claim(team_id=team_id, report_id=report.id)
+    # claim_report treats a claim that the person's agent holds as another actor's claim.
+    if held is not None and is_claim_of_person(held, user.id):
+        return SlackClaimOutcome(status="already_yours")
+
+    actor = ArtefactAttribution.from_user(user.id)
+    try:
+        claim_report(
+            report=report,
+            actor=actor,
+            user=user,
+            was_impersonated=False,
+            on_new_claim=partial(
+                record_report_claimed,
+                team_id=team_id,
+                report_id=str(report.id),
+                actor=actor,
+                scoped_team_ids=None,
+                was_impersonated=False,
+            ),
+        )
+    except ReportClaimConflict:
+        held = get_active_claim(team_id=team_id, report_id=report.id)
+        if held is None:
+            return SlackClaimOutcome(status="not_claimable")
+        return SlackClaimOutcome(status="claimed_by_other", holder_name=claim_display_name(report, claim_holder(held)))
+    return SlackClaimOutcome(status="claimed")

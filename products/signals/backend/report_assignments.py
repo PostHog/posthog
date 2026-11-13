@@ -473,7 +473,7 @@ def _held_by_another_person(claim: ReportClaim, user: User) -> bool:
     return claim.actor_kind in ("user", "agent") and claim.actor_user_id not in (None, user.id)
 
 
-def _claim_holder(claim: ReportClaim) -> ArtefactAttribution:
+def claim_holder(claim: ReportClaim) -> ArtefactAttribution:
     if claim.actor_kind == "agent" and claim.actor_user_id is not None:
         return ArtefactAttribution.from_agent(claim.actor_user_id, claim.actor_agent or "")
     if claim.actor_user_id is not None:
@@ -556,7 +556,7 @@ def claim_report(
                     # takeover_claim_id shows the caller read who holds the claim, so an agent cannot take a
                     # teammate's work with a bare takeover=true.
                     if not takeover_claim_id:
-                        holder = claim_display_name(locked_report, _claim_holder(assignment))
+                        holder = claim_display_name(locked_report, claim_holder(assignment))
                         raise ReportClaimConflict(
                             f"{holder} is working on this report. Check with your user before you take it over, "
                             f"then send takeover=true with takeover_claim_id={assignment.claim_id}."
