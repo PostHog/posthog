@@ -74,6 +74,7 @@ const fileSystemList = (): ToolBase<
                 offset: params.offset,
                 parent: params.parent,
                 path: params.path,
+                path__iexact: params.path__iexact,
                 ref: params.ref,
                 search: params.search,
                 type: params.type,

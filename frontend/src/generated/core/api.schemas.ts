@@ -5226,6 +5226,11 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemMoveRequestApi {
+    /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
+    new_path: string
+}
+
 export interface FileSystemFolderCountApi {
     /** Folder path. An empty string is the project root. */
     folder: string
@@ -5236,11 +5241,6 @@ export interface FileSystemFolderCountApi {
 export interface FileSystemFolderCountsApi {
     /** Each folder that directly holds a counted file. */
     results: FileSystemFolderCountApi[]
-}
-
-export interface FileSystemMoveRequestApi {
-    /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
-    new_path: string
 }
 
 export interface FileSystemHomeFolderApi {
