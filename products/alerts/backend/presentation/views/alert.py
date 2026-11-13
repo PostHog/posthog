@@ -1025,7 +1025,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             team_id=team_id,
             alert_id=view.id,
             user_ids=[user.id for user in subscribed_users],
-            insight_short_id=insight.short_id,
+            actor_id=self.context["request"].user.id,
+            was_impersonated=is_impersonated(self.context["request"]),
         )
         created = AlertConfiguration.from_platform_view(view, team_id=team_id)
         assert created is not None
@@ -1265,7 +1266,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 user_ids=[user.id for user in subscribed_users]
                 if subscribed_users is not None
                 else platform_subscriber_ids(team_id=updated.team_id, alert_ids=[updated.id]).get(updated.id, ()),
-                insight_short_id=updated.insight.short_id,
+                actor_id=self.context["request"].user.id,
+                was_impersonated=is_impersonated(self.context["request"]),
             )
         _show_platform_status([updated], now=timezone.now())
         _show_platform_subscribers([updated])
