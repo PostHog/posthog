@@ -648,20 +648,27 @@ describe('hog api tool catalog', () => {
         expect(library.received()).toBeUndefined()
     })
 
-    test('with TLS verification off, neither downloads a catalog nor uses the saved one', async () => {
+    test.each([
+        ['HOG_SKIP_SSL_VERIFICATION', { HOG_SKIP_SSL_VERIFICATION: '1' }, 'TLS verification is off'],
+        [
+            'NODE_TLS_REJECT_UNAUTHORIZED=0',
+            { NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+            'NODE_TLS_REJECT_UNAUTHORIZED turns TLS verification off',
+        ],
+    ])('with %s, neither downloads a catalog nor uses the saved one', async (_name, env, reason) => {
         const library = catalogLibrary()
+        const files = cached(['flag-list'], 25 * HOUR)
         const result = await runHog(['api', 'groups', '--debug'], {
-            env: { CLAUDECODE: '1', HOG_SKIP_SSL_VERIFICATION: '1' },
+            env: { CLAUDECODE: '1', ...env },
             apiTools: library.build,
-            files: cached(['flag-list'], HOUR),
+            files,
             respond: () => ({ status: 200, body: catalog(['flag-new']) }),
         })
 
         expect(catalogRequests(result)).toBe(0)
         expect(library.received()).toBeUndefined()
-        expect(result.stderr).toContain(
-            '[debug] api catalog: the tools built into hog, because TLS verification is off'
-        )
+        expect(result.files[CACHE]).toBe(files[CACHE])
+        expect(result.stderr).toContain(`[debug] api catalog: the tools built into hog, because ${reason}`)
     })
 
     test('--debug names the source and each tool hog kept built in', async () => {

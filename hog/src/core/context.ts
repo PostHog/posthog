@@ -19,7 +19,7 @@ import { fallbackHost, readSettings, type HogSettings } from '@/posthog/settings
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
 import { loadConfig, type LoadedConfig } from './config'
-import type { GlobalOptions } from './globals'
+import { tlsVerificationOff, type GlobalOptions } from './globals'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
 import { SKILL_COMMANDS } from './skill-commands'
@@ -109,7 +109,7 @@ export class Context {
         const resolved = await resolveCatalog(this.runtime, {
             host: (await this.apiHost()) ?? REGIONS.us,
             refresh,
-            skipSslVerification: this.globals.skipSslVerification === true,
+            insecureTls: tlsVerificationOff(this.runtime.env, this.globals),
         })
         this.catalog = resolved
         const library = await this.runtime.loadApiTools(resolved.catalog ? { catalog: resolved.catalog } : {})

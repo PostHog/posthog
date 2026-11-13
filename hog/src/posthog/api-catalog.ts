@@ -179,7 +179,7 @@ async function download(runtime: Runtime, url: string, etag: string | null): Pro
 export interface CatalogOptions {
     host: Host
     refresh?: boolean
-    skipSslVerification?: boolean
+    insecureTls?: string
 }
 
 export async function resolveCatalog(runtime: Runtime, options: CatalogOptions): Promise<ResolvedCatalog> {
@@ -197,8 +197,8 @@ export async function resolveCatalog(runtime: Runtime, options: CatalogOptions):
     if (runtime.env.HOG_API_CATALOG === 'bundled') {
         return bundled('pinned', 'HOG_API_CATALOG is set to bundled')
     }
-    if (options.skipSslVerification) {
-        return bundled('insecure_tls', 'TLS verification is off')
+    if (options.insecureTls !== undefined) {
+        return bundled('insecure_tls', options.insecureTls)
     }
 
     let path: string
