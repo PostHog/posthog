@@ -87,6 +87,7 @@ class ExternalDataSourceViewSet(
         "refresh_schemas",
         "bulk_update_schemas",
         "database_schema",
+        "incremental_field_recommendations",
         "setup",
         "apply_migration_item",
         "store_credentials",
@@ -101,6 +102,7 @@ class ExternalDataSourceViewSet(
         "enable_cdc",
         "disable_cdc",
         "repair_cdc",
+        "resume_cdc",
         "update_cdc_settings",
         # Enumerates the connected provider's accounts/sites — write-scoped so a read-only token can't
         # list them (info disclosure); also gated behind admin in dangerously_get_permissions.

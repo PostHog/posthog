@@ -753,6 +753,10 @@ class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 
 
+class SandboxSenderUnavailable(Exception):
+    pass
+
+
 class TransactionalEmailSenderRequired(Exception):
     """The project has several verified email senders and no default, so the send has to name one."""
 
@@ -826,6 +830,7 @@ class WorkflowEditState:
     team_id: int
     name: str | None
     status: str
+    disabled_from_active: bool
     version: int
     origin_product: str | None
     created_by: "User | None"

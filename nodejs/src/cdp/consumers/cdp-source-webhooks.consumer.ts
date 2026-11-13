@@ -9,6 +9,7 @@ import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -382,6 +383,28 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     }
                 }
 
+                const releaseReservation = async (): Promise<void> => {
+                    if (scopedIdempotencyKey) {
+                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
+                    }
+                }
+
+                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow).catch(async (error) => {
+                    await releaseReservation()
+                    throw error
+                })
+                if (quotaLimited) {
+                    await releaseReservation()
+                    addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
+                    functionResult.finished = false
+                    if (hogFlow.trigger?.type !== 'tracking_pixel') {
+                        functionResult.execResult = {
+                            httpResponse: { status: 429, body: { error: HOG_FLOW_QUOTA_LIMITED_MESSAGE } },
+                        }
+                    }
+                    return { result: functionResult, queuedInvocationId: null }
+                }
+
                 addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
@@ -399,9 +422,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 try {
                     await this.hogflowQueue.queueInvocations([hogFlowInvocation])
                 } catch (error) {
-                    if (scopedIdempotencyKey) {
-                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
-                    }
+                    await releaseReservation()
                     throw error
                 }
                 queuedInvocationId = invocationId
@@ -649,7 +670,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         // A refusal gets 422 so a template's own 401 or 405 is not mistaken for the route's auth check.
         const httpResponse = getCustomHttpResponse(outcome.result)
         if (httpResponse && httpResponse.status >= 400) {
-            const reason = typeof httpResponse.body === 'string' ? httpResponse.body : JSON.stringify(httpResponse.body)
+            const body = httpResponse.body
+            const reason =
+                typeof body === 'string' ? body : typeof body?.error === 'string' ? body.error : JSON.stringify(body)
             throw new SourceWebhookError(422, `The trigger refused the run (${httpResponse.status}): ${reason}`)
         }
         throw new SourceWebhookError(

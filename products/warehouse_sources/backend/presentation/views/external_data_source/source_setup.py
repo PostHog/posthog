@@ -8,10 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
 from django.db.models import Q, TextChoices
-from django.utils import timezone
 
 import temporalio
 from anthropic import APIConnectionError
@@ -101,6 +99,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
+from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseManagedViewSetKind,
     SettableSyncFrequency,
@@ -294,6 +293,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "API could not reach the database. Null otherwise."
         ),
     )
+    payload = credential_store.SourceUpdatePayloadSerializer(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do "
+            "not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -327,6 +334,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "api_version",
             "api_version_deprecation",
             "connection_warning",
+            "payload",
         ]
         read_only_fields = [
             "id",
@@ -518,6 +526,48 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
+    def _stored_credential_for_update(
+        self, instance: ExternalDataSource, validated_data: dict[str, Any]
+    ) -> PendingSourceCredential | None:
+        """Resolve `payload.credential_id` and put the stored values in `validated_data["job_inputs"]`.
+
+        The stored values are the whole connection change, so inline `job_inputs` and a reference to other
+        saved credentials are refused: either one could pair the user's new secrets with a target or
+        credentials that the user did not enter on the connect page.
+        """
+        update_payload = validated_data.pop("payload", None)
+        if update_payload is None:
+            return None
+        if "job_inputs" in validated_data:
+            raise ValidationError(
+                {"payload": "Send a stored credential without job_inputs. Its values replace the connection details."}
+            )
+        # A PATCH skips required fields of nested serializers, so the id is checked here.
+        credential_id = update_payload.get("credential_id")
+        if credential_id is None:
+            raise ValidationError({"payload": {"credential_id": "This field is required."}})
+        try:
+            stored_credential = credential_store.find_stored_credential(
+                team_id=instance.team_id,
+                user=cast(User, self.context["request"].user),
+                credential_id=credential_id,
+                source_type=instance.source_type,
+            )
+        except credential_store.StoredCredentialUnavailableError as error:
+            raise ValidationError({"payload": {"credential_id": str(error)}})
+        if stored_credential.payload.get(CREDENTIALS_REFERENCE_INPUT_KEY) not in (None, ""):
+            raise ValidationError(
+                {
+                    "payload": {
+                        "credential_id": "This stored credential points at other saved credentials. "
+                        "Ask the user to enter the connection details on a new connect link."
+                    }
+                }
+            )
+        # The stored values go through the same path as job_inputs from the settings form.
+        validated_data["job_inputs"] = dict(stored_credential.payload)
+        return stored_credential
+
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
         requested_access_method = request.data.get("access_method") if request is not None else None
@@ -547,6 +597,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
+        stored_credential = self._stored_credential_for_update(instance, validated_data)
+
         try:
             existing_job_inputs = SourceInputsStore.load(instance)
         except SourceCredentialsMissingError:
@@ -563,7 +615,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         discovered_schemas: list[SourceSchema] | None = None
         connection_warning: str | None = None
 
-        new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+        if stored_credential is None:
+            new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+            secrets_base: dict[str, Any] = existing_job_inputs
+        else:
+            # The connect page checked the stored values on their own. So a reconnect keeps only the source's
+            # sync settings and runtime state, and takes every connection field from the stored values: no
+            # host, TLS setting, SSH tunnel or secret that the user did not enter there carries over.
+            new_job_inputs = {**SourceInputsStore.load_settings(instance), **incoming_job_inputs}
+            secrets_base = {}
 
         # CDC resource ownership changes must go through the CDC-specific endpoints.
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
@@ -624,7 +684,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if connection_host_changed or ssh_tunnel_changed or job_inputs_host_added:
             gate_sensitive_fields = sensitive_fields - helpers._CREATION_ONLY_SECRET_FIELDS
             preserved_credentials = helpers.has_preserved_credentials(
-                existing_job_inputs,
+                secrets_base,
                 incoming_job_inputs,
                 gate_sensitive_fields,
                 nested_containers=(*helpers._NESTED_AUTH_CONTAINERS, *declared_field_names.switch_groups),
@@ -638,15 +698,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
         for key in sensitive_fields:
-            if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
-                new_job_inputs[key] = existing_job_inputs[key]
+            if secrets_base.get(key) and not incoming_job_inputs.get(key):
+                new_job_inputs[key] = secrets_base[key]
 
         # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
         # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
         # above would otherwise wipe redacted credentials nested inside these containers. Same container
         # list as the host-change gate above, so a merge here always has a matching preserved-credential check.
         for container_key in helpers._NESTED_AUTH_CONTAINERS:
-            existing_container = existing_job_inputs.get(container_key)
+            existing_container = secrets_base.get(container_key)
             incoming_container = incoming_job_inputs.get(container_key)
             if incoming_container is not None and not isinstance(incoming_container, dict):
                 raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
@@ -677,9 +737,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             incoming_group = incoming_job_inputs[incoming_key]
             if not isinstance(incoming_group, dict):
                 raise ValidationError({"job_inputs": {group_key: "Must be an object."}})
-            existing_group = helpers._stored_value(existing_job_inputs, group_key)
+            existing_group = helpers._stored_value(secrets_base, group_key)
             if not isinstance(existing_group, dict):
-                continue
+                if stored_credential is None:
+                    continue
+                existing_group = {}
             merged_group = {**existing_group, **incoming_group}
             # No switch group declares a secret today, but keep the carry-over so one could.
             for key in sensitive_fields:
@@ -693,9 +755,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config, so deep-merge it to keep the stored fields a partial update omits.
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if incoming_ssh_tunnel is not None:
-            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(
-                existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
-            )
+            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(secrets_base.get("ssh_tunnel"), incoming_ssh_tunnel)
 
         # A client may point the source at another credentials row only when the source can use that row.
         # The check runs for every team, also while the dual-write flag is off, because it keeps a client
@@ -857,6 +917,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     credentials_reference=requested_reference,
                 )
             updated_source: ExternalDataSource = super().update(instance, validated_data)
+            if stored_credential is not None:
+                # Stored credentials are single-use. A concurrent update that used the same credential first
+                # deleted it, so roll this update back.
+                deleted_count, _ = (
+                    PendingSourceCredential.objects.for_team(instance.team_id).filter(pk=stored_credential.pk).delete()
+                )
+                if not deleted_count:
+                    raise ValidationError(
+                        {"payload": {"credential_id": f"Stored credential '{stored_credential.pk}' was already used"}}
+                    )
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -1240,58 +1310,57 @@ def _duplicate_prefix_response(prefix: str) -> Response:
     )
 
 
+def _stored_credential_error_response(
+    error: credential_store.StoredCredentialUnavailableError, credential_id: Any, source_type: str
+) -> Response:
+    if error.problem == credential_store.StoredCredentialProblem.EXPIRED:
+        return setup_error_response(
+            SourceSetupErrorCode.CREDENTIAL_EXPIRED,
+            f"Stored credential '{credential_id}' not found or expired. Stored credentials last "
+            f"{int(PENDING_CREDENTIAL_TTL.total_seconds() // 3600)} hours. Ask the user to fill in a new "
+            "connect link from 'data-warehouse-source-connect-link', then find the new id with "
+            "'data-warehouse-stored-credentials-list'.",
+        )
+    if error.problem == credential_store.StoredCredentialProblem.SOURCE_TYPE_MISMATCH:
+        return setup_error_response(
+            SourceSetupErrorCode.CREDENTIAL_SOURCE_TYPE_MISMATCH,
+            f"Stored credential '{credential_id}' is for '{error.stored_source_type}', not '{source_type}'. "
+            f"Set source_type to '{error.stored_source_type}', or pass a credential stored for '{source_type}'.",
+        )
+    return setup_error_response(
+        SourceSetupErrorCode.CREDENTIAL_NOT_FOUND,
+        f"Stored credential '{credential_id}' not found or expired. It may have been used already "
+        "(stored credentials work once), or it belongs to another user or project. List current ids "
+        "with 'data-warehouse-stored-credentials-list', or ask the user to fill in a new connect link "
+        "from 'data-warehouse-source-connect-link'.",
+    )
+
+
 class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> credential_store.ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
 
         Lets the create and setup flows reference credentials the user entered on the connect page
-        instead of passing secrets inline. Only credentials the requesting user stored resolve —
-        ids are listable within a team, so without the owner check any member could consume a
-        teammate's stashed secrets into a source they control. Returns the (possibly merged)
-        payload, the resolved credential (which a caller that creates a source deletes once
-        consumed — stored credentials are single-use; read-only discovery leaves it in place),
-        and a 400 Response to return as-is on a lookup miss or source-type mismatch.
+        instead of passing secrets inline. `credential_store.find_stored_credential` does the lookup and
+        its checks. Returns the (possibly merged) payload, the resolved credential (which a caller that
+        creates a source deletes once consumed — stored credentials are single-use; read-only discovery
+        leaves it in place), and a 400 Response to return as-is on a lookup miss or source-type mismatch.
         """
         credential_id = payload.pop("credential_id", None)
         if credential_id is None:
             return credential_store.ResolvedStoredCredential(payload=payload, credential=None, error_response=None)
         try:
-            credential = PendingSourceCredential.objects.for_team(self.team_id).get(
-                id=credential_id, created_by=cast(User, self.request.user)
+            credential = credential_store.find_stored_credential(
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                credential_id=credential_id,
+                source_type=source_type,
             )
-        except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+        except credential_store.StoredCredentialUnavailableError as error:
             return credential_store.ResolvedStoredCredential(
                 payload=payload,
                 credential=None,
-                error_response=setup_error_response(
-                    SourceSetupErrorCode.CREDENTIAL_NOT_FOUND,
-                    f"Stored credential '{credential_id}' not found or expired. It may have been used already "
-                    "(stored credentials work once), or it belongs to another user or project. List current ids "
-                    "with 'data-warehouse-stored-credentials-list', or ask the user to fill in a new connect link "
-                    "from 'data-warehouse-source-connect-link'.",
-                ),
-            )
-        if credential.expires_at <= timezone.now():
-            return credential_store.ResolvedStoredCredential(
-                payload=payload,
-                credential=None,
-                error_response=setup_error_response(
-                    SourceSetupErrorCode.CREDENTIAL_EXPIRED,
-                    f"Stored credential '{credential_id}' not found or expired. Stored credentials last "
-                    f"{int(PENDING_CREDENTIAL_TTL.total_seconds() // 3600)} hours. Ask the user to fill in a new "
-                    "connect link from 'data-warehouse-source-connect-link', then find the new id with "
-                    "'data-warehouse-stored-credentials-list'.",
-                ),
-            )
-        if credential.source_type != source_type:
-            return credential_store.ResolvedStoredCredential(
-                payload=payload,
-                credential=None,
-                error_response=setup_error_response(
-                    SourceSetupErrorCode.CREDENTIAL_SOURCE_TYPE_MISMATCH,
-                    f"Stored credential '{credential_id}' is for '{credential.source_type}', not '{source_type}'. "
-                    f"Set source_type to '{credential.source_type}', or pass a credential stored for '{source_type}'.",
-                ),
+                error_response=_stored_credential_error_response(error, credential_id, source_type),
             )
         # Stored credentials win over inline keys so an agent can't override what the user entered.
         # Inline keys that decide where the connection goes or how it is secured are dropped as well:
@@ -1376,6 +1445,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "source_type": instance.source_type,
                 "created_via": instance.created_via,
                 "source_id": str(instance.pk),
+                "used_stored_credential": "payload" in serializer.validated_data,
             },
             team=self.team,
             request=self.request,
@@ -2202,6 +2272,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 table_mode=schema_model.cdc_table_mode,
                 request=request,
             )
+
+        create_default_failure_alert(self.team)
 
         return Response(
             status=status.HTTP_201_CREATED,

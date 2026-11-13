@@ -5670,6 +5670,7 @@ export const INTEGRATION_KINDS = [
     'stripe',
     'intercom',
     'email',
+    'email_sandbox',
     'twilio',
     'linear',
     'github',
@@ -6614,7 +6615,8 @@ export type SchemaIncrementalFieldsResponse = {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     primary_key_detection_supported?: boolean
-    cdc_available?: boolean
+    /** `null` when CDC is off for the source, `false` when this table has no primary key for CDC. */
+    cdc_available?: boolean | null
     xmin_available?: boolean
     /** Whether the organization can keep a history table for an incremental table. */
     incremental_history_available?: boolean
@@ -6630,6 +6632,9 @@ export interface IncrementalField {
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
     is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
+    recommended?: boolean // the backend's pick among the candidates, set for database sources
+    picked_by_model?: boolean // the decision model, not the name rules, chose this field
+    notes?: string[] // trade-offs of picking this field, for the person choosing
 }
 
 export interface ExternalDataSourceSyncSchema {
@@ -6647,7 +6652,8 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
-    cdc_available?: boolean
+    /** `null` when CDC is off for the source, `false` when this table has no primary key for CDC. */
+    cdc_available?: boolean | null
     xmin_available?: boolean
     incremental_history_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'

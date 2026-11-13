@@ -16,7 +16,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
 from products.feature_flags.backend.facade.filters import (
     CohortRestrictionBlocker,
@@ -57,6 +57,25 @@ ExposureFreezeBlocker = (
     Literal["draft", "stopped", "paused", "already_frozen", "no_flag", "flag_deleted", "flag_rule"]
     | CohortRestrictionBlocker
 )
+
+
+class LiveExperimentManager(RootTeamManager):
+    """Experiments the API still shows, which is every row whose `deleted` is not true.
+
+    This is a manager rather than a filter because the flag ownership table in
+    `products/feature_flags/backend/ownership.py` reads each owning relation through a named
+    manager, so only a manager can keep a deleted experiment out of it.
+
+    `deleted` is nullable, and `filter_experiments_queryset` counts a null as live, so this
+    excludes true instead of keeping false. An experiment a user can still open must keep its
+    flag, because that page is where the user unlinks it.
+
+    Inherits `RootTeamManager` because `RootTeamMixin` makes that the default manager, and a manager
+    on the model that does not inherit it would lose the project-scoped team rewriting.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
 
 
 class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -169,6 +188,11 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     feature_flag_rule_id = models.UUIDField(null=True, blank=True)
     # The immutable first-start snapshot preserves the rule and relevant flag context after winner shipping.
     feature_flag_rule_snapshot = models.JSONField(null=True, blank=True)
+
+    # Django puts a locally declared manager first, so without this line `live_objects` becomes
+    # the default manager and hides soft-deleted rows from readers such as restore.
+    objects = RootTeamManager()  # type: ignore[misc]
+    live_objects = LiveExperimentManager()
 
     class Meta:
         db_table = "posthog_experiment"

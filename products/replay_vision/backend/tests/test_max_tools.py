@@ -1276,7 +1276,7 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
     async def test_a_denied_experiment_refuses_config_edits_through_max(self):
         # Without an access control in the serializer context the experiment-scope write guard
         # treats the caller as unrestricted, so Max would bypass the refusal the API enforces.
-        from products.experiments.backend.models.experiment import Experiment
+        from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
         from products.replay_vision.backend.tests.helpers import create_experiment
 
         experiment = await sync_to_async(create_experiment)(self.team, "restricted-flag")
@@ -1285,10 +1285,7 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
             scanner_config={"prompt": "p", "experiment_id": experiment.id},
         )
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             _, result = await self._tool()._arun_impl(scanner_id=str(scanner.id), prompt="rewritten")
 
         assert result == {"error": "invalid_config"}
