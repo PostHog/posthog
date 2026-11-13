@@ -14,6 +14,7 @@ from posthog.schema import (
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
+    is_event_property,
     is_recording_property,
     is_session_property,
 )
@@ -70,6 +71,22 @@ class TestStripProperties:
             [person, event, group, cohort, session, recording, unexpected]
         )
         assert result == [unexpected]
+
+    @parameterized.expand(
+        [
+            ("event name", "event = '$rageclick'", True),
+            ("group key", "$group_0 NOT ILIKE '%acme%'", True),
+            ("virtual bot field", "NOT $virt_is_bot", True),
+            ("event properties", "properties.$browser = 'Chrome'", True),
+            ("replay column", "console_error_count > 0", False),
+            ("person properties", "person.properties.email = 'a@b.com'", False),
+            ("unknown field", "unrelated = 1", False),
+        ]
+    )
+    def test_is_event_property_routes_hogql_by_the_fields_it_reads(
+        self, _name: str, expression: str, expected: bool
+    ) -> None:
+        assert is_event_property(HogQLPropertyFilter(key=expression)) is expected
 
     def test_is_session_property_matches_type_and_hogql(self) -> None:
         assert is_session_property(
