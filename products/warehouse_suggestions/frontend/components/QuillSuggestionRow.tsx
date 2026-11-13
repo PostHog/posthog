@@ -4,6 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { SavingHighlight } from '../suggestionCopy'
 import { QuillSuggestionAssigneeSelect } from './QuillSuggestionAssigneeSelect'
+import { SuggestionAssigneeSelectProps } from './SuggestionAssigneeSelect'
 import { SuggestionRowProps } from './SuggestionRow'
 
 export interface QuillRowSelectionProps {
@@ -21,9 +22,9 @@ export const QUILL_ASSIGNEE_CELL_CLASS =
 
 const INLINE_ASSIGNEE_HIDDEN_CLASS = '@min-[48rem]/suggestions:hidden'
 
-function QuillMetaItem({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+function QuillMetaItem({ children, hiddenWhenWide }: { children: ReactNode; hiddenWhenWide?: boolean }): JSX.Element {
     return (
-        <span className={cn('-ml-4 inline-flex items-baseline', className)}>
+        <span className={cn('-ml-4 inline-flex items-baseline', hiddenWhenWide && INLINE_ASSIGNEE_HIDDEN_CLASS)}>
             <span aria-hidden className="w-4 shrink-0 text-center text-subtle-foreground">
                 ·
             </span>
@@ -58,6 +59,20 @@ function QuillHighlightAmount({ highlight }: { highlight: SavingHighlight }): JS
                 </span>
             </TooltipContent>
         </Tooltip>
+    )
+}
+
+function QuillAssigneeColumnCell({
+    assigneeColumn,
+    ...selectProps
+}: SuggestionAssigneeSelectProps & Pick<QuillRowSelectionProps, 'assigneeColumn'>): JSX.Element | null {
+    if (!assigneeColumn) {
+        return null
+    }
+    return (
+        <div className={QUILL_ASSIGNEE_CELL_CLASS}>
+            <QuillSuggestionAssigneeSelect {...selectProps} column />
+        </div>
     )
 }
 
@@ -111,7 +126,7 @@ export function QuillSuggestionRow({
                                 {meta.map((item, index) => (
                                     <QuillMetaItem key={index}>{item}</QuillMetaItem>
                                 ))}
-                                <QuillMetaItem className={assigneeColumn ? INLINE_ASSIGNEE_HIDDEN_CLASS : undefined}>
+                                <QuillMetaItem hiddenWhenWide={assigneeColumn}>
                                     <QuillSuggestionAssigneeSelect
                                         suggestionId={suggestionId}
                                         assignee={assignee}
@@ -131,16 +146,12 @@ export function QuillSuggestionRow({
                             )}
                         </div>
                     )}
-                    {assigneeColumn && (
-                        <div className={QUILL_ASSIGNEE_CELL_CLASS}>
-                            <QuillSuggestionAssigneeSelect
-                                suggestionId={suggestionId}
-                                assignee={assignee}
-                                canAct={canAct}
-                                column
-                            />
-                        </div>
-                    )}
+                    <QuillAssigneeColumnCell
+                        suggestionId={suggestionId}
+                        assignee={assignee}
+                        canAct={canAct}
+                        assigneeColumn={assigneeColumn}
+                    />
                     <div
                         data-suggestion-actions
                         className={cn(
