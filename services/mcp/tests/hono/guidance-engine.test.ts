@@ -566,6 +566,37 @@ describe('Self-driving activation guidance', () => {
     )
 
     it.each([
+        [true, 'error-tracking-sd-activation:shown'],
+        [false, 'empty-hint:shown'],
+    ])(
+        'lets an empty-result hint fire when the activation flag is %s only if activation sends no text',
+        async (enabled, expected) => {
+            const emptyHint: GuidanceRule = {
+                id: 'empty-hint',
+                flag: 'mcp-guidance-empty-hint',
+                trigger: { tool: listCall.toolName, resultEmpty: true, outcome: 'success', presets: ['user'] },
+                threshold: 1,
+                maxPerSession: 1,
+                suppressIfCalled: [],
+                requiresTool: [listCall.toolName],
+                text: 'Loosen the filters.',
+            }
+            const state = activationState({
+                allTools: [
+                    'self-driving-status-get',
+                    'inbox-reports-list',
+                    'inbox-reports-retrieve',
+                    'inbox-report-artefacts-list',
+                    listCall.toolName,
+                ].map((name) => ({ name })) as ResolvedState['allTools'],
+                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled, [emptyHint.flag]: true },
+            })
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [emptyHint])
+            await expect(run(engine, state, [{ ...listCall, resultEmpty: true }])).resolves.toEqual([expected])
+        }
+    )
+
+    it.each([
         ['impersonation', { isImpersonated: true }],
         ['analytics suppression', { suppressAnalytics: true }],
         ['a task-bound request', { isTaskBound: true }],

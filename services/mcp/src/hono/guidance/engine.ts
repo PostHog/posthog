@@ -178,12 +178,16 @@ export class GuidanceEngine {
             const activation = await selfDrivingActivationGuidance(this.redis, state, call, productState)
             if (activation) {
                 guidanceNoticesTotal.inc({ rule: activation.ruleId, outcome: activation.outcome })
+            }
+            if (activation?.text) {
                 return activation
             }
+            // A `flag_off` activation sends no text, so it must not take the slot from the ordinary rules.
+            // The activation stamp is kept below unless another rule actually shows a notice on this call.
             const preset = resolveScopePreset(state.apiKeyScopes)
             const rules = this.rules.filter((rule) => ruleApplies(rule, state, preset))
             if (rules.length === 0) {
-                return undefined
+                return activation
             }
             const scopes = countingScopes(state)
             let winner: GuidanceNotice | undefined
@@ -205,7 +209,7 @@ export class GuidanceEngine {
             if (winner) {
                 guidanceNoticesTotal.inc({ rule: winner.ruleId, outcome: winner.outcome })
             }
-            return winner
+            return winner?.text ? winner : (activation ?? winner)
         } catch (error) {
             guidanceEvaluationErrorsTotal.inc()
             console.warn('[Guidance] evaluation failed:', error instanceof Error ? error.message : String(error))
