@@ -44,6 +44,7 @@ INTERNAL_PERSONS = {"internal", "changed_to_internal", "merged"}
 INTERNAL_OR_EXAMPLE_PERSONS = INTERNAL_PERSONS | {"external", "changed_to_external"}
 
 PERSONS_JOIN = re.compile(r"AS \w+__person ON")
+PERSON_ID_PUSHDOWN = re.compile(r"in\(person\.id, \(SELECT", re.IGNORECASE)
 
 MATERIALIZED_PERSON_COLUMNS = {
     "person": {
@@ -204,7 +205,7 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
         assert joined == self.EVENTS - excluded
         assert rewritten == joined
         assert PERSONS_JOIN.search(joined_sql)
-        assert ("in(person.id, (SELECT" in joined_sql) == pushdown
+        assert bool(PERSON_ID_PUSHDOWN.search(joined_sql)) == pushdown
         assert not PERSONS_JOIN.search(rewritten_sql)
         assert "where_optimization" in rewritten_sql
 
