@@ -243,8 +243,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
-    // Comma-separated team ids, or "*", whose email sends first check that the worker still holds the
-    // Cyclotron job, so a worker that lost its job to a janitor reset leaves the send to its new holder.
     CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: string
     CDP_EMAIL_TEMPLATE_TAGS_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string

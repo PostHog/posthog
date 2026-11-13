@@ -248,7 +248,6 @@ export type CyclotronV2WorkerConfig = {
     releaseWriteHeartbeatLimitMs?: number
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
-    // How long the read that checks this worker still holds a job may wait. On timeout the pool drops its connection.
     ownershipReadTimeoutMs?: number
     boundedFairDequeue?: boolean
 }
