@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -19,11 +19,14 @@ from products.warehouse_sources.sources.twitter.settings import TWITTER_ENDPOINT
 from products.warehouse_sources.sources.twitter.source import TwitterSource
 from products.warehouse_sources.sources.twitter.twitter import (
     TwitterResumeConfig,
+    TwitterSearchQueryMissingError,
     TwitterUserNotFoundError,
     endpoint_permissions,
     normalize_username,
     resolve_user_id,
     to_rfc3339,
+    usage_days,
+    usage_rows,
     validate_credentials,
 )
 
@@ -69,6 +72,66 @@ class TestToRfc3339:
     )
     def test_formats_a_watermark(self, value: Any, expected: str) -> None:
         assert to_rfc3339(value) == expected
+
+
+class TestUsageDays:
+    @pytest.mark.parametrize(
+        ("last_value", "expected"),
+        [
+            (None, 90),
+            (datetime.now(UTC), 2),
+            (datetime.now(UTC) - timedelta(days=10), 12),
+            ((datetime.now(UTC) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ"), 5),
+            # X answers at most 90 days back.
+            (datetime.now(UTC) - timedelta(days=200), 90),
+            # A watermark ahead of the worker's clock still asks for at least one day.
+            (datetime.now(UTC) + timedelta(days=5), 1),
+        ],
+    )
+    def test_covers_every_day_since_the_watermark(self, last_value: Any, expected: int) -> None:
+        assert usage_days(last_value) == expected
+
+
+class TestUsageRows:
+    @pytest.mark.parametrize(
+        ("data", "expected"),
+        [
+            ({}, []),
+            ({"project_id": "p1", "daily_client_app_usage": []}, []),
+            (
+                {
+                    "project_id": "p1",
+                    "daily_client_app_usage": [
+                        {
+                            "client_app_id": "a1",
+                            "usage": [
+                                {"date": "2026-11-01T00:00:00.000Z", "usage": "12"},
+                                {"date": "2026-11-02T00:00:00.000Z", "usage": None},
+                            ],
+                            "usage_result_count": 2,
+                        },
+                        {"client_app_id": "a2", "usage_result_count": 0},
+                    ],
+                },
+                [
+                    {"project_id": "p1", "client_app_id": "a1", "date": "2026-11-01T00:00:00.000Z", "usage": 12},
+                    {"project_id": "p1", "client_app_id": "a1", "date": "2026-11-02T00:00:00.000Z", "usage": None},
+                ],
+            ),
+            # The project id can sit only on the project-level report, and a client app id can be null.
+            (
+                {
+                    "daily_project_usage": {"project_id": "p2"},
+                    "daily_client_app_usage": [
+                        {"client_app_id": None, "usage": [{"date": "2026-11-01T00:00:00.000Z", "usage": "n/a"}]}
+                    ],
+                },
+                [{"project_id": "p2", "client_app_id": "", "date": "2026-11-01T00:00:00.000Z", "usage": None}],
+            ),
+        ],
+    )
+    def test_flattens_one_row_per_app_per_day(self, data: dict[str, Any], expected: list[dict[str, Any]]) -> None:
+        assert usage_rows(data) == expected
 
 
 class TestResolveUserId:
@@ -137,6 +200,31 @@ class TestEndpointPermissions:
         with scripted_network(always(_json_response({"errors": [{"title": "Not Found Error"}]}))):
             assert endpoint_permissions("token", "posthog", ["Posts"]) == {}
 
+    def test_reports_the_search_table_without_a_query_and_sends_no_request(self) -> None:
+        with scripted_network([]) as network:
+            result = endpoint_permissions("token", "posthog", ["SearchedPosts"], search_query="  ")
+
+        assert result["SearchedPosts"] is not None and "search query" in result["SearchedPosts"]
+        assert network.requests_log == []
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "expected_params"),
+        [
+            ("SearchedPosts", "/2/tweets/search/recent", {"query": "posthog -from:posthog", "max_results": "10"}),
+            ("ApiUsage", "/2/usage/tweets", {"days": "1"}),
+        ],
+    )
+    def test_probes_the_tables_that_need_no_user_id(
+        self, endpoint: str, path: str, expected_params: dict[str, str]
+    ) -> None:
+        with scripted_network(always(_json_response({"data": []}))) as network:
+            result = endpoint_permissions("token", "posthog", [endpoint], search_query="posthog -from:posthog")
+
+        assert result == {endpoint: None}
+        assert [request.path for request in network.requests_log] == [path]
+        for name, value in expected_params.items():
+            assert network.requests_log[0].param(name) == value
+
     def test_treats_a_network_failure_as_reachable(self) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path.endswith("/username/posthog"):
@@ -171,8 +259,12 @@ class TestTwitterSourceRequests:
         resume_state: TwitterResumeConfig | None = None,
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Any = None,
+        search_query: str | None = None,
     ) -> tuple[list[RecordedRequest], DriveResult]:
-        driver = SourceDriver(TwitterSource(), TwitterSourceConfig(bearer_token="token", username="posthog"))
+        driver = SourceDriver(
+            TwitterSource(),
+            TwitterSourceConfig(bearer_token="token", username="posthog", search_query=search_query),
+        )
         result = driver.run(
             endpoint,
             self._serve(responses),
@@ -203,6 +295,80 @@ class TestTwitterSourceRequests:
         )
 
         assert "start_time" not in requests[0].query
+
+    @pytest.mark.parametrize(
+        ("should_use_incremental_field", "watermark_age", "sends_start_time"),
+        [
+            (False, None, False),
+            (True, None, False),
+            (True, timedelta(days=400), False),
+            (True, timedelta(days=6, hours=12), False),
+            (True, timedelta(days=2), True),
+        ],
+    )
+    def test_search_sends_the_query_and_only_a_start_time_x_will_accept(
+        self, should_use_incremental_field: bool, watermark_age: timedelta | None, sends_start_time: bool
+    ) -> None:
+        watermark = None if watermark_age is None else (datetime.now(UTC) - watermark_age).replace(microsecond=0)
+
+        requests, result = self._drive(
+            "SearchedPosts",
+            [
+                _json_response({"data": [{"id": "1"}], "meta": {"next_token": "page2"}}),
+                _json_response({"data": [{"id": "2"}], "meta": {}}),
+            ],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=watermark,
+            search_query=" posthog -from:posthog ",
+        )
+
+        assert [request.path for request in result.requests] == ["/2/tweets/search/recent"] * 2
+        assert requests[1].param("pagination_token") == "page2"
+        for request in requests:
+            assert request.param("query") == "posthog -from:posthog"
+            assert request.param("sort_order") == "recency"
+            expected = to_rfc3339(watermark) if sends_start_time else None
+            assert request.param("start_time") == expected
+
+    @pytest.mark.parametrize("search_query", [None, "", "   "])
+    def test_search_without_a_query_fails_before_any_request(self, search_query: str | None) -> None:
+        requests, result = self._drive("SearchedPosts", [], search_query=search_query)
+
+        assert isinstance(result.raised, TwitterSearchQueryMissingError)
+        assert result.requests == []
+        assert "Add a search query to the source settings to sync this table." in str(result.raised)
+
+    @pytest.mark.parametrize(
+        ("should_use_incremental_field", "last_value", "expected_days"),
+        [
+            (False, None, "90"),
+            (True, None, "90"),
+            (True, datetime.now(UTC) - timedelta(days=3), "5"),
+        ],
+    )
+    def test_usage_asks_for_the_days_since_the_watermark(
+        self, should_use_incremental_field: bool, last_value: Any, expected_days: str
+    ) -> None:
+        body = {
+            "data": {
+                "project_id": "p1",
+                "daily_client_app_usage": [
+                    {"client_app_id": "a1", "usage": [{"date": "2026-11-01T00:00:00.000Z", "usage": "4"}]}
+                ],
+            }
+        }
+        requests, result = self._drive(
+            "ApiUsage",
+            [_json_response(body)],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert [request.path for request in result.requests] == ["/2/usage/tweets"]
+        assert requests[0].param("days") == expected_days
+        assert result.rows == [
+            {"project_id": "p1", "client_app_id": "a1", "date": "2026-11-01T00:00:00.000Z", "usage": 4}
+        ]
 
     def test_profile_queries_the_handle_without_resolving_an_id(self) -> None:
         requests, result = self._drive("Profile", [_json_response({"data": [{"id": "7", "username": "posthog"}]})])

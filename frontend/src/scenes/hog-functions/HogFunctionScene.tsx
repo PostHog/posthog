@@ -526,6 +526,10 @@ export function HogFunctionScene(): JSX.Element {
         )
     }
 
+    if (templateId && !loaded) {
+        return <NotFound object="template" caption="Check the link, or pick another template from the list." />
+    }
+
     if (!templateId && !id) {
         return <NotFound object="Hog function" />
     }

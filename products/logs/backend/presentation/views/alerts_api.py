@@ -49,8 +49,12 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.api import (
+    delete_source_destination_rows,
     history_by_public_id,
+    list_source_destinations,
     recent_destination_sends,
+    record_source_destination,
+    redact_destination_data as redact_platform_destination_data,
     reset_broken,
     runtime_by_public_id,
 )
@@ -68,7 +72,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
-from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.presentation.views.platform_alert import (
     RULE_ANNOTATIONS_HELP,
@@ -83,6 +87,7 @@ from products.logs.backend.alert_destinations import (
     LOGS_ALERT_EVENT_IDS,
     LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
     LOGS_DESTINATION_TYPES,
+    row_event_kinds,
 )
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
@@ -131,7 +136,7 @@ from products.logs.backend.facade.platform_ownership import (
     native_alert_views,
     on_created,
     on_updated,
-    owned_copy_alert_ids,
+    owned_copy_alert_keys,
     owned_copy_views,
     update_native,
 )
@@ -221,6 +226,14 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
+    id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "The destination's ID on the alerts platform. Null for a destination added before the platform kept "
+            "one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an "
+            "empty `hog_function_ids`, and is deleted by this ID."
+        ),
+    )
     type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
     enabled = serializers.BooleanField(
         help_text=(
@@ -238,6 +251,10 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
     )
     slack_workspace_id = serializers.IntegerField(required=False)
     slack_channel_id = serializers.CharField(required=False)
+    slack_channel_name = serializers.CharField(
+        required=False,
+        help_text="The Slack channel's name when the destination was added. Absent for older destinations.",
+    )
     webhook_url = serializers.CharField(
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
@@ -1235,22 +1252,26 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
 
     @extend_schema_field(LogsAlertDestinationConfigSerializer(many=True))
     def get_destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
-        groups = list_alert_destination_groups(
+        destinations = list_source_destinations(
             team_id=obj.team_id,
-            alert_id=str(obj.id),
-            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            public_id=obj.id,
+            hog_function_groups=list_alert_destination_groups(
+                team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+            ),
         )
         customized = customized_alert_destination_ids(
             team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
         )
         return [
             {
-                "hog_function_ids": list(group.hog_function_ids),
-                "enabled": group.fully_enabled,
-                "message_customized": not customized.isdisjoint(group.hog_function_ids),
-                **redact_destination_data(group.data),
+                "id": destination.destination_id,
+                "hog_function_ids": list(destination.hog_function_ids),
+                "enabled": destination.enabled,
+                "message_customized": not customized.isdisjoint(destination.hog_function_ids),
+                # Field-wide, because a row-only destination's stored config is not read through its type.
+                **redact_platform_destination_data(redact_destination_data(destination.data)),
             }
-            for group in groups
+            for destination in destinations
         ]
 
 
@@ -1406,9 +1427,22 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
 class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
-        min_length=1,
+        required=False,
+        default=list,
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
+    destination_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="Destination IDs, from `destinations[].id`, to delete with their HogFunctions.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs["hog_function_ids"] and not attrs["destination_ids"]:
+            raise ValidationError("Name the destination by `hog_function_ids` or `destination_ids`.")
+        return attrs
 
 
 MAX_DESTINATION_SENDS: Final = 20
@@ -1734,18 +1768,19 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # page on their sort keys alone, and only the page's alerts are loaded.
         rows = self.filter_queryset(self.get_queryset())
         created_by = self._list_created_by
-        logs_owned = ~Q(owner=PlatformAlertOwner.PLATFORM)
+        # One read of the copies decides which side lists each alert, so an alert handed over or back
+        # between two reads is listed once. A copy holds its row's creator and `created_at`.
+        owned = owned_copy_alert_keys(self.team_id)
+        owned_ids = {key.legacy_configuration_id for key in owned}
         if created_by is not None:
-            logs_owned &= Q(created_by__uuid=created_by)
-        # The copy holds the creator; the row gives the sort key, because the copy was made at the cutover.
-        platform_owned = Q(
-            owner=PlatformAlertOwner.PLATFORM, id__in=owned_copy_alert_ids(self.team_id, created_by_uuid=created_by)
-        )
+            creator_id = User.objects.filter(uuid=created_by).values_list("id", flat=True).first()
+            owned = tuple(key for key in owned if creator_id is not None and key.created_by_id == creator_id)
+        logs_owned = rows.exclude(id__in=owned_ids)
+        if created_by is not None:
+            logs_owned = logs_owned.filter(created_by__uuid=created_by)
         keys: list[tuple[datetime, UUID, bool]] = [
-            *(
-                (created_at, alert_id, False)
-                for created_at, alert_id in rows.filter(logs_owned | platform_owned).values_list("created_at", "id")
-            ),
+            *((created_at, alert_id, False) for created_at, alert_id in logs_owned.values_list("created_at", "id")),
+            *((key.created_at, key.legacy_configuration_id, False) for key in owned),
             *(
                 (created_at, alert_id, True)
                 for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=created_by)
@@ -1843,6 +1878,17 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     alert_id=str(alert.id),
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
                 )
+                # The HogFunctions send while they exist. Rollback to the logs stack reads only them.
+                record_source_destination(
+                    team_id=alert.team_id,
+                    public_id=alert.id,
+                    data=data,
+                    event_kinds=row_event_kinds(event_kinds),
+                    hog_function_ids=hog_function_ids,
+                    hog_function_groups=list_alert_destination_groups(
+                        team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+                    ),
+                )
             except AlertDestinationValidationError as error:
                 raise as_drf_validation_error(error)
 
@@ -1865,6 +1911,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = LogsAlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
+        destination_ids = serializer.validated_data["destination_ids"]
 
         with transaction.atomic():
             alert = self._get_locked_alert()
@@ -1883,13 +1930,33 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
                     hog_function_ids=hog_function_ids,
                 )
+                deleted = delete_source_destination_rows(
+                    team_id=self.team_id,
+                    public_id=alert.id,
+                    destination_ids=destination_ids,
+                    hog_function_ids=hog_function_ids,
+                )
+                # A row named by its id takes its HogFunctions with it. One deleted elsewhere is no longer the alert's.
+                remaining = owned_alert_destination_ids(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                    hog_function_ids=deleted.copied_hog_function_ids.difference(hog_function_ids),
+                )
+                if remaining:
+                    soft_delete_alert_destinations(
+                        team_id=self.team_id,
+                        alert_id=str(alert.id),
+                        allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                        hog_function_ids=sorted(remaining, key=str),
+                    )
             except AlertDestinationValidationError as error:
                 raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
             "logs alert destination deleted",
-            {"alert_id": str(alert.id), "count": len(hog_function_ids)},
+            {"alert_id": str(alert.id), "count": len(hog_function_ids) + len(remaining)},
             request=request,
         )
         return Response(status=204)

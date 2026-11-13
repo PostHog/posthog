@@ -26,6 +26,7 @@ from posthog.models.scoping import team_scope
 from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
@@ -1111,7 +1112,7 @@ async def aorganization_emit():
     # test's transaction, so this delete is the only cleanup these rows get. Without it every
     # emit test leaks a committed org into the shared --reuse-db database and poisons later
     # product suites in the same CI job (cascade also removes the team/config/run fixtures).
-    await database_sync_to_async(org.delete)()
+    await database_sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture

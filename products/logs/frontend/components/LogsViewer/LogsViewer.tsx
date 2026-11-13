@@ -391,7 +391,7 @@ function LogsViewerContent({
                 <QueryFailedOverlay
                     error={logsError}
                     title="Couldn't load logs"
-                    onRetry={() => fetchLogs()}
+                    onRetry={() => fetchLogs('refresh')}
                     className="rounded border bg-bg-light"
                 />
             </div>

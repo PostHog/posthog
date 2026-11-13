@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSchemaStatus, ExternalDataSchemaWithSource } from '~/types'
@@ -100,6 +101,44 @@ describe('schemaSceneLogic', () => {
         logic.actions.resyncSchema(makeSchema())
 
         expect(logic.values.schema?.status).toBe(ExternalDataSchemaStatus.Running)
+    })
+
+    it('sends one live query save for a double toggle, with only that field', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        let resolveSave: (() => void) | null = null
+        const saveSpy = jest
+            .spyOn(warehouseSourcesApi, 'externalDataSchemasPartialUpdate')
+            .mockReturnValue(new Promise((resolve) => (resolveSave = () => resolve(makeSchema() as any))))
+
+        logic.actions.setLiveQueryEnabled(true)
+        logic.actions.setLiveQueryEnabled(true)
+        expect(logic.values.savingLiveQuery).toBe(true)
+
+        resolveSave!()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(saveSpy).toHaveBeenCalledTimes(1)
+        expect(saveSpy).toHaveBeenCalledWith(expect.any(String), 'schema-1', { live_query_enabled: true })
+        expect(logic.values.savingLiveQuery).toBe(false)
+    })
+
+    it('shows the API reason and reloads the schema when a live query save fails', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.spyOn(warehouseSourcesApi, 'externalDataSchemasPartialUpdate').mockRejectedValue(
+            new Error('This table has no column information yet.')
+        )
+        const errorToastSpy = jest.spyOn(lemonToast, 'error')
+        const getSpy = jest.spyOn(api.externalDataSchemas, 'get')
+        getSpy.mockClear()
+
+        logic.actions.setLiveQueryEnabled(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToastSpy).toHaveBeenCalledWith('This table has no column information yet.')
+        expect(getSpy).toHaveBeenCalled()
+        expect(logic.values.savingLiveQuery).toBe(false)
     })
 
     it.each([true, false])('confirms a pending schema before enabling when pending is %s', async (pending) => {

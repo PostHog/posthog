@@ -101,6 +101,7 @@ describe('ReportExpectedImpact', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
         })
         inboxTaskKickoffLogic.mount()
         logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -202,6 +203,16 @@ describe('ReportExpectedImpact', () => {
         await userEvent.setup().click(screen.getByText('Suggest different metrics'))
         expect(screen.getByText('Describe what success would look like')).toBeInTheDocument()
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('hides AI metric suggestions without hiding measurement approval when AI is unavailable', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true })
+        renderMeasurements([check])
+        render(<ReportChecksSection report={report} />)
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
+        expect(screen.getByText('Looks good')).toBeInTheDocument()
+        expect(screen.getByText('Cancel this check')).toBeInTheDocument()
     })
 
     it.each([false, undefined])('hides Expected impact and sidebar suggestions when Monitoring is %s', (enabled) => {

@@ -46,7 +46,7 @@ export function ReleaseScheduleButton({
                         onClick={() => openSchedule(flag.id)}
                         data-attr="release-schedule-flag"
                     >
-                        <span className="font-mono">{flag.key}</span>
+                        <span>{flag.key}</span>
                     </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>

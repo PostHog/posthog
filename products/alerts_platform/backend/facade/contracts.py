@@ -378,6 +378,9 @@ class PlatformAlertUpsert:
     created_by_id: int | None = None
     # None keeps the copy's own, so a source that records no first enable leaves the copy's alone.
     first_enabled_at: datetime | None = None
+    # When the source alert was created. The copy keeps it, so readers that sort a copy beside alerts
+    # with no source row order it by the alert's age rather than by when it was copied.
+    created_at: datetime | None = None
 
 
 @frozen
@@ -1091,6 +1094,21 @@ class NativeConfigurationMatch:
     # that orders matches, on the same scale a source's own searched rows have.
     is_exact: bool | None = None
     search_score: float | None = None
+    # Set for a copy, whose source row's id stays its public id.
+    legacy_configuration_id: UUID | None = None
+
+    @property
+    def public_id(self) -> UUID:
+        return self.legacy_configuration_id or self.id
+
+
+@frozen
+class OwnedCopyKey:
+    """One copy the platform owns, with what a source sorts and filters it on beside its own rows."""
+
+    created_at: datetime
+    legacy_configuration_id: UUID
+    created_by_id: int | None
 
 
 @frozen
@@ -1575,6 +1593,16 @@ class SourceDestination:
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     enabled: bool
+
+
+@frozen
+class DeletedSourceDestinations:
+    """What a source destination delete removed on the platform side."""
+
+    # The type of each deleted row, by row id.
+    row_types: Mapping[UUID, str]
+    # The HogFunctions the rows named by id copied, which the source deletes too.
+    copied_hog_function_ids: frozenset[UUID]
 
 
 class AlertDestinationValidationError(Exception):
