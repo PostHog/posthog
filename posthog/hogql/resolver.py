@@ -497,8 +497,7 @@ class Resolver(CloningVisitor):
         # Seed unsaved queries so a body that reads its own name is a cycle.
         self.initial_view_name = initial_view_name
         self._resolving_saved_views: set[str] = {initial_view_name} if initial_view_name else set()
-        # Each resolved view body, by object identity, with the view it is the definition of. The body is kept
-        # so that its id is never reused for another node.
+        # Each resolved view body with its view, by object id. Keeping the body stops its id from being reused.
         self._expanded_views: dict[int, tuple[ast.SelectQuery | ast.SelectSetQuery, SavedQuery]] = {}
         self._pending_saved_view: SavedQuery | None = None
         self.swap_flag_calls_in_views = False
