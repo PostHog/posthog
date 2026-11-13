@@ -18,6 +18,7 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework.request import Request
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
@@ -92,7 +93,9 @@ SLACK_MEMBERS_MAX_REQUESTS = 10
 class SlackIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: IntegrationRecord, *, source: str = "integration") -> None:
+    def __init__(
+        self, integration: IntegrationRecord, *, source: str = "integration", timeout_seconds: int | None = None
+    ) -> None:
         if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
@@ -100,15 +103,26 @@ class SlackIntegration:
         # The egress `source` label. A flow that posts on its own names itself here, so its Slack
         # calls and 429s can be told apart from every other caller of the same integration.
         self.source = source
+        # For a caller that runs under its own deadline. None keeps slack_sdk's defaults.
+        self.timeout_seconds = timeout_seconds
 
     @property
     def client(self) -> WebClient:
-        return WebClient(
+        client = WebClient(
             self.integration.sensitive_config["access_token"],
             source=self.source,
             workspace_id=self.integration.integration_id,
             app_id="posthog",
+            **({} if self.timeout_seconds is None else {"timeout": self.timeout_seconds}),
         )
+        if self.timeout_seconds is not None:
+            # slack_sdk resends a request after a connection error, including one that broke after
+            # Slack accepted it, which posts a message twice. A caller with a deadline decides about
+            # retries itself, so only the observability handler stays.
+            client.retry_handlers = [
+                handler for handler in client.retry_handlers if not isinstance(handler, ConnectionErrorRetryHandler)
+            ]
+        return client
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
         # slack_sdk's async client imports aiohttp at module scope; this is a models module,

@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enabled": {
+            "description": "Whether the daily run checks the project's prompts on this engine.",
+            "type": "boolean"
+        },
+        "frequency": {
+            "description": "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n* `daily` - Daily\n* `weekly` - Weekly",
+            "enum": ["daily", "weekly"],
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -50,7 +50,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
@@ -457,8 +456,6 @@ class BatchExportsDebugger:
                 is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
             ):
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
             else:

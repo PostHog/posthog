@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -10,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
     type ChartViewChange,
     DEFAULT_CHART_VIEWS,
@@ -479,7 +481,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([EVENT_FILTER])
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER])
             }).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)
@@ -489,19 +491,75 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             )
         })
 
-        it('spreads filterTestAccounts into every query and reloads on change', async () => {
+        it.each([
+            ['the test-account toggle', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)],
+            [
+                "the team's test-account default",
+                () =>
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        test_account_filters_default_checked: true,
+                    }),
+            ],
+        ])('spreads filterTestAccounts into every query and reloads on %s', async (_label, change) => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             const callsBefore = mockApi.query.mock.calls.length
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilterTestAccounts(true)
-            }).toFinishAllListeners()
+            await expectLogic(logic, change).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)
             expect(reloads.length).toBe(4)
             expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+        })
+
+        it.each([
+            ['no URL params', {}, 4],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }, 4],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+                5,
+            ],
+        ])(
+            'does not reload for the shared filters when mounting with %s',
+            async (_label, searchParams, expectedRequests) => {
+                router.actions.push(urls.mcpAnalyticsToolQuality(), searchParams)
+
+                const logic = mcpAnalyticsToolQualityLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockApi.query).toHaveBeenCalledTimes(expectedRequests)
+            }
+        )
+
+        it.each([
+            [
+                'the test-account toggle',
+                () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
+                { filterTestAccounts: true, propertyFilters: [] },
+                { filter_test_accounts: true },
+            ],
+            [
+                'a property filter',
+                () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER]),
+                { filterTestAccounts: false, propertyFilters: [EVENT_FILTER] },
+                { properties: [EVENT_FILTER] },
+            ],
+        ])('keeps %s and clears the selected tool', async (_label, change, expectedFilters, expectedParams) => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.setSelectedTool('tool_a')).toFinishAllListeners()
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBeNull()
+            expect(mcpAnalyticsFiltersLogic.values).toMatchObject(expectedFilters)
+            expect(router.values.searchParams).toMatchObject(expectedParams)
+            expect(router.values.searchParams.tool).toBeUndefined()
         })
 
         it('reloads once when both shared filters hydrate from the URL', async () => {
@@ -511,7 +569,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.hydrateFilters(true, [EVENT_FILTER])
+                mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [EVENT_FILTER])
             }).toFinishAllListeners()
 
             const reloads = queryCallsSince(callsBefore)
