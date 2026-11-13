@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 
@@ -485,8 +486,8 @@ _OWN_TOKEN_KEYS = ("access_token", "refresh_token", "token_retrieved_at", "expir
 def connect_slack_mcp_from_slack_link(team_id: int, user: User, *, slack_link_id: str) -> bool:
     """Connect the member's Slack MCP through their Slack account link, so they skip a second Slack consent screen.
     The installation points at the link and keeps no copy of its token, so an unlink also ends the access. A member
-    who removed a linked Slack MCP is not connected again, and a working connection stays as it is. Returns whether
-    the member is connected."""
+    who removed a linked Slack MCP is not connected again, a working connection stays as it is, and one the member
+    turned off stays off. Returns whether the member is connected."""
     template = _connectable_slack_template(team_id, user.id)
     if template is None:
         return False
@@ -517,14 +518,21 @@ def connect_slack_mcp_from_slack_link(team_id: int, user: User, *, slack_link_id
         }
         installation.template = template
         installation.linked_user_integration = link
-        installation.is_enabled = True
+        installation.connected_from_link_at = timezone.now()
         installation.sensitive_configuration = sensitive
         installation.save(
-            update_fields=["template", "linked_user_integration", "is_enabled", "sensitive_configuration", "updated_at"]
+            update_fields=[
+                "template",
+                "linked_user_integration",
+                "connected_from_link_at",
+                "sensitive_configuration",
+                "updated_at",
+            ]
         )
         link_installation_to_gateway(installation, created_by=user)
     transaction.on_commit(lambda: sync_installation_tools_task.delay(str(installation.id)))
-    return True
+    # A server the member turned off gets its access back but stays off until they turn it on.
+    return installation.is_enabled
 
 
 def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeamTool]:

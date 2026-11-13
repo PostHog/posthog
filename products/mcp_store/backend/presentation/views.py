@@ -1006,7 +1006,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
         # A member who removes a server that came with their account link opts out of it, so a relink does not
         # connect it again. The row outlives the link, which an unlink deletes.
-        if installation.linked_user_integration_id is not None:
+        if installation.connected_from_link_at is not None:
             MCPMemberAutoConnectOptOut.objects.for_team(installation.team_id).get_or_create(
                 team_id=installation.team_id, user_id=installation.user_id, url=installation.url
             )
@@ -1131,7 +1131,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 {"detail": "Only personal installations can be shared."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if installation.linked_user_integration_id is not None:
+        if installation.connected_from_link_at is not None:
             return Response(
                 {
                     "detail": "A connection made from your Slack account link can't be shared. "
@@ -2530,7 +2530,12 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             sensitive["expires_in"] = expires_in
 
         installation.sensitive_configuration = sensitive
-        installation.save(update_fields=["sensitive_configuration", "updated_at"])
+        # The member's own token replaces the account link, so the installation is theirs to share.
+        installation.linked_user_integration = None
+        installation.connected_from_link_at = None
+        installation.save(
+            update_fields=["sensitive_configuration", "linked_user_integration", "connected_from_link_at", "updated_at"]
+        )
 
     @staticmethod
     def _build_oauth_redirect(

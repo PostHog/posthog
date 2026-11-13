@@ -26,6 +26,11 @@ class Migration(migrations.Migration):
                 to="posthog.userintegration",
             ),
         ),
+        migrations.AddField(
+            model_name="mcpserverinstallation",
+            name="connected_from_link_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
         migrations.CreateModel(
             name="MCPMemberAutoConnectOptOut",
             fields=[

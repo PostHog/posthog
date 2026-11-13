@@ -211,6 +211,9 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     linked_user_integration = models.ForeignKey(
         "posthog.UserIntegration", on_delete=models.SET_NULL, related_name="+", null=True, blank=True
     )
+    # When the account link made this installation. Set even after an unlink clears the link, until the member
+    # connects the server with a token of their own.
+    connected_from_link_at = models.DateTimeField(null=True, blank=True)
     display_name = models.CharField(max_length=200, blank=True, default="")
     url = models.URLField(max_length=2048, default="")
     description = models.TextField(blank=True, default="")

@@ -315,6 +315,21 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
         link.delete()
         assert get_active_installations(self.team.id, self.user.id) == []
 
+    def test_a_relink_does_not_turn_on_a_slack_mcp_the_member_turned_off(self) -> None:
+        self._slack_template()
+        MCPServerInstallation.objects.create(
+            team=self.team, user=self.user, url=SLACK_MCP_URL, auth_type="oauth", is_enabled=False
+        )
+        link = self._link_slack(self.SCOPES)
+
+        connected = connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
+
+        assert connected is False
+        installation = MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+        # The access is restored for when the member turns the server on, but the agents it was granted to stay off.
+        assert installation.linked_user_integration_id == link.id and installation.is_enabled is False
+        assert get_active_installations(self.team.id, self.user.id) == []
+
 
 class TestTeamToolsNotConnected(BaseTest):
     @parameterized.expand(
