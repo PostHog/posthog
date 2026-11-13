@@ -126,8 +126,10 @@ rules:
                               |ClusteringJob
                               |Cohort
                               |CohortBackfillChunk
+                              |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
@@ -316,12 +318,15 @@ rules:
                               |MessageRecipientPreference
                               |MessageSuppression
                               |MessageTemplate
+                              |MembershipCleanupCandidate
+                              |MembershipCleanupScan
                               |Metric
                               |MetricDailyQueryCount
                               |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
                               |MCPCustomHarness
@@ -329,6 +334,7 @@ rules:
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
                               |MCPMeasuredStats
+                              |MCPMemberAutoConnectOptOut
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -368,6 +374,7 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |RecommendationResolution
                               |Release
                               |ReleaseImportState
                               |ReleaseAutoLinkedFlag
@@ -418,6 +425,7 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalGroupingRecord
                               |SignalFirstReportNotification
                               |SignalRatedUsage
                               |SignalReport
@@ -489,6 +497,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |AgentEgressRegistration
                               |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
@@ -515,6 +524,7 @@ rules:
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |IntercomImportJob
+                              |PylonImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -668,8 +678,10 @@ rules:
                         |ClusteringJob
                         |Cohort
                         |CohortBackfillChunk
+                        |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
@@ -850,16 +862,20 @@ rules:
                         |MessageRecipientPreference
                         |MessageSuppression
                         |MessageTemplate
+                        |MembershipCleanupCandidate
+                        |MembershipCleanupScan
                         |Metric
                         |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
+                        |MCPMemberAutoConnectOptOut
                         |MCPMemberServerRevocation
                         |MCPOrgRule
                         |MCPServiceAccount
@@ -899,6 +915,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RecommendationResolution
                         |Release
                         |ReleaseImportState
                         |ReleaseAutoLinkedFlag
@@ -949,6 +966,7 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalGroupingRecord
                         |SignalFirstReportNotification
                         |SignalRatedUsage
                         |SignalReport
@@ -1020,6 +1038,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |AgentEgressRegistration
                         |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
@@ -1045,6 +1064,7 @@ rules:
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |IntercomImportJob
+                        |PylonImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
@@ -1152,6 +1172,7 @@ rules:
                         AccessControl
                         |ActivityLog
                         |AgentArtifact
+                        |AgentEgressRegistration
                         |AgentMemory
                         |AITrainingDeletionRequest
                         |Alert
@@ -1215,6 +1236,9 @@ rules:
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Evaluation
                         |EvaluationConfig
                         |EvaluationContext

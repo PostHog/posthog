@@ -20,6 +20,7 @@ from posthog.schema import (
     HogQuery,
     HogQueryResponse,
     QuerySchemaRoot,
+    QueryStatus,
 )
 
 from posthog.hogql.autocomplete import get_hogql_autocomplete
@@ -95,6 +96,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = ...,
     allow_raw_results: Literal[False] = ...,
 ) -> dict | BaseModel: ...
 
@@ -117,6 +119,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
@@ -138,6 +141,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     upgraded_query_json = upgrade(query_json)
@@ -191,6 +195,7 @@ def process_query_dict(
         cache_age_seconds=cache_age_seconds,
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
+        query_status=query_status,
         allow_raw_results=allow_raw_results,
     )
 
@@ -281,6 +286,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = ...,
     allow_raw_results: Literal[False] = ...,
 ) -> dict | BaseModel: ...
 
@@ -303,6 +309,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
@@ -324,6 +331,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if isinstance(query, HogQLAutocomplete):
@@ -378,6 +386,7 @@ def process_query_model(
             cache_age_seconds=cache_age_seconds,
             pagination_cursor=pagination_cursor,
             analytics_props=analytics_props,
+            query_status=query_status,
             allow_raw_results=allow_raw_results,
         )
 
@@ -398,6 +407,7 @@ def process_query_model(
             is_query_service=is_query_service,
             cache_age_seconds=cache_age_seconds,
             analytics_props=analytics_props,
+            query_status=query_status,
             allow_raw_results=allow_raw_results,
         )
     if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -439,6 +449,7 @@ def _run_query_runner(
     cache_age_seconds: Optional[int],
     pagination_cursor: Optional[str],
     analytics_props: Optional[AnalyticsProps],
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if dashboard_filters:
@@ -453,6 +464,8 @@ def _run_query_runner(
     if allow_raw_results:
         query_runner.serve_raw_cached_results = True
 
+    # The worker rebuilds the runner, so enqueue-time labels can describe a different access snapshot.
+    labels = query_runner.query_status_labels() if query_status is not None else None
     result = query_runner.run(
         execution_mode=execution_mode,
         user=user,
@@ -462,6 +475,8 @@ def _run_query_runner(
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
     )
+    if query_status is not None and labels is not None:
+        query_status.labels = [*labels, *(["chained"] if "chained" in (query_status.labels or []) else [])]
     raw_results = query_runner.raw_cached_results_bytes
     if raw_results is not None and isinstance(result, BaseModel):
         return RawCachedQueryResponse(response=result, raw_results=raw_results)

@@ -450,59 +450,6 @@ const inboxReportArtefactsUpdate = (): ToolBase<
     },
 })
 
-const InboxReportChecksCreateSchema = () => {
-    const SignalsScoutReportCheckCreateBody = orvalSchemas.SignalsScoutReportCheckCreateBody()
-    const SignalsScoutReportCheckCreateParams = orvalSchemas.SignalsScoutReportCheckCreateParams()
-    return SignalsScoutReportCheckCreateParams.omit({ project_id: true }).extend(
-        SignalsScoutReportCheckCreateBody.shape
-    )
-}
-
-const inboxReportChecksCreate = (): ToolBase<
-    ReturnType<typeof InboxReportChecksCreateSchema>,
-    Schemas.ScoutCheckSummary
-> => ({
-    name: 'inbox-report-checks-create',
-    schema: InboxReportChecksCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.rationale !== undefined) {
-            body['rationale'] = params.rationale
-        }
-        if (params.kind !== undefined) {
-            body['kind'] = params.kind
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
-        if (params.next_run_at !== undefined) {
-            body['next_run_at'] = params.next_run_at
-        }
-        if (params.run_interval_minutes !== undefined) {
-            body['run_interval_minutes'] = params.run_interval_minutes
-        }
-        if (params.runs_remaining !== undefined) {
-            body['runs_remaining'] = params.runs_remaining
-        }
-        if (params.expires_at !== undefined) {
-            body['expires_at'] = params.expires_at
-        }
-        if (params.report_id !== undefined) {
-            body['report_id'] = params.report_id
-        }
-        const result = await context.api.request<Schemas.ScoutCheckSummary>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-check-create/`,
-            body,
-        })
-        return result
-    },
-})
-
 const InboxReportChecksListSchema = () => {
     const SignalsReportChecksListParams = orvalSchemas.SignalsReportChecksListParams()
     const SignalsReportChecksListQueryParams = orvalSchemas.SignalsReportChecksListQueryParams()
@@ -976,6 +923,15 @@ const inboxReportsList = (): ToolBase<
                     'inbox_merge_key',
                     'personal_tier',
                     'personal_reason',
+                    'monitoring_started_at',
+                    'monitoring_summary.state',
+                    'monitoring_summary.started_at',
+                    'monitoring_summary.ends_at',
+                    'monitoring_summary.lead_check.check_id',
+                    'monitoring_summary.lead_check.title',
+                    'monitoring_summary.lead_check.comparison',
+                    'monitoring_summary.lead_check.baseline_value',
+                    'monitoring_summary.lead_check.next_measurement_at',
                     'created_at',
                     'updated_at',
                 ])
@@ -3210,6 +3166,30 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
+const SelfDrivingStatusGetSchema = () => z.object({})
+
+const selfDrivingStatusGet = (): ToolBase<
+    ReturnType<typeof SelfDrivingStatusGetSchema>,
+    Schemas.InboxOnboardingState
+> => ({
+    name: 'self-driving-status-get',
+    schema: SelfDrivingStatusGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingStatusGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.InboxOnboardingState>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'completed_at',
+            'github_optional_available',
+            'jobs',
+            'first_report',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -3972,7 +3952,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-list': inboxReportArtefactsList,
     'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
-    'inbox-report-checks-create': inboxReportChecksCreate,
     'inbox-report-checks-list': inboxReportChecksList,
     'inbox-report-checks-replace': inboxReportChecksReplace,
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
@@ -4047,6 +4026,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
+    'self-driving-status-get': selfDrivingStatusGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

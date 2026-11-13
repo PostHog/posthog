@@ -2,7 +2,10 @@ import { useValues } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
+import {
+    getAccountViewComponentByKind,
+    listAvailableAccountViewComponents,
+} from '../../components/Accounts/accountViewComponents'
 import type { AccountViewApi } from '../../generated/api.schemas'
 import { parseAccountViewContent } from './accountViewDocument'
 import { accountViewsLogic } from './accountViewsLogic'
@@ -38,18 +41,25 @@ export function AccountViewRenderer({ view, accountId, externalId, projectId }: 
 
     return (
         <div className="@container/account-view grid grid-cols-12 gap-3 py-3" data-attr="account-view-content">
-            {components.map((component) => (
-                <AccountViewTile
-                    key={`${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`}
-                    view={view}
-                    component={component}
-                    componentCount={components.length}
-                    projectId={projectId}
-                    accountId={accountId}
-                    externalId={externalId}
-                    spanClassName={SPAN_CLASSES[component.span] ?? SPAN_CLASSES[12]}
-                />
-            ))}
+            {components.map((component) => {
+                const instanceId =
+                    getAccountViewComponentByKind(component.kind)?.remountOnConfigReload === false
+                        ? component.nodeId
+                        : `${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`
+                return (
+                    <AccountViewTile
+                        key={instanceId}
+                        instanceId={instanceId}
+                        view={view}
+                        component={component}
+                        componentCount={components.length}
+                        projectId={projectId}
+                        accountId={accountId}
+                        externalId={externalId}
+                        spanClassName={SPAN_CLASSES[component.span] ?? SPAN_CLASSES[12]}
+                    />
+                )
+            })}
         </div>
     )
 }
