@@ -33,6 +33,7 @@ from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
     PinnedTraffic,
+    assigns_nobody_by_split,
     grade_pinned_share,
     pinned_conditions,
     pinned_share_severity,
@@ -66,13 +67,6 @@ class _Pins:
     # The pinned conditions whose variant the analysis includes, in evaluation order.
     analyzed: tuple[ReachableCondition, ...]
     graded: PinnedConditions
-
-
-def assigns_nobody_by_split(flag: FlagState) -> bool:
-    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
-    return bool(flag.reachable_conditions) and all(
-        condition.pinned_variant is not None for condition in flag.reachable_conditions
-    )
 
 
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:

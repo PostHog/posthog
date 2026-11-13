@@ -14,16 +14,19 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { setTimeout as sleep } from 'timers/promises'
 
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { ROLE_PORTS, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
+import { Measurement, Sampled, Sampler, measure, startSampler } from '../judge/measurements'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
@@ -46,7 +49,7 @@ export type RunResult = {
     units?: DriveSummary
     convergence?: Convergence
     invariants: InvariantResult[]
-    measurements: never[]
+    measurements: Measurement[]
     timeline: never[]
     startedAt: string
     endedAt: string
@@ -64,7 +67,7 @@ const DELIVERY_TIMEOUT_MS = 10_000
 const SEED_STATEMENT_TIMEOUT_MS = 5000
 const SEED_WITHIN_MS = 60_000
 
-type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants'>
+type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements'>
 
 function producerConfigOf(env: NodeJS.ProcessEnv): ProducerGlobalConfig {
     const settings = Object.entries(env).flatMap(([key, value]) =>
@@ -242,15 +245,25 @@ export function createRunner(
             const evidenceDir = path.join(stateDir, runId)
             const writeLogTails = keepLogTails(stateDir)
             const edgeUrl = environment.edgeUrl()
-            const specs = roleSpecs(env, edgeUrl, secretsOf(env), stateDir, profile.settings)
+            const secrets = secretsOf(env)
+            const specs = roleSpecs(env, { url: edgeUrl }, secrets, stateDir, profile.settings)
+            const cdpApi = {
+                url: `http://127.0.0.1:${ROLE_PORTS['cdp-api']}`,
+                jwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+                    secrets.transactionalEmailJwtSecret
+                ),
+            }
             const [
                 {
                     topics: [eventsTopic],
                 },
             ] = consumerGroupsOf(specs)
             const judge = createJudge({ edgeUrl, probe: createCyclotronProbe(cyclotronUrlOf(specs[0])) })
-            let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [] }
+            let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
+            let sampler: Sampler | undefined
+            let sampled: Sampled = { samples: [], missed: [] }
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -272,12 +285,21 @@ export function createRunner(
                 )
                 await judge.open(seeded)
                 stopHealth = watchHealth(environment)
-                const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, runId })
+                sampler = await startSampler(
+                    CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
+                )
+                const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                sampled = await sampler.stop()
                 const down = await stopHealth()
                 const invariants = await judge.check(card.invariants, card.gates)
+                const measurements = measure(card.measure, {
+                    ...judge.evidence(),
+                    ...sampled,
+                    sampledFrom: sampler.sampledFrom,
+                })
                 const verdict = statusOf({ minOffered: card.drive.minOffered, units, down, convergence, invariants })
-                outcome = { ...verdict, units, convergence, invariants }
+                outcome = { ...verdict, units, convergence, invariants, measurements }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
                 }
@@ -289,6 +311,7 @@ export function createRunner(
                 }
             } finally {
                 await stopHealth?.()
+                sampled = (await sampler?.stop()) ?? sampled
                 try {
                     await producer?.disconnect()
                 } catch (error) {
@@ -310,7 +333,6 @@ export function createRunner(
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
                 origin: 'local-agent',
-                measurements: [],
                 timeline: [],
                 startedAt,
                 endedAt: new Date().toISOString(),
@@ -322,6 +344,7 @@ export function createRunner(
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
+                writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'scorecard.json', {
                     ...verdict,
                     event: scorecardOf(verdict, loaded, provenance),

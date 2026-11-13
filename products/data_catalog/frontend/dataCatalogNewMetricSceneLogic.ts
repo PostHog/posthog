@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from 'lib/api'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -605,6 +605,22 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
                     (error instanceof ApiError && error.detail) ||
                         'Could not create the metric. Check the fields and try again.'
                 )
+            }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        [urls.dataCatalogNewMetric()]: (_, searchParams, { metric_prefill: prefill, ...hashParams }) => {
+            // The hash can be edited by hand, so only plain strings reach the form.
+            if (typeof prefill?.sql === 'string') {
+                actions.resetMetricForm({
+                    ...EMPTY_NEW_METRIC_FORM,
+                    display_name: String(prefill.display_name ?? ''),
+                    name: String(prefill.name ?? ''),
+                    description: String(prefill.description ?? ''),
+                    sql: prefill.sql,
+                })
+                // A Back navigation would apply the prefill again and drop the edits made since.
+                router.actions.replace(router.values.location.pathname, searchParams, hashParams)
             }
         },
     })),
