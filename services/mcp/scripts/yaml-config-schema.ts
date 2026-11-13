@@ -429,7 +429,6 @@ const DetailUiAppSchema = z
         view_component: z.string().optional(),
         /** Prop name to bind the host's `openLink(url)` callback to. Omit if the view has no inline external links. */
         link_prop: z.string().optional(),
-        /** Additional CSP resource sources the view loads from. The render-ui umbrella app inherits them. */
         resource_domains: z.array(z.string()).optional(),
     })
     .strict()
