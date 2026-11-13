@@ -30,8 +30,9 @@ interface QueryPaneProps {
 export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton, insightLoading } = useValues(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton, insightLoading, suggestionPayload } = useValues(sqlEditorLogic)
     const queryLoading = insightLoading && !props.queryInput
+    const readOnly = queryLoading || !!suggestionPayload?.readOnly
     const editorOptions = useMemo<CodeEditorProps['options']>(
         () => ({
             minimap: {
@@ -46,10 +47,10 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 showInlineDetails: true,
             },
             quickSuggestionsDelay: 300,
-            readOnly: queryLoading,
+            readOnly,
             placeholder: 'Write a SQL query.',
         }),
-        [props.originalValue, queryLoading]
+        [props.originalValue, readOnly]
     )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.

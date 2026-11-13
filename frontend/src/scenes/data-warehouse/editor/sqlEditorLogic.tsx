@@ -352,6 +352,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
+    readOnly?: boolean
     source?: 'max_ai' | 'hogql_fixer' | 'query_history'
     onAccept: (
         shouldRunQuery: boolean,
@@ -3600,6 +3601,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     diffShowRunButton: false,
                     onAccept: () => save(candidates),
                     onReject: () => {},
+                    readOnly: true,
                 })
             },
             updateView: async ({ view, draftId }) => {
