@@ -6,6 +6,7 @@ import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaResource } from '~/common/services/quota-limiting.service'
 import { logger } from '~/common/utils/logger'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import type { LogsSettings } from '~/types'
 
 import { recordLogMessageDlq } from '../ingestion-otel-metrics'
@@ -111,6 +112,8 @@ export type LogsPipelineContext = {
     deps: LogsIngestionConsumerDeps
     usageMetrics: LogsUsageMetricsQueue
     rateLimiter: Pick<LogsRateLimiterService, 'filterMessages'>
+    /** Remembers tokens that belong to no team so capture-logs can turn them away. Absent in tests. */
+    unknownTokens?: Pick<UnknownTokenRecorder, 'record'>
     samplingService: LogsSamplingService
     internalLogsVerifier: InternalLogsVerifier
     metricSeriesAdmission: MetricSeriesAdmission

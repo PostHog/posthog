@@ -31,6 +31,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import { registerEmailMediaLibrary } from './emailMediaLibrary'
+import { senderFrom } from './emailSenderFields'
 import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -425,6 +426,9 @@ export interface emailTemplaterLogicActions {
     applyTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    clearCustomSender: () => {
+        value: true
+    }
     closeWithConfirmation: () => {
         value: true
     }
@@ -586,6 +590,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         flushPendingDesignEdit: true,
+        clearCustomSender: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
         setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
@@ -900,6 +905,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 ...props.value,
                 ...values,
             } as EmailTemplate)
+        },
+
+        clearCustomSender: () => {
+            const from = { ...senderFrom(values.emailTemplate ?? {}), name: undefined, email: undefined }
+            if (values.isModalOpen && !props.liveChanges) {
+                // The modal keeps edits in the form until save.
+                actions.setEmailTemplateValue('from', from)
+                actions.setEmailTemplateValue('replyTo', '')
+                return
+            }
+            // One update: two setEmailTemplateValue calls each merge into the same stale props.value, so the second undoes the first.
+            actions.setEmailTemplateValues({ from, replyTo: '' })
         },
 
         setIsModalOpen: ({ isModalOpen }) => {

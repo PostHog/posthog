@@ -20,6 +20,7 @@ from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT, Model
+from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -30,6 +31,7 @@ from django.utils import timezone
 from django.utils.html import escape, format_html
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from kombu.exceptions import OperationalError
 from loginas import settings as la_settings
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -1856,15 +1858,16 @@ class TestAdminConsoleApiKeys(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def _personal_key(self) -> PersonalAPIKey:
+    def _personal_key(self, **fields: object) -> PersonalAPIKey:
         token = generate_random_token_personal()
-        return PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Leaked key",
-            secure_value=hash_key_value(token),
-            mask_value=mask_key_value(token),
-            scopes=["*"],
-        )
+        defaults: dict[str, object] = {
+            "user": self.user,
+            "label": "Leaked key",
+            "secure_value": hash_key_value(token),
+            "mask_value": mask_key_value(token),
+            "scopes": ["*"],
+        }
+        return PersonalAPIKey.objects.create(**{**defaults, **fields})
 
     @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
     def test_rolling_a_personal_api_key_notifies_the_user(self, exposed: MagicMock) -> None:
@@ -1883,6 +1886,100 @@ class TestAdminConsoleApiKeys(BaseTest):
         exposed.assert_called_once_with(
             self.user.id, key.id, old_mask_value, "This key was detected at https://example.com/leak."
         )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_an_organization_operation_changes_only_the_keys_that_reach_the_organization(
+        self, operation: str, exposed: MagicMock
+    ) -> None:
+        other = Organization.objects.create(name="Another organization")
+        self.user.join(organization=other)
+        outsider = User.objects.create_and_join(other, "outsider@example.com", None)
+        unscoped = self._personal_key(label="Unscoped key")
+        scoped_here = self._personal_key(label="Scoped here key", scoped_organizations=[str(self.organization.pk)])
+        untouched = [
+            self._personal_key(label="Scoped elsewhere key", scoped_organizations=[str(other.pk)]),
+            self._personal_key(label="Outsider key", user=outsider),
+        ]
+        # The oldest key comes last in the run, so the owner narrows it while the run changes the others.
+        narrowed = self._personal_key(label="Narrowed during the run key", created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        def narrow(instance: PersonalAPIKey, **kwargs: object) -> None:
+            if instance.pk != narrowed.pk:
+                PersonalAPIKey.objects.filter(pk=narrowed.pk).update(scoped_organizations=[str(other.pk)])
+
+        tool = self.client.get(
+            f"/admin/console/tools/organization-personal-api-keys/?organization={self.organization.pk}"
+        )
+        preview = self.client.post(url, {"exposed_at": "https://example.com/leak", "reason": "Keys leaked"})
+        assert preview.status_code == 200
+        untouched.append(self._personal_key(label="Created after the preview key"))
+        post_save.connect(narrow, sender=PersonalAPIKey)
+        post_delete.connect(narrow, sender=PersonalAPIKey)
+        try:
+            confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+        finally:
+            post_save.disconnect(narrow, sender=PersonalAPIKey)
+            post_delete.disconnect(narrow, sender=PersonalAPIKey)
+        replayed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302 and replayed.status_code == 302
+        assert "Unscoped key" in tool.content.decode() and "Outsider key" not in tool.content.decode()
+        table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
+        assert {(row.cells[0].text, row.cells[3].text) for row in table.rows if isinstance(row, Row)} == {
+            ("Unscoped key", "Other organizations too"),
+            ("Scoped here key", "This organization only"),
+            ("Narrowed during the run key", "Other organizations too"),
+        }
+        assert PersonalAPIKey.objects.get(pk=narrowed.pk).scoped_organizations == [str(other.pk)]
+        untouched.append(narrowed)
+        assert [PersonalAPIKey.objects.get(pk=key.pk).secure_value for key in untouched] == [
+            key.secure_value for key in untouched
+        ]
+        in_reach = PersonalAPIKey.objects.filter(user=self.user, pk__in=[unscoped.pk, scoped_here.pk])
+        if operation == "revoke-all":
+            assert not in_reach.exists()
+            exposed.delay.assert_not_called()
+        else:
+            old_values = {unscoped.secure_value, scoped_here.secure_value}
+            assert len(set(in_reach.values_list("secure_value", flat=True)) - old_values) == 2
+            assert exposed.delay.call_count == 2
+            exposed.delay.assert_any_call(
+                self.user.id, unscoped.id, unscoped.mask_value, "This key was detected at https://example.com/leak."
+            )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    def test_an_organization_operation_refuses_more_keys_than_the_preview_lists(self, operation: str) -> None:
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        with patch("posthog.admin.console.api_key_panels.KEYS_LIST_LIMIT", 1):
+            preview = self.client.post(url, {"reason": "Keys leaked"})
+
+        assert preview.status_code == 400
+        assert "confirm_token" not in preview.context
+        assert "too many to change at once" in preview.content.decode()
+        assert PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).count() == 2
+
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_rolling_all_keys_continues_when_an_email_cannot_be_queued(self, exposed: MagicMock) -> None:
+        exposed.delay.side_effect = [OperationalError("broker unavailable"), None]
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/roll-all/"
+
+        preview = self.client.post(url, {"reason": "Keys leaked"})
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert not PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).exists()
+        assert (
+            LogEntry.objects.filter(object_id__in=[key.pk for key in keys], change_message="Rolled key.").count() == 2
+        )
+        assert [str(message) for message in messages.get_messages(confirmed.wsgi_request)] == [
+            "Rolled 2 personal API keys.",
+            f"Could not email these owners: {self.user.email}. Tell them that their keys changed.",
+        ]
 
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")

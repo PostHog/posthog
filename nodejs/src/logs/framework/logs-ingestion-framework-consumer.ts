@@ -6,6 +6,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
+import { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
@@ -53,6 +54,7 @@ export class LogsIngestionFrameworkConsumer {
     private readonly appMetricsAggregator: AppMetricsAggregator
     private readonly redis: RedisV2
     private readonly rateLimiter: LogsRateLimiterService
+    private readonly unknownTokens: UnknownTokenRecorder
     private readonly internalLogsVerifier: InternalLogsVerifier
     private readonly samplingService: LogsSamplingService
     private readonly metricSeriesAdmission = new MetricSeriesAdmission()
@@ -92,6 +94,7 @@ export class LogsIngestionFrameworkConsumer {
             poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        this.unknownTokens = new UnknownTokenRecorder(this.redis)
         this.internalLogsVerifier = new InternalLogsVerifier(
             mergedConfig.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
             mergedConfig.LOGS_INTERNAL_INGESTION_ENABLED_TEAMS,
@@ -137,6 +140,7 @@ export class LogsIngestionFrameworkConsumer {
                 deps: this.deps,
                 usageMetrics: new LogsUsageMetricsQueue(this.appMetricsAggregator, identity.appSource),
                 rateLimiter: this.rateLimiter,
+                unknownTokens: this.unknownTokens,
                 samplingService: this.samplingService,
                 internalLogsVerifier: this.internalLogsVerifier,
                 metricSeriesAdmission: this.metricSeriesAdmission,

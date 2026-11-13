@@ -129,6 +129,26 @@ describe('metrics ingestion steps', () => {
             ).toBe(1)
         })
 
+        it('records only a not-found token for capture-logs, never a failed lookup', async () => {
+            const unknownTokens = { record: jest.fn() }
+            const recordingStep = createResolveMetricsTeamStep(teamManager, unknownTokens)
+
+            teamManager.getTeamByToken.mockResolvedValueOnce(createTestTeam({ id: 7 }))
+            await recordingStep({ token: 'known' })
+            teamManager.getTeamByToken.mockRejectedValueOnce(new Error('pg down'))
+            await recordingStep({ token: 'during_blip' })
+            teamManager.getTeamByToken.mockRejectedValueOnce(
+                new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down'))
+            )
+            await expect(recordingStep({ token: 'retriable' })).rejects.toBeDefined()
+            expect(unknownTokens.record).not.toHaveBeenCalled()
+
+            teamManager.getTeamByToken.mockResolvedValueOnce(null)
+            await recordingStep({ token: 'no_team' })
+            expect(unknownTokens.record).toHaveBeenCalledTimes(1)
+            expect(unknownTokens.record).toHaveBeenCalledWith('no_team')
+        })
+
         it('rethrows a retriable lookup error so the pipeline retries it and the batch replays', async () => {
             const error = new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down'))
             teamManager.getTeamByToken.mockRejectedValueOnce(error)

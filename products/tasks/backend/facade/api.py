@@ -240,7 +240,7 @@ from products.tasks.backend.task_profiles import (
     USER,
     WIZARD,
 )
-from products.tasks.backend.task_run_sync import collect_status_mismatches, sync_task_pr_urls
+from products.tasks.backend.task_run_sync import collect_status_mismatches, repair_status_mismatches, sync_task_pr_urls
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -2086,6 +2086,15 @@ def collect_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
             stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
         )
         for row in collect_status_mismatches()
+    ]
+
+
+def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
+    return [
+        contracts.TaskStatusMismatchRow(
+            stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
+        )
+        for row in repair_status_mismatches()
     ]
 
 

@@ -203,6 +203,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationIdentitySourceType as MarketingAnalyticsRecommendationIdentitySourceType,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
@@ -7284,6 +7285,31 @@ class MarketingAnalyticsRecommendationCpa(BaseModel):
     )
 
 
+class MarketingAnalyticsRecommendationIdentity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaign_id: str = Field(
+        ...,
+        description=("The Google Ads campaign id. Empty when the recommendation is not about one campaign."),
+    )
+    customer_id: str = Field(
+        ...,
+        description=("The Google Ads account id. Empty when the recommendation is not tied to one account."),
+    )
+    rule: MarketingAnalyticsRecommendationRule
+    source_type: MarketingAnalyticsRecommendationIdentitySourceType = Field(
+        ..., description="The ad platform the ids belong to."
+    )
+    subject: str = Field(
+        ...,
+        description=(
+            "The search term, or the budget id for a budget recommendation. Empty when"
+            " the campaign id names the subject."
+        ),
+    )
+
+
 class MarketingAnalyticsRecommendationsDataGap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7597,6 +7623,10 @@ class MetricsDisplaySettings(BaseModel):
     reduce: MetricsReducer | None = Field(
         default=MetricsReducer.LAST,
         description=("How scalar panels and legend calcs collapse a series to one number."),
+    )
+    statSparkline: bool | None = Field(
+        default=True,
+        description=("`stat` display only: whether a graph of the series shows under the value."),
     )
     statSummary: MetricsStatSummary | None = Field(
         default=MetricsStatSummary.LATEST,
@@ -22392,12 +22422,19 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None, description="CPA figures in the account currency."
     )
     currency: str | None = None
+    identity: MarketingAnalyticsRecommendationIdentity
     impact: float | None = Field(
         default=None,
         description=("Monthly money impact in the account currency. Null when the rule has no money impact."),
     )
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    key: str = Field(
+        ...,
+        description=(
+            "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is."
+        ),
+    )
     level: MarketingAnalyticsRecommendationLevel
     reason: str
     rule: MarketingAnalyticsRecommendationRule

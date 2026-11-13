@@ -927,6 +927,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Rate a result...'
         },
     },
+    get_replay_vision_observation_stats: {
+        name: 'Count observations',
+        description: "Count observations: a scanner's exact total and its breakdown by status and result",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Counted observations'
+            }
+            return 'Counting observations...'
+        },
+    },
     analyze_replay_vision_impact: {
         name: 'Measure impact',
         description: "Measure impact: how many sessions and people a scanner's findings affected",
