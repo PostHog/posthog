@@ -14,8 +14,6 @@ SOURCE_CONTAINER="posthog-legacy-minio"
 # this install's keys from .env.
 S3_KEY="object_storage_root_user"
 S3_SECRET="object_storage_root_password"
-DEST_KEY=$(sed -n 's/^OBJECT_STORAGE_ACCESS_KEY_ID=//p' .env 2>/dev/null | tail -1 || true)
-DEST_SECRET=$(sed -n 's/^OBJECT_STORAGE_SECRET_ACCESS_KEY=//p' .env 2>/dev/null | tail -1 || true)
 
 OBJECTSTORAGE_ENDPOINT="http://objectstorage:19000"
 SEAWEEDFS_ENDPOINT="http://seaweedfs:8333"
@@ -50,6 +48,12 @@ if command -v docker-compose >/dev/null 2>&1; then
 else
     COMPOSE=(docker compose)
 fi
+
+# Compose drops the quotes around a .env value, so drop them here too. bin/upgrade-hobby reads
+# .env the same way.
+read_env_value() {
+    grep "^$1=" .env | tail -n 1 | cut -d '=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'
+}
 
 show_help() {
     cat <<'EOF'
@@ -187,7 +191,7 @@ run_service() {
     local service="$1" endpoint="$2"
 
     if [ -z "$DEST_KEY" ] || [ -z "$DEST_SECRET" ]; then
-        echo "❌ .env has no OBJECT_STORAGE_ACCESS_KEY_ID or OBJECT_STORAGE_SECRET_ACCESS_KEY."
+        echo "❌ Could not read OBJECT_STORAGE_ACCESS_KEY_ID and OBJECT_STORAGE_SECRET_ACCESS_KEY from .env."
         echo "   Run bin/upgrade-hobby first, then run this script from the same directory."
         exit 1
     fi
@@ -254,6 +258,11 @@ while [[ $# -gt 0 ]]; do
             fi ;;
     esac
 done
+
+# Read after the arguments, so --help and --list need no .env. grep reports an .env that this
+# account cannot read.
+DEST_KEY=$(read_env_value OBJECT_STORAGE_ACCESS_KEY_ID || true)
+DEST_SECRET=$(read_env_value OBJECT_STORAGE_SECRET_ACCESS_KEY || true)
 
 if [ -z "$VOLUME" ]; then
     VOLUME=$(detect_minio_volume)
