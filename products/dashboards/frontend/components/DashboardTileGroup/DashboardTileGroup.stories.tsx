@@ -51,7 +51,9 @@ export const MenuOpen: StoryObj = {
     render: () => {
         useStorybookMocks({ get: { '/api/projects/:team_id/dashboards/': { count: 0, results: [] } } })
         return (
-            <div className="h-60 w-[640px] bg-primary p-4">
+            // Tall enough to hold the open menu: the snapshot runner stretches the story root to fit an overflowing
+            // popover and keeps that height for the next story.
+            <div className="h-80 w-[640px] bg-primary p-4">
                 <DashboardTileGroup
                     group={{ title: 'Activation', color: 'blue' }}
                     tileCount={2}
