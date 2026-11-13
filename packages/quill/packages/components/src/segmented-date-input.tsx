@@ -20,9 +20,12 @@ export const DATE_FORMAT_LABELS: Record<DateFormatOrder, string> = {
 
 const PAD_2 = { minimumIntegerDigits: 2 } as const
 
-export interface SegmentedDateInputProps {
+export // The year segment holds two digits, so the end of 2099 is the latest date it can show
+const TWO_DIGIT_YEAR_CEILING = new Date(2099, 11, 31)
+
+interface SegmentedDateInputProps {
     date: Date
-    maxDate: Date
+    maxDate?: Date
     onChange: (date: Date) => void
     dateFormat: DateFormatOrder
     /** Show hour/minute segments alongside the date. */
@@ -36,7 +39,7 @@ export interface SegmentedDateInputProps {
  */
 export function SegmentedDateInput({
     date,
-    maxDate,
+    maxDate = TWO_DIGIT_YEAR_CEILING,
     onChange,
     dateFormat,
     showTime,

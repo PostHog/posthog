@@ -119,6 +119,8 @@ Rules:
 - Changes are staged until `onApply` fires — don't treat intermediate calendar clicks as committed.
 - Dual-calendar layout appears at the `lg` breakpoint unless `compact` forces a single calendar.
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
+- `maxDate` defaults to today. Pass `maxDate={null}` for no upper limit, such as a filter whose fixed range may end in the future. The date inputs still stop at the end of 2099, the last year their two-digit year field can show.
+- With `showTime`, clicking a day keeps that endpoint's time of day; without it, a click selects the whole day.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
 - Embedding in a host surface (e.g. inside a popover with the host's own sections): `showHeader={false}` drops the caps header band, `showTime={false}` switches to day-granular mode (no time segments, no "Now", date-only footer readout) — pair with a `className` that strips the card chrome (`shadow-none ring-0`).
 
