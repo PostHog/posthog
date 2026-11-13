@@ -19,6 +19,7 @@ import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUID7 } from '~/common/utils/utils'
+import { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
@@ -402,6 +403,7 @@ export class LogsIngestionConsumer {
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
+    private unknownTokens: UnknownTokenRecorder
     private rateLimiter: LogsRateLimiterService
     private readonly backfillEnabledTeamsRaw: string
     private readonly internalLogsVerifier: InternalLogsVerifier
@@ -459,6 +461,7 @@ export class LogsIngestionConsumer {
             poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        this.unknownTokens = new UnknownTokenRecorder(this.redis)
         this.backfillEnabledTeamsRaw = mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS
         this.internalLogsVerifier = new InternalLogsVerifier(
             mergedConfig.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
@@ -1551,6 +1554,7 @@ export class LogsIngestionConsumer {
                         // resolution to here because it has no Postgres access, so this fires on every
                         // dropped message for a bad token. Already tracked via the metrics below.
                         logger.warn('team_not_found', { token_with_no_team: token })
+                        this.unknownTokens.record(token)
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return
