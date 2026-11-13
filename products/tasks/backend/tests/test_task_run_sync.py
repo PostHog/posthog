@@ -18,6 +18,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import materialize_
 from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
 from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.task_run_sync import (
+    DoneMode,
     LatestRun,
     StatusMismatch,
     collect_status_mismatches,
@@ -209,6 +210,15 @@ class TestTaskRunSync(TestCase):
         self.assertEqual(repair_status_mismatches(), [])
 
         self.assertEqual(TaskStatusChange.objects.for_team(self.team.id).count(), changes_before)
+
+    def test_repair_leaves_a_done_task_alone(self) -> None:
+        self._lose_sync(self.task, run_status=TaskRun.Status.IN_PROGRESS, stored="done")
+
+        with patch("products.tasks.backend.task_run_sync.done_mode", return_value=DoneMode.OFF):
+            repaired = repair_status_mismatches()
+
+        self.task.refresh_from_db()
+        self.assertEqual((repaired, self.task.status), ([], "done"))
 
     def test_repair_does_not_count_a_task_another_writer_fixed_first(self) -> None:
         self._lose_sync(self.task, run_status=TaskRun.Status.IN_PROGRESS, stored="queued")
