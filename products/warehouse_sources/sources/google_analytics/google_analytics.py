@@ -160,9 +160,10 @@ def _is_quota_error(response: requests.Response) -> bool:
 
 
 def _is_retryable_server_error(response: requests.Response) -> bool:
-    """5xx responses (e.g. 503 Service Unavailable) are transient backend errors —
-    back off and retry inline rather than failing the chunk."""
-    return 500 <= response.status_code < 600
+    """5xx responses (e.g. 503 Service Unavailable) are transient backend errors, and 409 is
+    Google's ABORTED code for a concurrency conflict on their end rather than a problem with our
+    request — both clear on their own, so back off and retry inline rather than failing the chunk."""
+    return response.status_code == 409 or 500 <= response.status_code < 600
 
 
 def _runreport_backoff_seconds(response: requests.Response, attempt: int) -> float:
@@ -285,7 +286,7 @@ def _run_report(
                     "initially' value on the source, or remove high-cardinality dimensions from your custom "
                     "reports (retryable)"
                 )
-            # A transient 5xx that never cleared — surface the HTTPError so Temporal retries the activity.
+            # A transient 5xx or 409 that never cleared — surface the HTTPError so Temporal retries the activity.
             response.raise_for_status()
 
         wait = _runreport_backoff_seconds(response, attempt)
