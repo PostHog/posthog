@@ -223,8 +223,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
     const hasTestDeliveryTargets =
         (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
-        // A test sends only the firing event, which an incident manager does not hear.
-        destinations.some((destination) => destination.enabled && destination.type !== 'pagerduty')
+        destinations.some((destination) => destination.enabled && destination.hears_firing)
 
     const handleClose = useCallback(() => {
         clearSimulation()

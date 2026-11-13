@@ -1695,6 +1695,11 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     )
 
 
+def _analytics_destination_type(destination_type: str | None) -> str | None:
+    # pinned: analytics property value, which the alert page has always sent as `microsoft_teams`
+    return "microsoft_teams" if destination_type == DestinationType.TEAMS else destination_type
+
+
 # A PagerDuty row hears firings and resolves, which delivery turns into its trigger and resolve.
 _ROW_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
     DestinationType.PAGERDUTY: (AlertEventKind.FIRING, AlertEventKind.RESOLVED),
@@ -1856,6 +1861,9 @@ class AlertDestinationListItemSerializer(serializers.Serializer):
     )
     type = serializers.ChoiceField(choices=DestinationType.choices, help_text="Notification destination type.")
     enabled = serializers.BooleanField(help_text="Whether the destination sends.")
+    hears_firing = serializers.BooleanField(
+        help_text="Whether the destination's HogFunctions hear the firing event, which a test delivery sends."
+    )
     message_customized = serializers.BooleanField(
         help_text="Whether someone edited the destination's message, so it no longer sends the standard one."
     )
@@ -2651,6 +2659,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         customized = customized_alert_destination_ids(
             team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
         )
+        hearing_firing = owned_alert_destination_ids(
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+            hog_function_ids=[i for destination in destinations for i in destination.hog_function_ids],
+        )
         return Response(
             AlertDestinationListItemSerializer(
                 [
@@ -2658,6 +2672,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "id": destination.destination_id,
                         "hog_function_ids": list(destination.hog_function_ids),
                         "enabled": destination.enabled,
+                        "hears_firing": not hearing_firing.isdisjoint(destination.hog_function_ids),
                         "message_customized": not customized.isdisjoint(destination.hog_function_ids),
                         **redact_platform_destination_data(redact_destination_data(destination.data)),
                     }
@@ -2800,7 +2815,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 **get_request_analytics_properties(request),
                 "alert_id": str(alert.id),
                 "team_id": alert.team_id,
-                "type": data["type"],
+                "type": _analytics_destination_type(data["type"]),
             },
         )
         response = AlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
@@ -2857,7 +2872,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             was_impersonated=is_impersonated(request),
             action="deleted",
             # A destination whose HogFunctions were already gone is logged by its row's id.
-            destination_types=removed or deleted.row_types,
+            destination_types=(logged := removed or deleted.row_types),
         )
 
         posthoganalytics.capture(
@@ -2868,6 +2883,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "alert_id": str(alert.id),
                 "count": len(hog_function_ids) + len(remaining),
                 "team_id": alert.team_id,
+                # One destination is removed per request from the alert page; a mixed request names no type.
+                "type": _analytics_destination_type(types.pop()) if len(types := set(logged.values())) == 1 else None,
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)

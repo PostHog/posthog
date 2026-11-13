@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -406,14 +405,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                         ? { hog_function_ids: destination.hog_function_ids }
                         : { destination_ids: [String(destination.id)] }
                 )
-                // The alert API captures its own event for a PagerDuty destination.
-                if (destination.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-                    // pinned: analytics property value, which names Teams as the modal does
-                    posthog.capture('insight alert destination deleted', {
-                        alert_id: props.alertId,
-                        type: destination.type === 'teams' ? ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS : destination.type,
-                    })
-                }
             } catch (error) {
                 console.error('Failed to remove alert destination', error)
                 lemonToast.error("Couldn't remove the destination. Try again.")
@@ -452,17 +443,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     })
                 })
             )
-
-            // No `alert created`/`alert updated` event captures destination type, so this is emitted per created destination instead.
-            // The alert API captures its own PagerDuty event.
-            results.forEach((result, i) => {
-                if (result.status === 'fulfilled' && pending[i].type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-                    posthog.capture('insight alert destination created', {
-                        alert_id: alertId,
-                        type: pending[i].type,
-                    })
-                }
-            })
 
             const failures = results
                 .map((result, i) => ({ result, notification: pending[i] }))

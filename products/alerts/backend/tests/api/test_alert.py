@@ -3184,6 +3184,7 @@ class TestAlertDestinations(APIBaseTest):
         (destination,) = listed.json()
         assert destination["hog_function_ids"] == [hog_function_id]
         assert destination["type"] == destination_type
+        assert destination["hears_firing"] is True
         assert destination["webhook_url"] == url.split("/", 3)[0] + "//" + url.split("/", 3)[2]
 
     @parameterized.expand(
