@@ -2035,6 +2035,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 captureBIWorksheetAction('chart_settings_changed', values.query.config, {
                     setting_keys: Object.keys(settings),
                 })
+            } else {
+                posthog.capture('sql chart settings updated', {
+                    setting_keys: Object.keys(settings),
+                    heatmap_setting_keys: settings.heatmap ? Object.keys(settings.heatmap) : undefined,
+                })
             }
             actions.setQuery((query) => ({
                 ...query,

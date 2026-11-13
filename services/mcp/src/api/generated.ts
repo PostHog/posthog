@@ -12335,6 +12335,7 @@ export namespace Schemas {
       valueColumn?: string | null;
       xAxisColumn?: string | null;
       xAxisLabel?: string | null;
+      xAxisSortOrder?: HeatmapSortOrder | null;
       yAxisColumn?: string | null;
       yAxisLabel?: string | null;
     }
@@ -38595,7 +38596,7 @@ export namespace Schemas {
     }
 
     export interface DiagnosticCheckResult {
-      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry). */
       id: string;
       /** Human-readable check name. */
       name: string;
@@ -141381,7 +141382,7 @@ export namespace Schemas {
 
     export type LlmSkillsSearchRetrieveParams = {
     /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.
      * @minLength 1
      * @maxLength 200
      */
