@@ -1,4 +1,6 @@
+import { createExampleInvocation } from '../_tests/fixtures'
 import { CyclotronJobInvocationResult } from '../types'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
 import { InvocationResultsService } from './invocation-results.service'
@@ -34,6 +36,11 @@ const serviceWithRecordingSinks = (): { service: InvocationResultsService; sinks
     )
     return { service, sinks }
 }
+
+const invocationResults = [
+    createInvocationResult(createExampleInvocation()),
+    createInvocationResult(createExampleInvocation()),
+]
 
 describe('InvocationResultsService', () => {
     let monitoringService: jest.Mocked<HogFunctionMonitoringService>
@@ -101,10 +108,10 @@ describe('InvocationResultsService', () => {
         it('fans the same results out to every sink without flushing them', async () => {
             const { service, sinks } = serviceWithRecordingSinks()
 
-            await service.queueInvocationResults(results)
+            await service.queueInvocationResults(invocationResults)
 
             expect(sinks.map(({ pending, delivered }) => ({ pending, delivered }))).toEqual(
-                sinks.map(() => ({ pending: results, delivered: [] }))
+                sinks.map(() => ({ pending: invocationResults, delivered: [] }))
             )
         })
 
@@ -138,12 +145,12 @@ describe('InvocationResultsService', () => {
     describe('flush', () => {
         it('flushes every sink', async () => {
             const { service, sinks } = serviceWithRecordingSinks()
-            await service.queueInvocationResults(results)
+            await service.queueInvocationResults(invocationResults)
 
             await service.flush()
 
             expect(sinks.map(({ pending, delivered }) => ({ pending, delivered }))).toEqual(
-                sinks.map(() => ({ pending: [], delivered: results }))
+                sinks.map(() => ({ pending: [], delivered: invocationResults }))
             )
         })
 
