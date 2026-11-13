@@ -125,6 +125,10 @@ def validate_and_consume_nonce(nonce: str, email: str, ip_address: str) -> bool:
 def verify_login_turnstile_token(token: str, remote_ip: str) -> SiteverifyOutcome:
     if len(token) > TURNSTILE_TOKEN_MAX_LENGTH:
         return SiteverifyOutcome(result=SiteverifyResult.REJECTED, error_codes=("token-too-long",))
+    # A Turnstile token is printable ASCII. Anything else would fail to encode before the request,
+    # which must not read as a Cloudflare outage.
+    if not (token.isascii() and token.isprintable()):
+        return SiteverifyOutcome(result=SiteverifyResult.REJECTED, error_codes=("token-malformed",))
 
     secret_key = settings.CLOUDFLARE_TURNSTILE_SECRET_KEY
     start = time.perf_counter()
@@ -134,9 +138,13 @@ def verify_login_turnstile_token(token: str, remote_ip: str) -> SiteverifyOutcom
             source="login_turnstile",
             timeout=LOGIN_SITEVERIFY_TIMEOUT_SECONDS,
         )
-        data = None if response.status_code >= 500 else response.json()
-    except (requests.RequestException, ValueError):
+    except requests.RequestException:
         data = None
+    else:
+        try:
+            data = None if response.status_code >= 500 else response.json()
+        except ValueError:
+            data = None
     duration_seconds = time.perf_counter() - start
 
     if not isinstance(data, dict):

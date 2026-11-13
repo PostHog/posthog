@@ -161,6 +161,18 @@ class TestLoginTurnstileShadow(APIBaseTest):
             assert (response.status_code, response.json()) == (200, {"success": True})
 
     @override_settings(**KEYS)
+    def test_locked_out_login_never_calls_siteverify(self):
+        with (
+            override_instance_config("LOGIN_TURNSTILE_MODE", "shadow"),
+            patch("posthog.api.authentication.AxesProxyHandler.is_locked", return_value=True),
+            patch("posthog.login_challenge.verify_login_turnstile_token", _accepted()) as verify,
+        ):
+            response = self._login(APIClient(), turnstile_token="x", turnstile_client_status="token")
+
+        assert response.status_code == 403
+        verify.assert_not_called()
+
+    @override_settings(**KEYS)
     def test_an_error_inside_the_step_does_not_break_login(self):
         with (
             override_instance_config("LOGIN_TURNSTILE_MODE", "shadow"),

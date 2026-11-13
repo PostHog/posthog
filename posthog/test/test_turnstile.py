@@ -194,12 +194,22 @@ class TestVerifyLoginTurnstileToken(SimpleTestCase):
 
         assert outcome.result == SiteverifyResult.UNAVAILABLE
 
-    @override_settings(CLOUDFLARE_TURNSTILE_SECRET_KEY=REAL_SECRET)
-    def test_oversized_token_is_rejected_without_a_call(self):
-        with patch("posthog.turnstile.turnstile_siteverify_request") as siteverify:
-            outcome = verify_login_turnstile_token("x" * 2049, "1.2.3.4")
+    @parameterized.expand(
+        [
+            ("too_long", "x" * 2049, "token-too-long"),
+            ("lone_surrogate", "abc\ud800", "token-malformed"),
+            ("non_ascii", "tök.en", "token-malformed"),
+            ("control_character", "to\nken", "token-malformed"),
+        ]
+    )
+    def test_malformed_token_is_rejected_without_a_call(self, _name, token, error_code):
+        with (
+            override_settings(CLOUDFLARE_TURNSTILE_SECRET_KEY=REAL_SECRET),
+            patch("posthog.turnstile.turnstile_siteverify_request") as siteverify,
+        ):
+            outcome = verify_login_turnstile_token(token, "1.2.3.4")
 
-        assert (outcome.result, outcome.error_codes) == (SiteverifyResult.REJECTED, ("token-too-long",))
+        assert (outcome.result, outcome.error_codes) == (SiteverifyResult.REJECTED, (error_code,))
         siteverify.assert_not_called()
 
     @override_settings(CLOUDFLARE_TURNSTILE_SECRET_KEY=REAL_SECRET)

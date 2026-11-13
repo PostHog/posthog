@@ -423,6 +423,14 @@ class LoginSerializer(serializers.Serializer):
             and request.user.email.lower() == validated_data["email"].lower()
         )
 
+        # Initialize axes handler via proxy so request metadata is populated consistently
+        handler = AxesProxyHandler
+        axes_credentials = {"username": validated_data["email"]}
+
+        # Check if axes has locked out this IP/user before attempting authentication
+        if handler.is_locked(axes_request, credentials=axes_credentials):
+            raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
         record_login_turnstile_decision(
             axes_request,
             email=validated_data["email"],
@@ -431,14 +439,6 @@ class LoginSerializer(serializers.Serializer):
             token=validated_data.get("turnstile_token") or "",
             client_status=validated_data.get("turnstile_client_status") or "",
         )
-
-        # Initialize axes handler via proxy so request metadata is populated consistently
-        handler = AxesProxyHandler
-        axes_credentials = {"username": validated_data["email"]}
-
-        # Check if axes has locked out this IP/user before attempting authentication
-        if handler.is_locked(axes_request, credentials=axes_credentials):
-            raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
         user = cast(
             User | None,
