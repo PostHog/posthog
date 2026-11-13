@@ -137,7 +137,11 @@ export interface workflowFoldersLogicActions {
     setListFolder: (folder: string | null) => {
         folder: string | null
     } // newWorkflowLogic
-    setValue: (value: FacetSearchValue) => {
+    setValue: (
+        value: FacetSearchValue,
+        fromUrl?: boolean | undefined
+    ) => {
+        fromUrl: boolean
         value: FacetSearchValue
     } // workflowsListV2Logic
     cancelFolderDraft: () => {
