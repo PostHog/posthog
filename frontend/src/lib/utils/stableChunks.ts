@@ -1,3 +1,4 @@
+import { isWebKitBrowser } from './dom'
 import { unmappedStableChunkSpecifier } from './isChunkLoadError'
 
 /** Only the stable chunk build renders an import map (see posthog/stable_chunks.py). */
@@ -12,7 +13,8 @@ export function isStableChunkBuild(): boolean {
 const PENDING_NAVIGATION_GRACE_MS = 10_000
 let lastBeforeUnloadAt: number | null = null
 
-if (typeof window !== 'undefined') {
+// Firefox keeps a page with a `beforeunload` listener out of its back/forward cache, so only WebKit gets one.
+if (typeof window !== 'undefined' && isWebKitBrowser()) {
     window.addEventListener('beforeunload', () => {
         lastBeforeUnloadAt = Date.now()
     })
@@ -21,7 +23,8 @@ if (typeof window !== 'undefined') {
 function afterPendingNavigation(reload: () => void): void {
     const waitMs = lastBeforeUnloadAt === null ? 0 : lastBeforeUnloadAt + PENDING_NAVIGATION_GRACE_MS - Date.now()
     if (waitMs > 0) {
-        window.setTimeout(reload, waitMs)
+        // A later unload moves the deadline, so the timer checks again before it reloads.
+        window.setTimeout(() => afterPendingNavigation(reload), waitMs)
     } else {
         reload()
     }
