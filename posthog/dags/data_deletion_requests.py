@@ -2379,6 +2379,10 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         dagster.DagsterRunStatus.NOT_STARTED,
         dagster.DagsterRunStatus.STARTING,
         dagster.DagsterRunStatus.STARTED,
+        # A CANCELING run can still execute ops until termination completes. If the sensor launched
+        # beside it, two runs could load the same request, and the loser's failure hook would mark
+        # the winner's IN_PROGRESS request FAILED.
+        dagster.DagsterRunStatus.CANCELING,
     ]
     active_count = 0
     for job_name in DELETION_JOB_NAMES:

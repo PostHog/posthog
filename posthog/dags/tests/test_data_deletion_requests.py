@@ -3485,6 +3485,30 @@ def test_pickup_sensor_launches_staff_request_before_older_non_staff_request(old
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("status", [dagster.DagsterRunStatus.STARTED, dagster.DagsterRunStatus.CANCELING])
+def test_pickup_sensor_waits_while_a_deletion_run_is_unfinished(status):
+    DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=timezone.now() - timedelta(days=7),
+        end_time=timezone.now(),
+        status=RequestStatus.APPROVED,
+        approved_at=timezone.now(),
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+    instance.create_run_for_job(
+        job_def=data_deletion_request_event_removal,
+        run_config={"ops": {"load_deletion_request": {"config": {"request_id": str(uuid4())}}}},
+        status=status,
+    )
+
+    result = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+
+    assert isinstance(result, dagster.SkipReason)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "attempt_count_after_first_run",
     [
