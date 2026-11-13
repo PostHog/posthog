@@ -104,11 +104,19 @@ One `posthog:logs-context` call. Anchor on `traceId`, on `logUuid` + `timestamp`
 behind the line, and add `include: ["spans"]` on a trace to see the error and slowest spans.
 Do not page through `query-logs` by hand to rebuild the same timeline.
 
-### Daily service health report in 3 calls
+### Daily service health report
 
-1. `posthog:apm-service-health` with `include: ["logs"]` and `compare: "previous_day"`: one row per service with status, error rate, p95 and log error rate.
-2. `posthog:logs-patterns-diff` over the same window with `severityLevels: ["warn", "error", "fatal"]` and `limit: 25`: new error patterns, with `first_seen_ever` to tell new today from new this week.
-3. `posthog:logs-alerts-list` with `firedSince` set to the window start: alerts that fired.
+1. `posthog:logs-services-create` with `compare: "previous_day"`: one row per service with log status, `error_count` and `error_rate_pct`.
+2. `posthog:apm-service-health` with `compare: "previous_day"`: trace health per service (status, error rate, p95).
+   It has no log error rate, so it does not replace step 1. Skip it when the project has no traces.
+3. `posthog:logs-patterns-diff` over the same window with `severityLevels: ["warn", "error", "fatal"]` and `limit: 25`: new error patterns,
+   with `first_seen_ever` to tell new today from new this week. A null `first_seen_ever` means unknown, not new:
+   the lookup hit its read budget or the diff fell back to body mining. Read `notes` for which one.
+4. Alert firings, in two steps. `posthog:logs-alerts-list` returns configurations and each alert's current `state` only,
+   so a `not_firing` alert may still have fired earlier in the window.
+   For each enabled alert, page `posthog:logs-alerts-events-list` (newest first) until `created_at` is before the window start.
+   A row with `state_after: "firing"` and a different `state_before` is a firing.
+   This is one call per alert, or more for an alert that changed state often. If you check only some alerts, name the ones you skipped.
 
 Report the `window` bounds the tools return. Drill into a suspect with `posthog:logs-context` only when the report needs the evidence.
 
@@ -129,7 +137,7 @@ size the result with `posthog:logs-count`, then pull rows with `posthog:query-lo
   a tiny or empty baseline (logging only just started) makes everything look new.
 - `severityLevels` matches the six canonical lowercase buckets against `severity_text` exactly.
   Zero rows on a severity filter → check the stored values with `posthog:logs-attribute-values-list { key: "severity_text" }`.
-- Budget: one health call, at most one patterns-diff per window pair, 3–4 count-ranges levels,
+- Budget: one log health call (plus one trace health call for a daily report), at most one patterns-diff per window pair, 3–4 count-ranges levels,
   one `logs-context` per suspect, and `query-logs` only for confirmed suspects with `limit` ≤ 100.
 
 ## Output
