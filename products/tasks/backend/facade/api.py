@@ -1064,6 +1064,14 @@ def has_slack_thread_reference(
     )
 
 
+def _readable_status_detail(task: Task, latest_run: TaskRun | None, may_read_latest_context: bool) -> str | None:
+    if latest_run is None or not may_read_latest_context:
+        return None
+    if task.status_reason != Task.StatusReason.UNEXPECTED_FAILURE:
+        return task.status_detail
+    return latest_run.error_message if latest_run.status == TaskRun.Status.FAILED else None
+
+
 def _task_detail_to_dto(
     task: Task,
     *,
@@ -1151,7 +1159,7 @@ def _task_detail_to_dto(
         channel=task.channel_id,
         status=task.status,
         status_reason=task.status_reason,
-        status_detail=task.status_detail if resolved_latest_run is not None and may_read_latest_context else None,
+        status_detail=_readable_status_detail(task, resolved_latest_run, may_read_latest_context),
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
         client_provenance=task.client_provenance,

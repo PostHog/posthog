@@ -13483,6 +13483,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
             denied = self.client.post(summaries_url, {"ids": [str(task.id)]}, format="json")
             assert denied.status_code == status.HTTP_200_OK
             assert denied.json()["results"][0]["latest_run"]["task_summary"] is None
+            TaskRun.objects.filter(pk=run.pk).update(status=TaskRun.Status.FAILED, error_message="Protected error")
             redacted = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
             assert redacted.json()["latest_run"]["task_summary"] is None
             assert redacted.json()["status_detail"] is None
@@ -13505,6 +13506,32 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         assert "analytics_query_context" not in detail.json()["latest_run"]["state"]
         if route == "session_logs":
             assert detail.json()["latest_run"]["task_summary"] == "Protected metric findings"
+
+    def test_failure_detail_of_a_protected_run_stays_hidden_once_a_newer_run_exists(self) -> None:
+        task = self.create_task()
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.FAILED,
+            error_message="Protected error",
+            state={"analytics_query_context": [TASK_ANALYTICS_QUERY]},
+            created_at=django_timezone.now() - timedelta(hours=1),
+        )
+        Task.objects.filter(pk=task.pk).update(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE, status_detail="Protected error"
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Task reader", user=self.user, secure_value=hash_key_value(raw_key), scopes=["task:read"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status_detail"] is None
 
     def test_ordinary_resumed_task_details_do_not_scan_ancestors(self):
         task = self.create_task()
