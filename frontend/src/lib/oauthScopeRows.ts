@@ -99,7 +99,10 @@ export function buildOAuthScopeRows(
         const key = scopeObjectKey(scope)
         const maxLevel: 'read' | 'write' = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
         const requiredLevel = requiredScopeLevels.get(key)
-        const grantedLevel = alreadyGrantedScopeLevels.get(key)
+        // An earlier grant can sit above this request's ceiling, as when a device login asks for less
+        // than the client had. A floor above the ceiling disables every level, so cap it.
+        const earlierLevel = alreadyGrantedScopeLevels.get(key)
+        const grantedLevel = earlierLevel === 'write' && maxLevel === 'read' ? 'read' : earlierLevel
         const alreadyGranted = grantedLevel !== undefined && (grantedLevel === 'write' || requiredLevel !== 'write')
         const minLevel: ScopeAccessLevel = (alreadyGranted ? grantedLevel : requiredLevel) ?? 'none'
         const disabledReasons = oauthDisabledReasons(minLevel, maxLevel, appName, alreadyGranted)

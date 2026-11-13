@@ -115,6 +115,23 @@ describe('oauthDeviceAuthorizeLogic', () => {
         expect(logic.values.keptScopes).toEqual(['openid', 'dashboard:write', 'insight:read'])
     })
 
+    it('a step-up that asks for less than an earlier grant never approves past the request', async () => {
+        useGrantMocks({
+            ...GRANT,
+            scopes: ['openid', 'insight:read', 'feature_flag:write'],
+            granted_scopes: [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:write'] }],
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setProjectId(42)
+        logic.actions.setScopeGroupAccess(['insight', 'feature_flag'], 'write')
+
+        expect(logic.values.keptScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
+    })
+
     it.each([
         ['nothing but identity', ['openid'], ['openid', 'insight:read'], null],
         [
