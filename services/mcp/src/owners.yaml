@@ -9,6 +9,7 @@ rules:
           - '/tools/generated/'
           - '/ui-apps/generated/'
           - '/ui-apps/apps/generated/'
+          - '/tools/links/app-url-manifest.json'
       status: generated
     - match:
           - '/generated/mcp_analytics/'

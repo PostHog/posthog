@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from functools import cache, cached_property
@@ -770,7 +771,13 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise NotFound()
         return Response(self._serialized(updated))
 
-    @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_CREATE, responses=CREATE_RESPONSES)
+    @extend_schema(
+        request=PLATFORM_ALERT_CONFIGURATION_CREATE,
+        responses=CREATE_RESPONSES,
+        summary="Create an alert",
+        description="Create an alert on the platform. The request body depends on source_kind, which picks the "
+        "source product and the shape of source_config. The alert notifies nobody until a destination is added.",
+    )
     def create(self, request: Request, **kwargs) -> Response:
         # The rows live on the project, so an alert made here would count the project's data rather
         # than the environment's that the URL names.
@@ -833,21 +840,34 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             request=self.request,
         )
 
-    @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_EDIT, responses=EDIT_RESPONSES)
+    @extend_schema(
+        request=PLATFORM_ALERT_CONFIGURATION_EDIT,
+        responses=EDIT_RESPONSES,
+        summary="Replace an alert's settings",
+        description="Replace every setting of an alert the platform owns. source_kind must match the stored value.",
+    )
     def update(self, request: Request, pk: str, **kwargs) -> Response:
         return self._edit(request, pk, partial=False)
 
-    @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_EDIT, responses=EDIT_RESPONSES)
+    @extend_schema(
+        request=PLATFORM_ALERT_CONFIGURATION_EDIT,
+        responses=EDIT_RESPONSES,
+        summary="Change an alert",
+        description="Change some settings of an alert the platform owns. Settings left out keep their stored value. "
+        "A source_kind that is sent must match the stored value.",
+    )
     def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
         return self._edit(request, pk, partial=True)
 
     @extend_schema(
+        summary="Delete an alert",
+        description="Delete an alert the platform owns, with its destinations.",
         responses={
             204: OpenApiResponse(description="The alert, its source's own row and its destinations are deleted."),
             403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
             404: OpenApiResponse(description="No alert with this id that the caller can read."),
             409: OpenApiResponse(description="The source product owns this alert, so only its own API deletes it."),
-        }
+        },
     )
     def destroy(self, request: Request, pk: str, **kwargs) -> Response:
         configuration_id = serializers.UUIDField().run_validation(pk)
@@ -1145,6 +1165,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
+        self._log_destination_activity(configuration, "created", {created.id: data["type"]})
         # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
         transaction.on_commit(
             lambda: self._track_destination(
@@ -1191,10 +1212,48 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         deleted = platform_api.delete_alert_destinations(
             team_id=self._canonical_team_id(), configuration_id=configuration.id, destination_ids=destination_ids
         )
+        self._log_destination_activity(configuration, "deleted", deleted)
         transaction.on_commit(
-            lambda: self._track_destination("deleted", configuration, {"count": deleted}), robust=True
+            lambda: self._track_destination("deleted", configuration, {"count": len(deleted)}), robust=True
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _log_destination_activity(
+        self,
+        configuration: PlatformAlertConfigurationView,
+        action: Literal["created", "deleted"],
+        destination_types: Mapping[UUID, str],
+    ) -> None:
+        # The model's activity diff leaves destinations out, so their changes are logged here. The entry
+        # names each destination by id and type only, because its data holds webhook URLs and routing keys.
+        summaries = [
+            {"id": str(destination_id), "type": destination_type}
+            for destination_id, destination_type in destination_types.items()
+        ]
+        if not summaries:
+            return
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self._canonical_team_id(),
+            user=cast(User, self.request.user),
+            was_impersonated=is_impersonated(self.request),
+            item_id=configuration.id,
+            scope="PlatformAlertConfiguration",
+            activity="updated",
+            detail=Detail(
+                name=configuration.name,
+                changes=[
+                    Change(
+                        type="PlatformAlertConfiguration",
+                        action=action,
+                        field="destinations",
+                        before=summary if action == "deleted" else None,
+                        after=summary if action == "created" else None,
+                    )
+                    for summary in summaries
+                ],
+            ),
+        )
 
     def _track_destination(
         self,
@@ -1210,7 +1269,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             request=self.request,
         )
 
-    @extend_schema(parameters=[PlatformAlertConfigurationListQuerySerializer])
+    @extend_schema(
+        parameters=[PlatformAlertConfigurationListQuerySerializer],
+        summary="List alerts",
+        description="List the alerts of the project that the caller can read.",
+    )
     def list(self, request: Request, **kwargs) -> Response:
         query = PlatformAlertConfigurationListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -1235,7 +1298,14 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             PlatformAlertConfigurationSerializer(configurations, many=True, context={"extras": extras}).data
         )
 
-    @extend_schema(responses=PlatformAlertConfigurationSerializer)
+    @extend_schema(
+        summary="Get an alert",
+        description="Get one alert with the runtime state of each of its groups.",
+        responses={
+            200: PlatformAlertConfigurationSerializer,
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+        },
+    )
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         # The route accepts any non-slash value, and an unparseable one reaching the UUID filter
         # raises rather than missing, which would answer a bad id with a 500.

@@ -388,6 +388,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # Supavisor's ECHECKOUT* above — a slot frees the moment another transaction returns its backend —
     # so a fresh reconnect recovers.
     "query_wait_timeout",
+    # PgBouncer's own `idle_transaction_timeout` setting: it disconnects a client that leaves a
+    # transaction open (idle) for longer than the configured limit, which is exactly what our
+    # server-cursor reads do between fetches during a slow delta-merge. Same bare, SQLSTATE-less
+    # error-packet shape as `query_wait_timeout` above, so psycopg surfaces it as ProtocolViolation
+    # rather than the `IdleInTransactionSessionTimeout` Postgres itself raises for the equivalent
+    # server-side `idle_in_transaction_session_timeout` (already matched by type above) — same
+    # transient class, just culled by the pooler instead of the server. A fresh reconnect recovers.
+    "idle transaction timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other

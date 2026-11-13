@@ -35,6 +35,7 @@ from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     BACKFILL_CANDIDATE_QUERY_TYPE,
     BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE,
+    SWEEP_GROUP_KEY_RESOLUTION_SECONDS,
     WindowedCandidateQuery,
 )
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
@@ -203,6 +204,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
         skip_negative_blocklists=True,
         variant_sampling_rates=variant_plan.rates if variant_plan is not None else None,
+        group_key_resolution_seconds=SWEEP_GROUP_KEY_RESOLUTION_SECONDS,
     )
     started_at = time.monotonic()
     try:
