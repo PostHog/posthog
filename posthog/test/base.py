@@ -1497,6 +1497,10 @@ def also_test_with_materialized_columns(
             # Don't run these tests under non-clickhouse classes even if decorated in base classes
             if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
                 return
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                pytest.skip(
+                    "The new events schema reads no materialized columns, so this variant repeats its base test"
+                )
 
             for prop in event_properties:
                 materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
@@ -1515,7 +1519,7 @@ def also_test_with_materialized_columns(
             finally:
                 cleanup_materialized_columns()
 
-            if verify_no_jsonextract and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            if verify_no_jsonextract:
                 for sql in sqls:
                     self.assertNotIn("JSONExtract", sql)
 
