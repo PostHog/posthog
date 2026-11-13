@@ -1395,6 +1395,29 @@ class TestUserGitHubIntegration(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
+    def test_refresh_uses_credentials_rotated_by_concurrent_request(self, mock_post):
+        gh = self._make_integration(credential_version="old-version")
+        winner = UserIntegration.objects.get(pk=gh.integration.pk)
+        winner.config = {
+            **winner.config,
+            "credential_version": "new-version",
+            "user_token_refreshed_at": int(time.time()),
+        }
+        winner.sensitive_config = {
+            **winner.sensitive_config,
+            "user_access_token": "gho_rotated",
+            "user_refresh_token": "ghr_rotated",
+        }
+        winner.save(update_fields=["config", "sensitive_config", "updated_at"])
+
+        gh.refresh_user_access_token()
+
+        self.assertEqual(gh.user_access_token, "gho_rotated")
+        self.assertEqual(gh.user_refresh_token, "ghr_rotated")
+        mock_post.assert_not_called()
+
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.user_integration.requests.post")
     def test_refresh_clears_expiry_metadata_when_github_omits_expiry_fields(self, mock_post):
         """Non-expiring tokens omit expires_in / refresh_token_expires_in; stale DB expiries must be cleared."""
         # https://app.graphite.com/github/pr/PostHog/posthog/55303#comment-PRRC_kwDODg-Tdc67nmop

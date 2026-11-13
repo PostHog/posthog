@@ -1,4 +1,5 @@
 import time
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -9,6 +10,7 @@ from django.utils.functional import Promise
 
 import requests
 import structlog
+from redis.exceptions import LockNotOwnedError
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -24,6 +26,7 @@ from posthog.models.github_integration_base import (
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.utils import UUIDModel
+from posthog.redis import get_client as get_redis_client
 
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization
@@ -49,6 +52,8 @@ MAX_SCOPED_TOKEN_REPOSITORIES = 500
 _USER_REPOSITORIES_PAGE_SIZE = 100
 _TRANSIENT_STATUS_CODES = {502, 503, 504}
 USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY = "user_scoped_repository_cache_at"
+_USER_TOKEN_REFRESH_LOCK_TIMEOUT_SECONDS = 30
+_USER_TOKEN_REFRESH_LOCK_WAIT_SECONDS = 15
 
 
 class NoAccessibleRepositories(GitHubIntegrationError):
@@ -333,6 +338,27 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         Strips the stored tokens and raises :class:`ReauthorizationRequired` when GitHub
         signals the refresh token can't produce a new access token.
         """
+        credential_version = (self.integration.config or {}).get("credential_version")
+        lock = get_redis_client().lock(
+            f"github:user_integration:refresh:{self.integration.pk}",
+            timeout=_USER_TOKEN_REFRESH_LOCK_TIMEOUT_SECONDS,
+            blocking_timeout=_USER_TOKEN_REFRESH_LOCK_WAIT_SECONDS,
+        )
+        acquired = lock.acquire()
+        try:
+            self.integration.refresh_from_db()
+            current_credential_version = (self.integration.config or {}).get("credential_version")
+            if current_credential_version != credential_version:
+                return
+            if not acquired:
+                raise GitHubIntegrationError("Timed out waiting for another GitHub token refresh.")
+            self._refresh_user_access_token_locked()
+        finally:
+            if acquired:
+                with suppress(LockNotOwnedError):
+                    lock.release()
+
+    def _refresh_user_access_token_locked(self) -> None:
         credentials = github_app_oauth_credentials()
         client_id = credentials.client_id
         client_secret = credentials.client_secret
