@@ -1,6 +1,6 @@
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
-import { EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_PENDING, EXIT_USAGE, HogError, waitingExitCode } from '@/core/errors'
 import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError, isTransient } from '@/posthog/api'
@@ -166,7 +166,7 @@ export default defineCommand({
 
     raw: (result) => (result.status === 'done' ? result.response : result),
 
-    exitCode: (result) => (result.status === 'running' ? EXIT_PENDING : EXIT_SUCCESS),
+    exitCode: waitingExitCode,
 
     human({ result, out }) {
         if (result.status === 'running') {
