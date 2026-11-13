@@ -810,7 +810,8 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
             padding: 0 !important;
             margin: 0 !important;
             overflow: visible !important;
-            background: white !important;
+            background: var(--color-bg-surface-primary) !important;
+            print-color-adjust: exact;
             border: 0 !important;
             box-shadow: none !important;
             transform: none !important;
@@ -825,7 +826,7 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
             width: 180mm !important;
             max-width: 100% !important;
             margin: 0 !important;
-            background: white !important;
+            background: var(--color-bg-surface-primary) !important;
             print-color-adjust: exact;
 
             .Notebook_content,
@@ -838,7 +839,7 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
                 height: auto !important;
                 padding: 0 !important;
                 overflow: visible !important;
-                background: white !important;
+                background: var(--color-bg-surface-primary) !important;
                 border: 0 !important;
                 box-shadow: none !important;
             }
