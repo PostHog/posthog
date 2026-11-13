@@ -1275,9 +1275,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     # --- comparison / call rewrites ---
 
-    def _native_property_document(
-        self, document: ast.Expr
-    ) -> tuple[ast.FieldType, str, MaterializedPropertySource] | None:
+    def _native_property_document(self, document: ast.Expr) -> _OptimizableProperty | None:
         """The native property that `document` serializes, or None.
 
         The property pass writes `ifNull(toJSONString(<property>), '')` as the document of a JSON function whose
@@ -1305,7 +1303,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         source = resolve_materialized_property_source(field_type, key, self.context)
         if source is None or source.kind != "json_subcolumn":
             return None
-        return field_type, key, source
+        return _OptimizableProperty(field_type=field_type, key=key, source=source)
 
     def _rewrite_json_function_on_property_text(self, node: ast.Call) -> ast.Expr | None:
         """`f(properties, 'key', <more path>)` on the native table, run on the text of `key`.
@@ -1323,9 +1321,8 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         prop = self._native_property_document(node.args[0])
         if prop is None:
             return None
-        field_type, key, source = prop
-        _record_property_usage(self.context, source.kind)
-        text = _call("ifNull", [_json_property_text(field_type, key, source=source), _sentinel("")])
+        _record_property_usage(self.context, prop.source.kind)
+        text = _call("ifNull", [_json_property_text(prop.field_type, prop.key, source=prop.source), _sentinel("")])
         return replace(node, args=[text, *[self.visit(arg) for arg in node.args[1:]]])
 
     def _rewrite_scalar_json_extract(self, node: ast.Call) -> ast.Expr | None:
@@ -1373,7 +1370,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         prop = self._native_property_document(document)
         if prop is None:
             return None
-        field_type, key, source = prop
+        field_type, key, source = prop.field_type, prop.key, prop.source
         value = _call(
             "accurateCast",
             [_json_subcolumn_access(field_type, key, source=source, is_nullable=True), _const("Dynamic")],

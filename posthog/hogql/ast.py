@@ -1038,7 +1038,7 @@ class PropertyAccess(Expr):
     keys: list[str | int]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class JsonSubcolumnAccess(Expr):
     """ClickHouse JSON subcolumn read emitted after property lowering.
 
