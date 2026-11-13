@@ -1338,6 +1338,15 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json()["id"], self.team.id)
 
+    def test_endpoint_listing_personal_api_key_auth_first_defers_to_id_jag(self) -> None:
+        # The scout runs viewset puts PersonalAPIKeyAuthentication ahead of the routing mixin's chain,
+        # so an ID-JAG token reaches it before IDJagAccessTokenAuthentication can claim it.
+        token = self._mint_access_token(scope="signal_scout:read")
+        resp = self.client.get(
+            f"/api/projects/{self.team.id}/signals/scout/runs/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
     @parameterized.expand([("/api/projects/@current/",), ("/api/environments/@current/",)])
     def test_denies_current_lookup_outside_the_tokens_organization(self, url: str) -> None:
         # A project transfer between organizations leaves `current_team` naming the moved project

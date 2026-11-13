@@ -316,9 +316,13 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             if authorization_match:
                 token = authorization_match.group(1).strip()
 
-                if token.startswith(
-                    OAUTH_ACCESS_TOKEN_PREFIX
-                ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
+                # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
+                # Viewsets that list this class ahead of the default chain would otherwise reject ID-JAG and workload JWTs as invalid keys.
+                if (
+                    token.startswith(OAUTH_ACCESS_TOKEN_PREFIX)
+                    or IDJagAccessTokenAuthentication.is_id_jag_token(token)
+                    or WorkloadAccessTokenAuthentication.is_workload_token(token)
+                ):
                     return None
                 return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
