@@ -63333,7 +63333,7 @@ export namespace Schemas {
        * * `uservoice_nps` - UserVoice NPS
        * * `vitally_nps` - Vitally NPS
        * * `woocommerce` - WooCommerce
-       * * `yotpo` - Yotpo */
+       * * `yotpo` - Yotpo
        * * `sonarcloud` - SonarCloud
        * * `checkmarx` - Checkmarx
        * * `veracode` - Veracode
@@ -107943,7 +107943,7 @@ export namespace Schemas {
        * * `uservoice_nps` - uservoice_nps
        * * `vitally_nps` - vitally_nps
        * * `woocommerce` - woocommerce
-       * * `yotpo` - yotpo */
+       * * `yotpo` - yotpo
        * * `sonarcloud` - sonarcloud
        * * `checkmarx` - checkmarx
        * * `veracode` - veracode
