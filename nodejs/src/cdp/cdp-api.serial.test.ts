@@ -2213,7 +2213,15 @@ describe('CDP API', () => {
             [
                 503,
                 'a workflow lookup before the insert',
-                () => jest.spyOn(api['hogFlowManager'], 'getHogFlows').mockRejectedValueOnce(new Error('db down')),
+                () => {
+                    const query = hub.postgres.query.bind(hub.postgres)
+                    return jest
+                        .spyOn(hub.postgres, 'query')
+                        .mockImplementation(((...args: Parameters<typeof query>) =>
+                            args[3] === 'fetchHogFlows'
+                                ? Promise.reject(new Error('db down'))
+                                : query(...args)) as typeof query)
+                },
             ],
             [
                 500,
@@ -2223,12 +2231,13 @@ describe('CDP API', () => {
         ])('answers a batch with %i and queues nothing when %s fails', async (status, _desc, breakStep) => {
             const hogflowQueue = createInMemoryJobQueue()
             api['hogflowQueue'] = hogflowQueue
-            breakStep()
+            const broken = breakStep()
 
             const res = await supertest(app)
                 .post('/api/hog_flows/scheduled_invocations')
                 .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
                 .send({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })
+            broken.mockRestore()
 
             expect(res.status).toEqual(status)
             expect(hogflowQueue.queued).toEqual([])
