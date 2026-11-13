@@ -52,8 +52,9 @@ SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
 SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
-SLACK_APP_RUNTIME_HANDOFF_FLAG = "slack-app-runtime-handoff"
 SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
+SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
+SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -136,6 +137,20 @@ def is_slack_app_agent_design_enabled(integration: IntegrationRecord, distinct_i
     )
 
 
+def is_slack_app_jev_needs_repo_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for asking Jev whether a mention needs code before any repository is picked.
+
+    ``distinct_id`` is the PostHog user who mentioned the app. Off, repository selection
+    keeps the cascade it had before: one connected repository is used without asking.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_JEV_NEEDS_REPO_FLAG,
+        integration,
+        failure_log_key="slack_app_jev_needs_repo_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
 def is_slack_app_byos_enabled(
     integration: IntegrationRecord, distinct_id: str | None, *, adapter: str = "codex"
 ) -> bool:
@@ -198,22 +213,20 @@ def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> b
     )
 
 
+def is_slack_app_slack_mcp_enabled(integration: IntegrationRecord) -> bool:
+    """The Slack account link also connects the person's Slack MCP."""
+    return _workspace_flag_enabled(
+        SLACK_APP_SLACK_MCP_FLAG,
+        integration,
+        failure_log_key="slack_app_slack_mcp_feature_flag_check_failed",
+    )
+
+
 def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord) -> bool:
     return _workspace_flag_enabled(
         SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
         integration,
         failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_runtime_handoff_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
-    """Gate for moving a live thread onto a model from the other runtime by stopping its run and resuming the
-    task in a new run. ``distinct_id`` is the PostHog user who asked for the model, so a person rule matches them."""
-    return _workspace_flag_enabled(
-        SLACK_APP_RUNTIME_HANDOFF_FLAG,
-        integration,
-        failure_log_key="slack_app_runtime_handoff_feature_flag_check_failed",
-        distinct_id=distinct_id,
     )
 
 

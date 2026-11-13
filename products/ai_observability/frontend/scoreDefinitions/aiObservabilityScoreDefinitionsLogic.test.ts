@@ -42,6 +42,10 @@ const mockScoreDefinition: ScoreDefinition = {
     kind: 'categorical',
     archived: false,
     current_version: 2,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: null,
     config: {
         options: [
@@ -128,6 +132,30 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
             String(MOCK_DEFAULT_TEAM.id),
             expect.objectContaining({ tags: JSON.stringify(source === 'url' ? ['shared'] : ['quality']), offset: 0 })
         )
+    })
+
+    it('refreshes cached scorers when saving replaces the editor route with the list', async () => {
+        router.actions.push(urls.aiObservabilityScorers())
+        const logic = aiObservabilityScoreDefinitionsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.scoreDefinitions.results).toEqual([mockScoreDefinition])
+
+        router.actions.push(urls.aiObservabilityScorer(mockScoreDefinition.id))
+        const updated = { ...mockScoreDefinition, name: 'Updated quality', current_version: 3 }
+        mockAIObservabilityScoreDefinitionsList.mockResolvedValue({
+            results: [updated],
+            count: 1,
+            next: null,
+            previous: null,
+        })
+
+        await expectLogic(logic, () => router.actions.replace(urls.aiObservabilityScorers())).toFinishAllListeners()
+
+        expect(logic.values.scoreDefinitions.results).toEqual([updated])
+        mockAIObservabilityScoreDefinitionsList.mockClear()
+        await expectLogic(logic, () => router.actions.replace(urls.aiObservabilityScorers())).toFinishAllListeners()
+        expect(mockAIObservabilityScoreDefinitionsList).not.toHaveBeenCalled()
     })
 
     it('updates filters and resets pagination', async () => {

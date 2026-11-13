@@ -1,25 +1,39 @@
 import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
+import { resolveCatalog, type ResolvedCatalog } from '@/posthog/api-catalog'
 import {
     loginQuery,
     posthogPath,
     resolveCredentials,
+    workloadExchangeHost,
     type CredentialOptions,
     type Credentials,
 } from '@/posthog/credentials'
+import { cloudRegion, REGIONS, type Host } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
-import type { LoginQuery } from '@/posthog/login/choose'
+import { chooseLogin, type LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
+import { fallbackHost, readSettings } from '@/posthog/settings'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
 import { loadConfig, type LoadedConfig } from './config'
-import type { GlobalOptions } from './globals'
+import { tlsVerificationOff, type GlobalOptions } from './globals'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
+import { SKILL_COMMANDS } from './skill-commands'
 import { Telemetry } from './telemetry'
+
+// Settings that fail the command once it needs credentials, such as an invalid HOG_PROJECT_ID, count as missing here.
+function orUndefined<T>(read: () => T): T | undefined {
+    try {
+        return read()
+    } catch {
+        return undefined
+    }
+}
 
 // What a command's `run` gets besides its own arguments and options. It has no output on
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
@@ -92,9 +106,78 @@ export class Context {
         return this.loaded
     }
 
-    apiTools(): Promise<ApiToolLibrary> {
-        this.tools ??= this.runtime.loadApiTools()
+    apiTools({ refresh = false }: { refresh?: boolean } = {}): Promise<ApiToolLibrary> {
+        if (refresh || !this.tools) {
+            this.tools = this.loadApiTools(refresh)
+        }
         return this.tools
+    }
+
+    catalog: ResolvedCatalog | undefined
+
+    private async loadApiTools(refresh: boolean): Promise<ApiToolLibrary> {
+        const resolved = await resolveCatalog(this.runtime, {
+            host: (await this.apiHost()) ?? REGIONS.us,
+            refresh,
+            insecureTls: tlsVerificationOff(this.runtime.env, this.globals),
+        })
+        this.catalog = resolved
+        const library = await this.runtime.loadApiTools(resolved.catalog ? { catalog: resolved.catalog } : {})
+
+        if (this.globals.debug) {
+            const status = library.catalog()
+            const source =
+                status.source === 'downloaded'
+                    ? `${status.tools} tools from the ${resolved.origin === 'network' ? 'downloaded' : 'saved'} catalog`
+                    : `the tools built into hog, because ${status.rejected ?? resolved.reason}`
+            this.runtime.writeStderr(`[debug] api catalog: ${source}\n`)
+            if (resolved.retryAfter !== null) {
+                const when = new Date(resolved.retryAfter).toISOString()
+                this.runtime.writeStderr(
+                    resolved.downloadSkipped
+                        ? `[debug] api catalog: skipped the download until ${when}, because the last one failed\n`
+                        : `[debug] api catalog: the download failed, so hog tries again after ${when}\n`
+                )
+            }
+            for (const dropped of status.dropped) {
+                const action = dropped.builtIn ? 'kept the built-in' : 'left out'
+                this.runtime.writeStderr(`[debug] api catalog: ${action} ${dropped.name}, because ${dropped.reason}\n`)
+            }
+        }
+        return library
+    }
+
+    // The host API calls go to, picked the way `resolveCredentials` picks it but without reading the
+    // keychain, since browsing tools needs no login. The catalog sets each call's method and path, so it
+    // must come from the PostHog that gets the calls.
+    private async apiHost(): Promise<Host | undefined> {
+        const requested = await this.requestedCredentials?.catch(() => undefined)
+        if (requested) {
+            return requested.key.host
+        }
+        const options = await this.credentialOptions().catch(() => undefined)
+        if (options === undefined) {
+            return this.globals.host
+        }
+        // A key in the environment or --dotenv-file carries its own host, and reading it needs no keychain.
+        const fromEnv = await resolveCredentials(this.runtime, { ...options, envOnly: true }).catch(() => undefined)
+        if (fromEnv) {
+            return fromEnv.key.host
+        }
+        const workloadHost = orUndefined(() => workloadExchangeHost(this.runtime, options))
+        if (workloadHost) {
+            return workloadHost
+        }
+        const settings = await readSettings(this.runtime).catch(() => undefined)
+        // A login is for one path on its origin, and calls go there even when posthog.json names
+        // another path on the same origin.
+        const loginHost =
+            settings && orUndefined(() => chooseLogin(settings, loginQuery(this.runtime, options)).record?.host)
+        if (loginHost) {
+            return loginHost
+        }
+        // posthog.json comes with the repository, so on its own it only picks a Cloud region.
+        return options.host ?? cloudRegion(options.configHost) ?? (settings && fallbackHost(settings))
     }
 
     // The PostHog agent skills, saved in ~/.posthog/skills for when a download fails. Without a home
@@ -102,7 +185,7 @@ export class Context {
     skills(): Promise<SkillsLibrary> {
         this.skillsLibrary ??= this.runtime.loadSkills({
             cacheDir: posthogPath(this.runtime, 'skills'),
-            learnCommand: 'hog learn',
+            commands: SKILL_COMMANDS,
             // The downloads go to GitHub, not PostHog, so --rate-limit doesn't count them.
             fetch: (url, init) => this.runtime.fetch(url, { ...init, skipRateLimit: true }),
         })

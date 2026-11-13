@@ -11,13 +11,16 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountPersonsOptions,
     AccountPersonsPage,
     AccountPersonsPropertyAccessError,
+    PersonAccounts,
 )
+from products.customer_analytics.backend.logic.account_person_memberships import list_person_accounts
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 
 __all__ = [
     "AccountPersonsOptions",
     "AccountPersonsPropertyAccessError",
     "list_account_persons",
+    "list_account_person_memberships",
 ]
 
 
@@ -53,3 +56,14 @@ def list_account_persons(
             raise
         slo.tag(result_count=len(page.results))
         return page
+
+
+def list_account_person_memberships(
+    *, team: Team, user: User, account_id: str, user_access_control: UserAccessControl, person_ids: list[str]
+) -> list[PersonAccounts] | None:
+    reader = AccountPersonsReader.create(
+        team=team, user=user, account_id=account_id, user_access_control=user_access_control
+    )
+    if reader is None:
+        return None
+    return list_person_accounts(reader, person_ids, user_access_control)

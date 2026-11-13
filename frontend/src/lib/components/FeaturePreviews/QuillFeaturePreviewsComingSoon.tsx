@@ -58,7 +58,9 @@ export function QuillFeaturePreviewsComingSoon({ features }: QuillFeaturePreview
                 <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
                     {features.map((feature) => (
                         <Card key={feature.flagKey} id={feature.flagKey} size="sm">
-                            {feature.imageUrl && <QuillFeaturePreviewImage feature={feature} className="mx-3 h-32" />}
+                            {feature.imageUrl && (
+                                <QuillFeaturePreviewImage feature={feature} className="mx-3 aspect-[3/1]" />
+                            )}
                             <CardHeader>
                                 <CardTitle>{feature.name}</CardTitle>
                             </CardHeader>
@@ -72,10 +74,10 @@ export function QuillFeaturePreviewsComingSoon({ features }: QuillFeaturePreview
                                     {feature.description || 'No description'}
                                 </Text>
                             </CardContent>
-                            <CardFooter className="flex flex-wrap items-center gap-1">
+                            <CardFooter className="flex flex-wrap items-center gap-1 py-1.5">
                                 <QuillConceptWaitlistCTA feature={feature} />
                                 <Button
-                                    size="icon"
+                                    size="icon-sm"
                                     className="ms-auto"
                                     aria-label="Copy link to this feature"
                                     tooltip="Copy link to this feature"

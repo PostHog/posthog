@@ -43,27 +43,23 @@ def endpoint(alert_source_config_id: str) -> str:
 def incident_io_body(message: AlertMessage) -> dict[str, Any]:
     if message.incident_action is None:
         raise DeliveryError("An incident.io destination receives only incident events.")
-    transition = message.transition
     body: dict[str, Any] = {
         "title": message.headline,
         "status": _STATUSES[message.incident_action],
         "deduplication_key": dedup_key(message),
         "source_url": message.alert_url,
-        # incident.io alert routes filter and pick escalation paths on these, so they carry the alert's own
-        # labels, which PostHog routes match on, and then its group's. The platform's own keys come last, so a
-        # label with the same name cannot replace them.
+        # incident.io alert routes filter and pick escalation paths on these, so they carry the labels PostHog
+        # routes match on. The platform's own keys come last, so a label with the same name cannot replace them.
         "metadata": {
-            **(message.rule_labels or {}),
-            **transition.labels,
+            **message.labels,
             "posthog_configuration_id": message.configuration_id,
             "posthog_source_kind": message.source.value,
         },
     }
-    if message.details:
+    details = (*message.details, *message.rule_details)
+    if details:
         # A value can come from ingested data, such as a log's service name, so it must not render as a link.
-        body["description"] = "\n".join(
-            f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details
-        )
+        body["description"] = "\n".join(f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in details)
     return body
 
 

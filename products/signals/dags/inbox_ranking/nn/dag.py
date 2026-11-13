@@ -91,6 +91,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     MODEL_FAMILIES,
     NN_FAMILY,
     NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_SOURCES_FAMILY,
     ModelFamily,
 )
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
@@ -108,6 +109,8 @@ NN_CANDIDATE_ASSET = "inbox_ranking_nn_model_candidate"
 NN_CHAMPION_ASSET = "inbox_ranking_nn_model_champion"
 NN_WITH_PRIO_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_model_candidate"
 NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
+NN_WITH_PRIO_SOURCES_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_sources_model_candidate"
+NN_WITH_PRIO_SOURCES_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_sources_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
@@ -207,6 +210,31 @@ def _missing_state_columns(family: ModelFamily, table: ExampleTable) -> list[str
     return [column for column in family.feature_set.required_state_columns() if column not in table.rows]
 
 
+def _family_extras(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    family: ModelFamily,
+    day: DayInputs,
+) -> Extras | None:
+    """The day's report vectors and every other side input `family`'s set reads, or None when one is
+    missing and the family keeps the partition as it stands."""
+    extras = {
+        **day.extras,
+        **load_side_inputs(client, bucket, prefix, partition_key, family.feature_set.missing_extras(day.extras)),
+    }
+    missing_extras = family.feature_set.missing_extras(extras)
+    if missing_extras:
+        context.log.warning(
+            f"no {', '.join(missing_extras)} side input for dt={partition_key}; {family.name} keeps this partition "
+            "as it stands"
+        )
+        return None
+    return extras
+
+
 @frozen
 class _ExperimentInputs:
     extras: Extras
@@ -236,16 +264,8 @@ def _experiment_inputs(
             f"{baseline.name}; {family.name} keeps this partition as it stands"
         )
         return None
-    extras = {
-        **day.extras,
-        **load_side_inputs(client, bucket, prefix, partition_key, family.feature_set.missing_extras(day.extras)),
-    }
-    missing_extras = family.feature_set.missing_extras(extras)
-    if missing_extras:
-        context.log.warning(
-            f"no {', '.join(missing_extras)} side input for dt={partition_key}; {family.name} keeps this partition "
-            "as it stands"
-        )
+    extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
+    if extras is None:
         return None
     baseline_context = None
     if baseline.project_vector_kinds != family.project_vector_kinds:
@@ -280,7 +300,6 @@ def train_candidate(
     day = _day_inputs(context, client, bucket, prefix, partition_key)
     if day is None:
         return {"skipped": dagster.MetadataValue.bool(True)}
-    extras = day.extras
     baseline_reports = baseline_context = None
     if family.experiment:
         experiment = _experiment_inputs(context, client, bucket, prefix, partition_key, family, examples.table, day)
@@ -288,6 +307,11 @@ def train_candidate(
             return {"skipped": dagster.MetadataValue.bool(True)}
         extras, baseline_reports = experiment.extras, experiment.baseline_reports
         baseline_context = experiment.baseline_context
+    else:
+        family_extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
+        if family_extras is None:
+            return {"skipped": dagster.MetadataValue.bool(True)}
+        extras = family_extras
     inputs = network_inputs(
         examples.table, extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
     )
@@ -482,12 +506,15 @@ def decide_champion(
         day = _day_inputs(context, client, bucket, prefix, partition_key)
         if day is None:
             return {}
+        extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
+        if extras is None:
+            return {}
         holdout = subset(table, np.flatnonzero(table.holdout.any(axis=1)))
         return champion_grades(
             champion,
             holdout_model,
             holdout,
-            network_inputs(holdout, day.extras, day.labels, day.embeddings, family.feature_set),
+            network_inputs(holdout, extras, day.labels, day.embeddings, family.feature_set),
         )
 
     return decide_family_champion(context, client, bucket, prefix, partition_key, family, grade_champion=grade_champion)
@@ -534,6 +561,14 @@ _NN_WITH_PRIO_ASSETS = family_assets(
 )
 inbox_ranking_nn_with_prio_model_candidate = _NN_WITH_PRIO_ASSETS.candidate
 inbox_ranking_nn_with_prio_model_champion = _NN_WITH_PRIO_ASSETS.champion
+_NN_WITH_PRIO_SOURCES_ASSETS = family_assets(
+    NN_WITH_PRIO_SOURCES_FAMILY,
+    candidate_name=NN_WITH_PRIO_SOURCES_CANDIDATE_ASSET,
+    champion_name=NN_WITH_PRIO_SOURCES_CHAMPION_ASSET,
+    after=[NN_WITH_PRIO_CHAMPION_ASSET],
+)
+inbox_ranking_nn_with_prio_sources_model_candidate = _NN_WITH_PRIO_SOURCES_ASSETS.candidate
+inbox_ranking_nn_with_prio_sources_model_champion = _NN_WITH_PRIO_SOURCES_ASSETS.champion
 
 
 inbox_ranking_nn_training_job = dagster.define_asset_job(
@@ -544,6 +579,8 @@ inbox_ranking_nn_training_job = dagster.define_asset_job(
         NN_CHAMPION_ASSET,
         NN_WITH_PRIO_CANDIDATE_ASSET,
         NN_WITH_PRIO_CHAMPION_ASSET,
+        NN_WITH_PRIO_SOURCES_CANDIDATE_ASSET,
+        NN_WITH_PRIO_SOURCES_CHAMPION_ASSET,
     ],
     tags={
         **owner_tags,

@@ -474,7 +474,8 @@ def _redact_url(value: str) -> str:
     """Keep only the parts a person needs to tell two destinations apart. The path,
     query and userinfo carry the channel secret for every webhook-style provider."""
     try:
-        parsed = urlsplit(value)
+        # The sender's URL parser reads a backslash as a slash, so a path hidden behind one is still a path.
+        parsed = urlsplit(value.replace("\\", "/"))
         scheme, hostname, port = parsed.scheme, parsed.hostname, parsed.port
     except ValueError:
         return "<redacted>"

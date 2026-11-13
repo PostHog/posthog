@@ -77,6 +77,7 @@ PACKAGE_WEIGHTS: dict[str, int] = {
     "replay-anonymizer-node": 5,
     "replay-core-v4": 10,
     "replay-core-v4-node": 5,
+    "replay-parquet-sink-v4": 5,
     "replay-recorder-v4": 15,
     "serve-metrics": 5,
     "usage-ingestion": 70,

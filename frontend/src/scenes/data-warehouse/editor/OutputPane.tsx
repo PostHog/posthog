@@ -98,7 +98,6 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
-import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -639,9 +638,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         metadata,
         metadataLoading,
         indexReportStale,
+        fixErrorsLoading: fixWithAILoading,
     } = useValues(sqlEditorLogic)
     const { setSourceQuery, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
-    const { responseLoading: fixWithAILoading } = useValues(fixSQLErrorsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -699,14 +698,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 width: 30,
                 renderCell: ({ row }: { row: any }) => (
                     <div className="hover-actions-cell flex justify-center items-center">
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedRow(row)
-                            }}
-                        />
+                        <LemonButton size="xsmall" icon={<IconExpand45 />} onClick={() => setSelectedRow(row)} />
                     </div>
                 ),
             },
@@ -1291,6 +1283,7 @@ const Content = ({
                 closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
                 return
             }
+            args.selectCell()
             event.preventGridDefault()
             event.preventDefault()
             openCopyMenu(event.currentTarget, text)

@@ -46,8 +46,12 @@ class TestIncidentIoTransport(SimpleTestCase):
     def test_a_trigger_and_its_resolve_post_to_the_alert_source_under_one_key(self) -> None:
         with pinned_post(202) as adapter:
             for action in (IncidentAction.TRIGGER, IncidentAction.RESOLVE):
-                # The alert's own labels reach incident.io too, and the group's value wins on a shared name.
-                message = replace(_message(action), rule_labels={"team": "infra", "service": "unset"})
+                # The labels routes match on reach incident.io, and the alert's annotations reach the description.
+                message = replace(
+                    _message(action),
+                    labels={"team": "infra", "service": "checkout"},
+                    rule_details=(MessageDetail(label="runbook", value="https://example.com/runbook"),),
+                )
                 handle = IncidentIoTransport().deliver(team_id=2, target=TARGET, message=message)
 
         trigger, resolve = adapter.sent
@@ -59,7 +63,7 @@ class TestIncidentIoTransport(SimpleTestCase):
             "status": "firing",
             "deduplication_key": "cfg-1::2026-09-30T09:00:00+00:00",
             "source_url": ALERT_URL,
-            "description": "**Value:** 312",
+            "description": "**Value:** 312\n**runbook:** https://example.com/runbook",
             "metadata": {
                 "team": "infra",
                 "service": "checkout",

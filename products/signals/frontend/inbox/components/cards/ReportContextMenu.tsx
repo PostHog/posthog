@@ -18,6 +18,7 @@ import {
     IconUndo,
 } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -317,6 +318,8 @@ function ReportContextMenuItems({
         </>
     )
 
+    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+
     const onCreatePr = (): void => {
         if (implementationClaimStep(report, user?.uuid).kind !== 'start') {
             onOpenDialog()
@@ -351,7 +354,7 @@ function ReportContextMenuItems({
             <ContextMenuGroup>
                 {selectItem}
                 {claimItem}
-                {canCreateImplementationPr(report) && (
+                {hasPostHogAiAccess && canCreateImplementationPr(report) && (
                     <>
                         <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
                             <ButtonPrimitive
