@@ -841,18 +841,14 @@ def _fetch_query_log_exception(ch_query_id: str, workload: Workload, team_id: in
     return None
 
 
+# A frame runs only SQL printed from HogQL, plus the query log lookup that must follow it.
+@events_cluster_connection()
 def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """Stream the frame's ClickHouse result into the object store; return the object key.
 
     Raises on failure so Temporal retries per policy; user-safe HogQL errors are written
     to the query status here (terminal — retrying can't fix a bad query) before raising.
     """
-    # A frame runs only SQL printed from HogQL, plus the query log lookup that must follow it.
-    with events_cluster_connection():
-        return _materialize_frame(inputs)
-
-
-def _materialize_frame(inputs: FrameMaterializeInputs) -> str:
     # The new flow rides one flag, resolved per user in the web process and carried on the
     # job. Off, this run is the path that has been serving frames all along: interactive
     # pool, default credentials.

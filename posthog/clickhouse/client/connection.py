@@ -531,8 +531,8 @@ _events_cluster_allowed: ContextVar[bool] = ContextVar("events_cluster_allowed",
 def events_cluster_connection() -> Iterator[None]:
     """Lets a project's queries in the block connect to the events cluster when the project reads events_json.
 
-    The events cluster holds only the events tables, so wrap only SQL printed from HogQL. Raw SQL outside the block,
-    such as reads of email_status or web_pre_aggregated_stats, keeps the legacy hosts, which forward events reads.
+    The events cluster holds only the events tables. Raw SQL outside the block, such as reads of email_status or
+    web_pre_aggregated_stats, keeps the legacy hosts, which forward events reads.
     """
     token = _events_cluster_allowed.set(True)
     try:
