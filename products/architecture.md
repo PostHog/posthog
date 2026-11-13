@@ -97,6 +97,10 @@ A product whose views still hold business logic is not soundly skippable even if
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
 The genuine exception is a product with essentially no Django-side logic (a thin shim over an external service): it has nothing to seal, but it is then simply not isolated — no `backend:contract-check`, still paying the full suite — which is an accept-the-cost choice, not "isolated without a facade".
 
+A sealed product can still be unsafe to skip when its facade returns decisions that core enforces, such as access checks, and the tests for those decisions live outside the product.
+A change behind its facade changes what core does, and only the full suite tests that.
+`SKIP_WITHHELD` in `tools/hogli-commands/hogli_commands/product/isolation.py` lists these products with the reason. `hogli product:lint` rejects `backend:contract-check` for them, and DevEx owns the list.
+
 ### Wiring couplings
 
 Core sometimes needs behavior from a product, not data: query runners it dispatches on, Temporal workflows it registers, Max tools it offers.
