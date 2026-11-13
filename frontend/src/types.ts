@@ -8012,15 +8012,20 @@ export type OAuthMcpConsentContext = {
     scopes?: string[]
 }
 
+export type OAuthGrantAccess = {
+    scoped_teams: number[]
+    scoped_organizations: string[]
+}
+
 export type OAuthScopeResolution = {
     /** What `/authorize` resolved the request to: clamped to the app ceiling, and defaulted to it when the client sent no usable scope. */
     scopes: string[]
     /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
     was_defaulted: boolean
-    /** Scopes of `scopes` the user granted this app before, which a step-up keeps. Shown as granted and not removable. */
+    /** Scopes of `scopes` the user granted this app before for `earlier_access`, which a step-up there keeps. Shown as granted and not removable. */
     already_granted_scopes?: string[]
     /** Where the newest earlier grant applies. A step-up pre-selects it, so the token keeps its projects. Both lists empty means all of them. */
-    earlier_access?: { scoped_teams: number[]; scoped_organizations: string[] }
+    earlier_access?: OAuthGrantAccess
 }
 
 export type OAuthApplicationPublicMetadata = {
