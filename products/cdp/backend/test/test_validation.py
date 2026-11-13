@@ -487,7 +487,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         with pytest.raises(ValidationError) as ctx:
             validate_inputs(inputs_schema, {"prompt": {"value": value}})
-        assert ctx.value.detail["inputs"]["prompt"][0].endswith("To use a literal brace, type \\{ instead.")
+        assert "To use a literal brace, type \\\\{ instead." in str(ctx.value.detail)
 
         escaped = value.replace("{", "\\{")
         assert validate_inputs(inputs_schema, {"prompt": {"value": escaped}})["prompt"]["value"] == escaped

@@ -6400,9 +6400,7 @@ class HogFlowViewSet(
             try:
                 return self._validate_locked_content(state, content)
             except exceptions.ValidationError as error:
-                # Raised as-is, a step error reaches the client as a bare message with an index path,
-                # which leaves the author to guess which step to fix.
-                action_errors = error.detail.get("actions") if isinstance(error.detail, dict) else None
+                action_errors: Any = error.detail.get("actions") if isinstance(error.detail, dict) else None
                 actions = content.get("actions")
                 # ListField reports child errors keyed by index rather than as a list.
                 if isinstance(action_errors, dict) and isinstance(actions, list):
