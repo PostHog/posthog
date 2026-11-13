@@ -62,8 +62,8 @@ def download_favicon(
 ) -> tuple[str, bytes | None, str | None, str | None]:
     context.log.info(f"Attempting to download favicon for domain '{domain}'")
     urls = [
-        f"https://www.google.com/s2/favicons?sz=32&domain=https://{domain}",
         f"https://icons.duckduckgo.com/ip3/{domain}.ico",
+        f"https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=32",
     ]
 
     for url in urls:
