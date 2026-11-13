@@ -27,6 +27,7 @@ export interface AiFirstHandoffLogicProps {
      * call's parsed input. Returns null when it cannot say which one.
      */
     findCreatedId: (innerInput: Record<string, unknown> | undefined) => Promise<string | null>
+    /** Runs before the entity opens, only for an id the output names: a name lookup can match another entity. */
     prepareCreated?: (id: string) => Promise<void>
     /** The editor page for the created entity. */
     urlFor: (id: string) => string
@@ -215,7 +216,8 @@ export const aiFirstHandoffLogic: LogicWrapper<aiFirstHandoffLogicType> = kea<ai
                     pendingPreparations.delete(preparationKey)
                 }
             }
-            let createdId = createdIdFromOutput(event)
+            const outputId = createdIdFromOutput(event)
+            let createdId = outputId
             if (!createdId) {
                 try {
                     createdId = await props.findCreatedId(resolveToolCall(event.invocation).innerInput)
@@ -231,7 +233,11 @@ export const aiFirstHandoffLogic: LogicWrapper<aiFirstHandoffLogicType> = kea<ai
                 lemonToast.error(props.notOpenedMessage)
                 return
             }
-            if (props.prepareCreated && (!(await prepareOnce(props.prepareCreated, createdId)) || superseded())) {
+            if (
+                props.prepareCreated &&
+                createdId === outputId &&
+                (!(await prepareOnce(props.prepareCreated, createdId)) || superseded())
+            ) {
                 return
             }
             cache.handedOff = true

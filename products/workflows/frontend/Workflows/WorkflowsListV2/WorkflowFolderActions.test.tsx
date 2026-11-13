@@ -45,7 +45,7 @@ describe('WorkflowFolderActions', () => {
         cleanup()
     })
 
-    const submitButton = (): HTMLElement => screen.getByText('Submit').closest('button') as HTMLElement
+    const submitButton = (): HTMLElement => screen.getByText('Rename').closest('button') as HTMLElement
 
     const clickRename = async (): Promise<void> => {
         render(<WorkflowFolderActions path="Billing" count={0} />)

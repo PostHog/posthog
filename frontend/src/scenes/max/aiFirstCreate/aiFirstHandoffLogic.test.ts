@@ -112,10 +112,10 @@ describe('aiFirstHandoffLogic', () => {
         await firstStarted
         runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-2' })
         try {
-            await expectLogic(logic, () =>
-                toolStreamEventsLogic.actions.emitToolEvent(outputEvent('draft-2', CREATED_ID))
-            ).toDispatchActions(['openSidePanel'])
-            expect(router.values.location.pathname).toContain(CREATED_ID)
+            toolStreamEventsLogic.actions.emitToolEvent(outputEvent('draft-2', CREATED_ID))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/things/${CREATED_ID}`)
+            expect(sidePanelStateLogic.values).toMatchObject({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
         } finally {
             finishFirst()
             await expectLogic(logic).toFinishAllListeners()
@@ -306,7 +306,14 @@ describe('aiFirstHandoffLogic', () => {
             logic.mount()
         }
 
-        toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
+        // Preparation runs only for an id the output names, so that step's create carries one.
+        const output = {
+            content: [{ type: 'text', text: 'Created' }],
+            _meta: { 'com.posthog.mcp/app_data': { id: CREATED_ID } },
+        }
+        toolStreamEventsLogic.actions.emitToolEvent(
+            step === 'lookup' ? createEvent({}) : createEvent({ invocation: { ...createEvent({}).invocation, output } })
+        )
         await flush()
         logic.unmount()
         finishStep()

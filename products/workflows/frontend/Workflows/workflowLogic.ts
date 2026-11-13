@@ -3821,7 +3821,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                         if (!props.id || props.id === 'new') {
-                            const folder = posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_LIST_V2)
+                            const folder = values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
                                 ? newWorkflowFolder()
                                 : null
                             // The editor's HogFlow schema and the generated HogFlowApi describe the same payload.
