@@ -59,6 +59,10 @@ from products.conversations.backend.services.email_channel_setup import (
     capture_google_forwarding_confirmation,
     process_forwarding_challenges,
 )
+from products.conversations.backend.services.email_delivery import (
+    confirm_email_delivery,
+    enqueue_replies_awaiting_confirmation,
+)
 from products.conversations.backend.services.email_links import recover_links_from_html
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
@@ -753,6 +757,7 @@ def _process_support_email(
     try:
         with transaction.atomic():
             ticket: Ticket | None = None
+            email_delivery_confirmed = False
             if existing_ticket:
                 ticket = Ticket.objects.select_for_update().filter(id=existing_ticket.id, team=team).first()
                 if not ticket:
@@ -789,6 +794,15 @@ def _process_support_email(
                     cc_participants=cc_list,
                     unread_team_count=0 if is_team_member else 1,
                     identity_verified=email.sender_authenticated,
+                )
+            elif ticket.channel_source != Channel.EMAIL:
+                # On a ticket from another channel identity_verified attests the signed widget distinct ID,
+                # so an email must not set it.
+                email_delivery_confirmed = confirm_email_delivery(
+                    ticket,
+                    sender_email=sender_email,
+                    thread_message_ids=[*([email.in_reply_to] if email.in_reply_to else []), *email.references],
+                    auto_generated=email.auto_generated,
                 )
             elif (
                 email.sender_authenticated
@@ -851,6 +865,9 @@ def _process_support_email(
                 comment=comment,
                 full_body_plain=full_body_plain,
             )
+
+            if email_delivery_confirmed:
+                enqueue_replies_awaiting_confirmation(ticket)
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email.message_id)
         return

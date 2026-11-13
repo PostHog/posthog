@@ -102,17 +102,24 @@ function ticketMessageFacts({ message = '', isNote }: PresentationOf<'ticket-mes
     }
 }
 
-function ticketUpdateFacts({ status, priority, tags }: PresentationOf<'ticket-update'>): StepFacts {
+function ticketUpdateFacts({ status, priority, tags, emailDelivery }: PresentationOf<'ticket-update'>): StepFacts {
     const tagList = tags.join(', ')
+    const emailDeliveryState = emailDelivery === 'on' ? 'On' : emailDelivery === 'off' ? 'Off' : undefined
     const changes = [
         ...(status ? [`Set status to ${status}`] : []),
         ...(priority ? [`Set priority to ${priority}`] : []),
         ...(tagList ? [`Tag ${tagList}`] : []),
+        ...(emailDeliveryState ? [`Turn ${emailDeliveryState.toLowerCase()} email delivery`] : []),
     ]
     return {
         headline: changes[0] ?? 'Update the ticket',
         detail: changes.slice(1).join(', ') || undefined,
-        fields: [...fieldIf('Status', status), ...fieldIf('Priority', priority), ...fieldIf('Tags', tagList)],
+        fields: [
+            ...fieldIf('Status', status),
+            ...fieldIf('Priority', priority),
+            ...fieldIf('Tags', tagList),
+            ...fieldIf('Email delivery', emailDeliveryState),
+        ],
     }
 }
 

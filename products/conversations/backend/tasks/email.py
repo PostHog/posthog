@@ -26,6 +26,12 @@ from products.conversations.backend.mailgun import (
     send_mime,
 )
 from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
+from products.conversations.backend.models.constants import Channel, EmailDelivery
+from products.conversations.backend.services.email_confirmation import (
+    confirmation_email_html,
+    confirmation_email_text,
+    is_email_confirmation,
+)
 from products.conversations.backend.services.mailgun_domain_cleanup import (
     cleanup_mailgun_domains as run_mailgun_domain_cleanup,
 )
@@ -126,6 +132,18 @@ def _schedule_outbox_retry(outbox: EmailOutboxMessage, error: str) -> None:
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "sending")
 
 
+def _threading_headers(ticket_id: UUID, team_id: int) -> dict[str, str]:
+    """Headers that thread a reply onto the ticket's email conversation, from the messages mapped to it."""
+    message_ids = list(
+        EmailMessageMapping.objects.filter(ticket_id=ticket_id, team_id=team_id)
+        .order_by("created_at")
+        .values_list("message_id", flat=True)
+    )
+    if not message_ids:
+        return {}
+    return {"In-Reply-To": message_ids[-1], "References": " ".join(message_ids)}
+
+
 def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     """Render and send one already-claimed outbox row, recording the outcome.
 
@@ -154,6 +172,14 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         _mark_outbox_failed(outbox, "no customer email")
         return
 
+    # Until the customer confirms the address, only the confirmation email may go to it.
+    is_confirmation = is_email_confirmation(comment.item_context)
+    if ticket.channel_source != Channel.EMAIL:
+        required_state = EmailDelivery.PENDING if is_confirmation else EmailDelivery.ACTIVE
+        if ticket.email_delivery != required_state:
+            _mark_outbox_failed(outbox, f"email delivery is not {required_state.value}")
+            return
+
     # Defense-in-depth: never send out a comment that itself arrived via inbound
     # email — mirrors the from_email signal guard at the last mile, so a future
     # regression in outbox enqueueing can't echo inbound mail back to recipients.
@@ -167,37 +193,32 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
             f"{comment.created_by.first_name} {comment.created_by.last_name}".strip() or comment.created_by.email
         )
 
-    # Build threading headers from the latest inbound message on this ticket
-    latest_mapping = (
-        EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id)
-        .only("message_id")
-        .order_by("-created_at")
-        .first()
-    )
     headers: dict[str, str] = {"Message-ID": outbox.message_id}
-    if latest_mapping:
-        headers["In-Reply-To"] = latest_mapping.message_id
-        all_ids = list(
-            EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id)
-            .order_by("created_at")
-            .values_list("message_id", flat=True)
-        )
-        if all_ids:
-            headers["References"] = " ".join(all_ids)
-
-    if comment.rich_content:
-        html_body = rich_content_to_html(comment.rich_content)
-        txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
+    copied_addresses: list[str] = ticket.cc_participants or []
+    if is_confirmation:
+        # A reply naming this email's Message-ID confirms the address. So it goes only to that
+        # address, and it starts its own thread: earlier messages may have gone to another one.
+        copied_addresses = []
+        headers["Auto-Submitted"] = "auto-generated"
+        headers["X-Auto-Response-Suppress"] = "OOF, AutoReply"
+        # The comment is a private note about the confirmation. Its text must not be emailed.
+        txt_body = confirmation_email_text(ticket.ticket_number)
+        html_body = confirmation_email_html(ticket.ticket_number)
     else:
-        txt_body = comment.content or ""
-        # Deferred: the renderer pulls posthog.api onto the Django startup path.
-        from posthog.helpers.email_formatting import render_markdown_email_html
+        headers.update(_threading_headers(ticket.id, outbox.team_id))
+        if comment.rich_content:
+            html_body = rich_content_to_html(comment.rich_content)
+            txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
+        else:
+            txt_body = comment.content or ""
+            # Deferred: the renderer pulls posthog.api onto the Django startup path.
+            from posthog.helpers.email_formatting import render_markdown_email_html
 
-        # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
-        html_body = render_markdown_email_html(txt_body)
+            # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
+            html_body = render_markdown_email_html(txt_body)
 
     subject = ticket.email_subject or "Your support request"
-    is_reply = latest_mapping is not None
+    is_reply = "In-Reply-To" in headers
     if is_reply and not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
@@ -205,7 +226,7 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     # Tickets created before To/Cc participant filtering may still have the requester
     # persisted in cc_participants; drop them here so they aren't delivered to twice.
-    cc = [addr for addr in (ticket.cc_participants or []) if addr.lower() != ticket.email_from.lower()]
+    cc = [addr for addr in copied_addresses if addr.lower() != ticket.email_from.lower()]
 
     email_message = mail.EmailMultiAlternatives(
         subject=subject,

@@ -2875,6 +2875,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ['email_subject', 'Email subject'],
                                 ['email_from', 'Email from'],
                                 ['email_to', 'Email to'],
+                                ['email_delivery', 'Email delivery'],
                                 ['cc_participants', 'CC participants'],
                             ]
 

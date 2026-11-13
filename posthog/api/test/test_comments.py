@@ -2163,7 +2163,7 @@ class TestCommentsSupportReplyDedupe(APIBaseTest):
         self.ticket.save(update_fields=["channel_source"])
 
         with mock.patch(
-            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            "products.conversations.backend.services.email_delivery.EmailOutboxMessage.objects.get_or_create",
             side_effect=RuntimeError("outbox write failed"),
         ):
             response = self._post()

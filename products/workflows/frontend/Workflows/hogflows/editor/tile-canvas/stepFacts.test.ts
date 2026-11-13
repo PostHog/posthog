@@ -139,6 +139,12 @@ describe('stepFacts', () => {
             'Tag bug, p1',
         ],
         [
+            'a ticket update that only turns on email delivery',
+            fn('deliver', 'template-posthog-update-ticket', { email_delivery: 'on' }),
+            'Turn on email delivery',
+            undefined,
+        ],
+        [
             'a person update',
             fn('mark', 'template-posthog-update-person-properties', { set_properties: { billing_status: 'past_due' } }),
             'Set billing status to past_due',

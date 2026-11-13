@@ -3307,7 +3307,7 @@ class TestTicketReplyAPI(APIBaseTest):
             ("note_endpoint_ignores_is_private", "notes", {"is_private": False}, False),
         ]
     )
-    @patch("products.conversations.backend.signals.send_email_reply")
+    @patch("products.conversations.backend.services.email_delivery.send_email_reply")
     def test_reply_fans_out_to_customer_only_when_public(
         self, _name, path, extra, expect_delivery, mock_send_email_reply, mock_on_commit
     ):
@@ -3328,7 +3328,7 @@ class TestTicketReplyAPI(APIBaseTest):
         else:
             mock_send_email_reply.delay.assert_not_called()
 
-    @patch("products.conversations.backend.signals.send_email_reply")
+    @patch("products.conversations.backend.services.email_delivery.send_email_reply")
     def test_reply_rejected_when_conversations_disabled(self, mock_send_email_reply, mock_on_commit):
         self.team.conversations_enabled = False
         self.team.save()
@@ -3346,7 +3346,7 @@ class TestTicketReplyAPI(APIBaseTest):
         assert not serializer.is_valid()
         assert "rich_content" in serializer.errors
 
-    @patch("products.conversations.backend.signals.send_email_reply")
+    @patch("products.conversations.backend.services.email_delivery.send_email_reply")
     def test_retried_reply_returns_the_original_and_delivers_once(self, mock_send_email_reply, mock_on_commit):
         # API clients and gateways replay this POST within a second or two, and each delivery that
         # gets through is a message the customer actually receives twice.
@@ -3364,10 +3364,10 @@ class TestTicketReplyAPI(APIBaseTest):
         assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
         mock_send_email_reply.delay.assert_called_once()
 
-    @patch("products.conversations.backend.signals.send_email_reply")
+    @patch("products.conversations.backend.services.email_delivery.send_email_reply")
     def test_outbox_failure_rolls_back_comment_and_allows_retry(self, mock_send_email_reply, mock_on_commit):
         with patch(
-            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            "products.conversations.backend.services.email_delivery.EmailOutboxMessage.objects.get_or_create",
             side_effect=RuntimeError("outbox write failed"),
         ):
             response = self.client.post(self.url, {"message": "On it now"}, format="json")

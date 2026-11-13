@@ -9,7 +9,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-posthog-update-ticket',
     name: 'Update conversation ticket',
     description:
-        'Update the status, priority, SLA, assignee, or tags of a conversation ticket. Tags are additive by default.',
+        'Update the status, priority, SLA, assignee, tags, or email delivery of a conversation ticket. Tags are additive by default.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -57,6 +57,12 @@ if (not empty(inputs.assignee)) {
 if (not empty(inputs.tags)) {
   updates.tags := inputs.tags
   updates.tags_mode := (not empty(inputs.tags_mode)) ? inputs.tags_mode : 'add'
+}
+
+if (inputs.email_delivery == 'on') {
+  updates.email_delivery := true
+} else if (inputs.email_delivery == 'off') {
+  updates.email_delivery := false
 }
 
 let response := postHogUpdateTicket({
@@ -171,6 +177,19 @@ return response.body
             ],
             description:
                 'How the tags above are applied. Add (default) is safe when multiple workflows tag the same ticket.',
+        },
+        {
+            key: 'email_delivery',
+            type: 'choice',
+            label: 'Deliver replies by email',
+            secret: false,
+            required: false,
+            choices: [
+                { label: 'Turn on', value: 'on' },
+                { label: 'Turn off', value: 'off' },
+            ],
+            description:
+                'For widget tickets. Turning this on emails the customer a confirmation message. After they reply to it, your replies on the ticket are also sent by email, and their email replies are added to the ticket. Leave empty to keep the current setting.',
         },
     ],
 }

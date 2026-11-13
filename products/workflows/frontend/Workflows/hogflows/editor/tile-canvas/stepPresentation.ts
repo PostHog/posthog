@@ -47,7 +47,7 @@ export type StepPresentation =
     | { kind: 'ai-task'; title?: string; prompt?: string; repositories: string[]; tools: string[]; writes: string[] }
     | { kind: 'scout'; scout?: string; writes: string[] }
     | { kind: 'ticket-message'; message?: string; isNote: boolean }
-    | { kind: 'ticket-update'; status?: string; priority?: string; tags: string[] }
+    | { kind: 'ticket-update'; status?: string; priority?: string; tags: string[]; emailDelivery?: string }
     | { kind: 'person'; properties: [key: string, value: string][] }
     | { kind: 'branch'; split: 'condition' | 'random'; key?: string; paths: BranchPath[] }
     | { kind: 'wait'; wait: WaitPresentation }
@@ -263,6 +263,7 @@ function functionPresentation(action: HogFlowAction): StepPresentation {
                 status: textInput(action, 'status'),
                 priority: textInput(action, 'priority'),
                 tags: asTextList(inputValue(action, 'tags')),
+                emailDelivery: textInput(action, 'email_delivery'),
             }
         case 'template-posthog-update-person-properties':
             return {

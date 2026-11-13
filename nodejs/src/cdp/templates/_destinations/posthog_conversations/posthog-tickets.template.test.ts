@@ -109,6 +109,33 @@ describe('posthog conversations ticket templates', () => {
         })
     })
 
+    describe('update ticket email delivery', () => {
+        const tester = new TemplateTester(updateTicketTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+            tester.mockInternalFetchResponse({ status: 200, body: { ok: true } })
+        })
+
+        const postedBody = (): Record<string, unknown> => {
+            const [, options] = tester.mockInternalFetch.mock.calls[0] as unknown as [string, { body: string }]
+            return parseJSON(options.body)
+        }
+
+        it.each([
+            { name: 'sends true when turned on', inputs: { email_delivery: 'on' }, body: { email_delivery: true } },
+            { name: 'sends false when turned off', inputs: { email_delivery: 'off' }, body: { email_delivery: false } },
+            {
+                name: 'leaves the setting out when the input is empty',
+                inputs: { status: 'open' },
+                body: { status: 'open' },
+            },
+        ])('$name', async ({ inputs, body }) => {
+            await tester.invoke({ ticket_id: TICKET_UUID, ...inputs })
+            expect(postedBody()).toEqual(body)
+        })
+    })
+
     describe('get ticket first_customer_message_text opt-in', () => {
         const tester = new TemplateTester(getTicketTemplate)
 

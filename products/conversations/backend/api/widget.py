@@ -70,6 +70,11 @@ from products.conversations.backend.services.identity import (
     verify_identity_claim_hash,
     verify_identity_hash,
 )
+from products.conversations.backend.services.messages import (
+    last_message_text_shown_in_widget,
+    messages_shown_in_widget,
+    widget_viewer_reads_emails,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -665,6 +670,7 @@ class WidgetMessagesView(APIView):
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
+        verified_email: str | None = None
         if verified_distinct_id is not None:
             verified_email = _verify_identity_claim(
                 query_serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
@@ -678,9 +684,14 @@ class WidgetMessagesView(APIView):
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
+        reads_emails = widget_viewer_reads_emails(ticket, verified_email)
+
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
         use_cache = limit == 50  # Only cache the limit used by widget polling
+        if reads_emails and ticket.channel_source != Channel.EMAIL:
+            # The cache is keyed by ticket and holds what a widget session reads.
+            use_cache = False
         if use_cache:
             cached = get_cached_messages(team.id, ticket_id, after_str)
             if cached is not None:
@@ -696,13 +707,14 @@ class WidgetMessagesView(APIView):
             messages_query = messages_query.filter(created_at__gt=after)
 
         # Only return non-private messages to widget
-        # Use exclude + isnull to match _is_private_message() identity check:
+        # Use exclude + isnull to match is_private_message() identity check:
         # - Exclude only exact boolean True
         # - Include everything else (False, None, missing key, weird values)
         # The isnull handles SQL NULL semantics where ~Q alone would exclude missing keys
         messages_query = messages_query.filter(
             ~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True)
         )
+        messages_query = messages_shown_in_widget(messages_query, reads_emails=reads_emails)
 
         # Order and limit
         messages = messages_query.order_by("created_at")[:limit]
@@ -841,7 +853,9 @@ class WidgetTicketsView(APIView):
                     "ticket_number": ticket.ticket_number,
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
-                    "last_message": ticket.last_message_text,  # Now from denormalized field
+                    "last_message": last_message_text_shown_in_widget(
+                        ticket, reads_emails=widget_viewer_reads_emails(ticket, verified_email)
+                    ),
                     "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
                     "message_count": ticket.message_count,
                     "created_at": ticket.created_at.isoformat(),

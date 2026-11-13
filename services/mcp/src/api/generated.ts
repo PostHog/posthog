@@ -40243,6 +40243,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `pending` - Waiting for confirmation
+     * * `active` - Active
+     */
+    export type EmailDeliveryEnum = typeof EmailDeliveryEnum[keyof typeof EmailDeliveryEnum];
+
+
+    export const EmailDeliveryEnum = {
+      Pending: 'pending',
+      Active: 'active',
+    } as const;
+
+    /**
      * * `queued` - Queued
      * * `failed` - Failed
      * * `sent` - Sent
@@ -83280,6 +83292,11 @@ export namespace Schemas {
       readonly email_from: string | null;
       /** @nullable */
       readonly email_to: string | null;
+      /** Email delivery of team replies on a ticket that is not an email ticket. 'pending' means a confirmation email was sent and the customer has not replied to it, so replies are not emailed yet. 'active' means replies are also sent by email. Null when off.
+       *
+       * * `pending` - Waiting for confirmation
+       * * `active` - Active */
+      readonly email_delivery: EmailDeliveryEnum | null;
       readonly cc_participants: unknown;
       /** @nullable */
       readonly github_repo: string | null;

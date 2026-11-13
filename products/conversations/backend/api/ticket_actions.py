@@ -48,6 +48,11 @@ from products.conversations.backend.reply_dedupe import (
     ReplyFingerprint,
     create_deduplicated,
 )
+from products.conversations.backend.services.email_delivery import (
+    EmailDeliveryUnavailable,
+    request_email_delivery,
+    stop_email_delivery,
+)
 from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
@@ -66,6 +71,13 @@ class TicketActionUpdateSerializer(serializers.Serializer):
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+    email_delivery = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True sends the customer a confirmation email on a widget ticket, and team replies are "
+            "delivered by email after the customer replies to it. False turns email delivery off."
+        ),
+    )
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -432,6 +444,7 @@ def handle_ticket_get(
         "email_subject": ticket.email_subject,
         "email_from": ticket.email_from,
         "email_to": ticket.email_config.from_email if ticket.email_config else None,
+        "email_delivery": ticket.email_delivery_state,
         "cc_participants": ticket.cc_participants,
         "tags": tags,
     }
@@ -587,6 +600,29 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                             action="changed",
                         )
                     )
+
+    # Last of the checks that can refuse the request, so a refusal here leaves nothing saved.
+    if "email_delivery" in serializer.validated_data:
+        old_email_delivery = ticket.email_delivery_state
+        try:
+            new_email_delivery = (
+                request_email_delivery(ticket)
+                if serializer.validated_data["email_delivery"]
+                else stop_email_delivery(ticket)
+            )
+        except EmailDeliveryUnavailable as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if old_email_delivery != new_email_delivery:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="email_delivery",
+                    before=old_email_delivery,
+                    after=new_email_delivery,
+                    action="changed",
+                )
+            )
 
     if update_fields:
         ticket.save(update_fields=[*update_fields, "updated_at"])
