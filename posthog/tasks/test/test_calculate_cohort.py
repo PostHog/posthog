@@ -1888,6 +1888,17 @@ class TestCohortCalculationTasks(APIBaseTest):
             "Check the query for a typo, such as a misspelled property name.",
         )
 
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["errors_calculating"], 1)
+        self.assertIs(payload["is_calculating"], False)
+        self.assertEqual(
+            payload["last_error_message"],
+            "The replace was stopped because the query matched no persons, so the cohort kept its existing members. "
+            "Check the query for a typo, such as a misspelled property name.",
+        )
+
     def test_replace_retry_after_partial_postgres_prune_converges(self) -> None:
         # Gate 1 item 28: a retry after a partial Postgres prune converges both stores exact.
         kept, new, stale1, stale2 = (
