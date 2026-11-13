@@ -729,23 +729,24 @@ def is_truncated_scope_request(requested: Sequence[str]) -> bool:
     return any(scope.startswith(tail) for scope in known)
 
 
-# PostHog desktop and agent builds already shipped request these scope objects by their old names.
-# Translating them keeps those builds' code review access when they authorize again.
-# Remove the mapping once builds that request the old names have aged out.
+# PostHog desktop and agent builds already shipped request these scope objects by their old names,
+# and stored keys, ceilings and tokens hold both names until a follow-up migration drops the old
+# ones. Translating keeps those builds' code review access when they authorize or refresh. Remove
+# the mapping once builds that request the old names have aged out and the old names are gone.
 RENAMED_OAUTH_SCOPE_OBJECTS: dict[str, str] = {
     "review_hog": "code_review",
     "stamphog": "code_review_approval",
 }
 
 
-def translate_renamed_scopes(requested: Sequence[str]) -> list[str]:
-    """`requested` with every scope of a renamed object written under its new name, order kept."""
+def translate_renamed_scopes(requested: Iterable[str]) -> list[str]:
+    """`requested` with every scope of a renamed object written under its new name, order kept, deduplicated."""
     translated = []
     for scope in requested:
         scope_object, separator, action = scope.partition(":")
         new_object = RENAMED_OAUTH_SCOPE_OBJECTS.get(scope_object)
         translated.append(f"{new_object}{separator}{action}" if new_object and separator else scope)
-    return translated
+    return list(dict.fromkeys(translated))
 
 
 def resolve_requested_scopes(
@@ -761,6 +762,7 @@ def resolve_requested_scopes(
     gets the same scopes from either.
     """
     requested = translate_renamed_scopes(requested)
+    app_scopes = translate_renamed_scopes(app_scopes)
     if not requested or is_truncated_scope_request(requested):
         return sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
     return clamp_scopes_to_ceiling(
@@ -775,7 +777,7 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     drop scopes that were valid when issued but fall outside a since-tightened
     ceiling, rather than refreshing the broader set forever.
 
-    - Empty `app_scopes` (no cap) is a no-op: returns `original` as a list.
+    - Empty `app_scopes` (no cap) returns `original` as a list, with renamed scopes translated.
     - A `*` token is left untouched (narrowing it would strip all resource
       access; `*` retirement is handled separately).
     - Otherwise returns the sorted intersection with the ceiling plus any
@@ -789,8 +791,8 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     rejected again. It narrows to the empty list instead, leaving one stable
     token whose resource calls 403 by scope.
     """
-    original_list = list(original)
-    ceiling = resolve_ceiling(app_scopes)
+    original_list = translate_renamed_scopes(original)
+    ceiling = resolve_ceiling(translate_renamed_scopes(app_scopes))
     if ceiling is None:
         return original_list
 

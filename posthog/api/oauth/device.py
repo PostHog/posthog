@@ -61,7 +61,12 @@ from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes, scopes_not_covered
+from posthog.scopes import (
+    clamp_scopes_to_ceiling,
+    resolve_requested_scopes,
+    scopes_not_covered,
+    translate_renamed_scopes,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -111,7 +116,9 @@ def resolve_device_scopes(raw_scope: str | None, application: OAuthApplication) 
     person remove them.
     """
     requested = resolve_requested_scopes((raw_scope or "").split(), application.ceiling_scopes)
-    return sorted({*requested, *(scope for scope in application.required_scopes if ":" in scope)})
+    return sorted(
+        {*requested, *(scope for scope in translate_renamed_scopes(application.required_scopes) if ":" in scope)}
+    )
 
 
 def _device_grant(request: OAuthlibRequest) -> OAuthDeviceGrant:
@@ -324,7 +331,7 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
 
         scopes = resolve_device_scopes(request.POST.get("scope"), application)
         # Checked after the ceiling clamp, so a client can't lock a scope the approval page won't show.
-        required = sorted(set(request.POST.get("required_scopes", "").split()))
+        required = sorted(translate_renamed_scopes(request.POST.get("required_scopes", "").split()))
         if not_requested := [scope for scope in required if scope not in scopes]:
             return _error_response(
                 rfc6749_errors.InvalidScopeError(
@@ -440,7 +447,10 @@ class DeviceDecisionSerializer(serializers.Serializer):
 def _required_scopes(grant: OAuthDeviceGrant, application: OAuthApplication) -> list[str]:
     """Return the requested scopes that approval always keeps: the client's required scopes, the scopes
     the client marked as required for this grant, and the identity scopes, which grant no access to data."""
-    required = {*application.required_scopes, *(grant.required_scope or "").split()}
+    required = {
+        *translate_renamed_scopes(application.required_scopes),
+        *translate_renamed_scopes((grant.required_scope or "").split()),
+    }
     return [scope for scope in (grant.scope or "").split() if scope in required or ":" not in scope]
 
 

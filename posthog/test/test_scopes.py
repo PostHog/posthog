@@ -390,6 +390,26 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
                 ["@default", "llm_gateway:read"],
                 ["llm_gateway:read", "query:read"],
             ),
+            # A token and a ceiling that each hold only one side of the code review rename still
+            # overlap, so a refresh during the rename keeps the scope.
+            (
+                "renamed_token_scope_meets_new_ceiling",
+                ["stamphog:read"],
+                ["code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
+            (
+                "new_token_scope_meets_renamed_ceiling",
+                ["code_review:write"],
+                ["review_hog:write"],
+                ["code_review:write"],
+            ),
+            (
+                "token_holding_both_names_keeps_one",
+                ["stamphog:read", "code_review_approval:read"],
+                ["stamphog:read", "code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
         ]
     )
     def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
@@ -473,6 +493,7 @@ class TestResolveRequestedScopes(SimpleTestCase):
                 ["code_review:write", "code_review_approval:read", "query:read"],
             ),
             ("bare_old_object_name_is_not_a_scope", ["stamphog"], ["code_review_approval:read"], []),
+            ("ceiling_holding_only_old_names", ["stamphog:read"], ["stamphog:read"], ["code_review_approval:read"]),
         ]
     )
     def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
