@@ -157,7 +157,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
             (
                 "hyphen_in_a_variable_name",
                 {"properties": {"tier": {"var": "event.order-tier"}}},
-                {"tier": '{event.properties["order-tier"]}'},
+                {"tier": "{event.properties['order-tier']}"},
                 "",
             ),
             (
@@ -207,28 +207,19 @@ class TestResendAutomationTranslation(SimpleTestCase):
             (
                 "alone_replaces_the_update",
                 {"unsubscribed": True},
-                True,
                 ["update"],
                 "template-posthog-opt-out-of-messages",
             ),
             (
                 "with_properties_follows_the_update",
                 {"unsubscribed": True, "first_name": "A"},
-                True,
                 ["update", "update_opt_out"],
-                "template-posthog-update-person-properties",
-            ),
-            (
-                "without_access_keeps_a_note",
-                {"unsubscribed": True},
-                False,
-                ["update"],
                 "template-posthog-update-person-properties",
             ),
         ]
     )
     def test_unsubscribing_opts_the_person_out(
-        self, _name: str, config: dict[str, Any], can_opt_out: bool, chain: list[str], first_template: str
+        self, _name: str, config: dict[str, Any], chain: list[str], first_template: str
     ) -> None:
         translated = translate_automation(
             _automation(
@@ -239,23 +230,16 @@ class TestResendAutomationTranslation(SimpleTestCase):
                 [{"from": "start", "to": "update"}, {"from": "update", "to": "after"}],
             ),
             {},
-            TranslationContext(can_opt_out=can_opt_out),
         )
 
         actions = {action["id"]: action for action in translated.workflow["actions"]}
         assert actions["update"]["config"]["template_id"] == first_template
         path = [(edge["from"], edge["to"]) for edge in translated.workflow["edges"] if edge["from"] != "after"]
         assert path[1:] == list(zip(chain, [*chain[1:], "after"]))
-        if can_opt_out:
-            opt_out = actions[chain[-1]]
-            assert opt_out["config"]["inputs"]["category_id"]["value"] == "$all"
-            assert opt_out["config"]["inputs"]["identifier"] == {
-                "value": "{person.properties.email}",
-                "templating": "hog",
-            }
-            assert opt_out["on_error"] == "abort"
-        else:
-            assert any("edit access to all workflows" in note.message for note in translated.notes)
+        opt_out = actions[chain[-1]]
+        assert opt_out["config"]["inputs"]["category_id"]["value"] == "$all"
+        assert opt_out["config"]["inputs"]["identifier"] == {"value": "{person.properties.email}", "templating": "hog"}
+        assert opt_out["on_error"] == "abort"
 
     @parameterized.expand(
         [
@@ -480,7 +464,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
     def test_step_overrides_and_contact_variables_fill_the_email(self) -> None:
         email = ImportedEmail(
             subject="s",
-            html="<p>{{ variables.FIRST_NAME }} {{ variables.CODE }}</p>",
+            html="<p>{{ variables.FIRST_NAME }} {{ variables.CODE }} {{ variables.BROWSER }}</p>",
             contact_variables=("FIRST_NAME",),
             sender_notes=("hello@example.com isn't a PostHog sender yet.",),
         )
@@ -488,7 +472,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
             "key": "send",
             "type": "send_email",
             "config": {
-                "template": {"id": "t1", "variables": {"CODE": True}},
+                "template": {"id": "t1", "variables": {"CODE": True, "BROWSER": {"var": "event.$browser"}}},
                 "subject": "ignored",
                 "from": "Team <team@example.com>",
             },
@@ -511,18 +495,55 @@ class TestResendAutomationTranslation(SimpleTestCase):
             "email"
         ]["value"]
         assert value["subject"] == "Hi {{ person.properties.last_name }}"
-        assert value["html"] == '<p>{{ person.properties.first_name }} {{ "true" }}</p>'
+        assert value["html"] == (
+            '<p>{{ person.properties.first_name }} {{ "true" }} {{ event.properties["$browser"] }}</p>'
+        )
         assert value["from"] == {"integrationId": 9, "email": "team@example.com", "name": "Team"}
         assert value["replyTo"] == "b@example.com"
         assert not any("isn't a PostHog sender" in note.message for note in translated.notes)
 
-    def test_a_delay_longer_than_posthog_allows_is_shortened(self) -> None:
-        step = {"key": "d", "type": "delay", "config": {"duration": "60 weeks"}}
+    @parameterized.expand(
+        [
+            ("too_long_is_shortened", "60 weeks", _duration(_MAX_DELAY_SECONDS), "this time was shortened"),
+            ("unreadable_uses_a_day", "2 months", "1d", 'couldn\'t read the time "2 months"'),
+        ]
+    )
+    def test_a_delay_posthog_cant_use_as_written_keeps_a_note(
+        self, _name: str, duration: str, expected: str, note: str
+    ) -> None:
+        step = {"key": "d", "type": "delay", "config": {"duration": duration}}
         translated = translate_automation(_automation([step], [{"from": "start", "to": "d"}]), {})
 
         action = next(action for action in translated.workflow["actions"] if action["id"] == "d")
-        assert action["config"]["delay_duration"] == _duration(_MAX_DELAY_SECONDS)
-        assert any("this time was shortened" in note.message for note in translated.notes)
+        assert action["config"]["delay_duration"] == expected
+        assert any(note in item.message for item in translated.notes)
+
+    @parameterized.expand(
+        [
+            ("template_sender_and_subject", None, True, True),
+            ("step_sender_keeps_the_subject_note", ImportedStepEmail(from_email="team@example.com"), False, True),
+            ("step_subject_keeps_the_sender_note", ImportedStepEmail(subject="Hi"), True, False),
+        ]
+    )
+    def test_template_notes_apply_unless_the_step_replaces_that_part(
+        self, _name: str, override: ImportedStepEmail | None, sender_noted: bool, subject_noted: bool
+    ) -> None:
+        email = ImportedEmail(
+            subject="",
+            html="<p>Hi</p>",
+            sender_notes=("hello@example.com isn't a PostHog sender yet.",),
+            subject_notes=("Resend has no subject for this template.",),
+        )
+        step = {"key": "send", "type": "send_email", "config": {"template": {"id": "t1"}}}
+        translated = translate_automation(
+            _automation([step], [{"from": "start", "to": "send"}]),
+            {"t1": email},
+            TranslationContext(step_emails={"send": override} if override else {}),
+        )
+
+        messages = [note.message for note in translated.notes]
+        assert ("hello@example.com isn't a PostHog sender yet." in messages) == sender_noted
+        assert ("Resend has no subject for this template." in messages) == subject_noted
 
     def test_a_second_path_from_a_step_is_named(self) -> None:
         steps = [{"key": key, "type": "delay", "config": {"duration": "1 hour"}} for key in ("d", "e", "f")]
@@ -531,7 +552,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
 
         assert any("path to f" in note.message for note in translated.notes)
 
-    def test_unknown_step_is_bridged_over_with_a_note(self) -> None:
+    def test_unknown_step_is_left_out_and_its_first_path_kept(self) -> None:
         steps = [
             {"key": "new", "type": "add_tag", "config": {}},
             {"key": "after", "type": "delay", "config": {"duration": "1 hour"}},

@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import IntegrityError
+
 from parameterized import parameterized
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -60,6 +62,13 @@ class TestResendAutomationDrafts(BaseTest):
 
         assert [self._import(_automation(key)).status for key in ("a1", "a2")] == ["created", "created"]
 
+    def test_a_concurrent_import_of_the_same_automation_keeps_no_draft(self) -> None:
+        with patch.object(workflow_import_drafts, "record_import", side_effect=IntegrityError):
+            result = self._import(_automation("a1"))
+
+        assert result.status == "failed"
+        assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+
     @parameterized.expand([("deactivated",), ("no_project_access",), ("no_workflow_edit_access",)])
     def test_a_starter_who_lost_access_creates_no_draft(self, name: str) -> None:
         if name == "deactivated":
@@ -81,7 +90,7 @@ class TestResendAutomationDrafts(BaseTest):
     @parameterized.expand(
         [
             ("no_access_to_create_one", None, False, "needs edit access to cohorts"),
-            ("no_access_to_the_existing_one", True, False, "needs edit access"),
+            ("no_access_to_the_existing_one", True, False, "Adding people to the cohort"),
             ("existing_one_is_not_static", False, True, "isn't static anymore"),
         ]
     )

@@ -15,6 +15,7 @@ from typing import Any
 
 from django.utils.dateparse import parse_datetime
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_preferences import (
@@ -514,8 +515,9 @@ def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> 
             continue
         taken.add(key)
         converted = convert_template(template)
-        email, sender_notes = _email_content(template, converted, senders)
-        notes = (*converted.notes, *converted.send_notes, *sender_notes)
+        content = _email_content(template, converted, senders)
+        email = content.email
+        notes = (*converted.notes, *converted.send_notes, *content.subject_notes, *content.sender_notes)
         created = create_template(
             context.team_id,
             context.created_by_id,
@@ -542,12 +544,46 @@ def _senders(team_id: int) -> dict[str, IntegrationRecord]:
     }
 
 
+@frozen
+class _Sender:
+    """A Resend `from` header matched to the team's PostHog senders. Address and name are literal Liquid."""
+
+    address: str
+    name: str
+    raw_address: str
+    record: IntegrationRecord | None
+
+    @property
+    def verified(self) -> bool:
+        return self.record is not None and bool(self.record.config.get("verified"))
+
+
+def _resolve_sender(raw_from: Any, senders: Mapping[str, IntegrationRecord]) -> _Sender:
+    display_name, address = parseaddr(str(raw_from or ""))
+    record = sender_for_address(address, senders) if address else None
+    configured_name = str(record.config.get("name") or "") if record is not None else ""
+    return _Sender(
+        address=literal_liquid(address),
+        name=literal_liquid(display_name) or configured_name,
+        raw_address=address,
+        record=record,
+    )
+
+
+@frozen
+class _EmailContent:
+    email: dict[str, Any]
+    subject_notes: tuple[str, ...]
+    sender_notes: tuple[str, ...]
+    sender: _Sender
+
+
 def _email_content(
     template: dict[str, Any],
     converted: ConvertedTemplate,
     senders: Mapping[str, IntegrationRecord],
     target: str = "template",
-) -> tuple[dict[str, Any], tuple[str, ...]]:
+) -> _EmailContent:
     email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
     if converted.text:
         email["text"] = converted.text
@@ -557,26 +593,19 @@ def _email_content(
     subject_notes = (
         () if converted.subject.strip() else ("Resend has no subject for this template. Add one before you send it.",)
     )
-    display_name, address = parseaddr(str(template.get("from") or ""))
-    if not address:
-        return email, (*subject_notes, "Resend has no sender for this template. Choose one before you send it.")
-    sender = sender_for_address(address, senders)
-    if sender is None:
-        return email, (
-            *subject_notes,
-            f"{address} isn't a PostHog sender yet. Add it, then choose it on this {target}.",
-        )
-    email["from"] = {
-        "integrationId": sender.id,
-        "email": literal_liquid(address),
-        "name": literal_liquid(display_name) or str(sender.config.get("name") or ""),
-    }
-    if not sender.config.get("verified"):
-        return email, (
-            *subject_notes,
-            f"{address} isn't verified in PostHog yet, so this {target} can't send until it is.",
-        )
-    return email, subject_notes
+    sender = _resolve_sender(template.get("from"), senders)
+    sender_notes: tuple[str, ...] = ()
+    if not sender.raw_address:
+        sender_notes = ("Resend has no sender for this template. Choose one before you send it.",)
+    elif sender.record is None:
+        sender_notes = (f"{sender.raw_address} isn't a PostHog sender yet. Add it, then choose it on this {target}.",)
+    else:
+        email["from"] = {"integrationId": sender.record.id, "email": sender.address, "name": sender.name}
+        if not sender.verified:
+            sender_notes = (
+                f"{sender.raw_address} isn't verified in PostHog yet, so this {target} can't send until it is.",
+            )
+    return _EmailContent(email=email, subject_notes=subject_notes, sender_notes=sender_notes, sender=sender)
 
 
 def _fetch_automations(
@@ -685,20 +714,19 @@ def _save_automations(
 
 def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationRecord]) -> ImportedEmail:
     converted = convert_template(template)
-    email, sender_notes = _email_content(template, converted, senders, target="step")
-    display_name, address = parseaddr(str(template.get("from") or ""))
-    sender = email.get("from") or {}
+    content = _email_content(template, converted, senders, target="step")
     return ImportedEmail(
         subject=converted.subject,
         html=converted.html,
         text=converted.text,
-        from_email=literal_liquid(address),
-        from_name=sender.get("name", literal_liquid(display_name)),
-        sender_integration_id=sender.get("integrationId"),
-        reply_to=email.get("replyTo", ""),
+        from_email=content.sender.address,
+        from_name=content.sender.name,
+        sender_integration_id=content.sender.record.id if content.sender.record else None,
+        reply_to=content.email.get("replyTo", ""),
         notes=converted.notes,
         contact_variables=converted.contact_variables,
-        sender_notes=sender_notes,
+        sender_notes=content.sender_notes,
+        subject_notes=content.subject_notes,
     )
 
 
@@ -723,20 +751,22 @@ def _step_email(config: dict[str, Any], senders: Mapping[str, IntegrationRecord]
             "plain text. Rewrite it in Liquid."
         )
     reply_to = config.get("reply_to")
-    display_name, address = parseaddr(str(config.get("from") or ""))
-    sender = sender_for_address(address, senders) if address else None
-    if address and sender is None:
-        notes.append(f"This step sends from {address}, which isn't a PostHog sender yet. Add it, then choose it here.")
-    elif sender is not None and not sender.config.get("verified"):
+    sender = _resolve_sender(config.get("from"), senders)
+    if sender.raw_address and sender.record is None:
         notes.append(
-            f"This step sends from {address}, which isn't verified in PostHog yet, so it can't send until it is."
+            f"This step sends from {sender.raw_address}, which isn't a PostHog sender yet. Add it, then choose it here."
+        )
+    elif sender.record is not None and not sender.verified:
+        notes.append(
+            f"This step sends from {sender.raw_address}, which isn't verified in PostHog yet, so it can't send until "
+            "it is."
         )
     return ImportedStepEmail(
         subject=subject.text,
         contact_variables=subject.contact_variables,
-        from_email=literal_liquid(address),
-        from_name=literal_liquid(display_name) or (str(sender.config.get("name") or "") if sender else ""),
-        sender_integration_id=sender.id if sender else None,
+        from_email=sender.address,
+        from_name=sender.name,
+        sender_integration_id=sender.record.id if sender.record else None,
         reply_to=literal_liquid(", ".join(map(str, reply_to)) if isinstance(reply_to, list) else str(reply_to or "")),
         notes=tuple(notes),
     )

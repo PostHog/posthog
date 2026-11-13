@@ -372,10 +372,23 @@
           "key": "is_pro",
           "type": "condition",
           "config": {
-            "type": "rule",
-            "field": "contact.plan",
-            "operator": "eq",
-            "value": "pro"
+            "type": "and",
+            "rules": [
+              {
+                "type": "rule",
+                "field": "contact.plan",
+                "operator": "eq",
+                "value": "pro"
+              },
+              {
+                "type": "rule",
+                "field": "contact.lifetime-spend",
+                "operator": "gte",
+                "value": {
+                  "var": "event.min-spend"
+                }
+              }
+            ]
           }
         },
         {
