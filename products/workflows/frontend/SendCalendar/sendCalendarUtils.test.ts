@@ -293,6 +293,18 @@ describe('sendCalendarUtils', () => {
         ])
     })
 
+    // Jest runs in UTC, so this case only goes red when the suite runs with a TZ that leaves daylight saving
+    // time inside the range, such as TZ=America/Denver.
+    it('keeps each piece within 92 days when the range crosses the end of daylight saving time', () => {
+        const start = dayjs.tz('2026-09-15', 'America/Denver')
+        const pieces = splitRange({ start, end: start.add(150, 'day') }, 92)
+
+        const longestPieceHours = Math.max(...pieces.map((piece) => piece.end.diff(piece.start, 'hour', true)))
+
+        expect(pieces).toHaveLength(2)
+        expect(longestPieceHours).toBeLessThanOrEqual(92 * 24)
+    })
+
     it('joins the runs of a flow that two range pieces returned', () => {
         const run = (id: string): SendCalendarBatchJobApi => ({ id }) as SendCalendarBatchJobApi
         const piece = (runs: SendCalendarBatchJobApi[]): SendCalendarFlowApi =>

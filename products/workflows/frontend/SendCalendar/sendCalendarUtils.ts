@@ -366,7 +366,10 @@ export function splitRange(range: CalendarRange, maxDays: number): CalendarRange
     const pieces: CalendarRange[] = []
     let start = range.start
     while (start.isBefore(range.end)) {
-        const end = start.add(maxDays, 'day').isBefore(range.end) ? start.add(maxDays, 'day') : range.end
+        // Adding days keeps the local clock time, so a piece that crosses the end of daylight saving time runs an
+        // hour past the server's limit. Hours are a fixed length.
+        const maxEnd = start.add(maxDays * 24, 'hour')
+        const end = maxEnd.isBefore(range.end) ? maxEnd : range.end
         pieces.push({ start, end })
         start = end
     }
