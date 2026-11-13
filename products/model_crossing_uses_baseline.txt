@@ -148,6 +148,7 @@ data_modeling.DataModelingJob posthog.temporal.data_modeling.activities.quality_
 data_modeling.DataModelingJob posthog.temporal.data_modeling.activities.succeed_materialization instance-single 1
 data_modeling.DataModelingJob posthog.temporal.data_modeling.activities.utils instance-many(exclude) 2
 data_modeling.DataModelingJob posthog.temporal.data_modeling.activities.utils instance-single 1
+data_modeling.DataModelingJob products.data_catalog.evals.seeders write(create) 1
 data_modeling.DataModelingJob products.data_warehouse.backend.logic.data_load.create_table instance-many(aget) 1
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.data_modeling_job drf-model-serializer 2
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.data_modeling_job instance-many(all) 1
@@ -188,7 +189,7 @@ data_modeling.DataWarehouseSavedQuery posthog.temporal.data_modeling.activities.
 data_modeling.DataWarehouseSavedQuery posthog.temporal.data_modeling.activities.utils instance-single 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
 data_modeling.DataWarehouseSavedQuery products.data_catalog.backend.logic.certifications instance-many(filter) 1
-data_modeling.DataWarehouseSavedQuery products.data_catalog.evals.seeders write(create) 1
+data_modeling.DataWarehouseSavedQuery products.data_catalog.evals.seeders write(create) 2
 data_modeling.DataWarehouseSavedQuery products.data_warehouse.backend.logic.data_load.create_table lock 1
 data_modeling.DataWarehouseSavedQuery products.data_warehouse.backend.presentation.views.data_modeling_job instance-many(filter) 1
 data_modeling.DataWarehouseSavedQuery products.data_warehouse.backend.presentation.views.data_warehouse instance-many(filter) 3
