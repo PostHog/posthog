@@ -61,20 +61,18 @@ jobs:
                       echo "present=false" >> "$GITHUB_OUTPUT"
                   fi
 
+            # These run with a changeset too, so the trigger path check below covers every pull request.
             - name: Install pnpm dependencies
-              if: steps.changeset.outputs.present == 'false'
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter='@posthog/hog...' install --frozen-lockfile
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-              if: steps.changeset.outputs.present == 'false'
               with:
                   bun-version: 1.4.2
 
             # Both builds write a metafile listing every source file they compile in.
             - name: Build hog and the CLI library
-              if: steps.changeset.outputs.present == 'false'
               working-directory: hog
               run: |
                   pnpm run build:mcp
@@ -82,26 +80,31 @@ jobs:
 
             - name: Check what the catalog can't deliver
               id: gap
-              if: steps.changeset.outputs.present == 'false'
               working-directory: hog
               env:
                   BASE: ${{ steps.changeset.outputs.base }}
+                  PRESENT: ${{ steps.changeset.outputs.present }}
               run: |
                   set -euo pipefail
                   result=$(bun release/catalog-gap.ts --base "$BASE")
                   echo "$result" | jq .
+                  needed=$(echo "$result" | jq -r '.needsRelease')
+                  if [ "$PRESENT" = 'true' ]; then
+                      needed=false
+                  fi
                   {
-                      echo "needed=$(echo "$result" | jq -r '.needsRelease')"
+                      echo "needed=$needed"
                       echo "bump=$(echo "$result" | jq -r '.bump')"
                   } >> "$GITHUB_OUTPUT"
                   echo "$result" > "$RUNNER_TEMP/catalog-gap.json"
 
-                  # File names and tool names come from the pull request. HTML-escaped inside <pre>,
-                  # they render as plain text, never as markdown or HTML.
+                  # File names and tool names come from the pull request. On one line each, since a blank
+                  # line would end the <pre> block, and HTML-escaped, they render as plain text, never as
+                  # markdown or HTML.
                   {
                       echo "### hog release"
                       echo "<pre>"
-                      echo "$result" | jq -r '.reasons[] | "\(.file): \(.why)" | @html'
+                      echo "$result" | jq -r '.reasons[] | "\(.file): \(.why)" | gsub("[\\r\\n]"; " ") | @html'
                       echo "</pre>"
                   } >> "$GITHUB_STEP_SUMMARY"
 
