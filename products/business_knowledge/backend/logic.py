@@ -609,6 +609,12 @@ def _source_list_annotations() -> dict[str, object]:
         "_learned_ticket_number": _learned_ticket_number_subquery(),
         "_learned_source_team_id": _learned_source_team_id_subquery(),
         "_library_ids": _library_ids_subquery(),
+    }
+
+
+def _source_citation_annotations() -> dict[str, object]:
+    """Citation totals for one source. The list reads them for a page of sources in one query instead."""
+    return {
         "_cited_run_count": _cited_run_count_subquery(),
         "_last_cited_at": _last_cited_at_subquery(),
     }
@@ -687,7 +693,9 @@ def has_sources(team_id: int) -> bool:
 @with_team_scope(canonical=True)
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
-        return KnowledgeSource.objects.annotate(**_source_list_annotations()).get(id=source_id, team_id=team_id)
+        return KnowledgeSource.objects.annotate(**_source_list_annotations(), **_source_citation_annotations()).get(
+            id=source_id, team_id=team_id
+        )
     except KnowledgeSource.DoesNotExist:
         return None
 

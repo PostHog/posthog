@@ -1,6 +1,7 @@
 """How much the knowledge base is used, read from the citations support agent runs record."""
 
 import datetime
+from collections.abc import Sequence
 from uuid import UUID
 
 from django.db.models import Count, Max, QuerySet
@@ -106,3 +107,27 @@ def knowledge_usage(team_id: int, *, days: int = USAGE_DEFAULT_DAYS) -> Knowledg
     canonical_team_id = resolve_effective_team_id(team_id)
     with team_scope(canonical_team_id, canonical=True):
         return _knowledge_usage(canonical_team_id, days=days)
+
+
+def attach_source_citations(team_id: int, sources: Sequence[KnowledgeSource]) -> None:
+    """Set the citation totals the source serializer reads, for these sources only.
+
+    The source list is polled while a source ingests, so it must not aggregate the
+    citation history of every source in the project on each request.
+    """
+    if not sources:
+        return
+    canonical_team_id = resolve_effective_team_id(team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        totals = {
+            row["source_id"]: row
+            for row in KnowledgeRunCitation.objects.filter(
+                team_id=canonical_team_id, source_id__in=[source.id for source in sources]
+            )
+            .values("source_id")
+            .annotate(runs=Count("run_id", distinct=True), last_cited_at=Max("created_at"))
+        }
+    for source in sources:
+        row = totals.get(source.id)
+        source._cited_run_count = row["runs"] if row else 0  # type: ignore[attr-defined]
+        source._last_cited_at = row["last_cited_at"] if row else None  # type: ignore[attr-defined]

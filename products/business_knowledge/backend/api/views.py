@@ -44,7 +44,7 @@ from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
-from ..usage import knowledge_usage
+from ..usage import attach_source_citations, knowledge_usage
 from .serializers import (
     AggregatedGapSerializer,
     CreateCrawlSourceSerializer,
@@ -187,6 +187,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             unfiled=unfiled,
         )
         page = self.paginate_queryset(sources)
+        attach_source_citations(self.team_id, page if page is not None else sources)
         if page is not None:
             return self.get_paginated_response(KnowledgeSourceSerializer(instance=page, many=True).data)
         return Response(KnowledgeSourceSerializer(instance=sources, many=True).data)

@@ -59,6 +59,29 @@ describe('businessKnowledgeUsageLogic', () => {
         expect(mockedUsage.mock.calls.map(([, params]) => params)).toEqual([{ days: 30 }, { days: 7 }])
     })
 
+    it.each([
+        ['an older result', (resolve: (value: KnowledgeUsageApi) => void) => resolve({ ...usage, days: 30 })],
+        ['an older failure', (_: unknown, reject: (reason: Error) => void) => reject(new Error('boom'))],
+    ])('ignores %s that arrives after the newer period loaded', async (_name, settleOlder) => {
+        let settleFirst: () => void = () => {}
+        mockedUsage.mockImplementationOnce(
+            () =>
+                new Promise<KnowledgeUsageApi>((resolve, reject) => {
+                    settleFirst = () => settleOlder(resolve, reject)
+                })
+        )
+        mockedUsage.mockResolvedValueOnce({ ...usage, days: 7 })
+        logic.mount()
+
+        logic.actions.setDays(7)
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess'])
+        settleFirst()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.usage?.days).toBe(7)
+        expect(logic.values.usageLoadFailed).toBe(false)
+    })
+
     it('reports a failed load until the next load succeeds', async () => {
         mockedUsage.mockRejectedValueOnce(new Error('boom'))
         logic.mount()
