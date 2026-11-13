@@ -40,6 +40,17 @@ async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promis
 
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+const pause = (ms: number, signal: AbortSignal): Promise<void> =>
+    new Promise((resolve) => {
+        const done = (): void => {
+            clearTimeout(timer)
+            signal.removeEventListener('abort', done)
+            resolve()
+        }
+        const timer = setTimeout(done, ms)
+        signal.addEventListener('abort', done, { once: true })
+    })
+
 export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState> {
     const teamIds: number[] = []
     const flowIds: SeedState['flowIds'] = {}
@@ -118,6 +129,9 @@ export async function drive(
         offers.push(offer)
     }
     await untilAborted(Promise.all(offers), stop)
+    if (!stop.aborted && Date.now() < end) {
+        await pause(end - Date.now(), stop)
+    }
     if (failed.signal.aborted) {
         throw failed.signal.reason
     }

@@ -215,8 +215,7 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
         }
     }
 
-    const workloadProvider = detectWorkloadProvider(runtime.env, options.workloadProviders)
-    const workloadProjectId = workloadProvider && (envProjectId(runtime) ?? options.configProjectId)
+    const { provider: workloadProvider, projectId: workloadProjectId } = workloadJob(runtime, options)
     if (!options.envOnly && workloadProvider && workloadProjectId) {
         const key = await exchangeWorkloadToken(runtime, {
             host: workloadHost(options),
@@ -281,6 +280,19 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
         "hog couldn't find PostHog credentials.",
         notAuthenticatedHint(workloadProvider, workloadProjectId)
     )
+}
+
+function workloadJob(
+    runtime: Runtime,
+    options: CredentialOptions
+): { provider: WorkloadProvider | undefined; projectId: ProjectId | undefined } {
+    const provider = detectWorkloadProvider(runtime.env, options.workloadProviders)
+    return { provider, projectId: provider && (envProjectId(runtime) ?? options.configProjectId) }
+}
+
+export function workloadExchangeHost(runtime: Runtime, options: CredentialOptions): Host | undefined {
+    const { provider, projectId } = workloadJob(runtime, options)
+    return provider && projectId ? workloadHost(options) : undefined
 }
 
 // posthog.json comes with the repository, so a host in it outside PostHog Cloud could send a job's token

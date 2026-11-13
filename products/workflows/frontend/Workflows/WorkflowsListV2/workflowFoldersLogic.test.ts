@@ -123,6 +123,15 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).not.toContain('Unfiled/Cohorts')
     })
 
+    it('lists no Unfiled folder while the project has no workflows', async () => {
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated([])] } })
+        remount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.folderPaths).toContain('Empty')
+        expect(logic.values.folderPaths).not.toContain('Unfiled')
+    })
+
     it('places no workflow in any folder, Unfiled included, until the folder scan loads', async () => {
         logic.unmount()
         let releaseScan!: () => void

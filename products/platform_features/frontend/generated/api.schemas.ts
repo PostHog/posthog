@@ -769,7 +769,7 @@ export interface DiagnosticRemediationApi {
 }
 
 export interface DiagnosticCheckResultApi {
-    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry). */
     id: string
     /** Human-readable check name. */
     name: string
@@ -1650,6 +1650,7 @@ export type ActivityLogListParams = {
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
      * * `ReviewInstallationClaim` - ReviewInstallationClaim
+     * * `RecommendationResolution` - RecommendationResolution
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1772,6 +1773,7 @@ export const ActivityLogListScope = {
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
     ReviewInstallationClaim: 'ReviewInstallationClaim',
+    RecommendationResolution: 'RecommendationResolution',
 } as const
 
 /**
@@ -1881,6 +1883,7 @@ export const ActivityLogListScope = {
  * * `ReviewRepository` - ReviewRepository
  * * `ReviewProjectSettings` - ReviewProjectSettings
  * * `ReviewInstallationClaim` - ReviewInstallationClaim
+ * * `RecommendationResolution` - RecommendationResolution
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1991,6 +1994,7 @@ export const ActivityLogListScopesItem = {
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
     ReviewInstallationClaim: 'ReviewInstallationClaim',
+    RecommendationResolution: 'RecommendationResolution',
 } as const
 
 export type AdvancedActivityLogsListParams = {

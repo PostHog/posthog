@@ -25,9 +25,18 @@ interface HomeTabChartCardProps {
     control?: ReactNode
     source?: string
     loadPriority: number
+    /** Replaces the plain title, for example with a control that switches the chart. */
+    title?: ReactNode
 }
 
-export function HomeTabChartCard({ option, size, control, source, loadPriority }: HomeTabChartCardProps): JSX.Element {
+export function HomeTabChartCard({
+    option,
+    size,
+    control,
+    source,
+    loadPriority,
+    title,
+}: HomeTabChartCardProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
@@ -61,7 +70,7 @@ export function HomeTabChartCard({ option, size, control, source, loadPriority }
             <div className="HomeTabChartCard__header border-b border-primary px-4 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 items-center gap-1">
-                        <h3 className="m-0 truncate text-base font-semibold">{option.title}</h3>
+                        <h3 className="m-0 truncate text-base font-semibold">{title ?? option.title}</h3>
                         {source && (
                             <Tooltip title={`Based on ${source}`}>
                                 <IconInfo className="shrink-0 text-secondary" />

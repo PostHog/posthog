@@ -1117,6 +1117,19 @@ def create_suggested_dashboard(*, team: Team, user: User, suggestion_id: str) ->
     return service.create_from_suggestion(team, user, suggestion_id)
 
 
+def dismiss_suggested_dashboard(*, team: Team, user: User, suggestion_id: str) -> None:
+    """Remove a suggestion from the suggestions of the team, for every user of the team. It does not come back.
+
+    A dashboard that the team created from the suggestion stays. A second call does nothing.
+    Raises `SuggestedDashboardNotFound` when the team has no such suggestion.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    service.dismiss_suggestion(team, user, suggestion_id)
+
+
 def analyze_team_metrics_now(*, team: Team) -> None:
     """Start an analysis of the team's metric names now, even when nothing changed. For the staff review."""
     from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
