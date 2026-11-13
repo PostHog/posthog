@@ -424,6 +424,36 @@ pub(crate) fn expansion_rejection(limit: usize) -> (StatusCode, Json<serde_json:
     )
 }
 
+/// Rejects a metrics request when the rows `flatten_metric` builds for it would pass `limit` bytes.
+pub fn check_metrics_expansion(
+    request: &ExportMetricsServiceRequest,
+    limit: usize,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let mut expanded_bytes: usize = 0;
+    for resource_metrics in &request.resource_metrics {
+        let resource_bytes = ROW_OVERHEAD_BYTES
+            + attributes_bytes(&extract_resource_attributes(
+                resource_metrics.resource.as_ref(),
+            ));
+        for scope_metrics in &resource_metrics.scope_metrics {
+            for metric in &scope_metrics.metrics {
+                // flatten_metric converts the resource even for a metric with no data points.
+                expanded_bytes = expanded_bytes
+                    .saturating_add(
+                        data_point_count(metric)
+                            .max(1)
+                            .saturating_mul(resource_bytes),
+                    )
+                    .saturating_add(metric.encoded_len());
+                if expanded_bytes > limit {
+                    return Err(expansion_rejection(limit));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn decode_body_if_gzip_magic(
     body: Bytes,
     max_request_body_size_bytes: usize,
@@ -837,28 +867,14 @@ pub async fn export_metrics_http(
         },
     };
 
+    check_metrics_expansion(&export_request, service.max_expanded_request_bytes)?;
+
     let mut rows: Vec<KafkaMetricRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
-    let mut expanded_bytes: usize = 0;
 
     for resource_metrics in &export_request.resource_metrics {
-        let resource_bytes = ROW_OVERHEAD_BYTES
-            + attributes_bytes(&extract_resource_attributes(
-                resource_metrics.resource.as_ref(),
-            ));
         for scope_metrics in &resource_metrics.scope_metrics {
             for metric in &scope_metrics.metrics {
-                // flatten_metric converts the resource even for a metric with no data points.
-                expanded_bytes = expanded_bytes
-                    .saturating_add(
-                        data_point_count(metric)
-                            .max(1)
-                            .saturating_mul(resource_bytes),
-                    )
-                    .saturating_add(metric.encoded_len());
-                if expanded_bytes > service.max_expanded_request_bytes {
-                    return Err(expansion_rejection(service.max_expanded_request_bytes));
-                }
                 let (metric_rows, overridden) = match flatten_metric(
                     metric.clone(),
                     resource_metrics.resource.as_ref(),
@@ -1037,6 +1053,51 @@ mod tests {
 
         let err = decode_body_if_gzip_magic(body, 1024).unwrap_err();
 
+        assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    fn metrics_request(attribute_bytes: usize, data_points: usize) -> ExportMetricsServiceRequest {
+        use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
+        use opentelemetry_proto::tonic::metrics::v1::{
+            Gauge, NumberDataPoint, ResourceMetrics, ScopeMetrics,
+        };
+        use opentelemetry_proto::tonic::resource::v1::Resource;
+
+        ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: Some(Resource {
+                    attributes: vec![KeyValue {
+                        key: "a".to_string(),
+                        value: Some(AnyValue {
+                            value: Some(any_value::Value::StringValue("x".repeat(attribute_bytes))),
+                        }),
+                    }],
+                    ..Default::default()
+                }),
+                scope_metrics: vec![ScopeMetrics {
+                    metrics: vec![Metric {
+                        name: "m".to_string(),
+                        data: Some(Data::Gauge(Gauge {
+                            data_points: vec![NumberDataPoint::default(); data_points],
+                        })),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn check_metrics_expansion_charges_the_resource_per_data_point() {
+        const LIMIT: usize = 64 * 1024 * 1024;
+        let big_resource = 1024 * 1024;
+
+        assert!(check_metrics_expansion(&metrics_request(big_resource, 10), LIMIT).is_ok());
+        assert!(check_metrics_expansion(&metrics_request(64, 10_000), LIMIT).is_ok());
+
+        let err = check_metrics_expansion(&metrics_request(big_resource, 100), LIMIT).unwrap_err();
         assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
     }
 }
