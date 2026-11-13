@@ -95,6 +95,34 @@ describe('evaluationSuggestionsLogic', () => {
         capture.mockRestore()
     })
 
+    it('stops polling once the first run is ready, also after the tab comes back', async () => {
+        logic.unmount()
+        let lists = 0
+        useMocks({
+            get: {
+                [`${SUGGESTIONS_URL}/`]: () => {
+                    lists += 1
+                    return [200, lists === 1 ? { run: null, pending: true, results: [] } : LIST]
+                },
+            },
+        })
+        logic = evaluationSuggestionsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadEvalSuggestionsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadEvalSuggestions()).toDispatchActions([
+            'loadEvalSuggestionsSuccess',
+        ])
+        const setTimeout = jest.spyOn(window, 'setTimeout')
+
+        for (const state of ['hidden', 'visible']) {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, value: state, writable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        expect(setTimeout.mock.calls.filter(([, delay]) => delay === 10_000)).toEqual([])
+        setTimeout.mockRestore()
+    })
+
     it('tracks each open suggestion as shown once per page view', async () => {
         await expectLogic(logic, () => logic.actions.loadEvalSuggestions()).toDispatchActions([
             'loadEvalSuggestionsSuccess',
