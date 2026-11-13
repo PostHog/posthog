@@ -785,11 +785,6 @@ class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
-class AEOSentimentScoringRateThrottle(_TeamBucketRateThrottle):
-    scope = "aeo_sentiment_scoring"
-    rate = "10/hour"
-
-
 # The AEO keyword report and modifiers recompute their numbers from every answered check in the window
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this

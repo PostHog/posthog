@@ -88,11 +88,10 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
     await sync_to_async(_age)(checks["no_brand_backlog"], 20)
     await sync_to_async(_age)(checks["too_old"], 31)
     classify = MagicMock(
-        return_value=[
-            _result(positive=0.9, neutral=0.08, negative=0.02),
-            _result(positive=0.05, neutral=0.15, negative=0.8),
-            _result(positive=0.75, neutral=0.2, negative=0.05),
-            _result(positive=0.1, neutral=0.85, negative=0.05),
+        side_effect=[
+            [_result(positive=0.9, neutral=0.08, negative=0.02)],
+            [_result(positive=0.05, neutral=0.15, negative=0.8), _result(positive=0.75, neutral=0.2, negative=0.05)],
+            [_result(positive=0.1, neutral=0.85, negative=0.05)],
         ]
     )
 
@@ -107,9 +106,11 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
         )
 
     assert result == {"scored": 3, "answers": 3}
-    classify.assert_called_once_with(
-        ["Example is fast.", "Example is slow.", "Still, Example is cheap.", "Example elsewhere."]
-    )
+    assert [call.args[0] for call in classify.call_args_list] == [
+        ["Example is fast."],
+        ["Example is slow.", "Still, Example is cheap."],
+        ["Example elsewhere."],
+    ]
 
     def sentiments() -> dict[str, tuple[str | None, float | None]]:
         with team_scope(team.pk):
@@ -140,7 +141,7 @@ async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) ->
     _, checks = await sync_to_async(_seed_run)(team)
     await sync_to_async(_age)(checks["other_run"], 10)
     await sync_to_async(_age)(checks["too_old"], 31)
-    classify = MagicMock(return_value=[_result(positive=0.6, neutral=0.3, negative=0.1)] * 4)
+    classify = MagicMock(side_effect=lambda texts: [_result(positive=0.6, neutral=0.3, negative=0.1) for _ in texts])
 
     with patch("posthog.temporal.ai_observability.sentiment.model.classify", classify):
         result = await ActivityEnvironment().run(
@@ -148,9 +149,12 @@ async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) ->
         )
 
     assert result == {"scored": 3, "answers": 3}
-    classify.assert_called_once_with(
-        ["Example elsewhere.", "Example is fast.", "Example is slow.", "Still, Example is cheap."]
-    )
+    assert [sentence for call in classify.call_args_list for sentence in call.args[0]] == [
+        "Example elsewhere.",
+        "Example is fast.",
+        "Example is slow.",
+        "Still, Example is cheap.",
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -164,7 +168,6 @@ async def test_a_pass_that_runs_out_of_time_keeps_the_scores_it_finished(setting
 
     with (
         patch("posthog.temporal.ai_observability.sentiment.model.classify", classify),
-        patch(f"{_MODULE}.ANSWERS_PER_WRITE", 1),
         patch(f"{_MODULE}.SCORING_BUDGET", dt.timedelta(0)),
     ):
         result = await ActivityEnvironment().run(

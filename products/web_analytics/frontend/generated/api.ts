@@ -11,7 +11,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AEOBrandApi,
     AEOBrandCreateRequestApi,
-    AEOCitationRunStartApi,
     AEOEngineSettingApi,
     AEOKeywordApi,
     AEOKeywordCreateRequestApi,
@@ -30,7 +29,6 @@ import type {
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
-    AEOSentimentScoringStartApi,
     AEOVisibilityDashboardApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
@@ -681,39 +679,6 @@ export const aeoPromptsRankings = async (
     return apiMutator<AEOPromptSetRankingsApi>(getAeoPromptsRankingsUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getAeoPromptsRunUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/aeo_prompts/run/`
-}
-
-/**
- * Starts a citation run for the project's active prompts not yet checked in the current run day, which starts at 07:00 UTC. It is the same run the daily schedule starts, so a run after the scheduled one only covers prompts added since. The run takes from minutes to hours, and results appear in the prompt checks as each prompt finishes. Sentiment is scored after the run. Returns already_running when a run is queued or in progress. Each project can start a few runs a day; requests that start nothing don't count.
- * @summary Run AEO citation checks now
- */
-export const aeoPromptsRun = async (projectId: string, options?: RequestInit): Promise<AEOCitationRunStartApi> => {
-    return apiMutator<AEOCitationRunStartApi>(getAeoPromptsRunUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getAeoPromptsScoreSentimentUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/aeo_prompts/score_sentiment/`
-}
-
-/**
- * Scores the sentiment toward the project's brand in answers from the last 30 days that mention it and have no score yet. It makes no new engine calls. Runs in the background and usually finishes within a few minutes; scores appear on the prompt checks. A request while scoring is still running returns that job.
- * @summary Score AEO answer sentiment now
- */
-export const aeoPromptsScoreSentiment = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<AEOSentimentScoringStartApi> => {
-    return apiMutator<AEOSentimentScoringStartApi>(getAeoPromptsScoreSentimentUrl(projectId), {
-        ...options,
-        method: 'POST',
     })
 }
 

@@ -41,9 +41,10 @@ logger = structlog.get_logger(__name__)
 
 WORKFLOW_NAME = "aeo-brand-sentiment"
 CLASSIFY_TIMEOUT = dt.timedelta(minutes=15)
-# Stops starting new groups well inside the timeout, so the last group still has time to finish.
+# Stops starting new answers well inside the timeout, so the last one still has time to finish.
 SCORING_BUDGET = dt.timedelta(minutes=10)
-ANSWERS_PER_WRITE = 100
+# Each answer's score is saved as soon as it is classified, so progress shows up while a pass runs.
+ANSWERS_PER_WRITE = 1
 CLASSIFY_BATCH = 32
 # Answers scored before the setting was turned on, or missed by a failed run, are picked up from
 # this far back, which matches the window the prompt report shows.
@@ -148,8 +149,8 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
     except (ImportError, FileNotFoundError) as error:
         return _model_unavailable(inputs, pending, error)
 
-    # Scores are written per group so a pass that runs out of time keeps what it finished, and the
-    # rest waits for the next pass instead of a retry that would classify it all again.
+    # A pass that runs out of time keeps what it saved; the rest waits for the next pass instead of a
+    # retry that would classify it all again.
     deadline = time.monotonic() + SCORING_BUDGET.total_seconds()
     written = classified = 0
     for start in range(0, len(pending), ANSWERS_PER_WRITE):

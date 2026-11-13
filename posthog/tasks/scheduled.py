@@ -1432,11 +1432,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # instead of the next one finding it still queued.
         expires_seconds=50 * 60,
     )
-    # Each pass scores at most one capped slice per team, and a pass still running absorbs the next one.
+    # A pass still scoring absorbs the next dispatch, so passes never overlap.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="45"),
+        crontab(minute="*/10"),
         score_aeo_sentiment_backlog_task.s(),
         name="AEO sentiment backlog",
-        expires_seconds=50 * 60,
+        expires_seconds=9 * 60,
     )

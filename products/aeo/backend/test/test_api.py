@@ -8,7 +8,6 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -17,14 +16,12 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 from rest_framework import status
-from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
-from posthog.redis import get_client
 
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
@@ -1475,116 +1472,6 @@ class TestAEOPromptAPI(APIBaseTest):
     def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
         response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def _enabled(self, *, allowlisted: bool = True):
-        return (
-            self.settings(AEO_CITATION_TEAM_IDS=[str(self.team.id)] if allowlisted else []),
-            patch("products.aeo.backend.tasks.tasks.feature_enabled_or_false", return_value=True),
-        )
-
-    @parameterized.expand(
-        [
-            ("queued", True, False, status.HTTP_202_ACCEPTED, "queued", 1),
-            ("already_running", True, True, status.HTTP_202_ACCEPTED, "already_running", 0),
-            ("not_enabled", False, False, status.HTTP_403_FORBIDDEN, None, 0),
-        ]
-    )
-    def test_run_starts_a_citation_run_only_when_none_is_running_for_an_enabled_project(
-        self,
-        _name: str,
-        allowlisted: bool,
-        run_in_progress: bool,
-        expected_status: int,
-        expected_run_status: str | None,
-        expected_queued: int,
-    ) -> None:
-        self.addCleanup(get_client().delete, f"aeo_citation_run_queued:{self.team.id}")
-        if run_in_progress:
-            assert get_client().lock(f"aeo_citation_run:{self.team.id}", timeout=60).acquire(blocking=False)
-            self.addCleanup(get_client().delete, f"aeo_citation_run:{self.team.id}")
-
-        settings_override, flag = self._enabled(allowlisted=allowlisted)
-        with (
-            settings_override,
-            flag,
-            patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task") as task,
-        ):
-            response = self.client.post(f"{self.url}run/")
-
-        assert response.status_code == expected_status, response.json()
-        if expected_run_status:
-            assert response.json() == {"status": expected_run_status}
-        assert task.delay.call_count == expected_queued
-
-    def test_run_allowance_is_spent_only_on_runs_that_get_queued(self) -> None:
-        queued_key = f"aeo_citation_run_queued:{self.team.id}"
-        self.addCleanup(get_client().delete, queued_key)
-        for key in get_client().keys(f"aeo_manual_runs:{self.team.id}:*"):
-            get_client().delete(key)
-        self.addCleanup(
-            lambda: [get_client().delete(key) for key in get_client().keys(f"aeo_manual_runs:{self.team.id}:*")]
-        )
-
-        settings_override, flag = self._enabled()
-        statuses = []
-        with (
-            settings_override,
-            flag,
-            self.settings(AEO_MANUAL_RUNS_PER_DAY=2),
-            patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task") as task,
-        ):
-            for step in ("first", "while_queued", "broker_down", "second", "over_cap"):
-                if step != "while_queued":
-                    get_client().delete(queued_key)
-                task.delay.side_effect = RuntimeError("broker down") if step == "broker_down" else None
-                response = self.client.post(f"{self.url}run/")
-                body = response.json() if response.status_code < 500 else {}
-                statuses.append((step, response.status_code, body.get("status")))
-
-        assert statuses == [
-            ("first", status.HTTP_202_ACCEPTED, "queued"),
-            ("while_queued", status.HTTP_202_ACCEPTED, "already_running"),
-            ("broker_down", status.HTTP_500_INTERNAL_SERVER_ERROR, None),
-            ("second", status.HTTP_202_ACCEPTED, "queued"),
-            ("over_cap", status.HTTP_429_TOO_MANY_REQUESTS, None),
-        ]
-        assert not get_client().exists(queued_key), "a refused run must not leave the queued marker behind"
-
-    def test_score_sentiment_reuses_the_running_job_on_the_aeo_queue(self) -> None:
-        settings_override, flag = self._enabled()
-        with (
-            settings_override,
-            flag,
-            patch("products.aeo.backend.temporal.brand_sentiment.sync_connect") as connect,
-            patch("products.aeo.backend.temporal.brand_sentiment.asyncio.run"),
-        ):
-            first = self.client.post(f"{self.url}score_sentiment/")
-            second = self.client.post(f"{self.url}score_sentiment/")
-
-        assert (first.status_code, second.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
-        assert first.json() == second.json() == {"workflow_id": f"aeo-brand-sentiment-{self.team.id}-backlog"}
-        start = connect.return_value.start_workflow.call_args
-        assert start.args[1].run_id is None, "a backlog pass must not filter on a run id"
-        kwargs = start.kwargs
-        assert (kwargs["task_queue"], kwargs["id_conflict_policy"]) == (
-            settings.AEO_TASK_QUEUE,
-            WorkflowIDConflictPolicy.USE_EXISTING,
-        )
-
-    @parameterized.expand([("not_enabled", False, None, 403), ("temporal_down", True, RuntimeError("down"), 503)])
-    def test_score_sentiment_refuses_cleanly(
-        self, _name: str, allowlisted: bool, connect_error: Exception | None, expected_status: int
-    ) -> None:
-        settings_override, flag = self._enabled(allowlisted=allowlisted)
-        with (
-            settings_override,
-            flag,
-            patch("products.aeo.backend.temporal.brand_sentiment.sync_connect", side_effect=connect_error),
-            patch("products.aeo.backend.temporal.brand_sentiment.asyncio.run"),
-        ):
-            response = self.client.post(f"{self.url}score_sentiment/")
-
-        assert response.status_code == expected_status, response.json()
 
 
 class TestAEOKeywordAPI(APIBaseTest):
