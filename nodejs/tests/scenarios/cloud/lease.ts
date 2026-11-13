@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempDisposableSync, readFileSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
@@ -29,27 +29,24 @@ export class LeaseError extends Error {}
 
 const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
 
+const scratchDir = (): ReturnType<typeof mkdtempDisposableSync> =>
+    mkdtempDisposableSync(path.join(os.tmpdir(), 'scenario-cloud-'))
+
 function bucketOf(aws: Aws, bucket: string) {
-    const withScratch = async <T>(use: (file: string) => Promise<T>): Promise<T> => {
-        const dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-cloud-'))
-        try {
-            return await use(path.join(dir, 'object'))
-        } finally {
-            rmSync(dir, { recursive: true, force: true })
-        }
-    }
     return {
         name: bucket,
-        put: (key: string, body: string | Buffer): Promise<unknown> =>
-            withScratch((file) => {
-                writeFileSync(file, body)
-                return aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
-            }),
-        get: (key: string): Promise<string> =>
-            withScratch(async (file) => {
-                await aws.call(['s3api', 'get-object', '--bucket', bucket, '--key', key, file])
-                return readFileSync(file, 'utf8')
-            }),
+        put: async (key: string, body: string | Buffer): Promise<unknown> => {
+            using scratch = scratchDir()
+            const file = path.join(scratch.path, 'object')
+            writeFileSync(file, body)
+            return await aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
+        },
+        get: async (key: string): Promise<string> => {
+            using scratch = scratchDir()
+            const file = path.join(scratch.path, 'object')
+            await aws.call(['s3api', 'get-object', '--bucket', bucket, '--key', key, file])
+            return readFileSync(file, 'utf8')
+        },
         delete: (key: string): Promise<unknown> =>
             aws.call(['s3api', 'delete-object', '--bucket', bucket, '--key', key]),
         keys: async (prefix: string): Promise<string[]> => {
