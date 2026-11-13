@@ -14,7 +14,7 @@ from posthog.dags.geoip_backfill_resend import GeoipResendConfig, geoip_backfill
 from posthog.dags.tests.conftest import GeoipTeams
 from posthog.dags.tests.test_geoip_backfill import PUBLIC_IP, SeededEvent, run_staging, seed
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.uuidt import uuid7
+from posthog.models.utils import uuid7
 
 # The tables the MVs on sharded_events write. A resend must reach none of them.
 MV_TARGETS = ("sharded_events_recent", "sharded_raw_sessions", "sharded_raw_sessions_v3")
