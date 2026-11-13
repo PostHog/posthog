@@ -119,7 +119,7 @@ describe('evaluationSuggestionsLogic', () => {
             document.dispatchEvent(new Event('visibilitychange'))
         }
 
-        expect(setTimeout.mock.calls.filter(([, delay]) => delay === 10_000)).toEqual([])
+        expect(setTimeout.mock.calls.filter((call: unknown[]) => call[1] === 10_000)).toEqual([])
         setTimeout.mockRestore()
     })
 
