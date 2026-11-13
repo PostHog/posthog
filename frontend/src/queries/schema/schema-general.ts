@@ -4907,6 +4907,13 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+export interface ErrorTrackingIssueTagFilter {
+    /** Key of the tag definition. */
+    key: string
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -4921,6 +4928,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -5124,6 +5133,17 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+export interface ErrorTrackingIssueTag {
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -5135,6 +5155,8 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTag[] | null
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
