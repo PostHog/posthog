@@ -12,7 +12,8 @@ import { createRef } from 'react'
 import { useMocks } from '~/mocks/jest'
 import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
-import { RoleType } from '~/types'
+
+import type { RoleApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { DEFAULT_EXTENSIONS, serializationOptions } from './LemonRichContentEditor'
 import { Mentions } from './MentionsExtension'
@@ -51,7 +52,7 @@ function createMockEditor(): { editor: Editor; run: jest.Mock; insertContentAt: 
     return { editor: { chain } as unknown as Editor, run, insertContentAt }
 }
 
-function renderMentions(editor: Editor, onClose: () => void, roles?: RoleType[]): React.RefObject<MentionsHandle> {
+function renderMentions(editor: Editor, onClose: () => void, roles?: RoleApi[]): React.RefObject<MentionsHandle> {
     const ref = createRef<MentionsHandle>()
     render(
         <Provider>
@@ -162,7 +163,7 @@ describe('Mentions', () => {
             id: '0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d',
             name: 'Self-driving',
             members: [],
-        } as unknown as RoleType
+        } as unknown as RoleApi
         const { editor, insertContentAt } = createMockEditor()
         const ref = renderMentions(editor, jest.fn(), [role])
 
