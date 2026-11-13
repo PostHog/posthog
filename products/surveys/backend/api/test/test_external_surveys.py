@@ -420,6 +420,37 @@ class TestExternalSurveys(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("survey_domain", "posthogsurveys.com", True, "?q0=5", 200, None),
+            (
+                "survey_domain_missing_survey",
+                "posthogsurveys.com",
+                False,
+                "?q0=5",
+                302,
+                "https://eu.posthogsurveys.com/{id}?q0=5",
+            ),
+            ("eu_survey_domain_missing_survey", "eu.posthogsurveys.com", False, "", 404, None),
+            ("us_survey_domain_missing_survey", "us.posthogsurveys.com", False, "", 404, None),
+        ]
+    )
+    def test_survey_domain_sends_surveys_it_does_not_have_to_eu(
+        self,
+        _name: str,
+        host: str,
+        survey_exists: bool,
+        query: str,
+        expected_status: int,
+        expected_location: str | None,
+    ) -> None:
+        survey_id = self.create_external_survey().id if survey_exists else uuid.uuid4()
+
+        response = self.client.get(f"/external_surveys/{survey_id}/{query}", HTTP_HOST=host)
+
+        assert response.status_code == expected_status
+        assert response.get("Location") == (expected_location and expected_location.format(id=survey_id))
+
+    @parameterized.expand(
+        [
             ("own_proxy_domain", OWN_PROXY_DOMAIN, {}, {}, 200, "Quarterly feedback"),
             ("unregistered_host", "surveys.self-run-proxy.example.com", {}, {}, 200, "Quarterly feedback"),
             ("other_org_proxy_domain", OTHER_PROXY_DOMAIN, {}, {}, 404, "Survey not available"),
