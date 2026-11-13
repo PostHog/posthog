@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from posthog.schema import RecordingsQuery
 
-# Lives here, not in queries/scanner_candidate_query (which imports from this
+# Lives here, not in queries/scanner_candidate_query (which imports SETTLE_INTERVAL from this
 # module), so `initial_watermark`'s default callable never needs to import back up into the
 # query layer — models must stay a dependency leaf for the query layer, never the reverse.
 # 30-min inactivity timeout + 5-min merge-lag buffer.

@@ -1333,9 +1333,7 @@ def _solve_budget(
         budget=PREVIEW_ESTIMATE_BUDGET,
     )
     monthly_all = project_monthly_observations(estimate, 1.0)
-    if monthly_all <= monthly_scan_budget:
-        return _BudgetSolution(sampling_rate=1.0, estimated_monthly_observations=monthly_all)
-    rate = _floor_to_precision(monthly_scan_budget / monthly_all)
+    rate = 1.0 if monthly_all <= monthly_scan_budget else _floor_to_precision(monthly_scan_budget / monthly_all)
     return _BudgetSolution(sampling_rate=rate, estimated_monthly_observations=round(monthly_all * rate))
 
 

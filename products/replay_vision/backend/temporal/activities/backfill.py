@@ -75,6 +75,8 @@ from products.replay_vision.backend.temporal.sweep_types import CandidateSession
 
 logger = structlog.get_logger(__name__)
 
+_RETIRED_SAMPLING_MODES = ("focused", "balanced")
+
 
 def _load_backfill(backfill_id: UUID, team_id: int) -> ReplayScannerBackfill | None:
     return (
@@ -165,6 +167,15 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         record_backfill_tick_outcome("throttled")
         return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=True)
 
+    # A backfill quoted under a retired quality filter walks unfiltered now, so its quoted count caps its dispatches.
+    legacy_remaining = (
+        max(0, backfill.total_count - backfill.dispatched_count - backfill.skipped_count)
+        if backfill.scanner_snapshot.get("sampling_mode") in _RETIRED_SAMPLING_MODES
+        else None
+    )
+    if legacy_remaining == 0:
+        return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=False)
+
     snapshot = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
     try:
         query = RecordingsQuery.model_validate({**snapshot.query, "kind": "RecordingsQuery"})
@@ -247,6 +258,8 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     # cursor steps over it exactly like an excluded session.
     stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in unobserved])
     dispatchable = [c for c in unobserved if c.session_id not in excluded and c.session_id not in stuck]
+    if legacy_remaining is not None:
+        dispatchable = dispatchable[:legacy_remaining]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {
