@@ -1,5 +1,5 @@
 import { Client } from 'pg'
-import { register } from 'prom-client'
+import { Registry, register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -11,6 +11,7 @@ import { Hub, Team } from '~/types'
 import {
     EmailSuppressionService,
     SuppressionLookupError,
+    SuppressionWriteOptions,
     emailSuppressionConfigFromEnv,
 } from './email-suppression.service'
 import { SES_NOTIFICATIONS_PER_BATCH } from './helpers/ses'
@@ -1002,8 +1003,14 @@ describe('EmailSuppressionService', () => {
             'global_hard_bounce_release',
         ]
 
-        const failedWrites = async (): Promise<Record<string, number>> => {
-            const metric = await register.getSingleMetric('cdp_email_suppression_write_failures_total')?.get()
+        type Write = (
+            svc: EmailSuppressionService,
+            email: string,
+            options?: SuppressionWriteOptions
+        ) => Promise<unknown>
+
+        const droppedWrites = async (registry: Registry = register): Promise<Record<string, number>> => {
+            const metric = await registry.getSingleMetric('cdp_email_suppression_dropped_writes_total')?.get()
             return Object.fromEntries((metric?.values ?? []).map((v) => [String(v.labels.operation), v.value]))
         }
 
@@ -1029,43 +1036,72 @@ describe('EmailSuppressionService', () => {
             )
         }
 
-        it('exports every operation before the first failure', async () => {
-            expect(Object.keys(await failedWrites()).sort()).toEqual([...OPERATIONS].sort())
-        })
+        const countedWhileLocked = async (
+            write: (svc: EmailSuppressionService) => Promise<unknown>
+        ): Promise<Record<string, number>> => {
+            const impatientUrl = new URL(hub.DATABASE_URL)
+            impatientUrl.searchParams.set('options', '-c lock_timeout=100')
+            const impatient = new PostgresRouter({
+                DATABASE_URL: impatientUrl.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
+            const holder = new Client({ connectionString: hub.DATABASE_URL })
+            await holder.connect()
+            const before = await droppedWrites()
+            try {
+                await holder.query('BEGIN')
+                await holder.query('LOCK TABLE posthog_messagesuppression, posthog_emailhardbounce IN EXCLUSIVE MODE')
 
-        it.each<
-            [
-                string,
-                Record<string, number>,
-                ((email: string) => Promise<void>) | null,
-                (svc: EmailSuppressionService, email: string) => Promise<unknown>,
-            ]
-        >([
+                await write(enforcing(impatient))
+            } finally {
+                await holder.end()
+                await impatient.end()
+            }
+            const after = await droppedWrites()
+            return Object.fromEntries(
+                Object.entries(after)
+                    .map(([label, value]) => [label, value - (before[label] ?? 0)])
+                    .filter(([, delta]) => delta !== 0)
+            )
+        }
+
+        const REFUSED_WRITES: [string, Record<string, number>, ((email: string) => Promise<void>) | null, Write][] = [
             [
                 'transient_bounce',
                 { transient_bounce: 1 },
                 null,
-                (svc, email) => svc.recordTransientBounces(team.id, [email]),
+                (svc, email, options) => svc.recordTransientBounces(team.id, [email], undefined, undefined, options),
             ],
-            ['hard_bounce', { hard_bounce: 1 }, null, (svc, email) => svc.recordHardBounces(team.id, [email])],
+            [
+                'hard_bounce',
+                { hard_bounce: 1 },
+                null,
+                (svc, email, options) => svc.recordHardBounces(team.id, [email], undefined, options),
+            ],
             [
                 'global_hard_bounce',
                 { global_hard_bounce: 1 },
                 null,
-                (svc, email) => svc.recordGlobalHardBounces([email]),
+                (svc, email, options) => svc.recordGlobalHardBounces([email], undefined, options),
             ],
-            ['complaint', { complaint: 1 }, null, (svc, email) => svc.recordComplaints(team.id, [email])],
+            [
+                'complaint',
+                { complaint: 1 },
+                null,
+                (svc, email, options) => svc.recordComplaints(team.id, [email], undefined, options),
+            ],
             [
                 'delivery_reset',
                 { delivery_reset: 1 },
                 null,
-                (svc, email) => svc.recordDeliveries(team.id, [email], new Date().toISOString()),
+                (svc, email, options) => svc.recordDeliveries(team.id, [email], new Date().toISOString(), options),
             ],
             [
                 'global_hard_bounce_clear',
                 { delivery_reset: 1, global_hard_bounce_clear: 1 },
                 bounceForAnotherTeam,
-                (svc, email) => svc.recordDeliveries(team.id, [email], new Date().toISOString(), { clearGlobal: true }),
+                (svc, email, options) =>
+                    svc.recordDeliveries(team.id, [email], new Date().toISOString(), { clearGlobal: true, ...options }),
             ],
             [
                 'global_hard_bounce_copy',
@@ -1079,35 +1115,40 @@ describe('EmailSuppressionService', () => {
                 copyThenLapse,
                 (svc, email) => svc.isSuppressed(team.id, email),
             ],
-        ])('counts a failed %s write and still returns', async (operation, expected, setup, write) => {
-            const email = `refused-${operation}-${team.id}@example.com`
-            await setup?.(email)
-            const impatientUrl = new URL(hub.DATABASE_URL)
-            impatientUrl.searchParams.set('options', '-c lock_timeout=100')
-            const impatient = new PostgresRouter({
-                DATABASE_URL: impatientUrl.toString(),
-                POSTGRES_CONNECTION_POOL_SIZE: 1,
+        ]
+
+        it('exports every operation at zero when the service loads', async () => {
+            let registry: Registry | undefined
+            jest.isolateModules(() => {
+                registry = require('prom-client').register
+                require('./email-suppression.service')
             })
-            const holder = new Client({ connectionString: hub.DATABASE_URL })
-            await holder.connect()
-            const before = await failedWrites()
-            try {
-                await holder.query('BEGIN')
-                await holder.query('LOCK TABLE posthog_messagesuppression, posthog_emailhardbounce IN EXCLUSIVE MODE')
 
-                await write(enforcing(impatient), email)
-            } finally {
-                await holder.end()
-                await impatient.end()
-            }
-
-            const after = await failedWrites()
-            const moved = Object.fromEntries(
-                Object.entries(after)
-                    .map(([label, value]) => [label, value - (before[label] ?? 0)])
-                    .filter(([, delta]) => delta !== 0)
-            )
-            expect(moved).toEqual(expected)
+            expect(await droppedWrites(registry)).toEqual(Object.fromEntries(OPERATIONS.map((op) => [op, 0])))
         })
+
+        it.each(REFUSED_WRITES)(
+            'counts a dropped %s write and still returns',
+            async (operation, expected, setup, write) => {
+                const email = `refused-${operation}-${team.id}@example.com`
+                await setup?.(email)
+
+                expect(await countedWhileLocked((svc) => write(svc, email))).toEqual(expected)
+            }
+        )
+
+        it.each(REFUSED_WRITES.slice(0, 6))(
+            'leaves a %s write the caller sees fail uncounted',
+            async (operation, _expected, setup, write) => {
+                const email = `rethrown-${operation}-${team.id}@example.com`
+                await setup?.(email)
+
+                const moved = await countedWhileLocked((svc) =>
+                    expect(write(svc, email, { throwOnFailure: true })).rejects.toThrow()
+                )
+
+                expect(moved).toEqual({})
+            }
+        )
     })
 })
