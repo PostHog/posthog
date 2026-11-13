@@ -1,0 +1,40 @@
+name: Dependency scan
+
+on:
+    pull_request:
+        paths:
+            - '**/pnpm-lock.yaml'
+            - '**/uv.lock'
+            - '**/Cargo.lock'
+            - .github/scripts/dependency_scan.py
+            - .github/workflows/dependency-scan.yml
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+    scan:
+        name: Scan changed dependencies
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions: {}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  fetch-depth: 2
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/scripts/dependency_scan.py
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Scan added and changed packages
+              run: python3 -I .github/scripts/dependency_scan.py
