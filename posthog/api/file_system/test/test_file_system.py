@@ -880,11 +880,6 @@ class TestFileSystemAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["count"], 1, data["results"])
 
-        for path_iexact, expected in [("somefolder/FILE1", ["SomeFolder/File1"]), ("SomeFolder/File", [])]:
-            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path__iexact": path_iexact})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual([obj["path"] for obj in response.json()["results"]], expected)
-
     def test_folder_counts_counts_the_files_directly_in_each_folder(self) -> None:
         for path, file_type, shortcut in [
             ("Reports", "folder", False),

@@ -279,13 +279,12 @@ describe('workflowFoldersLogic', () => {
             get: {
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
-                    const exact = params.get('path__iexact')
-                    if (exact === null) {
+                    const path = params.get('path')
+                    if (path === null) {
                         return projectFiles({ request })
                     }
                     lookups.push(Object.fromEntries(params))
-                    const matches = dashboards.filter((entry) => entry.path.toLowerCase() === exact.toLowerCase())
-                    return [200, paginated(matches)]
+                    return [200, paginated(dashboards.filter((entry) => entry.path === path))]
                 },
             },
             post: {
@@ -305,18 +304,18 @@ describe('workflowFoldersLogic', () => {
         showToasts()
         await expectLogic(logic).toFinishAllListeners()
 
-        await change('weekly')
+        await change('Weekly')
         expect(await screen.findByText(`${failure} This name is already used in this folder.`)).toBeInTheDocument()
         expect(logic.values.folderPaths.map((path) => path.toLowerCase())).not.toContain('billing/weekly')
 
         await change('Quarterly "Report"')
-        expect(lookups.at(-1)?.path__iexact).toBe('Billing/Quarterly "Report"')
+        expect(lookups.at(-1)?.path).toBe('Billing/Quarterly "Report"')
         expect(writes).toEqual([])
 
         lookups = []
         await change('a')
         await waitFor(() => expect(logic.values.folderPaths).toContain('Billing/a'))
-        expect(lookups).toEqual([{ path__iexact: 'Billing/a', limit: '2' }])
+        expect(lookups).toEqual([{ path: 'Billing/a', limit: '2' }])
         expect(writes).toEqual(['Billing/a'])
     })
 

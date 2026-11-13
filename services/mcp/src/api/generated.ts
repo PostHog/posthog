@@ -138405,11 +138405,6 @@ export namespace Schemas {
      */
     path?: string;
     /**
-     * Only the file or folder at this exact path, compared without case.
-     * @minLength 1
-     */
-    path__iexact?: string;
-    /**
      * Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree.
      */
     ref?: string;

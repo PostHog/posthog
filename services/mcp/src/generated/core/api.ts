@@ -6080,11 +6080,6 @@ export const FileSystemListQueryParams = () => zod.object({
         .optional()
         .describe("Only entries under this folder path, at any depth, such as 'Experiments\/Q4'."),
     path: zod.string().optional().describe('Only the entry at exactly this path.'),
-    path__iexact: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe('Only the file or folder at this exact path, compared without case.'),
     ref: zod
         .string()
         .optional()

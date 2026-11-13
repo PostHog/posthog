@@ -454,9 +454,9 @@ function folderRequest<T>(request: (signal: AbortSignal) => Promise<T>, what: st
 
 /** The view loads no other product's files, so the server is asked whether one already sits at this path. */
 async function isPathTaken(teamId: string, path: string, except?: string): Promise<boolean> {
-    // A rename may match its own folder when only the case changes, so a second row is needed to find another file.
+    // A rename to the folder's current name matches the folder itself, so a second row is needed to find another file.
     const { results } = await folderRequest(
-        (signal) => fileSystemList(teamId, { path__iexact: path, limit: 2 }, { signal }),
+        (signal) => fileSystemList(teamId, { path, limit: 2 }, { signal }),
         'checking a folder name'
     )
     return results.some((entry) => entry.id !== except)
