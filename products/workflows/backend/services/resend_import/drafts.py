@@ -109,7 +109,6 @@ def import_resend_automation(
             segment_id: _segment_cohort(team_id, user, access, segment_id, name)
             for segment_id, name in (segments or {}).items()
         },
-        can_opt_out=True,
         unavailable_templates=frozenset(hidden_gated_template_ids(team))
         if step_types & {"add_to_segment", "contact_update"}
         else frozenset(),

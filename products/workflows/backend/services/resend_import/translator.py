@@ -1,23 +1,28 @@
 """A Resend automation, as `GET /automations/{id}` returns it, turned into a draft PostHog workflow.
 
 Every Resend step becomes the PostHog step that does the same thing. What can't carry over is named in the notes, so
-the team can review the draft before enabling it. A step type PostHog doesn't know is bridged over, and a contact delete
-ends its path, because PostHog has no step that deletes a person.
+the team can review the draft before enabling it. A step type PostHog doesn't know is left out, and the step before it
+links to wherever the skipped step's first path led. A contact delete ends its path, because PostHog has no step that
+deletes a person.
 """
 
 import re
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import field as dataclass_field
 from itertools import islice
 from typing import Any
 
-from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail, ImportNote, TranslatedWorkflow
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    ADD_TO_STATIC_COHORT_TEMPLATE_ID,
+    OPT_OUT_OF_MESSAGES_TEMPLATE_ID,
+)
 from products.workflows.backend.services.customerio_import.translator import (
     _EXIT_ID,
     _MAX_DELAY_SECONDS,
@@ -55,8 +60,7 @@ _CONTACT_VARIABLE_PROPERTIES = {"FIRST_NAME": "first_name", "LAST_NAME": "last_n
 # An "or" inside an "and" multiplies paths, and past this the editor can't show the step usefully.
 _MAX_CONDITION_PATHS = 20
 _HOG_IDENTIFIER = re.compile(r"^[A-Za-z_]\w*$")
-ADD_TO_STATIC_COHORT_TEMPLATE_ID = "template-posthog-add-to-static-cohort"
-OPT_OUT_OF_MESSAGES_TEMPLATE_ID = "template-posthog-opt-out-of-messages"
+_LIQUID_IDENTIFIER = re.compile(r"^[A-Za-z_][\w-]*$")
 
 
 @frozen
@@ -72,7 +76,6 @@ class SegmentCohort:
 class TranslationContext:
     step_emails: Mapping[str, ImportedStepEmail] = dataclass_field(default_factory=dict)
     segment_cohorts: Mapping[str, SegmentCohort] = dataclass_field(default_factory=dict)
-    can_opt_out: bool = False
     # Pre-release steps this team can't enable yet.
     unavailable_templates: frozenset[str] = frozenset()
 
@@ -188,7 +191,7 @@ class _Builder:
             case "send_email":
                 return [self._email(key, str(step.get("key")), config, base)]
             case "delay":
-                duration = self._duration(key, config, "duration", cap=_MAX_DELAY_SECONDS)
+                duration = self._parsed_duration(key, config, "duration", cap=_MAX_DELAY_SECONDS)
                 return [{**base, "type": "delay", "config": {"delay_duration": duration}}]
             case "condition":
                 return [{**base, "type": "conditional_branch", "config": {"conditions": self._conditions(key, config)}}]
@@ -288,14 +291,6 @@ class _Builder:
                 key,
             )
             return None
-        if not self.context.can_opt_out:
-            self.note(
-                NoteLevel.NEEDS_INPUT,
-                "This step unsubscribes the contact, and changing the opt-out list needs edit access to all "
-                "workflows. Ask someone who has it to add an opt out of messages step.",
-                key,
-            )
-            return None
         self._note_if_unavailable(OPT_OUT_OF_MESSAGES_TEMPLATE_ID, "Opt out of messages", key)
         return {
             **base,
@@ -358,7 +353,7 @@ class _Builder:
                 key,
             )
 
-    def _duration(self, key: str, config: dict[str, Any], field: str, *, cap: int | None = None) -> str:
+    def _parsed_duration(self, key: str, config: dict[str, Any], field: str, *, cap: int | None = None) -> str:
         text = str(config.get(field) or "")
         seconds = sum(float(amount) * _UNIT_SECONDS[unit.lower()] for amount, unit in _DURATION_PART.findall(text))
         if seconds <= 0:
@@ -403,6 +398,9 @@ class _Builder:
                 value["text"] = imported.text
             for note in imported.notes:
                 self.note(NoteLevel.NEEDS_INPUT, note, key)
+            if not override.subject:
+                for note in imported.subject_notes:
+                    self.note(NoteLevel.NEEDS_INPUT, note, key)
             if not override.from_email:
                 for note in imported.sender_notes:
                     self.note(NoteLevel.NEEDS_INPUT, note, key)
@@ -440,7 +438,7 @@ class _Builder:
         # Resend fills these from the contact when a step doesn't, and a person's properties do the same job here.
         for name in contact_variables:
             if name not in variables:
-                replacements[name] = f"person.properties.{_CONTACT_VARIABLE_PROPERTIES.get(name, name)}"
+                replacements[name] = _liquid_path(f"person.properties.{_CONTACT_VARIABLE_PROPERTIES.get(name, name)}")
         return _fill_variables(text, replacements)
 
     def _variable_source(self, key: str, name: str, source: Any) -> str:
@@ -454,7 +452,8 @@ class _Builder:
                 )
                 return f"variables.{name}"
             return literal
-        return self._readable_path(key, name, str(reference)) or f"variables.{name}"
+        path = self._readable_path(key, name, str(reference))
+        return _liquid_path(path) if path else f"variables.{name}"
 
     def _readable_path(self, key: str, name: str, path: str) -> str | None:
         """Where a Resend variable reads from in PostHog, or None with a note if PostHog doesn't have it."""
@@ -594,7 +593,7 @@ class _Builder:
             )
             timeout = _duration(_MAX_WAIT_SECONDS)
         else:
-            timeout = self._duration(key, config, "timeout", cap=_MAX_WAIT_SECONDS)
+            timeout = self._parsed_duration(key, config, "timeout", cap=_MAX_WAIT_SECONDS)
         events = []
         if event_name:
             filter_rule = config.get("filter_rule")
@@ -620,7 +619,7 @@ class _Builder:
         }
 
     def _next_kept(self, target: str, actions: set[str], seen: set[str] | None = None) -> str:
-        """The step a link reaches once skipped steps are bridged over."""
+        """The step a link reaches. A step that was left out is replaced by wherever its first path leads."""
         seen = seen or set()
         if target in actions:
             return target
@@ -760,11 +759,17 @@ def _unreadable_message(name: str, path: str) -> str:
 
 
 def _hog_path(path: str) -> str:
+    # In Hog a double-quoted name is a variable, so a key that isn't a plain name needs a single-quoted string.
+    return _bracketed(path, _HOG_IDENTIFIER, escape_hogql_string)
+
+
+def _liquid_path(path: str) -> str:
+    return _bracketed(path, _LIQUID_IDENTIFIER, json.dumps)
+
+
+def _bracketed(path: str, plain: re.Pattern[str], quote: Callable[[str], str]) -> str:
     first, *rest = path.split(".")
-    parts = [first]
-    for part in rest:
-        parts.append(f".{part}" if _HOG_IDENTIFIER.match(part) else f"[{json.dumps(part)}]")
-    return "".join(parts)
+    return first + "".join(f".{part}" if plain.match(part) else f"[{quote(part)}]" for part in rest)
 
 
 def _split_readable(path: str) -> tuple[str, str]:

@@ -416,6 +416,12 @@ class TestResendImport(BaseTest):
         assert action_types["welcome"] == "function_email"
         assert action_types["wait"] == "delay"
         assert action_types["is_pro"] == "conditional_branch"
+        is_pro = next(a for a in actions if a["id"] == "is_pro")["config"]["conditions"][0]["filters"]["properties"]
+        assert is_pro[1] == {
+            "key": "toFloat(properties.`min-spend`) IS NOT NULL AND "
+            "toFloat(person.properties.`lifetime-spend`) >= toFloat(properties.`min-spend`)",
+            "type": "hogql",
+        }
         assert action_types["wait_upgrade"] == "wait_until_condition"
         assert action_types["update"] == "function"
         update = next(a for a in actions if a["id"] == "update")["config"]
@@ -482,6 +488,23 @@ class TestResendImport(BaseTest):
         assert resend._step_email({**step, "reply_to": ["{{x}}@example.com", "b@example.com"]}, {}).reply_to == (
             '{{ "{{" }}x}}@example.com, b@example.com'
         )
+
+    @parameterized.expand(
+        [
+            ("unknown_sender", {}, "isn't a PostHog sender yet"),
+            ("unverified_sender", {"x@example.com": {"verified": False}}, "isn't verified in PostHog yet"),
+            ("verified_sender", {"x@example.com": {"verified": True}}, None),
+        ]
+    )
+    def test_a_step_sender_names_what_to_fix(self, _name: str, configs: dict[str, Any], note: str | None) -> None:
+        senders = {
+            address: cast(IntegrationRecord, SimpleNamespace(id=7, config={"email": address, **config}))
+            for address, config in configs.items()
+        }
+
+        notes = resend._step_email({"from": "x@example.com"}, senders).notes
+
+        assert [note in item for item in notes] == ([True] if note else [])
 
     def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
         sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))

@@ -1138,6 +1138,8 @@ class ImportedEmail:
     contact_variables: tuple[str, ...] = ()
     # What to review about the sender, which doesn't apply when a step sets its own.
     sender_notes: tuple[str, ...] = ()
+    # What to review about the subject, which doesn't apply when a step sets its own.
+    subject_notes: tuple[str, ...] = ()
 
 
 @frozen
