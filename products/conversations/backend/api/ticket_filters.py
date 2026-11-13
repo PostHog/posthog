@@ -291,14 +291,26 @@ def _decode_assignee_param(raw: str) -> list[Any]:
     return [entry for entry in entries if _is_assignee_entry(entry)]
 
 
-def _decode_json_tag_list(raw: str) -> list[str] | None:
+def _decode_tag_list(param: str, raw: str) -> list[str]:
+    stripped = raw.strip()
+    if not stripped.startswith("["):
+        return [tag.strip() for tag in stripped.split(",") if tag.strip()]
     try:
-        value = json.loads(raw)
+        value = json.loads(stripped)
     except json.JSONDecodeError:
-        return None
-    if isinstance(value, list) and value:
-        return [str(tag) for tag in value]
-    return None
+        value = None
+    if not isinstance(value, list) or not all(
+        isinstance(tag, str | int) and not isinstance(tag, bool) for tag in value
+    ):
+        raise serializers.ValidationError(
+            {
+                param: (
+                    f"Pass {param} as a tag name, a comma-separated list of tag names, "
+                    'or a JSON array of tag names, such as ["billing","urgent"].'
+                )
+            }
+        )
+    return [str(tag).strip() for tag in value if str(tag).strip()]
 
 
 def _order_by_to_sorting(order_by: str) -> dict[str, Any] | None:
@@ -312,7 +324,9 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
     """Translate the flat snake_case ticket-list query params into the canonical
     TicketViewFilters shape. Only keys whose param is present are set, so values coming
     from a saved view survive unless explicitly overridden. Invalid values are dropped
-    rather than rejected, matching the endpoint's long-standing behavior."""
+    rather than rejected, matching the endpoint's long-standing behavior, except for
+    malformed tag lists, which raise a ValidationError so they never widen the results
+    to every ticket."""
     filters: dict[str, Any] = {}
 
     # Guard every list on being non-empty: a param whose values all parse away must not
@@ -351,14 +365,14 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
 
     tags_param = params.get("tags")
     if tags_param:
-        tags = _decode_json_tag_list(tags_param)
+        tags = _decode_tag_list("tags", tags_param)
         if tags:
             filters["tags"] = tags
             filters["tagsMatch"] = "any"
 
     tags_all_param = params.get("tags_all")
     if tags_all_param:
-        tags = _decode_json_tag_list(tags_all_param)
+        tags = _decode_tag_list("tags_all", tags_all_param)
         if tags:
             # Separate key from tags/tagsMatch so tags= and tags_all= compose (AND)
             # instead of the later param clobbering the earlier one. Deliberately NOT
@@ -369,7 +383,7 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
 
     tags_exclude_param = params.get("tags_exclude")
     if tags_exclude_param:
-        tags = _decode_json_tag_list(tags_exclude_param)
+        tags = _decode_tag_list("tags_exclude", tags_exclude_param)
         if tags:
             filters["tagsExclude"] = tags
 
