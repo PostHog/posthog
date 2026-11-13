@@ -182,8 +182,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates()
-                    return response.results
+                    return await api.messaging.getAllTemplates()
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
