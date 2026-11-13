@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -8,7 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { RunIntake } from '../intake/run-intake'
+import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
@@ -273,7 +274,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             template_id: hogFunction.template_id,
             team_id: hogFlow.team_id,
         })
-        const invocationId = new UUIDT().toString()
+        const invocationId = idempotencyKey
+            ? keyedRunId(hogFlow.team_id, hogFlow.id, idempotencyKey)
+            : new UUIDT().toString()
+        const leaseToken = randomUUID()
         const triggerActionId = hogFlow.actions.find((action) => action.type === 'trigger')?.id ?? 'trigger_node'
 
         const addLog = (level: LogEntryLevel, message: string) => {
@@ -364,20 +368,39 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 )
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
+                // Every repeat of a key on the workflow is the same request, so the fingerprint is the workflow.
+                const run: Run = scopedIdempotencyKey
+                    ? { invocation: hogFlowInvocation, claim: { fingerprint: hogFlow.id } }
+                    : { invocation: hogFlowInvocation }
+                const answerDuplicate = (): HogFlowTriggerOutcome => {
+                    addLog('info', `Skipped duplicate request for Idempotency-Key "${idempotencyKey}"`)
+                    functionResult.finished = false
+                    functionResult.execResult = { httpResponse: { status: 200, body: { status: 'duplicate' } } }
+                    return { result: functionResult, queuedInvocationId: null }
+                }
 
                 if (scopedIdempotencyKey) {
-                    // Every repeat of a key on the workflow is the same request, so the fingerprint is the workflow.
+                    const recalled = await this.recallQuietly({ runId: invocationId, fingerprint: hogFlow.id }, hogFlow)
+                    if (recalled.status !== 'absent') {
+                        // Restores a record Valkey lost, because an older pod reads only Valkey and would queue a
+                        // second run.
+                        await this.idempotencyKeys.markQueued(
+                            hogFlow.team_id,
+                            scopedIdempotencyKey,
+                            hogFlow.id,
+                            recalled.runId,
+                            leaseToken
+                        )
+                        return answerDuplicate()
+                    }
                     const reservation = await this.idempotencyKeys.reserve(
                         hogFlow.team_id,
                         scopedIdempotencyKey,
                         hogFlow.id,
-                        invocationId
+                        leaseToken
                     )
                     if (reservation.status === 'replayed') {
-                        addLog('info', `Skipped duplicate request for Idempotency-Key "${idempotencyKey}"`)
-                        functionResult.finished = false
-                        functionResult.execResult = { httpResponse: { status: 200, body: { status: 'duplicate' } } }
-                        return { result: functionResult, queuedInvocationId: null }
+                        return answerDuplicate()
                     }
                     if (reservation.status === 'in_flight') {
                         // The first request can still fail to queue, so this one must not report a duplicate.
@@ -386,7 +409,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                         return { result: functionResult, queuedInvocationId: null }
                     }
                     if (reservation.status === 'unavailable') {
-                        // A webhook run matters more than its deduplication, so the run queues without a claim.
+                        // A webhook run matters more than its deduplication, so the run queues on its claim alone.
                         logger.warn('Idempotency store unavailable, queueing the hog flow run anyway', {
                             team_id: hogFlow.team_id,
                             hog_flow_id: hogFlow.id,
@@ -396,7 +419,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
                 const releaseReservation = async (): Promise<void> => {
                     if (scopedIdempotencyKey) {
-                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
+                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, leaseToken)
                     }
                 }
 
@@ -416,30 +439,32 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
-                addMetric({
-                    metric_kind: 'other',
-                    metric_name: 'triggered',
-                    count: 1,
-                })
-
+                let committed: Committed
                 try {
-                    const [committed] = await this.runIntake.launch([{ invocation: hogFlowInvocation }], {
-                        wait: 'committed',
-                    })
-                    queuedInvocationId = committed.runId
+                    committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
                 } catch (error) {
                     await releaseReservation()
                     throw error
                 }
                 if (scopedIdempotencyKey) {
+                    // Also on a replay: an older pod reads only Valkey and would queue the run again.
                     await this.idempotencyKeys.markQueued(
                         hogFlow.team_id,
                         scopedIdempotencyKey,
                         hogFlow.id,
                         invocationId,
-                        invocationId
+                        leaseToken
                     )
                 }
+                if (committed.outcome !== 'created') {
+                    return answerDuplicate()
+                }
+                addMetric({
+                    metric_kind: 'other',
+                    metric_name: 'triggered',
+                    count: 1,
+                })
+                queuedInvocationId = committed.runId
             } else {
                 addMetric({
                     metric_kind: 'failure',
@@ -453,9 +478,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             return { result: functionResult, queuedInvocationId }
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
-            // The 'running' row is queued before the invocation reaches cyclotron, so a throw after
-            // that point leaves a row for a run that does not exist and would never terminate.
-            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocationId])
             addMetric({
                 metric_kind: 'failure',
                 metric_name: 'trigger_failed',
@@ -476,6 +498,20 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 ),
                 queuedInvocationId: null,
             }
+        }
+    }
+
+    // The claim made at launch still deduplicates the run, so a failed lookup only costs an earlier answer.
+    private async recallQuietly(claim: Claim, hogFlow: HogFlow): Promise<Recalled> {
+        try {
+            return await this.runIntake.recall(claim)
+        } catch (error) {
+            logger.warn('Hog flow run claim lookup failed, deduplicating at launch instead', {
+                team_id: hogFlow.team_id,
+                hog_flow_id: hogFlow.id,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return { status: 'absent' }
         }
     }
 
