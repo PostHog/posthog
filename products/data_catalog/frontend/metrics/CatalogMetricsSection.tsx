@@ -5,11 +5,15 @@ import { Skeleton } from '@posthog/quill'
 import { ModelsOverviewErrorCallout } from 'products/data_modeling/frontend/ModelsOverviewErrorCallout'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { QuillCatalogSetupBanner } from '../components/QuillCatalogSetupBanner'
+import { metricsIntroLogic } from '../metricsIntroLogic'
 import { metricsLogic } from '../metricsLogic'
 import { CatalogMetricsBulkBar } from './CatalogMetricsBulkBar'
+import { CatalogMetricsEmptyState } from './CatalogMetricsEmptyState'
 import { catalogMetricsLogic } from './catalogMetricsLogic'
 import { CatalogMetricsTable } from './CatalogMetricsTable'
 import { CatalogMetricsToolbar } from './CatalogMetricsToolbar'
+import { MetricsIntroStrip } from './MetricsIntroStrip'
 
 const SKELETON_ROWS = 5
 
@@ -56,15 +60,28 @@ function MetricsContent(): JSX.Element {
             />
         )
     }
-    return <CatalogMetricsTable />
+    if (metricsLoadState === 'loaded') {
+        return <CatalogMetricsEmptyState />
+    }
+    return <LoadingRows />
+}
+
+/** One notice at a time: the first visit explains how metrics work, later visits offer setup. */
+function MetricsNotice(): JSX.Element {
+    const { showIntroStrip } = useValues(metricsIntroLogic)
+    return showIntroStrip ? <MetricsIntroStrip /> : <QuillCatalogSetupBanner />
 }
 
 export function CatalogMetricsSection(): JSX.Element {
     const { selectedMetricIds } = useValues(catalogMetricsLogic)
+    const { allMetrics, metricsLoadState } = useValues(metricsLogic)
+    // Search and filters have nothing to act on in an empty catalog.
+    const catalogEmpty = metricsLoadState === 'loaded' && allMetrics.length === 0
 
     return (
         <section aria-label="Metrics" className="flex flex-col gap-3" data-attr="data-catalog-metrics">
-            <CatalogMetricsToolbar />
+            <MetricsNotice />
+            {!catalogEmpty && <CatalogMetricsToolbar />}
             <ChecksLoadError />
             <MetricsContent />
             {selectedMetricIds.length > 0 && <CatalogMetricsBulkBar />}

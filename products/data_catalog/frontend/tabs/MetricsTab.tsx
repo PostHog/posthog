@@ -24,6 +24,7 @@ import { InsightShortId } from '~/types'
 
 import { compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
 import { CatalogExplainer } from '../components/CatalogExplainer'
+import { CatalogSetupBanner } from '../components/CatalogSetupBanner'
 import { LifecycleStrip } from '../components/LifecycleStrip'
 import { MetricDescription } from '../components/MetricDescription'
 import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
@@ -415,6 +416,7 @@ export function MetricsTab(): JSX.Element {
         <div className="@container flex flex-col gap-4">
             {/* The explainer describes agent behavior that ships with the review queue, so it shares its flag. */}
             {reviewQueueEnabled && <CatalogExplainer />}
+            <CatalogSetupBanner />
             {reviewQueueEnabled && (
                 <LifecycleStrip counts={stageCounts} status={filters.status} onToggle={toggleStage} />
             )}

@@ -175,19 +175,8 @@ function MetricChecksCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Ele
 }
 
 function NoMetrics(): JSX.Element {
-    const { allMetrics } = useValues(metricsLogic)
     const { setFilters } = useActions(metricsLogic)
     const { setChecksFilter } = useActions(catalogMetricsLogic)
-    if (allMetrics.length === 0) {
-        return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyTitle>No metrics yet</EmptyTitle>
-                    <EmptyDescription>Create a metric to define a number your team can reuse.</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
-        )
-    }
     return (
         <Empty>
             <EmptyHeader>
