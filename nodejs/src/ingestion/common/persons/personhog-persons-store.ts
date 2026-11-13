@@ -352,10 +352,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /**
-     * Marks every key of the team. A merge that ended without a full verdict can have destroyed a person the store
-     * cannot name, so no per-key mark can stop a read that is in flight for that person.
-     */
+    /** A merge without a full verdict can have destroyed a person the store cannot name, so it marks the team. */
     private fenceTeam(teamId: number): void {
         if (this.readsInFlight.size === 0) {
             return
@@ -956,9 +953,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED)
             // Keyed on the header: a hop in between may remap the status code.
             const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
-            // A refusal and a not-applied answer both mean the saga did not run, so the persons resolved before the
-            // call are the whole set. Any other failure can hide a saga that ran against persons that an out-of-band
-            // merge put under these ids after that resolve.
+            // Only a refusal or a not-applied answer proves the saga did not run against persons the store never saw.
             this.purgeAfterMerge(
                 teamId,
                 namedIds,
@@ -1019,10 +1014,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (result.survivor) {
             purgedPersons.add(`${teamId}:${result.survivor.id}`)
         }
-        // The verdict names a destroyed person only on a merged source. An errored or unsettled source can have
-        // destroyed a person that the verdict does not name.
-        const namesEveryPerson = result.results.every(
-            (source) => source.outcome !== 'error' && source.settled !== false
+        // The saga names a destroyed person only on a merged source that carries a person id.
+        const namesEveryPerson = result.results.every((source) =>
+            source.outcome === 'merged'
+                ? source.sourcePersonId != null && result.survivor != null
+                : source.outcome !== 'error' && source.outcome !== 'unknown'
         )
         this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict', namesEveryPerson)
         // A fold that skipped or failed to settle any source aborts to the
@@ -1249,8 +1245,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
             const limit = pLimit(this.options.maxConcurrentUpdates)
-            // Every task settles before the read ends, so one failed leader read does not unfence the answers of
-            // the others.
+            // The read must outlive every task, because an answer that lands after it ends is never recorded.
             const settled = await Promise.allSettled(
                 resolved.map((entry, i) =>
                     limit(async () => {
