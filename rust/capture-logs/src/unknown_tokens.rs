@@ -25,6 +25,10 @@ pub const UNKNOWN_TOKENS_KEY: &str = "capture_logs:unknown_tokens";
 /// stops being turned away once the consumer stops seeing it.
 pub const UNKNOWN_TOKEN_WINDOW: Duration = Duration::from_secs(60 * 60);
 
+/// The consumer caps the set at 100,000 entries. A read of more than this means the cap failed, and
+/// the snapshot is skipped so a flood of bogus tokens cannot grow the memory of every replica.
+pub const MAX_SNAPSHOT_TOKENS: usize = 200_000;
+
 const SHADOW_LOG_INTERVAL_SECS: u64 = 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +50,13 @@ impl UnknownTokenMode {
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefreshOutcome {
+    Loaded(usize),
+    /// The set held more tokens than `MAX_SNAPSHOT_TOKENS`, so it was not loaded.
+    Oversized,
 }
 
 struct Snapshot {
@@ -121,30 +132,59 @@ impl UnknownTokens {
 
     fn replace(&self, tokens: HashSet<String>) {
         gauge!("capture_logs_unknown_tokens_loaded").set(tokens.len() as f64);
+        // Swap under the lock and free the old set after it is released, so readers never wait for the free.
+        let old = match self.inner.snapshot.write() {
+            Ok(mut snapshot) => {
+                snapshot.loaded_at = Some(Instant::now());
+                Some(std::mem::replace(&mut snapshot.tokens, tokens))
+            }
+            Err(_) => None,
+        };
+        drop(old);
+    }
+
+    #[cfg(test)]
+    fn age_snapshot(&self, by: Duration) {
         if let Ok(mut snapshot) = self.inner.snapshot.write() {
-            snapshot.tokens = tokens;
-            snapshot.loaded_at = Some(Instant::now());
+            snapshot.loaded_at = snapshot.loaded_at.and_then(|at| at.checked_sub(by));
         }
     }
 
-    /// One refresh. On any error the previous snapshot stays in place.
+    /// One refresh. On any error, and when the set is too large, the previous snapshot stays in place.
     pub async fn refresh(
         &self,
         client: &dyn RedisClient,
         now_ms: i64,
         window: Duration,
-    ) -> Result<usize, CustomRedisError> {
+    ) -> Result<RefreshOutcome, CustomRedisError> {
+        self.refresh_limited(client, now_ms, window, MAX_SNAPSHOT_TOKENS)
+            .await
+    }
+
+    async fn refresh_limited(
+        &self,
+        client: &dyn RedisClient,
+        now_ms: i64,
+        window: Duration,
+        max_tokens: usize,
+    ) -> Result<RefreshOutcome, CustomRedisError> {
         let min = now_ms.saturating_sub(window.as_millis() as i64);
+        // Ask for one more than the budget, so the reply tells a full set from an oversized one.
         let tokens = client
-            .zrangebyscore(
+            .zrangebyscore_limit(
                 UNKNOWN_TOKENS_KEY.to_string(),
                 min.to_string(),
                 "+inf".to_string(),
+                0,
+                max_tokens as isize + 1,
             )
             .await?;
+        if tokens.len() > max_tokens {
+            return Ok(RefreshOutcome::Oversized);
+        }
         let count = tokens.len();
         self.replace(tokens.into_iter().collect());
-        Ok(count)
+        Ok(RefreshOutcome::Loaded(count))
     }
 
     /// One tick of the refresh loop: connect if there is no connection, then refresh. A failure drops
@@ -178,10 +218,16 @@ impl UnknownTokens {
             return false;
         };
         match self.refresh(connected.as_ref(), now_ms, window).await {
-            Ok(_) => {
+            Ok(RefreshOutcome::Loaded(_)) => {
                 counter!("capture_logs_unknown_token_refresh_total", "outcome" => "ok")
                     .increment(1);
                 true
+            }
+            Ok(RefreshOutcome::Oversized) => {
+                error!("The unknown project token set is over the size budget, keeping the last snapshot");
+                counter!("capture_logs_unknown_token_refresh_total", "outcome" => "oversized")
+                    .increment(1);
+                false
             }
             Err(e) => {
                 warn!(error = %e, "Failed to refresh unknown project tokens, keeping the last snapshot");
@@ -314,14 +360,50 @@ mod tests {
 
     #[tokio::test]
     async fn a_stale_snapshot_fails_open() {
-        let unknown = UnknownTokens::new(UnknownTokenMode::Reject, Duration::from_millis(20));
+        let unknown = tokens(UnknownTokenMode::Reject);
         let client = mock_with(&["phc_ghost"]);
         unknown.refresh(client.as_ref(), NOW, WINDOW).await.unwrap();
         assert!(unknown.is_unknown("phc_ghost"));
 
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        unknown.age_snapshot(Duration::from_secs(599));
+        assert!(unknown.is_unknown("phc_ghost"));
 
+        unknown.age_snapshot(Duration::from_secs(2));
         assert!(!unknown.is_unknown("phc_ghost"));
+    }
+
+    #[tokio::test]
+    async fn an_oversized_set_is_not_loaded_and_keeps_the_last_snapshot() {
+        let unknown = tokens(UnknownTokenMode::Reject);
+        let small = mock_with(&["phc_ghost"]);
+        unknown
+            .refresh_limited(small.as_ref(), NOW, WINDOW, 3)
+            .await
+            .unwrap();
+
+        let flood = mock_with(&["phc_a", "phc_b", "phc_c", "phc_d"]);
+        let outcome = unknown
+            .refresh_limited(flood.as_ref(), NOW, WINDOW, 3)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, RefreshOutcome::Oversized);
+        assert!(unknown.is_unknown("phc_ghost"));
+        assert!(!unknown.is_unknown("phc_a"));
+    }
+
+    #[tokio::test]
+    async fn a_set_at_the_budget_is_loaded() {
+        let unknown = tokens(UnknownTokenMode::Reject);
+        let full = mock_with(&["phc_a", "phc_b", "phc_c"]);
+
+        let outcome = unknown
+            .refresh_limited(full.as_ref(), NOW, WINDOW, 3)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, RefreshOutcome::Loaded(3));
+        assert!(unknown.is_unknown("phc_c"));
     }
 
     #[tokio::test]
