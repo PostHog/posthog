@@ -7607,6 +7607,7 @@ export namespace Schemas {
       color?: DataColorToken | null;
       customColor?: string | null;
       hidden?: boolean | null;
+      label?: string | null;
     }
 
     export interface ResultCustomizationByPosition {
@@ -15292,6 +15293,23 @@ export namespace Schemas {
       event_kinds: PlatformAlertDestinationEventKindEnum[];
       /** Whether this route sends. */
       enabled: boolean;
+    }
+
+    export interface AlertRouteMatch {
+      /** A route these labels match. */
+      route: AlertRoute;
+      /** The receiver the route sends to. */
+      receiver: AlertReceiver;
+    }
+
+    /**
+     * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+     */
+    export type AlertRouteMatchingRequestLabels = {[key: string]: string};
+
+    export interface AlertRouteMatchingRequest {
+      /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+      labels: AlertRouteMatchingRequestLabels;
     }
 
     export interface AlertRouteWrite {
@@ -38594,7 +38612,7 @@ export namespace Schemas {
     }
 
     export interface DiagnosticCheckResult {
-      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry). */
       id: string;
       /** Human-readable check name. */
       name: string;
@@ -141403,7 +141421,7 @@ export namespace Schemas {
 
     export type LlmSkillsSearchRetrieveParams = {
     /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.
      * @minLength 1
      * @maxLength 200
      */

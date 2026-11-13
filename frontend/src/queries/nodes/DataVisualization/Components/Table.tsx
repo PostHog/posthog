@@ -547,6 +547,7 @@ export const Table = (props: TableProps): JSX.Element => {
             )}
             <LemonTable
                 className="DataVisualizationTable"
+                stickyHeader
                 rowKey="rowIndex"
                 dataSource={tableRows}
                 columns={tableColumns}

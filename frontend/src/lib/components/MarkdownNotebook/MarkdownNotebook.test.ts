@@ -479,6 +479,31 @@ function createTouchList(touches: Touch[]): TouchList {
 }
 
 describe('MarkdownNotebook', () => {
+    it('configures explicit columns and removes only their layout, with undo restoring membership', async () => {
+        const onChange = jest.fn()
+        const value =
+            '# Report\n\n<Columns>\n\n<Column>\n\nFirst note.\n\n</Column>\n\n<Column>\n\nSecond note.\n\n</Column>\n\n</Columns>\n\nConclusion.'
+        const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
+        expect(container.querySelectorAll('.MarkdownNotebook__column')).toHaveLength(2)
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr=notebook-columns-count]')!)
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr=notebook-columns-count]')!)
+        await waitFor(() => expect(document.querySelector('.MarkdownNotebook__columns-settings')).toBeNull())
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr=notebook-columns-count]')!)
+        await userEvent.click(document.querySelector<HTMLElement>('[data-attr=notebook-columns-count-3]')!)
+        expect(container.querySelectorAll('.MarkdownNotebook__column')).toHaveLength(3)
+        expect(onChange.mock.lastCall?.[0].match(/<Column>/g)).toHaveLength(3)
+        fireEvent.change(document.querySelector('[data-attr=notebook-column-width]')!, { target: { value: '2' } })
+        expect(onChange.mock.lastCall?.[0]).toContain('<Column width={2}>')
+        expect(onChange.mock.lastCall?.[0]).not.toContain('widths=')
+        await userEvent.click(document.querySelector<HTMLElement>('[data-attr=notebook-columns-remove]')!)
+        expect(container.querySelector('.MarkdownNotebook__columns')).toBeNull()
+        expect(onChange.mock.lastCall?.[0]).toContain('First note.')
+        expect(onChange.mock.lastCall?.[0]).toContain('Second note.')
+        expect(onChange.mock.lastCall?.[0]).toContain('Conclusion.')
+        fireEvent.keyDown(container.querySelector('[data-markdown-notebook-editor]')!, { key: 'z', ctrlKey: true })
+        expect(container.querySelectorAll('.MarkdownNotebook__column')).toHaveLength(3)
+    })
+
     it('moves a component block whose own control holds focus', () => {
         // A cell's Run button takes focus on click, so the block element itself is not the active
         // element. Resolving only exact matches moved whatever block still held the caret.
