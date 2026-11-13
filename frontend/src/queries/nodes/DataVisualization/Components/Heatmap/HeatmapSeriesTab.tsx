@@ -93,15 +93,13 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                 <LemonLabel className="mt-2 mb-1">X-axis order</LemonLabel>
                 <LemonSelect
                     className="w-full"
-                    value={heatmapSettings.xAxisSortOrder ?? 'query'}
+                    value={heatmapSettings.xAxisSortOrder}
                     options={[
-                        { value: 'query', label: 'Query order' },
+                        { value: null, label: 'Query order' },
                         { value: HeatmapSortOrder.Asc, label: 'Ascending' },
                         { value: HeatmapSortOrder.Desc, label: 'Descending' },
                     ]}
-                    onChange={(value) =>
-                        updateHeatmapSettings({ xAxisSortOrder: value === 'query' ? undefined : value })
-                    }
+                    onChange={(value) => updateHeatmapSettings({ xAxisSortOrder: value ?? undefined })}
                 />
                 <LemonLabel className="mt-2 mb-1">X-axis label</LemonLabel>
                 <LemonInput
