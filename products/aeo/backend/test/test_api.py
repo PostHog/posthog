@@ -1445,6 +1445,32 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert AEOBrand.objects.for_team(other_team.id).get(id=brand_id).status == "suggested"
 
+    def test_competitor_candidates_lists_brands_answers_name_and_cite(self) -> None:
+        ids = self._import_prompts([{"prompt": "which lighting tools?"}])
+        brand_id = self._brand(self.team, "lantern.example.org")
+        self._record_check(
+            ids["which lighting tools?"],
+            "claude-web-search",
+            minutes_ago=10,
+            answer_text="Lantern is a good pick.",
+            cited_urls=["https://lantern.example.org/pricing"],
+        )
+
+        url = f"/api/projects/{self.team.id}/aeo_brands/competitor_candidates/"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == [
+            {
+                "brand_id": brand_id,
+                "name": "lantern",
+                "domain": "lantern.example.org",
+                "answers_naming": 1,
+                "answers_citing": 1,
+            }
+        ]
+        assert self.client.get(f"{url}?limit=0").status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("answer", True, "completed", ["Best session replay tool?"], 1),

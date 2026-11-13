@@ -67,6 +67,7 @@ from products.aeo.backend.facade.contracts import (
     CheckMode,
     CitationGap,
     CitationRunSummary,
+    CompetitorCandidate,
     EngineSetting,
     EngineSettingUpdate,
     Keyword,
@@ -789,6 +790,11 @@ def list_brands(
         rows = rows.filter(status=status)
     page = rows.order_by("domain")[offset : offset + limit]
     return [_to_brand(brand) for brand in page], rows.count()
+
+
+def list_competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandidate]:
+    """Suggested brands that recent answers to non-branded prompts both name and cite, most likely competitor first."""
+    return catalog.competitor_candidates(team_id, limit=limit)
 
 
 def get_brand(team_id: int, brand_id: str) -> Brand:

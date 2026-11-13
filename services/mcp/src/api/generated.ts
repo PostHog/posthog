@@ -117,6 +117,19 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface AEOCompetitorCandidate {
+      /** Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update. */
+      brand_id: string;
+      /** Brand name. Starts as a guess from the domain until someone edits it. */
+      name: string;
+      /** Registrable domain of the brand. */
+      domain: string;
+      /** Answers to non-branded prompts whose text has the brand's name or one of its other names as a whole word. */
+      answers_naming: number;
+      /** Answers to non-branded prompts that cite a page on the brand's domain or one of its subdomains. */
+      answers_citing: number;
+    }
+
     /**
      * * `web_search` - Web search
      * * `no_search` - No search
@@ -132339,6 +132352,15 @@ export namespace Schemas {
       Confirmed: 'confirmed',
       Ignored: 'ignored',
     } as const;
+
+    export type AeoBrandsCompetitorCandidatesParams = {
+    /**
+     * How many candidates to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type AeoKeywordsModifiersParams = {
     /**

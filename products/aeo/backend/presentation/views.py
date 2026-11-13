@@ -42,6 +42,7 @@ from products.aeo.backend.facade.api import (
     get_prompt_suggestions,
     import_prompts,
     list_brands,
+    list_competitor_candidates,
     list_engine_settings,
     list_prompt_checks,
     list_prompt_topics,
@@ -56,6 +57,7 @@ from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
+    COMPETITOR_CANDIDATE_DAYS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
@@ -70,6 +72,7 @@ from products.aeo.backend.facade.contracts import (
     BrandStatus,
     BrandUpdate,
     CheckFrequency,
+    CompetitorCandidate,
     EngineNotFoundError,
     EngineSetting,
     EngineSettingUpdate,
@@ -121,6 +124,8 @@ MAX_SUGGESTED_PROMPTS = 50
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_CHECKS_PAGE_SIZE = 20
 DEFAULT_BRANDS_PAGE_SIZE = 100
+DEFAULT_COMPETITOR_CANDIDATES = 20
+MAX_COMPETITOR_CANDIDATES = 100
 MAX_BRAND_ALIASES = 20
 MAX_CHECKS_PAGE_SIZE = 100
 STATS_DAYS = 30
@@ -927,6 +932,35 @@ class AEOBrandSerializer(DataclassSerializer):
         }
 
 
+class AEOCompetitorCandidateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CompetitorCandidate
+        ref_name = "AEOCompetitorCandidate"
+        extra_kwargs = {
+            "brand_id": {
+                "help_text": "Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update."
+            },
+            "name": {"help_text": "Brand name. Starts as a guess from the domain until someone edits it."},
+            "domain": {"help_text": "Registrable domain of the brand."},
+            "answers_naming": {
+                "help_text": "Answers to non-branded prompts whose text has the brand's name or one of its other names as a whole word."
+            },
+            "answers_citing": {
+                "help_text": "Answers to non-branded prompts that cite a page on the brand's domain or one of its subdomains."
+            },
+        }
+
+
+class AEOCompetitorCandidatesQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_COMPETITOR_CANDIDATES,
+        min_value=1,
+        max_value=MAX_COMPETITOR_CANDIDATES,
+        help_text=f"How many candidates to return, at most {MAX_COMPETITOR_CANDIDATES}.",
+    )
+
+
 class AEOPromptSuggestRequestSerializer(serializers.Serializer):
     domain = serializers.CharField(
         max_length=200,
@@ -1412,7 +1446,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
 
 class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "competitor_candidates"]
     scope_object_write_actions = ["create", "partial_update"]
     pagination_class = PrecountedLimitOffsetPagination
 
@@ -1437,6 +1471,25 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         paginator.set_count(count)
         page = self.paginate_queryset(page_brands)
         return self.get_paginated_response(AEOBrandSerializer(page, many=True).data)
+
+    @validated_request(
+        query_serializer=AEOCompetitorCandidatesQuerySerializer,
+        operation_id="aeo_brands_competitor_candidates",
+        summary="List likely AEO competitors",
+        description=(
+            f"Lists suggested brands that are likely competitors, from the answers of the last {COMPETITOR_CANDIDATE_DAYS} "
+            "days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. "
+            "Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the "
+            "smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or "
+            "ignore it with aeo_brands_partial_update."
+        ),
+        responses={200: AEOCompetitorCandidateSerializer(many=True)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def competitor_candidates(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        candidates = list_competitor_candidates(self.team_id, limit=request.validated_query_data["limit"])
+        return Response(AEOCompetitorCandidateSerializer(candidates, many=True).data)
 
     @validated_request(
         operation_id="aeo_brands_retrieve",
