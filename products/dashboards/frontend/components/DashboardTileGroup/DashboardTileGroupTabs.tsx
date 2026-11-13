@@ -21,6 +21,7 @@ interface DashboardTileGroupTabsProps {
     onRenameGroup?: (groupKey: string, title: string) => void
     renamingGroupKey?: string | null
     onRenamingGroupKeyChange?: (groupKey: string | null) => void
+    getMoveActions?: (groupKey: string) => DashboardTileGroupMenuActions['moveActions']
     onRemoveGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
@@ -39,6 +40,7 @@ export function DashboardTileGroupTabs({
     onRenameGroup,
     renamingGroupKey = null,
     onRenamingGroupKeyChange,
+    getMoveActions,
     onRemoveGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
@@ -61,6 +63,7 @@ export function DashboardTileGroupTabs({
             addTileOptions: getAddTileOptions?.(groupKey),
             onStartRename:
                 onRenameGroup && onRenamingGroupKeyChange ? () => onRenamingGroupKeyChange(groupKey) : undefined,
+            moveActions: getMoveActions?.(groupKey),
             onRemove: onRemoveGroup ? () => onRemoveGroup(groupKey) : undefined,
             groupHasTiles: section.tiles.length > 0,
             onChangeGroupDisplay,

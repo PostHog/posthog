@@ -220,6 +220,7 @@ const mockUpdateContainerWidth = jest.fn()
 const mockMoveTileToSection = jest.fn()
 const mockChangeTileGroupDisplay = jest.fn()
 const mockRenameTileGroup = jest.fn()
+const mockMoveTileGroup = jest.fn()
 const mockSetRenamingTileGroupKey = jest.fn()
 const mockUndoLayoutChange = jest.fn()
 const mockPositionStrategies = new Map<Element, unknown>()
@@ -296,6 +297,7 @@ describe('DashboardItems', () => {
                     moveTileToSection: mockMoveTileToSection,
                     changeTileGroupDisplay: mockChangeTileGroupDisplay,
                     renameTileGroup: mockRenameTileGroup,
+                    moveTileGroup: mockMoveTileGroup,
                     setRenamingTileGroupKey: mockSetRenamingTileGroupKey,
                     undoLayoutChange: mockUndoLayoutChange,
                     redoLayoutChange: jest.fn(),
@@ -746,6 +748,7 @@ describe('DashboardItems', () => {
                     tileGroupSectionLayouts: [layouts],
                     collapsedTileGroupKeys: [],
                     tileGroupMoveOptions: {},
+                    tileGroupMoveDirections: {},
                     ...overrides,
                 }
             })
@@ -869,6 +872,29 @@ describe('DashboardItems', () => {
 
             await waitFor(() => expect(mockRenameTileGroup).toHaveBeenCalledWith('plans', 'Pricing plans'))
             expect(mockSetRenamingTileGroupKey).toHaveBeenLastCalledWith(null)
+            unmount()
+        })
+
+        it.each([
+            { layout: 'bands', overrides: {}, blocked: 'Move up', item: 'Move down' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, blocked: 'Move left', item: 'Move right' },
+        ])('moves a group from the group menu in $layout', async ({ overrides, blocked, item }) => {
+            showBands({ ...overrides, tileGroupMoveDirections: { plans: { canMoveUp: false, canMoveDown: true } } })
+            const bandValues = mockedUseValues.getMockImplementation()!
+            mockedUseValues.mockImplementation((logic) =>
+                logic === dashboardsModel ? { dashboardsLoading: false } : bandValues(logic)
+            )
+            const defaultActions = mockedUseActions.getMockImplementation()!
+            mockedUseActions.mockImplementation((logic) =>
+                logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
+            )
+
+            const { container, findByText, unmount } = render(<DashboardItems />)
+            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            fireEvent.click(await findByText(blocked))
+            fireEvent.click(await findByText(item))
+
+            expect(mockMoveTileGroup.mock.calls).toEqual([['plans', 'down']])
             unmount()
         })
 

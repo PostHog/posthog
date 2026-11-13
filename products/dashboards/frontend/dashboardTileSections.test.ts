@@ -2,7 +2,7 @@ import type { Layout } from 'react-grid-layout'
 
 import { pluralize } from 'lib/utils/strings'
 
-import type { DashboardTile } from '~/types'
+import type { DashboardTile, TileGroupDisplay } from '~/types'
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
 import {
@@ -10,11 +10,14 @@ import {
     getDashboardSections,
     getDashboardTabs,
     getLayoutAfterSectionChange,
+    getLayoutAfterTileGroupMove,
     getLayoutAfterTileMove,
     getSectionLayouts,
+    getTileGroupMoveDirections,
     getTileGroupMoveOptions,
     hasSectionLayoutChanged,
     stackSectionLayouts,
+    type TileGroupMoveDirection,
 } from './dashboardTileSections'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
 
@@ -52,6 +55,14 @@ interface TileMoveCase {
     emptyGroupKeys?: string[]
     expectedSections: string[]
     expectedTile?: Partial<Layout[number]>
+}
+
+interface TileGroupMoveCase {
+    name: string
+    groupKey: string
+    direction: TileGroupMoveDirection
+    groupDisplay: TileGroupDisplay
+    expected: string[] | null
 }
 
 interface CollapsedCase {
@@ -344,6 +355,118 @@ describe('dashboardTileSections', () => {
             2: { targets: [plans], canTakeOut: true },
             3: { targets: [plans], canTakeOut: true },
             4: { targets: [plans, ops], canTakeOut: false },
+        })
+    })
+
+    describe('moving a tile group', () => {
+        // Bands: tiles 1 | plans 2,3 | tiles 4 | ops 5 | empty group "new".
+        const tiles = [tile(1), tile(2, 'plans'), tile(3, 'plans'), tile(4), tile(5, 'ops')]
+        const layout = [box(1, 0, 0), box(2, 0, 2), box(3, 6, 2, 6, 3), box(4, 0, 5), box(5, 0, 7)]
+        const sections = getDashboardSections({ tiles, layout, groups: undefined, emptyGroupKeys: ['new'] })
+
+        it.each<TileGroupMoveCase>([
+            {
+                name: 'up past the tiles above it',
+                groupKey: 'plans',
+                direction: 'up',
+                groupDisplay: 'sections',
+                expected: ['plans(): 2,3', 'tiles: 1,4', 'ops(): 5'],
+            },
+            {
+                name: 'down past the tiles below it',
+                groupKey: 'plans',
+                direction: 'down',
+                groupDisplay: 'sections',
+                expected: ['tiles: 1,4', 'plans(): 2,3', 'ops(): 5'],
+            },
+            {
+                name: 'down past the next group in tabs, over the tiles between them',
+                groupKey: 'plans',
+                direction: 'down',
+                groupDisplay: 'tabs',
+                expected: ['tiles: 1', 'ops(): 5', 'tiles: 4', 'plans(): 2,3'],
+            },
+            {
+                name: 'nowhere up from the first tab',
+                groupKey: 'plans',
+                direction: 'up',
+                groupDisplay: 'tabs',
+                expected: null,
+            },
+            {
+                name: 'nowhere down past a group with no tiles',
+                groupKey: 'ops',
+                direction: 'down',
+                groupDisplay: 'sections',
+                expected: null,
+            },
+            {
+                name: 'nowhere when the group has no tiles',
+                groupKey: 'new',
+                direction: 'up',
+                groupDisplay: 'sections',
+                expected: null,
+            },
+        ])('getLayoutAfterTileGroupMove moves a group $name', ({ groupKey, direction, groupDisplay, expected }) => {
+            const moved = getLayoutAfterTileGroupMove({
+                layout,
+                sections,
+                groupKey,
+                direction,
+                groupDisplay,
+                compactor: getDashboardGridCompactor(DashboardGridCompaction.Vertical),
+            })
+
+            expect(moved && sectionSummary(tiles, moved)).toEqual(expected)
+        })
+
+        it('getLayoutAfterTileGroupMove keeps each tile in its place inside its band', () => {
+            const moved = getLayoutAfterTileGroupMove({
+                layout,
+                sections,
+                groupKey: 'plans',
+                direction: 'up',
+                groupDisplay: 'sections',
+                compactor: getDashboardGridCompactor(DashboardGridCompaction.Vertical),
+            })
+
+            expect(moved?.filter((item) => item.i === '2' || item.i === '3')).toMatchObject([
+                box(2, 0, 0, 6, 2),
+                box(3, 6, 0, 6, 3),
+            ])
+        })
+
+        it.each<{ groupDisplay: TileGroupDisplay; expected: ReturnType<typeof getTileGroupMoveDirections> }>([
+            {
+                groupDisplay: 'sections',
+                expected: {
+                    plans: { canMoveUp: true, canMoveDown: true },
+                    ops: { canMoveUp: true, canMoveDown: false },
+                    new: { canMoveUp: false, canMoveDown: false },
+                },
+            },
+            {
+                groupDisplay: 'tabs',
+                expected: {
+                    plans: { canMoveUp: false, canMoveDown: true },
+                    ops: { canMoveUp: true, canMoveDown: false },
+                    new: { canMoveUp: false, canMoveDown: false },
+                },
+            },
+        ])('getTileGroupMoveDirections gives the ends of the order in $groupDisplay', ({ groupDisplay, expected }) => {
+            expect(getTileGroupMoveDirections(sections, groupDisplay)).toEqual(expected)
+        })
+
+        it('getTileGroupMoveDirections offers nothing when a tab has no other group to trade places with', () => {
+            const oneGroup = getDashboardSections({
+                tiles: [tile(1), tile(2, 'plans')],
+                layout: [box(1, 0, 0), box(2, 0, 2)],
+                groups: undefined,
+            })
+            expect(getTileGroupMoveDirections(oneGroup, 'tabs')).toEqual({})
+            expect(getTileGroupMoveDirections(oneGroup, 'sections')).toEqual({
+                plans: { canMoveUp: true, canMoveDown: false },
+            })
         })
     })
 })

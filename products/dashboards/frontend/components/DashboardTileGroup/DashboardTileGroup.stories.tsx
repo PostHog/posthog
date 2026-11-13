@@ -57,6 +57,7 @@ export const MenuOpen: StoryObj = {
                     tileCount={2}
                     collapsed={false}
                     onToggle={() => {}}
+                    moveActions={{ canMoveUp: false, canMoveDown: true, onMove: () => {} }}
                     copyToDestinations={[{ dashboard: { id: 42, name: 'Example dashboard' } as DashboardBasicType }]}
                     onCopyToDashboard={() => {}}
                     onChangeGroupDisplay={() => {}}

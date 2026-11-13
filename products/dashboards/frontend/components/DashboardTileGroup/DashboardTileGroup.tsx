@@ -25,6 +25,7 @@ interface DashboardTileGroupProps {
     onRename?: (title: string) => void
     renaming?: boolean
     onRenamingChange?: (renaming: boolean) => void
+    moveActions?: DashboardTileGroupMenuActions['moveActions']
     onRemove?: () => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
@@ -43,6 +44,7 @@ export function DashboardTileGroup({
     onRename,
     renaming = false,
     onRenamingChange,
+    moveActions,
     onRemove,
     copyToDestinations,
     onCopyToDashboard,
@@ -55,6 +57,7 @@ export function DashboardTileGroup({
         groupDisplay: 'sections',
         addTileOptions,
         onStartRename: onRename && onRenamingChange ? () => onRenamingChange(true) : undefined,
+        moveActions,
         onRemove,
         groupHasTiles: tileCount > 0,
         onChangeGroupDisplay,

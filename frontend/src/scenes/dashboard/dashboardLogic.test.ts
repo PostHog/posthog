@@ -784,6 +784,40 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
         })
 
+        it('saves a tile group moved above the group before it', async () => {
+            groupTiles({})
+            dashboards[5] = { ...dashboards[5], user_access_level: 'editor' as DashboardType['user_access_level'] }
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/dashboards/5/': async ({ request }) => {
+                        const payload = (await request.json()) as { tiles?: Partial<DashboardTile>[] }
+                        return [
+                            200,
+                            {
+                                ...dashboards[5],
+                                tiles: dashboards[5].tiles.map((tile) => ({
+                                    ...tile,
+                                    ...payload.tiles?.find((entry) => entry.id === tile.id),
+                                })),
+                            },
+                        ]
+                    },
+                },
+            })
+            await mountDashboard()
+            logic.actions.updateContainerWidth(1200, 12)
+
+            await expectLogic(logic, () => logic.actions.moveTileGroup('other', 'up'))
+                .toDispatchActions(['stageLayouts', 'saveLayoutOrColorsSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
+                'group-other',
+                'group-target',
+            ])
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
         describe('moving a tile between tile groups', () => {
             interface PendingSave {
                 tileIds: number[]

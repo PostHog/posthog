@@ -18,6 +18,7 @@ interface DashboardTileSectionBandProps {
     onRenameTileGroup?: (groupKey: string, title: string) => void
     renamingTileGroupKey?: string | null
     onRenamingTileGroupKeyChange?: (groupKey: string | null) => void
+    getTileGroupMoveActions?: (groupKey: string) => DashboardTileGroupMenuActions['moveActions']
     onRemoveTileGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
@@ -37,6 +38,7 @@ export function DashboardTileSectionBand({
     onRenameTileGroup,
     renamingTileGroupKey,
     onRenamingTileGroupKeyChange,
+    getTileGroupMoveActions,
     onRemoveTileGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
@@ -63,6 +65,7 @@ export function DashboardTileSectionBand({
                     onRename={onRenameTileGroup ? (title) => onRenameTileGroup(section.groupKey, title) : undefined}
                     renaming={renamingTileGroupKey === section.groupKey}
                     onRenamingChange={(renaming) => onRenamingTileGroupKeyChange?.(renaming ? section.groupKey : null)}
+                    moveActions={getTileGroupMoveActions?.(section.groupKey)}
                     onRemove={onRemoveTileGroup ? () => onRemoveTileGroup(section.groupKey) : undefined}
                     copyToDestinations={copyToDestinations}
                     onCopyToDashboard={

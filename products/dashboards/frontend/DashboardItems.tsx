@@ -37,6 +37,7 @@ import { biDashboardCrossFilterLogic } from 'products/business_intelligence/fron
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
+import type { TileGroupMoveActions } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMenuOverlay'
 import { DashboardTileGroupTabs } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupTabs'
 import { DashboardTileSectionBand } from 'products/dashboards/frontend/components/DashboardTileSectionBand'
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
@@ -126,6 +127,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tileGroupSectionLayouts,
         collapsedTileGroupKeys,
         tileGroupMoveOptions,
+        tileGroupMoveDirections,
         activeTileGroupTab,
         queryLoadQueue,
         isEditablePlacement,
@@ -169,6 +171,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         openButtonTileModal,
         setAddWidgetModalOpen,
         removeTileGroup,
+        moveTileGroup,
         addTileGroup,
         toggleTileGroup,
         selectTileGroupTab,
@@ -329,6 +332,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ? (groupKey: string) => <QuillDashboardEmptyGroupAddButton groupKey={groupKey} />
         : undefined
     const onRemoveTileGroup = canEditTileGroups ? removeTileGroup : undefined
+    const getTileGroupMoveActions = (groupKey: string): TileGroupMoveActions | undefined =>
+        Object.hasOwn(tileGroupMoveDirections, groupKey)
+            ? {
+                  ...tileGroupMoveDirections[groupKey],
+                  onMove: (direction) => moveTileGroup(groupKey, direction),
+              }
+            : undefined
     const onAddTileGroup = canEditTileGroups && tileGroupSectionsEnabled ? () => addTileGroup() : undefined
 
     const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
@@ -940,6 +950,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             onRenameTileGroup={onRenameTileGroup}
             renamingTileGroupKey={renamingTileGroupKey}
             onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
+            getTileGroupMoveActions={getTileGroupMoveActions}
             onRemoveTileGroup={onRemoveTileGroup}
             copyToDestinations={copyToDestinations}
             onCopyGroupToDashboard={onCopyGroupToDashboard}
@@ -963,6 +974,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onRenameGroup={onRenameTileGroup}
                         renamingGroupKey={renamingTileGroupKey}
                         onRenamingGroupKeyChange={setRenamingTileGroupKey}
+                        getMoveActions={getTileGroupMoveActions}
                         onRemoveGroup={onRemoveTileGroup}
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}

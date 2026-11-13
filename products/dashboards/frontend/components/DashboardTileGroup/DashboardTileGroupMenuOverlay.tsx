@@ -11,10 +11,13 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { TileGroupDisplay } from '~/types'
 
+import type { TileGroupMoveDirection, TileGroupMoveDirections } from '../../dashboardTileSections'
+
 export const TILE_GROUP_MENU_ITEMS: Record<
     TileGroupDisplay,
     {
         renameLabel: string
+        moveLabels: Record<TileGroupMoveDirection, string>
         removeLabel: string
         copyLabel: string
         copyNoun: string
@@ -24,6 +27,7 @@ export const TILE_GROUP_MENU_ITEMS: Record<
 > = {
     sections: {
         renameLabel: 'Rename group',
+        moveLabels: { up: 'Move up', down: 'Move down' },
         removeLabel: 'Delete group',
         copyLabel: 'Copy group to dashboard',
         copyNoun: 'group',
@@ -32,6 +36,7 @@ export const TILE_GROUP_MENU_ITEMS: Record<
     },
     tabs: {
         renameLabel: 'Rename tab',
+        moveLabels: { up: 'Move left', down: 'Move right' },
         removeLabel: 'Delete tab',
         copyLabel: 'Copy tab to dashboard',
         copyNoun: 'tab',
@@ -40,12 +45,17 @@ export const TILE_GROUP_MENU_ITEMS: Record<
     },
 }
 
+export interface TileGroupMoveActions extends TileGroupMoveDirections {
+    onMove: (direction: TileGroupMoveDirection) => void
+}
+
 export interface DashboardTileGroupMenuActions {
     // Set by the caller to match where this menu renders: "sections" in the group header,
     // "tabs" in the tab bar. Not read from the dashboard's actual display mode.
     groupDisplay: TileGroupDisplay
     addTileOptions?: { key: string; label: string; onClick: () => void }[]
     onStartRename?: () => void
+    moveActions?: TileGroupMoveActions
     onRemove?: () => void
     /** Removing a group never takes tiles out of it, so delete stays disabled until the group is empty. */
     groupHasTiles?: boolean
@@ -58,17 +68,26 @@ export interface DashboardTileGroupMenuActions {
 export function hasTileGroupMenuActions({
     addTileOptions,
     onStartRename,
+    moveActions,
     onRemove,
     onChangeGroupDisplay,
     onCopyToDashboard,
 }: DashboardTileGroupMenuActions): boolean {
-    return !!(addTileOptions?.length || onStartRename || onRemove || onChangeGroupDisplay || onCopyToDashboard)
+    return !!(
+        addTileOptions?.length ||
+        onStartRename ||
+        moveActions ||
+        onRemove ||
+        onChangeGroupDisplay ||
+        onCopyToDashboard
+    )
 }
 
 export function DashboardTileGroupMenuOverlay({
     groupDisplay,
     addTileOptions,
     onStartRename,
+    moveActions,
     onRemove,
     groupHasTiles,
     onChangeGroupDisplay,
@@ -78,8 +97,16 @@ export function DashboardTileGroupMenuOverlay({
 }: DashboardTileGroupMenuActions): JSX.Element {
     // Each rename sends every group, so a second rename before the first saves would undo it.
     const { dashboardLoading: dashboardSaving } = useValues(dashboardsModel)
-    const { renameLabel, removeLabel, copyLabel, copyNoun, switchTo, switchLabel } = TILE_GROUP_MENU_ITEMS[groupDisplay]
+    const { renameLabel, moveLabels, removeLabel, copyLabel, copyNoun, switchTo, switchLabel } =
+        TILE_GROUP_MENU_ITEMS[groupDisplay]
     const savingReason = dashboardSaving ? 'Saving dashboard changes' : undefined
+    // A group's place comes from its tiles' rows, so a group with no tiles has no place to change.
+    const moveDisabledReason = (direction: TileGroupMoveDirection): string | undefined =>
+        !groupHasTiles
+            ? `Add a tile to this ${copyNoun} before you move it`
+            : !moveActions?.[direction === 'up' ? 'canMoveUp' : 'canMoveDown']
+              ? `This ${copyNoun} is already ${direction === 'up' ? 'first' : 'last'}`
+              : undefined
 
     return (
         <div className="min-w-48 p-1">
@@ -105,34 +132,43 @@ export function DashboardTileGroupMenuOverlay({
                 </>
             )}
             {onStartRename && (
-                <>
-                    <LemonButton
-                        fullWidth
-                        onClick={onStartRename}
-                        disabledReason={savingReason}
-                        data-attr="dashboard-tile-group-menu-rename"
-                    >
-                        {renameLabel}
-                    </LemonButton>
-                    {!onRemove && (onCopyToDashboard || onChangeGroupDisplay) && <LemonDivider />}
-                </>
+                <LemonButton
+                    fullWidth
+                    onClick={onStartRename}
+                    disabledReason={savingReason}
+                    data-attr="dashboard-tile-group-menu-rename"
+                >
+                    {renameLabel}
+                </LemonButton>
             )}
-            {onRemove && (
-                <>
+            {moveActions &&
+                (['up', 'down'] as const).map((direction) => (
                     <LemonButton
+                        key={direction}
                         fullWidth
-                        status="danger"
-                        onClick={onRemove}
-                        disabledReason={
-                            savingReason ??
-                            (groupHasTiles ? `Move this ${copyNoun}'s tiles out before deleting it` : undefined)
-                        }
-                        data-attr="dashboard-tile-group-menu-remove"
+                        onClick={() => moveActions.onMove(direction)}
+                        disabledReason={moveDisabledReason(direction)}
+                        data-attr={`dashboard-tile-group-menu-move-${direction}`}
                     >
-                        {removeLabel}
+                        {moveLabels[direction]}
                     </LemonButton>
-                    {(onCopyToDashboard || onChangeGroupDisplay) && <LemonDivider />}
-                </>
+                ))}
+            {onRemove && (
+                <LemonButton
+                    fullWidth
+                    status="danger"
+                    onClick={onRemove}
+                    disabledReason={
+                        savingReason ??
+                        (groupHasTiles ? `Move this ${copyNoun}'s tiles out before deleting it` : undefined)
+                    }
+                    data-attr="dashboard-tile-group-menu-remove"
+                >
+                    {removeLabel}
+                </LemonButton>
+            )}
+            {(onStartRename || moveActions || onRemove) && (onCopyToDashboard || onChangeGroupDisplay) && (
+                <LemonDivider />
             )}
             {onCopyToDashboard && (
                 <>
