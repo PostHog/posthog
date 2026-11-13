@@ -1228,7 +1228,7 @@ database "posthog" {
   table "email_status_data" {
     order_by     = ["team_id", "message_id"]
     partition_by = "toYYYYMMDD(created_at)"
-    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    ttl          = "toDate(created_at) + toIntervalDay(61)"
     settings = {
       index_granularity   = "1024"
       ttl_only_drop_parts = "1"

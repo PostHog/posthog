@@ -14,6 +14,8 @@ EMAIL_STATUS_RETENTION_DAYS = 30
 # Parts drop by whole day of `created_at`, so one more day keeps an email created late in a day
 # for its full retention.
 EMAIL_STATUS_TTL_DAYS = EMAIL_STATUS_RETENTION_DAYS + 1
+EMAIL_STATUS_READ_DAYS = 60
+EMAIL_STATUS_READ_TTL_DAYS = EMAIL_STATUS_READ_DAYS + 1
 
 # AUX-resident table family modelled on `hog_invocation_results`. Each status change of a
 # transactional email is one row. A message's rows replace each other by `version`, which puts the
@@ -69,7 +71,7 @@ CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_DATA_TABLE}
 ENGINE = {ReplacingMergeTree(EMAIL_STATUS_DATA_TABLE, ver="version", replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMMDD(created_at)
 ORDER BY (team_id, message_id)
-{ttl_period("created_at", EMAIL_STATUS_TTL_DAYS, unit="DAY")}
+{ttl_period("created_at", EMAIL_STATUS_READ_TTL_DAYS, unit="DAY")}
 SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
 """
 )
@@ -214,3 +216,9 @@ ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
     f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_SCHEDULED_AT_SQL}"
 )
 ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"
+
+
+EMAIL_STATUS_DATA_TTL_SQL = lambda: (
+    f"ALTER TABLE {EMAIL_STATUS_DATA_TABLE} MODIFY TTL toDate(created_at) + INTERVAL {EMAIL_STATUS_READ_TTL_DAYS} DAY "
+    "SETTINGS materialize_ttl_after_modify = 1, alter_sync = 0"
+)
