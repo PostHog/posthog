@@ -1,17 +1,19 @@
 """Imports suppressions, topics and unsubscribes from Resend.
 
 Resend has no read-only key, so the customer hands over one that can do anything in their account. The run keeps it
-only until it ends, and a new import asks for it again. People never move: the contact steps read only who opted out.
+only until it ends, and a new import asks for it again. Contacts become people only in the contacts step, matched by
+email; the other contact steps read only who opted out.
 """
 
 import re
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from email.utils import parseaddr
 from functools import partial
 from typing import Any
+from urllib.parse import quote
 
 from django.utils.dateparse import parse_datetime
 
@@ -40,6 +42,14 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.contacts import (
+    CONTACT_COUNT_LABELS,
+    ContactCollector,
+    ContactList,
+    new_people_page,
+    new_people_step,
+    save_contact_lists,
+)
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import (
@@ -65,6 +75,7 @@ from products.messaging.backend.services.resend_client import (
     ResendRateLimited,
 )
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, resend_segment_description
 from products.workflows.backend.facade.workflow_imports import import_resend_automation, reuse_import_access
 from products.workflows.backend.facade.writes import defer_hog_flow_reloads
 
@@ -108,9 +119,8 @@ class ResendImportProvider(ImportProvider):
     )
     api_key_url = "https://resend.com/api-keys"
     not_imported = (
-        "Contacts don't become people in PostHog, so a segment an automation adds people to becomes an empty static "
-        "cohort. API keys, webhooks, send history and stats stay in Resend, so "
-        "rebuild what you need."
+        "Contact properties other than first and last name stay in Resend. API keys, webhooks, send history and stats "
+        "stay in Resend too, so rebuild what you need."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
@@ -150,8 +160,8 @@ class ResendImportProvider(ImportProvider):
             key="opt_outs",
             label="Unsubscribed contacts",
             description=(
-                "Opts contacts who unsubscribed in Resend out of all marketing email. PostHog reads their email "
-                "address only and doesn't create people from your contacts."
+                "Opts contacts who unsubscribed in Resend out of all marketing email, by email address. This works "
+                "whether or not you import the contacts as people."
             ),
             count_labels=(
                 ("opted_out", "Newly opted out"),
@@ -168,6 +178,19 @@ class ResendImportProvider(ImportProvider):
             ),
             count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
         ),
+        # After the opt-out steps, so no imported contact can be sent marketing email they left in Resend.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each contact to a person in PostHog by email and sets their first and last name. Fills a "
+                "cohort with all your contacts and one with each segment's contacts. Each person updated counts as "
+                "one event."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=("opt_outs", "topic_opt_outs"),
+        ),
+        new_people_step("Resend"),
         ImportStepSpec(
             key="templates",
             label="Templates",
@@ -227,6 +250,10 @@ class ResendImportProvider(ImportProvider):
                     yield from _fetch_topics(client, context, checkpoint)
                 case "suppressions":
                     yield from _fetch_suppressions(client, context, checkpoint)
+                case "contacts":
+                    yield from _fetch_contacts(client, context)
+                case "new_people":
+                    yield ImportPage(processed=0, save=new_people_page)
                 case "opt_outs":
                     yield from _fetch_opt_outs(client, context, checkpoint)
                 case "topic_opt_outs":
@@ -360,6 +387,59 @@ def _timestamp(value: Any) -> datetime | None:
         return parse_datetime(value) if isinstance(value, str) else None
     except ValueError:
         return None
+
+
+def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[ImportPage]:
+    # Each list's cohort fills in one go, so the step reads every contact before it saves, and a retry reads them again.
+    contacts = ContactCollector()
+    for page in client.pages("/contacts"):
+        _collect(contacts, page.data)
+    segments = []
+    for page in client.pages("/segments"):
+        for segment in page.data:
+            segment_id = str(segment.get("id") or "")
+            if not segment_id:
+                continue
+            name = str(segment.get("name") or segment_id)
+            members = [
+                row
+                for members_page in client.pages(f"/contacts?segment_id={quote(segment_id)}")
+                for row in _collect(contacts, members_page.data)
+            ]
+            segments.append(
+                ContactList(
+                    cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Resend)",
+                    cohort_description=resend_segment_description(segment_id),
+                    source=f'the Resend segment "{name}"',
+                    rows=tuple(members),
+                )
+            )
+    # Read last, so a contact who joined a segment after the contact list was read still becomes a person.
+    everyone = contacts.everyone
+    yield ImportPage(
+        processed=len(everyone),
+        save=partial(
+            save_contact_lists,
+            context,
+            ContactList(
+                cohort_name="Resend contacts",
+                cohort_description="Imported from Resend contacts.",
+                source="your Resend contacts",
+                rows=everyone,
+            ),
+            segments,
+        ),
+    )
+
+
+def _collect(contacts: ContactCollector, page: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = (
+        contacts.add(
+            contact.get("email"), {"first_name": contact.get("first_name"), "last_name": contact.get("last_name")}
+        )
+        for contact in page
+    )
+    return [row for row in rows if row]
 
 
 def _fetch_opt_outs(

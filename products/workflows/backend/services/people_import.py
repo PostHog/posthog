@@ -8,6 +8,7 @@ from typing import TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -99,7 +100,23 @@ class _CleanedRows:
     dropped_too_large: int
 
 
-def start_people_import(*, team: Team, user: User | None, name: str, rows: list[dict[str, str]]) -> PeopleImportSummary:
+def start_people_import(
+    *,
+    team: Team,
+    user: User | None,
+    name: str,
+    rows: list[dict[str, str]],
+    cohort_id: int | None = None,
+    create_missing: bool = True,
+    send_events: bool = True,
+) -> PeopleImportSummary:
+    """Create or update a person per row, then add them to a new static cohort called `name`, or to `cohort_id`.
+
+    Without `create_missing`, a row no person matches is left out instead of becoming a new person. Without
+    `send_events`, the import only fills the cohort: another import of the same rows creates and updates the people.
+    """
+    if cohort_id is None and not create_missing:
+        raise ValueError("An import that leaves out new people adds the rest to an existing cohort.")
     if len(rows) > MAX_PEOPLE_IMPORT_ROWS:
         raise PeopleImportInvalid(
             f"This file has {len(rows):,} rows. A file can have up to {MAX_PEOPLE_IMPORT_ROWS:,}."
@@ -114,7 +131,11 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
     people: list[StagedPerson] = []
     seen_distinct_ids: set[str] = set()
     dropped_duplicate_distinct_id = 0
+    skipped_new_people = 0
     for row, distinct_id in zip(cleaned.rows, distinct_ids):
+        if distinct_id is None and not create_missing:
+            skipped_new_people += 1
+            continue
         # A row with no person yet becomes one, keyed by the CSV's distinct_id or else its email.
         resolved = distinct_id or row["email"]
         if resolved in seen_distinct_ids:
@@ -123,41 +144,82 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
         seen_distinct_ids.add(resolved)
         people.append({"distinct_id": resolved, "properties": row})
 
+    if not people:
+        # Every row was left out, so there is nothing to send and the cohort stays as it is.
+        assert cohort_id is not None
+        return PeopleImportSummary(
+            cohort_id=cohort_id,
+            row_count=0,
+            new_people=0,
+            columns=cleaned.columns,
+            dropped_invalid_email=cleaned.dropped_invalid_email,
+            dropped_duplicate_email=cleaned.dropped_duplicate_email,
+            dropped_too_large=cleaned.dropped_too_large,
+            skipped_new_people=skipped_new_people,
+        )
     existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
-    cohort = Cohort.objects.create(team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user)
-    storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{cohort.pk}-{uuid.uuid4()}.json"
+    target_id = _start_filling(team, user, name, cohort_id)
+    storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{target_id}-{uuid.uuid4()}.json"
 
     # The task module imports this one, so a module-level import would be circular.
     from products.workflows.backend.tasks.people_import import (  # noqa: PLC0415
         capture_people_import,
         fail_people_import_if_stalled,
+        schedule_people_import_fill,
     )
 
     try:
         object_storage.write(storage_key, json.dumps(people))
-        capture_people_import.delay(team_id=team.id, cohort_id=cohort.pk, storage_key=storage_key)
-        # A worker that dies mid-task, or a task that can't schedule the next one, leaves the cohort calculating.
-        # The stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER. The sweep
-        # does not delete the stored rows. This check ends the import sooner and deletes them.
+        # Scheduled before the caller commits, so the stored rows are deleted even when its transaction rolls back
+        # or the dispatch below never runs. A worker that dies mid-task leaves the cohort calculating too, and the
+        # stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER without
+        # deleting the rows.
         fail_people_import_if_stalled.apply_async(
-            kwargs={"team_id": team.id, "cohort_id": cohort.pk, "storage_key": storage_key},
+            kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
             countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
         )
     except Exception:
-        # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
-        # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.
-        fail_people_import(team.id, cohort.pk, storage_key)
+        fail_people_import(team.id, target_id, storage_key)
         raise
 
+    def dispatch() -> None:
+        try:
+            if send_events:
+                capture_people_import.delay(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+            else:
+                schedule_people_import_fill(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+        except Exception:
+            # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
+            # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.
+            fail_people_import(team.id, target_id, storage_key)
+            raise
+
+    # A caller's transaction can still roll back the cohort, and events sent before that can't be taken back.
+    transaction.on_commit(dispatch)
+
     return PeopleImportSummary(
-        cohort_id=cohort.pk,
+        cohort_id=target_id,
         row_count=len(people),
         new_people=sum(1 for person in people if person["distinct_id"] not in existing),
         columns=cleaned.columns,
         dropped_invalid_email=cleaned.dropped_invalid_email,
         dropped_duplicate_email=cleaned.dropped_duplicate_email + dropped_duplicate_distinct_id,
         dropped_too_large=cleaned.dropped_too_large,
+        skipped_new_people=skipped_new_people,
     )
+
+
+def _start_filling(team: Team, user: User | None, name: str, cohort_id: int | None) -> int:
+    """The cohort the import fills, marked as calculating until the import adds its people."""
+    if cohort_id is None:
+        return Cohort.objects.create(
+            team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user
+        ).pk
+    if not Cohort.objects.filter(team_id=team.id, pk=cohort_id, is_static=True, deleted=False).update(
+        is_calculating=True
+    ):
+        raise PeopleImportInvalid("The cohort for this import was deleted or isn't static anymore.")
+    return cohort_id
 
 
 def read_people(storage_key: str) -> list[StagedPerson]:
@@ -181,7 +243,8 @@ def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
 
 
 def fail_stalled_people_import(team_id: int, cohort_id: int, storage_key: str) -> bool:
-    if not Cohort.objects.filter(pk=cohort_id, team_id=team_id, is_calculating=True).exists():
+    # A finished import deletes its rows. Checking them, not the cohort, leaves a later import of the cohort alone.
+    if object_storage.read(storage_key, missing_ok=True) is None:
         return False
     fail_people_import(team_id, cohort_id, storage_key)
     return True

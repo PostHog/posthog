@@ -29,6 +29,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportItem,
     ImportPage,
     ImportProvider,
+    ImportStepBlocked,
     ImportStepError,
     StepCheckpoint,
 )
@@ -131,8 +132,10 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         created_by_id=run.created_by_id,
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
+        steps=tuple(run.steps),
     )
     try:
+        _check_required_steps(provider, run, step)
         for page in provider.run_step(step, context, claim.checkpoint):
             _save_page(team_id, run_id, step, attempt, page)
             if page.checkpoint is None:
@@ -149,6 +152,20 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         except (StaleImportAttempt, ImportRunClosed):
             pass
         raise
+
+
+def _check_required_steps(provider: ImportProvider, run: ProviderImportRun, step: str) -> None:
+    spec = next((spec for spec in provider.steps if spec.key == step), None)
+    labels = {spec.key: spec.label for spec in provider.steps}
+    missing = [
+        labels.get(required, required)
+        for required in (spec.requires if spec else ())
+        if required in run.steps and run.progress.get(required, {}).get("status") != ImportStepStatus.COMPLETED.value
+    ]
+    if missing:
+        raise ImportStepBlocked(
+            f"This step waits for {', '.join(missing)}, which didn't finish. Import again once it has."
+        )
 
 
 def finish_run(team_id: int, run_id: UUID) -> None:
