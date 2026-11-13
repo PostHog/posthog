@@ -347,7 +347,7 @@ describe('broadcast previews', () => {
         ['email', 'The email step was skipped, so nothing was sent.', { status: 'skipped' }],
         ['email', 'Bad sender, Bad tag', { status: 'error', errors: ['Bad sender', 'Bad tag'] }],
         ['email', 'Could not send the test email.', { status: 'error' }],
-        ['push', 'No token for this app', { logs: [log('No token for this app', 'WARN')] }],
+        ['push', 'No token for this app', { logs: [log('No token for this app', 'warn')] }],
         [
             'push',
             'Some apps took the notification, but at least one failed: APNs: bad token',
