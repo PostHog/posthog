@@ -59,12 +59,10 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
-import { IntercomImportSection } from 'products/conversations/frontend/scenes/settings/IntercomImportSection'
+import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
 import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { PylonImportSection } from 'products/conversations/frontend/scenes/settings/PylonImportSection'
-import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -1703,13 +1701,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-imports',
                 title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
-                component: (
-                    <>
-                        <ZendeskImportSection />
-                        <IntercomImportSection />
-                        <PylonImportSection />
-                    </>
-                ),
+                component: <ImportsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['import', 'zendesk', 'intercom', 'pylon', 'migrate', 'ticket', 'support', 'conversation'],
             },

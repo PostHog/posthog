@@ -68902,6 +68902,28 @@ export namespace Schemas {
       annotations?: LogsPlatformAlertConfigurationEditAnnotations;
     }
 
+    /**
+     * * `initial_load` - initial_load
+     * * `filter_change` - filter_change
+     * * `filters_restored` - filters_restored
+     * * `sort_change` - sort_change
+     * * `column_change` - column_change
+     * * `scope_change` - scope_change
+     * * `refresh` - refresh
+     */
+    export type LogsQueryTriggerEnum = typeof LogsQueryTriggerEnum[keyof typeof LogsQueryTriggerEnum];
+
+
+    export const LogsQueryTriggerEnum = {
+      InitialLoad: 'initial_load',
+      FilterChange: 'filter_change',
+      FiltersRestored: 'filters_restored',
+      SortChange: 'sort_change',
+      ColumnChange: 'column_change',
+      ScopeChange: 'scope_change',
+      Refresh: 'refresh',
+    } as const;
+
     export interface LogsRetentionRule {
       /** Unique identifier for this retention rule. */
       readonly id: string;
@@ -105971,6 +105993,142 @@ export namespace Schemas {
       color: string;
     }
 
+    /**
+     * * `budget_constrained` - Budget Constrained
+     * * `brand_leak` - Brand Leak
+     * * `scale_campaign` - Scale Campaign
+     * * `review_campaign` - Review Campaign
+     * * `policy_limited` - Policy Limited
+     * * `brand_overlap` - Brand Overlap
+     * * `content_gap` - Content Gap
+     * * `keyword_gap` - Keyword Gap
+     * * `spend_without_conversions` - Spend Without Conversions
+     * * `striking_distance` - Striking Distance
+     * * `keyword_tracking` - Keyword Tracking
+     */
+    export type RecommendationRuleEnum = typeof RecommendationRuleEnum[keyof typeof RecommendationRuleEnum];
+
+
+    export const RecommendationRuleEnum = {
+      BudgetConstrained: 'budget_constrained',
+      BrandLeak: 'brand_leak',
+      ScaleCampaign: 'scale_campaign',
+      ReviewCampaign: 'review_campaign',
+      PolicyLimited: 'policy_limited',
+      BrandOverlap: 'brand_overlap',
+      ContentGap: 'content_gap',
+      KeywordGap: 'keyword_gap',
+      SpendWithoutConversions: 'spend_without_conversions',
+      StrikingDistance: 'striking_distance',
+      KeywordTracking: 'keyword_tracking',
+    } as const;
+
+    /**
+     * * `google_ads` - Google Ads
+     */
+    export type RecommendationSourceTypeEnum = typeof RecommendationSourceTypeEnum[keyof typeof RecommendationSourceTypeEnum];
+
+
+    export const RecommendationSourceTypeEnum = {
+      GoogleAds: 'google_ads',
+    } as const;
+
+    export interface RecommendationIdentity {
+      /** The rule that produced the recommendation.
+       *
+       * * `budget_constrained` - Budget Constrained
+       * * `brand_leak` - Brand Leak
+       * * `scale_campaign` - Scale Campaign
+       * * `review_campaign` - Review Campaign
+       * * `policy_limited` - Policy Limited
+       * * `brand_overlap` - Brand Overlap
+       * * `content_gap` - Content Gap
+       * * `keyword_gap` - Keyword Gap
+       * * `spend_without_conversions` - Spend Without Conversions
+       * * `striking_distance` - Striking Distance
+       * * `keyword_tracking` - Keyword Tracking */
+      rule: RecommendationRuleEnum;
+      /** The ad platform the ids belong to.
+       *
+       * * `google_ads` - Google Ads */
+      source_type: RecommendationSourceTypeEnum;
+      /**
+         * The Google Ads account id. Empty when the recommendation is not tied to one account.
+         * @maxLength 64
+         */
+      customer_id: string;
+      /**
+         * The Google Ads campaign id. Empty when the recommendation is not about one campaign.
+         * @maxLength 64
+         */
+      campaign_id: string;
+      /**
+         * The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.
+         * @maxLength 10000
+         */
+      subject: string;
+    }
+
+    /**
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied
+     */
+    export type RecommendationResolutionStateEnum = typeof RecommendationResolutionStateEnum[keyof typeof RecommendationResolutionStateEnum];
+
+
+    export const RecommendationResolutionStateEnum = {
+      Dismissed: 'dismissed',
+      Applied: 'applied',
+    } as const;
+
+    export interface RecommendationResolver {
+      /** The user's id. */
+      id: number;
+      /** The user's UUID. */
+      uuid: string;
+      /**
+         * The user's distinct id.
+         * @nullable
+         */
+      distinct_id: string | null;
+      /** The user's first name. */
+      first_name: string;
+      /** The user's last name. */
+      last_name: string;
+      /** The user's email address. */
+      email: string;
+    }
+
+    export interface RecommendationResolution {
+      /** The resolution id. Delete it to show the recommendation again. */
+      id: string;
+      /** The identity of the resolved recommendation. */
+      identity: RecommendationIdentity;
+      /** Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query. */
+      key: string;
+      /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+       *
+       * * `dismissed` - Dismissed
+       * * `applied` - Applied */
+      resolution: RecommendationResolutionStateEnum;
+      /** The user who last resolved the recommendation. Null when that user was deleted. */
+      resolved_by: RecommendationResolver | null;
+      /** When the recommendation was last resolved. */
+      resolved_at: string;
+      /** When the recommendation was first resolved. */
+      created_at: string;
+    }
+
+    export interface RecommendationResolutionRequest {
+      /** The recommendation's `identity` from the recommendations query, sent as is. */
+      identity: RecommendationIdentity;
+      /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+       *
+       * * `dismissed` - Dismissed
+       * * `applied` - Applied */
+      resolution: RecommendationResolutionStateEnum;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -113570,11 +113728,36 @@ export namespace Schemas {
       identifiers?: TransactionalEmailIdentifiers;
     }
 
+    /**
+     * * `sandbox_sender` - Sent from the sandbox sender
+     */
+    export type SendWarningCodeEnum = typeof SendWarningCodeEnum[keyof typeof SendWarningCodeEnum];
+
+
+    export const SendWarningCodeEnum = {
+      SandboxSender: 'sandbox_sender',
+    } as const;
+
+    export interface SendWarning {
+      /** What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender because the project has no verified sending domain, so it only reaches members of the organization.
+       *
+       * * `sandbox_sender` - Sent from the sandbox sender */
+      code: SendWarningCodeEnum;
+      /** What happened and what to do next, in words a person can read. */
+      message: string;
+      /** Absolute URL of the page where the project verifies a sending domain: the page of its unverified sender when it has one, otherwise the page that adds a new one. */
+      setup_url: string;
+      /** The next step for an AI agent that made the send: what to tell the user, and which PostHog MCP tool starts the domain setup. */
+      agent_action: string;
+    }
+
     export interface SendTransactionalEmailResponse {
       /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
       message_id: string;
       /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
       replayed: boolean;
+      /** Things the caller should act on although the email was queued. Left out when there are none. */
+      warnings?: SendWarning[];
     }
 
     export interface ServiceAccountAccessUpdate {
@@ -127589,6 +127772,16 @@ export namespace Schemas {
     export interface _LogsQueryRequest {
       /** The logs query to execute. */
       query: _LogsQueryBody;
+      /** What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.
+       *
+       * * `initial_load` - initial_load
+       * * `filter_change` - filter_change
+       * * `filters_restored` - filters_restored
+       * * `sort_change` - sort_change
+       * * `column_change` - column_change
+       * * `scope_change` - scope_change
+       * * `refresh` - refresh */
+      trigger?: LogsQueryTriggerEnum;
     }
 
     /**
@@ -131349,6 +131542,7 @@ export namespace Schemas {
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
      * * `ReviewInstallationClaim` - ReviewInstallationClaim
+     * * `RecommendationResolution` - RecommendationResolution
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -131472,6 +131666,7 @@ export namespace Schemas {
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
       ReviewInstallationClaim: 'ReviewInstallationClaim',
+      RecommendationResolution: 'RecommendationResolution',
     } as const;
 
     /**
@@ -131581,6 +131776,7 @@ export namespace Schemas {
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
      * * `ReviewInstallationClaim` - ReviewInstallationClaim
+     * * `RecommendationResolution` - RecommendationResolution
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -131692,6 +131888,7 @@ export namespace Schemas {
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
       ReviewInstallationClaim: 'ReviewInstallationClaim',
+      RecommendationResolution: 'RecommendationResolution',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
