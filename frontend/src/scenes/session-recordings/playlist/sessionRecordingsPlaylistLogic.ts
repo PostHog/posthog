@@ -289,13 +289,10 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
 export const getEffectiveRecordingFilters = (
     filters: RecordingUniversalFilters,
     featureFlags: FeatureFlagsSet
-): RecordingUniversalFilters => {
-    let effective = filters
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE] && effective.event_match_scope !== undefined) {
-        effective = { ...effective, event_match_scope: undefined }
-    }
-    return effective
-}
+): RecordingUniversalFilters =>
+    !featureFlags[FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE] && filters.event_match_scope !== undefined
+        ? { ...filters, event_match_scope: undefined }
+        : filters
 
 export const getDefaultFilters = (
     personUUID?: PersonUUID,
