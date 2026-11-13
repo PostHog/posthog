@@ -54,7 +54,11 @@ import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogf
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
-import { ScheduledRuns, ScheduledRunsRequestSchema } from './services/hogflows/scheduled-runs'
+import {
+    ScheduledRuns,
+    ScheduledRunsNotQueuedError,
+    ScheduledRunsRequestSchema,
+} from './services/hogflows/scheduled-runs'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
@@ -1225,7 +1229,7 @@ export class CdpApi {
             })
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocations', { error: e })
-            res.status(500).json({ error: [e.message] })
+            res.status(e instanceof ScheduledRunsNotQueuedError ? 503 : 500).json({ error: [e.message] })
         }
     }
 
