@@ -67,8 +67,7 @@ function done(response: HogQLResponse): RunResult {
 }
 
 // A person whose stdout is a terminal and a CI job without an agent never run `--wait`, so they wait
-// until the query ends. That holds when the query comes in on stdin, which leaves `ctx.prompts` and
-// its spinner undefined, so the person gets one line on stderr instead.
+// until the query ends, also when the query comes in on stdin.
 async function follow(ctx: Context, id: QueryId): Promise<RunResult> {
     const { runtime } = ctx
     const waitsToTheEnd = ctx.mode.agent === undefined && (runtime.stdoutIsTTY || ctx.mode.isCI)
