@@ -139,6 +139,17 @@ export function resolveStarredProducts(
     })
 }
 
+// kea-localstorage saved the old default, false, for everyone who opened the pane, so only true there was a choice.
+const LEGACY_ALL_PRODUCTS_OPEN_KEY = 'layout.today.todayProductsLogic.allProductsOpen'
+
+function legacyAllProductsChoice(): true | null {
+    try {
+        return localStorage.getItem(LEGACY_ALL_PRODUCTS_OPEN_KEY) === 'true' ? true : null
+    } catch {
+        return null
+    }
+}
+
 export const todayProductsLogic = kea<todayProductsLogicType>([
     path(['layout', 'today', 'todayProductsLogic']),
     connect(() => ({
@@ -170,16 +181,16 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             position,
         }),
     }),
-    reducers({
+    reducers(() => ({
         search: ['', { setSearch: (_, { search }) => search }],
         // pinned: storage keys for persisted state. Renaming them resets everyone's sections.
         starredOpen: [true, { persist: true }, { setStarredOpen: (_, { open }) => open }],
         allProductsOpen: [
-            (inStorybook() ? true : null) as boolean | null,
-            { persist: true },
+            (inStorybook() ? true : legacyAllProductsChoice()) as boolean | null,
+            { persist: true, storageKey: 'layout.today.todayProductsLogic.allProductsChoice' },
             { setAllProductsOpen: (_, { open }) => open },
         ],
-    }),
+    })),
     selectors({
         // The same list as the Products tab of the current navigation, less Home, which is the rail's Home item. Never
         // drop a product because another rail pane also links to it: this list is where people go to find everything.

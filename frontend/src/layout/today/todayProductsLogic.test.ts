@@ -153,6 +153,7 @@ describe('todayProductsLogic', () => {
 
         it('opens All products by default without stars, and keeps it open when the first product is starred', async () => {
             useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
+            localStorage.setItem('layout.today.todayProductsLogic.allProductsOpen', 'false')
             const logic = todayProductsLogic()
             logic.mount()
             expect(logic.values.allProductsVisible).toBe(false)
@@ -163,6 +164,15 @@ describe('todayProductsLogic', () => {
             await expectLogic(projectTreeDataLogic).toFinishAllListeners()
 
             expect(logic.values.starredHrefs.size).toBe(1)
+            expect(logic.values.allProductsVisible).toBe(true)
+        })
+
+        it('keeps All products open for a person with stars who opened it before the storage key changed', async () => {
+            localStorage.setItem('layout.today.todayProductsLogic.allProductsOpen', 'true')
+            const logic = todayProductsLogic()
+            logic.mount()
+            await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
             expect(logic.values.allProductsVisible).toBe(true)
         })
 
