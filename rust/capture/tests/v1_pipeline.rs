@@ -9,6 +9,7 @@ use capture::v1::analytics::response::BatchResponse;
 use capture::v1::analytics::types::{Batch, EventResult};
 use capture::v1::test_utils::{self, batch_payload, valid_event, TestStateBuilder};
 use capture::v1::Error;
+use limiters::redis::QuotaResource;
 
 fn event_with_name(name: &str) -> capture::v1::analytics::types::Event {
     let mut e = valid_event();
@@ -137,6 +138,64 @@ async fn all_events_quota_dropped() {
             "quota limiter cache was not populated within 2s"
         );
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test]
+async fn events_quota_keeps_events_under_their_own_quota() {
+    let events = vec![
+        event_with_name("$pageview"),
+        event_with_name("$exception"),
+        event_with_name("survey sent"),
+        event_with_name("$ai_generation"),
+    ];
+    let payload = batch_payload(&events);
+    let ts = TestStateBuilder::new()
+        .with_quota_limited_resources(&[QuotaResource::Events])
+        .build();
+
+    // The wildcard "*" token matches only api_token "*"; poll until the
+    // background task populates the limiter cache (avoids a fixed sleep).
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    let response = loop {
+        let batch: Batch = serde_json::from_slice(&payload).expect("payload must parse as Batch");
+        let mut ctx = test_utils::test_analytics_context();
+        ctx.api_token = "*".to_string();
+        let response = process_batch(&ts.state, &mut ctx, batch)
+            .await
+            .expect("an events quota must not refuse events under their own quota");
+        if response
+            .entries()
+            .iter()
+            .any(|(_, status)| status.result == EventResult::Drop)
+        {
+            break response;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "quota limiter cache was not populated within 2s"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    };
+
+    let by_uuid: std::collections::HashMap<String, _> = response
+        .entries()
+        .iter()
+        .map(|(uuid, status)| (uuid.to_string(), status))
+        .collect();
+    for event in &events {
+        let status = by_uuid[&event.uuid];
+        if event.event == "$pageview" {
+            assert_eq!(status.result, EventResult::Drop);
+            assert_eq!(status.details, Some("events_over_quota"));
+        } else {
+            assert_eq!(
+                status.result,
+                EventResult::Ok,
+                "{} was dropped",
+                event.event
+            );
+        }
     }
 }
 
