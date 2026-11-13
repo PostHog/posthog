@@ -4380,9 +4380,10 @@ export interface ClusteringConfigApi {
  * * `generation` - generation
  * * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringAnalysisLevelEnumApi =
+    (typeof ClusteringAnalysisLevelEnumApi)[keyof typeof ClusteringAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
     Evaluation: 'evaluation',
@@ -4419,7 +4420,7 @@ export interface ClusteringJobProgressApi {
      * * `trace` - trace
      * * `generation` - generation
      * * `evaluation` - evaluation */
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringAnalysisLevelEnumApi
     /** Whether the job only includes items matching saved filters. */
     has_filters: boolean
     /** Minimum eligible items needed to attempt clustering. */
@@ -4480,7 +4481,7 @@ export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4503,7 +4504,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
