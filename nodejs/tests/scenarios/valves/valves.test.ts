@@ -14,7 +14,7 @@ type Job = { team: number; queue: Queue; status: 'available' | 'running' }
 type StackSetup = {
     running?: Role[]
     unkillable?: boolean
-    finishesJobsBeforeKill?: boolean
+    finishesJobsFirst?: boolean
     probeFailure?: string
     probeFailsFor?: number
     runningJobs?: number
@@ -23,7 +23,7 @@ type StackSetup = {
 function stackOf({
     running = [EMAIL_WORKER],
     unkillable = false,
-    finishesJobsBeforeKill = false,
+    finishesJobsFirst = false,
     probeFailure,
     probeFailsFor = Infinity,
     runningJobs = 0,
@@ -32,6 +32,10 @@ function stackOf({
     let nextPid = 1
     const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
     const gone: number[] = []
+    const frozen = new Set<number>()
+    const everFrozen: number[] = []
+    let roleSessions = 4
+    let droppedSessions = 0
     const goneAfterRelease: number[] = []
     let releaseBegan = false
     const jobs: Job[] = []
@@ -42,6 +46,18 @@ function stackOf({
         teams: [OUR_TEAM],
         environment: {
             actuate: (action): Promise<Actuation> => {
+                if (finishesJobsFirst) {
+                    jobs.splice(0)
+                }
+                if (action.kind === 'pg.terminate') {
+                    const dropped = Math.ceil(action.share * roleSessions)
+                    roleSessions -= dropped
+                    droppedSessions += dropped
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(dropped > 0),
+                        release: () => Promise.resolve(),
+                    })
+                }
                 const pid = processes.get(action.role)
                 if (pid === undefined) {
                     return Promise.resolve({
@@ -49,8 +65,16 @@ function stackOf({
                         release: () => Promise.resolve(),
                     })
                 }
-                if (finishesJobsBeforeKill) {
-                    jobs.splice(0)
+                if (action.kind === 'freeze') {
+                    frozen.add(pid)
+                    everFrozen.push(pid)
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(frozen.has(pid)),
+                        release: () => {
+                            frozen.delete(pid)
+                            return Promise.resolve()
+                        },
+                    })
                 }
                 if (!unkillable) {
                     gone.push(pid)
@@ -87,6 +111,7 @@ function stackOf({
     return {
         context,
         gone: () => [...gone],
+        effects: () => ({ gone: [...gone], frozen: [...frozen], everFrozen: [...everFrozen], droppedSessions }),
         goneAfterRelease: () => [...goneAfterRelease],
         releasing: (release: () => Promise<void>) => {
             releaseBegan = true
@@ -102,11 +127,23 @@ function stackOf({
     }
 }
 
+type Effects = ReturnType<ReturnType<typeof stackOf>['effects']>
+
 const kill = (schedule: Pick<ValveEntry, 'at' | 'when'>, holdFor = '10ms'): ValveEntry => ({
     valve: 'role.kill',
     target: EMAIL_WORKER,
     dose: {},
     for: holdFor,
+    ...schedule,
+})
+
+const freeze = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry => ({ ...kill(schedule), valve: 'role.freeze' })
+
+const dropConnections = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry => ({
+    valve: 'pg.drop_connections',
+    target: 'postgres',
+    dose: { share: 0.5 },
+    for: '10ms',
     ...schedule,
 })
 
@@ -150,6 +187,32 @@ describe('valves', () => {
         await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
         await valves.releaseAll()
 
+        expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
+    })
+
+    const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }
+
+    it.each<[string, ValveEntry, StackSetup, Partial<Effects>]>([
+        ['a kill, which replaces the process', kill({ at: '0ms' }), {}, { gone: [1] }],
+        ['a freeze, which resumes the same process on release', freeze({ at: '0ms' }), {}, { everFrozen: [1] }],
+        [
+            'a connection drop, though the workers finish their jobs on new connections',
+            dropConnections({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsFirst: true },
+            { droppedSessions: 2 },
+        ],
+    ])('applies and observes %s', async (_story, entry, stackSetup, effects) => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf(stackSetup)
+
+        await valves.start([entry], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        expect({ effects: stack.effects(), error: valves.timeline()[0].error }).toEqual({
+            effects: { ...UNTOUCHED, ...effects },
+            error: undefined,
+        })
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
     })
 
@@ -224,13 +287,19 @@ describe('valves', () => {
         [
             'whose kill stranded no job, because the worker finished them first',
             kill({ when: RUNNING_ON_EMAIL }),
-            { runningJobs: 2, finishesJobsBeforeKill: true },
+            { runningJobs: 2, finishesJobsFirst: true },
+            'applied after running_on_queue email at least 2 stopped holding',
+        ],
+        [
+            'whose freeze stranded no job, because the worker finished them first',
+            freeze({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsFirst: true },
             'applied after running_on_queue email at least 2 stopped holding',
         ],
         [
             'whose kill stranded no job, read by a probe that had failed once before',
             kill({ when: RUNNING_ON_EMAIL }),
-            { runningJobs: 2, finishesJobsBeforeKill: true, probeFailure: 'connection refused', probeFailsFor: 1 },
+            { runningJobs: 2, finishesJobsFirst: true, probeFailure: 'connection refused', probeFailsFor: 1 },
             'applied after running_on_queue email at least 2 stopped holding',
         ],
     ])('records an error for an entry %s, and releases it', async (_story, entry, stackSetup, error) => {

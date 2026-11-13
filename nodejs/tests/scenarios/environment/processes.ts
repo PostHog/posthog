@@ -179,7 +179,7 @@ export function readProcs(): ProcEntry[] {
         .flatMap((name) => readEntry(name) ?? [])
 }
 
-function signal(target: number, sig: NodeJS.Signals | 0): boolean {
+export function signal(target: number, sig: NodeJS.Signals | 0): boolean {
     try {
         process.kill(target, sig)
         return true
