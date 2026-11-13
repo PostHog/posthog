@@ -92,7 +92,7 @@ pub struct BlockStats {
     /// The longest of those lines.
     pub max_written_event_bytes: u64,
 
-    /// What ingestion's surfacing feature recorder records for the block's events as one batch.
+    /// The surfacing features of the block's events.
     pub surfacing: SurfacingFeatures,
 }
 

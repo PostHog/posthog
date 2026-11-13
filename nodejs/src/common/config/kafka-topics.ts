@@ -35,7 +35,6 @@ export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ = `${prefix}session_recor
 // write session recording and replay events to ClickHouse
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
-export const KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = `${prefix}clickhouse_session_replay_features${suffix}`
 
 // anonymized block metadata mirrored to the ML account (consumed by the Parquet sink, not ClickHouse)
 export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_ml_block_metadata${suffix}`

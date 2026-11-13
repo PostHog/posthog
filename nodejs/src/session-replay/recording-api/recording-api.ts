@@ -11,11 +11,10 @@ import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger, serializeError } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { ReplayEventsOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
 import { RecordingApiOp, createRecordingApiAuthMiddleware, createReplayBlocksAuthMiddleware } from './auth'
@@ -82,7 +81,7 @@ export class RecordingApi {
     constructor(
         private config: RecordingApiConfig,
         private postgres?: PostgresRouter,
-        private outputs?: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
+        private outputs?: IngestionOutputs<ReplayEventsOutput>
     ) {
         this.role = parseRecordingApiRole(config.RECORDING_API_ROLE || 'internal')
         // Only a process serving the browser route reads its limits, so a bad value cannot stop an internal pod.
@@ -212,7 +211,6 @@ export class RecordingApi {
         await this.encryptor.start()
 
         const metadataStore = new SessionMetadataStore(this.outputs)
-        const featureStore = new SessionFeatureStore(this.outputs)
 
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
@@ -238,7 +236,6 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
-            featureStore,
             this.postgres,
             { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) },
             this.encryptor

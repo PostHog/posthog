@@ -358,7 +358,7 @@ include    = percentage < AI_RESEARCH_V4_SAMPLE_PERCENTAGE
 ```
 
 - A percentage of 100 or more includes every session, and 0 or less includes none. The default is 0.
-- The gate is the same function as the session feature recorder's rollout gate, so at the same percentage the two lanes select the same sessions.
+- The gate depends only on the session ID, so every recorder process gives a session the same verdict.
 - Capture keys every replay message with the session ID, so the recorder applies the gate to the Kafka key before it reads the payload.
 - Capture keeps the session ID as the SDK sent it. The replay lanes lower-case an ID with the UUID shape (8-4-4-4-12 hex digits), so the gate does too, and every casing of one session gets the same verdict.
 - Raising the percentage keeps every session that a lower percentage includes.
@@ -586,7 +586,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 | Images      | `images_extracted`, `image_bytes`, `images_inline`, `image_urls`                                                                                                                                                                                                                                        |
 | Moments     | `moments`: a list of `{kind, window_id, ts_ms, event_index}` for full snapshots, navigations, clicks and large DOM changes, and `moments_truncated`                                                                                                                                                     |
 | Sealed      | `urls`: the visited URLs as a sealed index value, `urls_truncated`, and `url_fingerprints`                                                                                                                                                                                                              |
-| Surfacing   | The `surfacing_` columns: what ingestion's surfacing feature recorder records for the block as one batch. See [Surfacing features](#surfacing-features)                                                                                                                                                 |
+| Surfacing   | The `surfacing_` columns: the surfacing features of the block's events. See [Surfacing features](#surfacing-features)                                                                                                                                                                                   |
 
 - `full_snapshots` counts only snapshots that decoded.
 - `events_before_first_full_snapshot` counts the session's events before its first decoded full snapshot.
@@ -607,25 +607,25 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 #### Surfacing features
 
 The `surfacing_` columns let a sampler score whole sessions with the surfacing booster without opening a block.
-Each block row holds what ingestion's `SessionFeatureRecorder` (`session-feature-recorder.ts`) records for one batch, and the recorder computes it with the same definitions.
-Its state starts again at each block, as ingestion's does at each batch: a block is one session's events from one Kafka partition in one recorder flush, as a batch is.
-After the prefix, each column has the name of the `session_replay_features` column it matches, with a unit for the sums that are not counts.
-A session's values are the fold of its block rows, which `fold_session` in `replay-core-v4` implements.
+Each block row holds the surfacing features of the block's events.
+Their state starts again at each block: a block is one session's events from one Kafka partition in one recorder flush.
+After the prefix, each column has the name of a feature, with a unit for the sums that are not counts.
+A session's values are the fold of its block rows, and `fold_session` in `replay-core-v4` implements it.
 
 | Kind   | Columns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Counts | `INT32`: `surfacing_{name}_count` for the 31 counters of `session_replay_features`, from `event_count` to `selection_copy_count`, and `surfacing_{token}_path_visit_count` for the 14 path tokens, where `404` is `not_found`                                                                                                                                                                                                                                                                                                           |
+| Counts | `INT32`: `surfacing_{name}_count` for the 31 counters, from `event_count` to `selection_copy_count`, and `surfacing_{token}_path_visit_count` for the 14 path tokens, where `404` is `not_found`                                                                                                                                                                                                                                                                                                                                        |
 | Sums   | `INT64`: `surfacing_mouse_sum_x_millipx`, `surfacing_mouse_sum_y_millipx`, `surfacing_mouse_sum_x_squared_px2`, `surfacing_mouse_sum_y_squared_px2`, `surfacing_mouse_distance_traveled_millipx`, `surfacing_mouse_velocity_sum_px_per_s`, `surfacing_mouse_velocity_sum_of_squares_px2_per_s2`, `surfacing_total_scroll_magnitude_millipx`, `surfacing_inter_action_gap_sum_ms`, `surfacing_inter_action_gap_sum_of_squares_ms2`, `surfacing_network_request_duration_sum_us`, `surfacing_network_request_duration_sum_of_squares_ms2` |
 | Maxima | `INT64`: `surfacing_max_scroll_y_millipx`, `surfacing_max_idle_gap_ms`                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Sets   | `surfacing_visited_url_fingerprints` (`UTF8`), `surfacing_click_target_ids` and `surfacing_form_field_ids` (`INT64`)                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-- Ingestion stores a float sum as a double. The index stores it as an integer in the unit at the end of its name, rounded once per block, so that a fold is exact in any order. `millipx` is 1/1000 of a pixel and `us` is a microsecond. Ingestion's mouse velocity is in pixels per millisecond, so `surfacing_mouse_velocity_sum_px_per_s` is 1000 times its sum and `surfacing_mouse_velocity_sum_of_squares_px2_per_s2` 1000000 times its sum of squares.
-- The sets hold distinct values, sorted. The click targets and form fields are rrweb node IDs. The visited pages are fingerprints in the format of `url_fingerprints`, under the same key: ingestion stores an md5 of each URL instead. Each set keeps the first 1000 values of a block, as ingestion keeps 1000 per batch. The sweep counts a set with `uniqCombinedMerge(12)`, and the length of the folded set is the exact count.
+- The index stores a float sum as an integer in the unit at the end of its name, rounded once per block, so that a fold is exact in any order. `millipx` is 1/1000 of a pixel and `us` is a microsecond. Mouse velocity is in pixels per millisecond, so `surfacing_mouse_velocity_sum_px_per_s` is 1000 times its sum and `surfacing_mouse_velocity_sum_of_squares_px2_per_s2` 1000000 times its sum of squares.
+- The sets hold distinct values, sorted. The click targets and form fields are rrweb node IDs. The visited pages are fingerprints in the format of `url_fingerprints`, under the same key. Each set keeps the first 1000 values of a block, and the length of the folded set is the exact count.
 - A page URL is the trimmed `data.href`, or else `data.payload.href`, of any event, as `hrefFrom` in `rrweb-types.ts` reads it. The path token counts compare the segments of its path with a fixed list of words, so they hold no other part of a URL.
-- The recorder skips an event without a positive timestamp, which ingestion's parse step drops before its recorder. The booster's rates divide by the session duration, which a sampler takes from `first_ts_ms` and `last_ts_ms`. Those also count events with a timestamp of zero or less.
-- The columns are null in a row from a recorder that predates them, and absent from files written before them. A sampler falls back to the session's live score for such a session.
-- Ingestion corrects the event times of a message by the sender's clock skew, rounded to 5 minutes, and the recorder does not. A block whose messages got different corrections can therefore differ in its time-based values.
-- A field of an unexpected JSON type counts as missing, where JavaScript can coerce it or produce NaN, for example a mouse position without coordinates. Ingestion's parse step lets such fields through.
+- The recorder skips an event without a positive timestamp. The booster's rates divide by the session duration, which a sampler takes from `first_ts_ms` and `last_ts_ms`. Those also count events with a timestamp of zero or less.
+- The columns are null in a row from a recorder that predates them, and absent from files written before them.
+- The recorder does not correct event times for the sender's clock skew.
+- A field of an unexpected JSON type counts as missing, for example a mouse position without coordinates.
 
 #### Watermark files
 

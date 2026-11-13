@@ -20,14 +20,13 @@ import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayPipelineConfig, createSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
 import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { MemoryCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import {
     SessionMetadataSink,
     SessionMetadataStore,
 } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { ReplayEventsOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
@@ -76,7 +75,6 @@ export interface SessionRecordingIngesterCollaborators {
     fileStorage?: SessionBatchFileStorage
     metadataStore?: SessionMetadataSink
     consoleLogStore?: SessionConsoleLogStore
-    featureStore?: SessionFeatureStore
     keyStore?: KeyStore
     encryptor?: RecordingEncryptor
     compression?: BlockCompression
@@ -125,13 +123,7 @@ export class SessionRecordingIngester {
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
     private readonly outputs: IngestionOutputs<
-        | IngestionWarningsOutput
-        | DlqOutput
-        | OverflowOutput
-        | TophogOutput
-        | LogEntriesOutput
-        | ReplayEventsOutput
-        | SessionFeaturesOutput
+        IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput | ReplayEventsOutput
     >
     private readonly topHog: TopHog
     private readonly sessionTracker: SessionTracker
@@ -148,13 +140,7 @@ export class SessionRecordingIngester {
         private config: SessionRecordingIngesterConfig,
         postgres: PostgresRouter,
         outputs: IngestionOutputs<
-            | IngestionWarningsOutput
-            | DlqOutput
-            | OverflowOutput
-            | TophogOutput
-            | LogEntriesOutput
-            | ReplayEventsOutput
-            | SessionFeaturesOutput
+            IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput | ReplayEventsOutput
         >,
         redisPool: RedisPool,
         restrictionRedisPool: RedisPool,
@@ -227,9 +213,6 @@ export class SessionRecordingIngester {
             new SessionConsoleLogStore(outputs, {
                 messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
             })
-        const featureStore =
-            collaborators.featureStore ??
-            new SessionFeatureStore(outputs, this.config.SESSION_RECORDING_FEATURES_ENABLED)
         this.fileStorage =
             collaborators.fileStorage ??
             (s3Client
@@ -273,12 +256,10 @@ export class SessionRecordingIngester {
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
             maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
-            featuresRolloutPercentage: this.config.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
             offsetManager,
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
-            featureStore,
             encryptor: this.encryptor,
             compression: this.compression,
         })

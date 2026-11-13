@@ -1,4 +1,4 @@
-//! Rage and dead clicks, with the session feature recorder's definitions (`session-feature-recorder.ts`).
+//! Rage and dead clicks, by the time and distance thresholds below.
 
 /// Clicks closer than this in time and space continue a run of clicks.
 const RUN_WINDOW_MS: f64 = 1000.0;

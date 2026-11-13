@@ -16,7 +16,7 @@ const ACTIVITY_THRESHOLD_MS: f64 = 5000.0;
 /// The distinct times an open inactive segment keeps. Past this the oldest go, so a late active event older than all
 /// that remain changes nothing. Out-of-order input then costs a log-time insert, and the state stays small.
 const MAX_INACTIVE_TIMES: usize = 1024;
-/// The duration and status fields of a `posthog/network@1` payload, as `session-feature-recorder.ts` reads them.
+/// The keys of the duration and status fields in a `posthog/network@1` payload.
 const POSTHOG_NETWORK_DURATION_KEY: &[u8] = b"39";
 const POSTHOG_NETWORK_STATUS_KEY: &[u8] = b"21";
 /// The longest DNS name. A longer host resolves nowhere, so it names no site.
@@ -68,7 +68,7 @@ pub(crate) fn text<'b>(bytes: &'b [u8], span: Option<Span>) -> Option<Cow<'b, st
         .and_then(|span| scan::unescape(bytes, span).ok())
 }
 
-/// One request of an `rrweb/network@1` event, as `session-feature-recorder.ts` reads it.
+/// One request of an `rrweb/network@1` event.
 #[derive(Debug, Clone, Copy)]
 pub struct NetworkRequest {
     pub duration: Option<f64>,
@@ -76,8 +76,8 @@ pub struct NetworkRequest {
     pub status: Option<f64>,
 }
 
-/// The fields of an event's `data`, and of `data.payload`, that the counters and the feature recorder read. Each object
-/// is read once per event, for all of them.
+/// The fields of an event's `data`, and of `data.payload`, that the counters and the surfacing features read. Each
+/// object is read once per event, for all of them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DataFields {
     /// `type`: the kind of a mouse interaction.
@@ -195,8 +195,8 @@ pub struct EventCounter {
 }
 
 impl EventCounter {
-    /// Counts one event. Returns whether it carried a page URL, which `session-feature-recorder.ts` treats as a
-    /// navigation for dead clicks even when the URL did not change.
+    /// Counts one event. Returns whether it carried a page URL, which the dead click count treats as a navigation even
+    /// when the URL did not change.
     pub fn observe(
         &mut self,
         inner: &[u8],
@@ -271,7 +271,7 @@ impl EventCounter {
     }
 
     /// Counts one request of an `rrweb/network@1` event. The inspector reads an event's requests in one pass for this
-    /// and the feature recorder.
+    /// and the surfacing features.
     pub fn count_network_request(&mut self, status: Option<f64>) {
         count_request(&mut self.stats, status);
     }

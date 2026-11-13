@@ -6,7 +6,6 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { isCloud } from '~/common/utils/env-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
@@ -80,7 +79,6 @@ export class RecordingService {
         private keyStore: KeyStore,
         private decryptor: RecordingDecryptor,
         private metadataStore?: SessionMetadataStore,
-        private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
         private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential },
         private encryptor?: RecordingEncryptor
@@ -566,12 +564,9 @@ export class RecordingService {
     }
 
     private async emitDeletionEvents(sessionIds: string[], teamId: number): Promise<void> {
-        await Promise.all([
-            this.metadataStore?.storeSessionBlocks(
-                sessionIds.map((sessionId) => createDeletionBlockMetadata(sessionId, teamId))
-            ),
-            this.featureStore?.storeDeletionMarkers(sessionIds.map((sessionId) => ({ sessionId, teamId }))),
-        ])
+        await this.metadataStore?.storeSessionBlocks(
+            sessionIds.map((sessionId) => createDeletionBlockMetadata(sessionId, teamId))
+        )
     }
 
     private async deletePostgresRecords(sessionIds: string[], teamId: number): Promise<void> {
