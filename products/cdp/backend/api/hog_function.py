@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -1113,6 +1114,16 @@ class HogFunctionRearrangeSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=0, max_value=MAX_EXECUTION_ORDER),
         help_text=f"Map of hog function UUIDs to their new execution_order values, from 0 to {MAX_EXECUTION_ORDER}.",
     )
+
+    def validate_orders(self, orders: dict[str, int]) -> dict[str, int]:
+        # Keys are compared against str(HogFunction.id) later, so they must be in canonical UUID form.
+        normalized: dict[str, int] = {}
+        for function_id, order in orders.items():
+            try:
+                normalized[str(UUID(function_id))] = order
+            except ValueError:
+                raise serializers.ValidationError(f"'{function_id}' is not a valid hog function UUID.")
+        return normalized
 
 
 class HogFunctionMaskedSecretSerializer(serializers.Serializer):

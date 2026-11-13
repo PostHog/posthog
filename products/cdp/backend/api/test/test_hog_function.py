@@ -8,6 +8,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import UserSettingsHolder, settings
 from django.db import DatabaseError, connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -23,6 +24,7 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
+    HogFunctionRearrangeSerializer,
     comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -4286,3 +4288,18 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "different types" in response.json()["detail"]
+
+
+class TestHogFunctionRearrangeSerializer(SimpleTestCase):
+    def test_rejects_key_that_is_not_a_uuid(self):
+        serializer = HogFunctionRearrangeSerializer(data={"orders": {"not-a-uuid": 1}})
+
+        assert not serializer.is_valid()
+        assert "not-a-uuid" in str(serializer.errors["orders"][0])
+
+    def test_normalizes_keys_to_canonical_uuid_form(self):
+        function_id = "0193B5D6-6FF6-0000-4AE8-423DEE9BF14A"
+        serializer = HogFunctionRearrangeSerializer(data={"orders": {function_id: 1}})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["orders"] == {function_id.lower(): 1}
