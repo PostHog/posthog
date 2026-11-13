@@ -3,7 +3,6 @@
 import copy
 import uuid
 from datetime import timedelta
-from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from django.conf import settings
@@ -531,13 +530,7 @@ class DataWarehouseSavedQuerySerializer(
         if not removed_columns:
             return None
 
-        downstream_node_ids = modeling_api.reachable_node_ids(
-            instance.team_id,
-            modeling_api.saved_query_node_ids(instance.team_id, instance.id),
-            upstream=False,
-            max_depth=None,
-        )
-        downstream_ids = modeling_api.get_saved_query_ids_for_nodes(instance.team_id, downstream_node_ids)
+        downstream_ids = modeling_api.downstream_saved_query_ids(instance.team_id, instance.id)
         if not downstream_ids:
             return None
 
@@ -547,13 +540,10 @@ class DataWarehouseSavedQuerySerializer(
             .exclude(deleted=True)
             .order_by("name", "id")
         }
-        sorter: TopologicalSorter[uuid.UUID] = TopologicalSorter({view_id: set() for view_id in downstream_views_by_id})
-        for source_id, target_ids in modeling_api.dependent_saved_query_ids(
-            instance.team_id, set(downstream_views_by_id)
-        ).items():
-            for target_id in target_ids & set(downstream_views_by_id):
-                sorter.add(target_id, source_id)
-        downstream_views = [downstream_views_by_id[view_id] for view_id in sorter.static_order()]
+        downstream_views = [
+            downstream_views_by_id[view_id]
+            for view_id in modeling_api.saved_query_ids_upstream_first(instance.team_id, set(downstream_views_by_id))
+        ]
 
         if not downstream_views:
             return None

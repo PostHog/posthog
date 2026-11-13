@@ -2248,6 +2248,7 @@ class TestSavedQuery(APIBaseTest):
     @parameterized.expand(
         [
             ("direct", None, "select toString(removed_value) as value from upstream_view"),
+            ("exclude_removed", None, "select * exclude (removed_value) from upstream_view"),
             (
                 "through_star",
                 "select * from upstream_view",
@@ -2287,18 +2288,19 @@ class TestSavedQuery(APIBaseTest):
         [
             ("explicit_retained_field", "select kept_value from upstream_view"),
             ("star", "select * from upstream_view"),
+            ("star_exclude_retained_field", "select * exclude (excluded_value) from upstream_view"),
         ]
     )
     def test_update_does_not_require_confirmation_when_downstream_views_still_resolve(
         self, _name: str, downstream_sql: str
     ) -> None:
-        upstream = self._create_view("upstream_view", "select 1 as removed_value, 2 as kept_value")
+        upstream = self._create_view("upstream_view", "select 1 as removed_value, 2 as kept_value, 3 as excluded_value")
         self._create_view("downstream_view", downstream_sql)
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
             {
-                "query": {"kind": "HogQLQuery", "query": "select 2 as kept_value"},
+                "query": {"kind": "HogQLQuery", "query": "select 2 as kept_value, 3 as excluded_value"},
                 "edited_history_id": upstream["latest_history_id"],
             },
             format="json",
