@@ -1726,7 +1726,7 @@ def email_from_code_enabled(team: Team, user: User) -> bool:
 
 
 class EmailDomainAgentSetupPermission(BasePermission):
-    message = "This action does not support personal API key access"
+    message = "This action is not available to API keys or OAuth tokens in this project."
     token_actions = frozenset({"domain_connect_check", "domain_connect_apply_url", "email_update"})
 
     def has_permission(self, request: Request, view: APIView) -> bool:

@@ -28,7 +28,7 @@ from products.workflows.backend.tests.fakes.world import domain_connect_signing_
 SENDER = f"hello@{DOMAIN}"
 TOKEN_AUTHENTICATIONS = ["pak", "oauth"]
 ALL_AUTHENTICATIONS = [*TOKEN_AUTHENTICATIONS, "session"]
-NO_TOKEN_ACCESS = "This action does not support personal API key access"
+NO_TOKEN_ACCESS = "This action is not available to API keys or OAuth tokens in this project."
 MISSING_WRITE_SCOPE = "API key missing required scope 'integration:write'"
 REDIRECT_OUTSIDE_POSTHOG = "redirect_uri must point back to PostHog."
 SHARED_MAIL_FROM = "Other projects send from this domain, so change its MAIL FROM subdomain in PostHog."
