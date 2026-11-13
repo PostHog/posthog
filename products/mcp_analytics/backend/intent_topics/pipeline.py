@@ -23,7 +23,10 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
-from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
+from products.mcp_analytics.backend.facade.contracts import (
+    IntentGenerationUnavailable,
+    IntentTopicsRunOutcome as RunOutcome,
+)
 from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist
 from products.mcp_analytics.backend.intent_topics.assignment_sql import build_assignment_insert
 from products.mcp_analytics.backend.intent_topics.constants import (
@@ -41,18 +44,6 @@ logger = structlog.get_logger(__name__)
 
 Status = MCPIntentClusteringRun.Status
 Kind = MCPIntentClusteringRun.Kind
-
-
-@dataclass(frozen=True)
-class RunOutcome:
-    run_id: str
-    kind: str
-    status: str
-    n_intents: int = 0
-    n_topics: int = 0
-    n_outliers: int = 0
-    n_embeddings_requested: int = 0
-    error_message: str = ""
 
 
 def _query_tags(team: Team):  # noqa: ANN202
