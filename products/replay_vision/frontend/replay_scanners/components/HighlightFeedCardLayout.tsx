@@ -64,14 +64,13 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
                 )}
                 data-attr={dataAttr}
             >
-                <header className="flex min-w-0 items-center gap-2">
-                    <div className="flex min-w-0">{scanner}</div>
-                    <span className="text-xs text-muted" aria-hidden>
-                        ·
-                    </span>
-                    {/* The person and age keep up to 45% of the line, so a long email is cut before the scanner name. */}
-                    <div className="min-w-0 max-w-[45%] shrink-0">{meta}</div>
-                    {action && <div className="relative z-10 ml-auto shrink-0">{action}</div>}
+                <header className="flex min-w-0 flex-col">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <div className="flex min-w-0">{scanner}</div>
+                        {action && <div className="relative z-10 ml-auto shrink-0">{action}</div>}
+                    </div>
+                    {/* Its own line, so a narrow card has room for both the scanner name and the email. pl-8 is the chip's size-6 icon plus gap-2. */}
+                    <div className="flex min-w-0 pl-8">{meta}</div>
                 </header>
                 <div className="flex min-w-0 flex-col gap-1">
                     {titleLink ? (
