@@ -11830,6 +11830,14 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         should_sync?: boolean | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        live_query_enabled?: boolean | undefined;
+        /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         */
+        live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
         /**
          * The latest error that occurred when syncing this schema.
@@ -12011,6 +12019,7 @@ export namespace Schemas {
          */
         id: string;
         should_sync?: boolean | undefined;
+        live_query_enabled?: boolean | undefined;
         sync_type?: (ExternalDataSchemaSyncTypeEnum | NullEnum) | undefined;
         incremental_field?: (string | null) | undefined;
         incremental_field_type?: (string | null) | undefined;
