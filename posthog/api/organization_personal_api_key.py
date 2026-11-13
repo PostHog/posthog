@@ -1,9 +1,5 @@
-from collections import defaultdict
-from collections.abc import Sequence
-from functools import partial
 from typing import Any, cast
 
-from django.db import transaction
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -14,6 +10,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.organization_personal_api_key_actions import (
     KeyActionOutcome,
     KeyActionResult,
@@ -31,7 +28,6 @@ from posthog.permissions import (
     PremiumFeaturePermission,
     TimeSensitiveActionPermission,
 )
-from posthog.tasks.email import send_personal_api_keys_changed_by_org_admin
 
 
 class OrganizationPersonalAPIKeyActionPermission(BasePermission):
@@ -139,6 +135,31 @@ class OrganizationPersonalAPIKeyActionResultSerializer(serializers.Serializer):
     )
 
 
+class OrganizationPersonalAPIKeyRollAllRequestSerializer(serializers.Serializer):
+    skip_rolled_since = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Leave keys alone that were rolled at or after this time. To retry a roll of all keys without "
+        "rolling its keys again, pass the 'started_at' that the earlier attempt returned.",
+    )
+
+
+class OrganizationPersonalAPIKeyBulkActionResultSerializer(serializers.Serializer):
+    rolled = serializers.IntegerField(
+        help_text="Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere."
+    )
+    deleted = serializers.IntegerField(help_text="Number of keys that no longer exist.")
+    skipped = serializers.IntegerField(
+        help_text="Number of keys left unchanged because they were rolled at or after 'skip_rolled_since'."
+    )
+    failed = serializers.IntegerField(
+        help_text="Number of keys that an error left unchanged. Run the action again to change them."
+    )
+    started_at = serializers.DateTimeField(
+        help_text="When the roll of all keys started. A retry returns the 'skip_rolled_since' it was given."
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationPersonalAPIKeyViewSet(
     TeamAndOrgViewSetMixin,
@@ -207,29 +228,29 @@ class OrganizationPersonalAPIKeyViewSet(
         key = self.get_object()
         return self._action_response(self._key_actions().revoke(key.id, key.user_id))
 
+    @validated_request(
+        request_serializer=OrganizationPersonalAPIKeyRollAllRequestSerializer,
+        responses={200: OrganizationPersonalAPIKeyBulkActionResultSerializer},
+        operation_id="organization_personal_api_keys_roll_all",
+    )
+    @action(methods=["POST"], detail=False)
+    def roll_all(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        summary = self._key_actions().roll_all(skip_rolled_since=request.validated_data.get("skip_rolled_since"))
+        return Response(OrganizationPersonalAPIKeyBulkActionResultSerializer(summary).data)
+
+    @extend_schema(
+        operation_id="organization_personal_api_keys_revoke_all",
+        request=None,
+        responses={200: OrganizationPersonalAPIKeyBulkActionResultSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def revoke_all(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(OrganizationPersonalAPIKeyBulkActionResultSerializer(self._key_actions().revoke_all()).data)
+
     def _key_actions(self) -> OrganizationPersonalAPIKeyActions:
         return OrganizationPersonalAPIKeyActions(self.organization, cast(User, self.request.user))
 
     def _action_response(self, result: KeyActionResult | None) -> Response:
         if result is None:
             raise NotFound()
-        self._queue_owner_emails([result])
         return Response(OrganizationPersonalAPIKeyActionResultSerializer({"outcome": result.outcome}).data)
-
-    def _queue_owner_emails(self, results: Sequence[KeyActionResult]) -> None:
-        changes_by_owner: defaultdict[int, list[dict[str, str]]] = defaultdict(list)
-        for result in results:
-            changes_by_owner[result.owner_id].append(
-                {"label": result.label, "mask_value": result.mask_value, "outcome": str(result.outcome)}
-            )
-        organization_id = str(self.organization.id)
-        for owner_id, changes in changes_by_owner.items():
-            transaction.on_commit(
-                partial(
-                    send_personal_api_keys_changed_by_org_admin.delay,
-                    user_id=owner_id,
-                    organization_id=organization_id,
-                    changes=changes,
-                ),
-                robust=True,
-            )
