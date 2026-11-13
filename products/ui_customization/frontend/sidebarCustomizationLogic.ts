@@ -55,17 +55,19 @@ export interface SidebarCustomizationProps {
     userId: string
 }
 
-// The search a person stopped on, reported once: when it settles, or when they open a row before that.
+// The search a person stopped on, reported once: when it settles, or when they open a row before that. Results are
+// counted then, because rows that load while the person types change the count.
 function reportPendingSearch(cache: Record<string, any>, sidebar: string, customized: boolean): void {
-    const search: { queryLength: number; resultCount: number } | undefined = cache.pendingSearch
+    const search: { queryLength: number; countResults: () => number } | undefined = cache.pendingSearch
     cache.pendingSearch = undefined
     if (search && search.queryLength > 0) {
+        const resultCount = search.countResults()
         // pinned: analytics event name and properties. Renaming them breaks dashboards.
         posthog.capture('sidebar search used', {
             sidebar,
             query_length: search.queryLength,
-            result_count: search.resultCount,
-            zero_results: search.resultCount === 0,
+            result_count: resultCount,
+            zero_results: resultCount === 0,
             customized,
         })
     }
@@ -138,10 +140,10 @@ export interface sidebarCustomizationLogicActions {
     }
     searchTyped: (
         queryLength: number,
-        resultCount: number
+        countResults: () => number
     ) => {
+        countResults: () => number
         queryLength: number
-        resultCount: number
     }
     sidebarReadFailed: () => {
         value: true
@@ -217,7 +219,7 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
             sidebarReadFailed: true,
             requestFinished: true,
             invalidateSession: true,
-            searchTyped: (queryLength: number, resultCount: number) => ({ queryLength, resultCount }),
+            searchTyped: (queryLength: number, countResults: () => number) => ({ queryLength, countResults }),
             itemOpened: (opened: SidebarItemOpened) => ({ opened }),
         }),
         reducers(({ props }) => ({

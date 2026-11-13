@@ -102,6 +102,20 @@ describe('analyticsPinnedLogic', () => {
         expect(sidebarPinsLogic.values.recentlyPinnedKey).toBeNull()
     })
 
+    it('reports a pin made from a menu that closes before the pin saves', async () => {
+        // The app keeps the project tree mounted, unlike the menu.
+        projectTreeDataLogic.mount()
+        const unmountMenu = analyticsPinnedLogic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        await expectLogic(projectTreeDataLogic, () => {
+            sidebarPinsLogic.actions.togglePinned({ type: 'dashboard', ref: '7', name: 'KPIs' })
+            unmountMenu()
+        }).toDispatchActions(['deleteShortcutSuccess'])
+        expect(capture).toHaveBeenCalledWith('analytics item pinned', { pinned: false, object_type: 'dashboard' })
+        expect(analyticsPinnedLogic.isMounted()).toBe(false)
+    })
+
     it('moves a pin among the other pins and leaves the shortcuts that are not analytics in place', async () => {
         const logic = analyticsPinnedLogic()
         logic.mount()

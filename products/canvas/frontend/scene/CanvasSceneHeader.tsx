@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
 import {
@@ -17,6 +17,7 @@ import {
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
 import { urls } from 'scenes/urls'
 
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
@@ -44,6 +45,8 @@ export function CanvasSceneHeader(): JSX.Element {
     const { canvas, space } = useValues(canvasSceneLogic)
     const { copyLink, deleteCanvas } = useActions(canvasSceneLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    // Reports the title pin once it saves.
+    useMountedLogic(analyticsPinnedLogic)
 
     if (!canvas) {
         return (

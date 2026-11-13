@@ -32,13 +32,13 @@ export function sessionPinKey(sessionId: string): string {
 // The pin change `togglePinned` started, once its save settles.
 function finishPin(
     cache: Record<string, any>,
-    pinSaved: (target: PinTarget, pinned: boolean) => void,
+    pinSettled: (target: PinTarget, pinned: boolean, saved: boolean) => void,
     saved: boolean
 ): void {
     const pin: { target: PinTarget; pinned: boolean } | undefined = cache.pendingPin
     cache.pendingPin = undefined
-    if (pin && saved) {
-        pinSaved(pin.target, pin.pinned)
+    if (pin) {
+        pinSettled(pin.target, pin.pinned, saved)
     }
 }
 
@@ -123,7 +123,16 @@ export interface sidebarPinsLogicActions {
         overShortcutId: string
         shortcutId: string
     }
-    pinSaved: (
+    pinSettled: (
+        target: PinTarget,
+        pinned: boolean,
+        saved: boolean
+    ) => {
+        pinned: boolean
+        saved: boolean
+        target: PinTarget
+    }
+    pinStarted: (
         target: PinTarget,
         pinned: boolean
     ) => {
@@ -177,9 +186,10 @@ export const sidebarPinsLogic = kea<sidebarPinsLogicType>([
     actions({
         movePinned: (shortcutId: string, overShortcutId: string) => ({ shortcutId, overShortcutId }),
         togglePinned: (target: PinTarget) => ({ target }),
-        // A pin change made here saved. The shortcut calls are shared with the classic navigation's stars, so a pane
-        // that reports pins listens for this rather than for the shortcut calls.
-        pinSaved: (target: PinTarget, pinned: boolean) => ({ target, pinned }),
+        // A pin change made here, and its save settling. The shortcut calls are shared with the classic navigation's
+        // stars, so a pane that reports pins listens for these rather than for the shortcut calls.
+        pinStarted: (target: PinTarget, pinned: boolean) => ({ target, pinned }),
+        pinSettled: (target: PinTarget, pinned: boolean, saved: boolean) => ({ target, pinned, saved }),
         setRecentlyPinned: (key: string) => ({ key }),
         clearRecentlyPinned: true,
     }),
@@ -215,10 +225,10 @@ export const sidebarPinsLogic = kea<sidebarPinsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        addShortcutItemSuccess: () => finishPin(cache, actions.pinSaved, true),
-        deleteShortcutSuccess: () => finishPin(cache, actions.pinSaved, true),
-        addShortcutItemFailure: () => finishPin(cache, actions.pinSaved, false),
-        deleteShortcutFailure: () => finishPin(cache, actions.pinSaved, false),
+        addShortcutItemSuccess: () => finishPin(cache, actions.pinSettled, true),
+        deleteShortcutSuccess: () => finishPin(cache, actions.pinSettled, true),
+        addShortcutItemFailure: () => finishPin(cache, actions.pinSettled, false),
+        deleteShortcutFailure: () => finishPin(cache, actions.pinSettled, false),
         movePinned: ({ shortcutId, overShortcutId }) => {
             // Each pane's pins are a subset of all shortcuts, so the move happens in the full list to keep the others in place.
             const ids = values.shortcutData.map((shortcut) => shortcut.id).filter((id): id is string => !!id)
@@ -238,6 +248,7 @@ export const sidebarPinsLogic = kea<sidebarPinsLogicType>([
             const key = pinTargetKey(target)
             const shortcutId = values.pinnedShortcutIds.get(key)
             cache.pendingPin = { target, pinned: !shortcutId }
+            actions.pinStarted(target, !shortcutId)
             if (shortcutId) {
                 actions.deleteShortcut(shortcutId, UNPINNED_TOAST)
                 return

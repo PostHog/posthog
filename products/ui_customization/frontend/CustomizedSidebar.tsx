@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, Suspense } from 'react'
+import { Fragment, Suspense, useRef } from 'react'
 
 import { Button } from '@posthog/quill'
 import { PostHogErrorBoundary } from '@posthog/react'
@@ -151,13 +151,16 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
                 section.items.reduce((count, item, index) => count + rowsFor(query, section, item, index).length, 0),
             0
         )
+    // The search reports its count once it settles, from the rows shown then.
+    const latestResultCountFor = useRef(resultCountFor)
+    latestResultCountFor.current = resultCountFor
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
             <SidebarSearchList
                 query={props.search.query}
                 onQueryChange={(query) => {
                     props.search.onChange(query)
-                    searchTyped(query.trim().length, resultCountFor(query))
+                    searchTyped(query.trim().length, () => latestResultCountFor.current(query))
                 }}
                 searchLabel={props.search.label}
                 dataAttr={`${props.dataAttrPrefix}-search`}
