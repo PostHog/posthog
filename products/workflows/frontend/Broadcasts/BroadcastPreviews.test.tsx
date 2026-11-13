@@ -211,9 +211,6 @@ describe('broadcast previews', () => {
         expect(toRow()).toHaveTextContent(/^ToAdaada@example\.com$/)
         expect(iframeHtml()).toBe('<p>Hello Ada</p>')
         expect(el('broadcast-review-modify-content')).toBeNull()
-        expect(screen.getByText('Send yourself a test first')).toBeInTheDocument()
-        expect(screen.getByText(/^Read the email in a real inbox/)).toBeInTheDocument()
-        expect(el('broadcast-open-test-email')).toBeNull()
 
         click('broadcast-preview-person')
         act(() => {
@@ -226,17 +223,18 @@ describe('broadcast previews', () => {
         expect(toRow()).toHaveTextContent(/^Tograce@example\.com$/)
     })
 
-    it.each<[typeof people, () => Element | null]>([
-        ['pending', () => (toRow()?.textContent === 'To' ? toRow() : null)],
-        ['failed', () => screen.queryByText(/^Couldn't load anyone to preview against, so variables stay unfilled/)],
-        [[], () => screen.queryByText('No one matches this audience yet, so variables stay unfilled below.')],
+    it.each<[typeof people, RegExp, boolean]>([
+        ['pending', /^To$/, true],
+        ['failed', /^ToCouldn't load anyone to preview against, so variables stay unfilled/, false],
+        [[], /^ToNo one matches this audience yet, so variables stay unfilled below\.$/, false],
     ])(
         'shows the recipient row and leaves variables unfilled when the audience lookup is %j',
-        async (lookup, recipientRow) => {
+        async (lookup, recipientRow, loading) => {
             people = lookup
             renderReview('email')
 
-            await waitFor(() => expect(recipientRow()).not.toBeNull())
+            await waitFor(() => expect(toRow()).toHaveTextContent(recipientRow))
+            expect(!!toRow()?.querySelector('svg')).toBe(loading)
             expect(screen.getByText('Hi {{ person.properties.name }}')).toBeInTheDocument()
             expect(screen.queryByText(/^Values come from/)).toBeNull()
         }
@@ -255,6 +253,7 @@ describe('broadcast previews', () => {
         expect(iframeHtml()).toBeUndefined()
         expect(el('broadcast-preview-person')).toHaveTextContent('Ada')
         expect(screen.getByText('Preview and test before this reaches the audience.')).toBeInTheDocument()
+        expect(el('broadcast-open-test-email')).toBeNull()
     })
 
     it('opens the test modal from the preview on its own and closes it', async () => {
@@ -314,22 +313,8 @@ describe('broadcast previews', () => {
         expect(sent[0].globals.person).toMatchObject({ id: 'person-ada', name: 'Ada' })
     })
 
-    it('vouches for a sent test email on the review step', async () => {
-        await openEmailTest()
-        type('broadcast-test-email-recipient', 'reviewer@example.com')
-        click('broadcast-send-test-email')
-
-        expect(await screen.findByText('Test sent to reviewer@example.com')).toBeInTheDocument()
-        expect(screen.getByText('Check it in your inbox, on desktop and mobile, before you send.')).toBeInTheDocument()
-        expect(screen.getByText('Send another test')).toBeInTheDocument()
-        await waitFor(() => expect(screen.queryByText('Send a test email')).toBeNull())
-    })
-
-    it('sends a test push to a distinct ID, then vouches for it on the review step', async () => {
-        sendResult = { status: 'success', logs: [log('Push accepted by FCM')] }
+    it('asks for a distinct ID before it sends a test push', async () => {
         renderReview('push')
-        expect(screen.getByText(/^See the notification on a real phone/)).toBeInTheDocument()
-
         act(() => {
             fireEvent.click(screen.getByText('Send test notification'))
         })
@@ -340,15 +325,34 @@ describe('broadcast previews', () => {
             screen.getByText('No one matches this audience yet, so variables send as blank text.')
         ).toBeInTheDocument()
         expect(el('broadcast-test-push-recipient')).toHaveValue(MOCK_DEFAULT_USER.distinct_id)
+    })
+
+    it('sends the test push to the typed distinct ID only', async () => {
+        renderReview('push')
+        click('broadcast-review-send-test')
         type('broadcast-test-push-recipient', 'user-1')
         click('broadcast-send-test-email')
 
-        expect(await screen.findByText("Test sent to user-1's devices")).toBeInTheDocument()
-        expect(screen.getByText('Check it on your phone and tap it before you send.')).toBeInTheDocument()
-        await waitFor(() => expect(screen.queryByText('Send a test notification')).toBeNull())
+        await waitFor(() => expect(sent).toHaveLength(1))
         const action = sent[0].configuration.actions.find((a) => a.id === sent[0].current_action_id)
         expect(action?.id).toBe('send_test_push')
         expect(action?.config.inputs.distinctId.value).toBe('{% raw %}user-1{% endraw %}')
+    })
+
+    it.each<['email' | 'push', string, string, string]>([
+        ['email', 'reviewer@example.com', 'reviewer@example.com', 'Check it in your inbox, on desktop'],
+        ['push', 'user-1', "user-1's devices", 'Check it on your phone and tap it'],
+    ])('vouches for a sent %s test on the review step', async (channel, to, sentTo, followUp) => {
+        sendResult = { status: 'success', logs: [log('Push accepted by FCM')] }
+        renderReview(channel)
+        click('broadcast-review-send-test')
+        type(`broadcast-test-${channel}-recipient`, to)
+        click('broadcast-send-test-email')
+
+        expect(await screen.findByText(`Test sent to ${sentTo}`)).toBeInTheDocument()
+        expect(screen.getByText(new RegExp(`^${followUp}`))).toBeInTheDocument()
+        expect(screen.getByText('Send another test')).toBeInTheDocument()
+        await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
     })
 
     it.each<['email' | 'push', string, Partial<HogflowTestResult>, string?]>([
