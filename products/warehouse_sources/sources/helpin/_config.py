@@ -6,5 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class HelpinSourceConfig(config.Config):
-    api_token: str
-    api_host: str | None = None
+    pass
