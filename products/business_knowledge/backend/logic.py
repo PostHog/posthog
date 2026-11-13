@@ -117,7 +117,7 @@ from .models import (
     SourceStatus,
     SourceType,
 )
-from .models.constants import RefreshStatus
+from .models.constants import RefreshStatus, SearchMatch
 from .url_fetch import sha256_of
 
 logger = structlog.get_logger(__name__)
@@ -2720,9 +2720,27 @@ class KnowledgeSearchResult:
     content: str
     is_generated: bool = False
     url: str = ""
+    matched_by: SearchMatch = SearchMatch.CONTEXT
+    # 1 - cosine distance to the query. None when the semantic index did not return this chunk.
+    similarity: float | None = None
 
 
-def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
+def _search_match(*, keyword: bool, semantic: bool) -> SearchMatch:
+    if keyword and semantic:
+        return SearchMatch.BOTH
+    if keyword:
+        return SearchMatch.KEYWORD
+    if semantic:
+        return SearchMatch.SEMANTIC
+    return SearchMatch.CONTEXT
+
+
+def _result_from_chunk(
+    chunk: KnowledgeChunk,
+    *,
+    matched_by: SearchMatch = SearchMatch.CONTEXT,
+    semantic_distance: float | None = None,
+) -> KnowledgeSearchResult:
     return KnowledgeSearchResult(
         chunk_id=chunk.id,
         source_id=chunk.source_id,
@@ -2735,6 +2753,8 @@ def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
         content=chunk.content,
         is_generated=bool(chunk.source.is_generated),
         url=chunk.document.url,
+        matched_by=matched_by,
+        similarity=None if semantic_distance is None else round(1.0 - semantic_distance, 3),
     )
 
 
@@ -2842,6 +2862,11 @@ def _search_knowledge(
                 .values_list("id", flat=True)
             )
             semantic_candidates = [c for c in semantic_candidates if c.chunk_id in member_ids]
+    keyword_ids = set(fts_anchor_ids)
+    semantic_distances: dict[UUID, float] = {}
+    for candidate in semantic_candidates:
+        # Candidates arrive closest first, and a re-emitted chunk can appear twice.
+        semantic_distances.setdefault(candidate.chunk_id, candidate.distance)
 
     # --- Fusion or FTS-only ---
     # Fusion requires an actual embedding; when it's None (e.g. embedding-service
@@ -2906,7 +2931,14 @@ def _search_knowledge(
 
     ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
 
-    return [_result_from_chunk(c) for c in ordered]
+    return [
+        _result_from_chunk(
+            c,
+            matched_by=_search_match(keyword=c.id in keyword_ids, semantic=c.id in semantic_distances),
+            semantic_distance=semantic_distances.get(c.id),
+        )
+        for c in ordered
+    ]
 
 
 def _capture_query_embedding(team_id: int, response: EmbeddingResponse, trace: RetrievalTrace) -> None:

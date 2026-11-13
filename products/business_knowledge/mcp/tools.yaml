@@ -36,9 +36,18 @@ tools:
             document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use
             for a question about the user's own company: its product, internal terms, policies, decisions, or internal
             docs. Do not use it to answer a question from project data, or for how PostHog works unless PostHog is the
-            user's own company; use docs-search for PostHog. Set rerank=true for a listwise LLM rerank pass when
-            top-result precision matters. Pass library_id to search one library, and pass that same id to repository
+            user's own company; use docs-search for PostHog. Each chunk has matched_by and similarity. Rely on chunks
+            where matched_by is both or semantic. A result with only keyword and context chunks shares words with the
+            query and may not answer it: read it before you use it, and say the knowledge base does not cover the
+            question when it does not. Results are reranked for relevance by default; pass rerank=false for a faster
+            search in fused rank order. Pass library_id to search one library, and pass that same id to repository
             search and file read. Omit library_id to search every ready source.
+        param_overrides:
+            rerank:
+                default: true
+                description: >
+                    Rerank results with an LLM pass for better relevance. Defaults to true. Falls back to fused rank
+                    order when the rerank fails. Pass false for a faster search.
         feature_flag: product-business-knowledge
     business-knowledge-libraries-create:
         operation: business_knowledge_libraries_create

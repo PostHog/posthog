@@ -784,7 +784,13 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "content",
             "is_generated",
             "url",
+            "matched_by",
+            "similarity",
         }
+        assert [(chunk["ordinal"], chunk["matched_by"], chunk["similarity"]) for chunk in body] == [
+            (0, "keyword", None),
+            (1, "context", None),
+        ]
         assert first["source_name"] == "Docs"
         assert first["url"] == ""
         assert first["is_generated"] is False
