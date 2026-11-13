@@ -524,6 +524,17 @@ class TestHogFlowAPI(APIBaseTest):
         assert names == ["Gamma", "Beta", "Alpha"]
         assert counts == [2, 3, 3]
 
+    def test_summaries_search_past_the_largest_offset_returns_an_empty_page(self):
+        HogFlow.objects.create(team=self.team, name="Seat confirmation", created_by=self.user)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/summaries?search=seat&offset=9223372036854775808"
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["results"] == []
+        assert response.json()["next"] is None
+
     def test_list_search_step_tier_counts_every_match_across_pages(self):
         for name in ("Alpha", "Beta"):
             HogFlow.objects.create(
