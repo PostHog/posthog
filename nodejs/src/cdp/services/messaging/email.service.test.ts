@@ -1355,7 +1355,7 @@ describe('EmailService', () => {
             })
 
             it('shadow mode sends past an empty budget', async () => {
-                await sendsLeftInTheTeamBudget(budgetedService('enforce', 2))
+                expect(await sendsLeftInTheTeamBudget(budgetedService('enforce', 2))).toBe(2)
 
                 const result = await budgetedService('shadow', 2).executeSendEmail(invocation)
 
@@ -1392,14 +1392,21 @@ describe('EmailService', () => {
                 )
             }
 
-            it.each<{ gate: string; hold: () => Promise<void> | void; release: () => Promise<void> | void }>([
+            it.each<{
+                gate: string
+                skipMetric: string
+                hold: () => Promise<void> | void
+                release: () => Promise<void> | void
+            }>([
                 {
                     gate: 'team suspension',
+                    skipMetric: 'email_suspended',
                     hold: () => setSuspendedAt('now()'),
                     release: () => setSuspendedAt('NULL'),
                 },
                 {
                     gate: 'workflow pause',
+                    skipMetric: 'email_paused',
                     hold: () => {
                         invocation.hogFunction.metadata!.email_sending_paused_at = '2026-01-01T00:00:00Z'
                     },
@@ -1409,6 +1416,7 @@ describe('EmailService', () => {
                 },
                 {
                     gate: 'suppression list',
+                    skipMetric: 'email_suppressed',
                     hold: () =>
                         new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()).recordHardBounces(
                             team.id,
@@ -1422,7 +1430,7 @@ describe('EmailService', () => {
                 },
             ])(
                 'a send the $gate skips spends neither the workflow pacing nor the team budget',
-                async ({ hold, release }) => {
+                async ({ skipMetric, hold, release }) => {
                     invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
                     await hold()
 
@@ -1431,8 +1439,8 @@ describe('EmailService', () => {
                     const sender = budgetedService('enforce', 2)
                     const sent = await sender.executeSendEmail(invocation)
 
-                    expect(skipped.finished).toBe(true)
-                    expect(skipped.metrics.map((metric) => metric.metric_name)).not.toContain('email_sent')
+                    expect(skipped.error).toBeUndefined()
+                    expect(skipped.metrics.map((metric) => metric.metric_name)).toEqual([skipMetric])
                     expect(sent.error).toBeUndefined()
                     expect(sent.finished).toBe(true)
                     expect(ses.sent).toHaveLength(1)
