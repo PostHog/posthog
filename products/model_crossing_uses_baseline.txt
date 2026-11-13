@@ -676,7 +676,6 @@ product_analytics.TrendsDisplay products.product_analytics.backend.facade.querie
 product_analytics.UpgradeQueriesWorkflowInputs products.product_analytics.backend.facade.temporal facade-wiring 1
 product_analytics:backend/facade/models.py products.product_analytics.backend.facade.models facade-logic 1
 product_analytics:backend/facade/queries.py products.product_analytics.backend.facade.queries facade-logic 1
-product_analytics:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.api.test.dashboards.test_dashboard drives(TrendsQuery) 6
 product_analytics:backend/hogql_queries/ posthog.api.test.test_alert_15_minute_interval drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ posthog.api.test.test_alert_real_time_interval drives(TrendsQuery) 1
@@ -710,6 +709,7 @@ product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_e
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(TrendsQuery) 9
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
+product_analytics:backend/hogql_queries/ products.experiments.backend.test.test_saved_metrics_api drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
 product_analytics:backend/hogql_queries/ products.signals.backend.test.test_scout_report_api drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.tasks.backend.tests.test_api drives(TrendsQuery) 3
@@ -1036,7 +1036,6 @@ web_analytics.ContentAutopilotProposal products.web_analytics.backend.facade.con
 web_analytics.ContentAutopilotRun products.web_analytics.backend.facade.content_autopilot.cancel_run facade-returns 1
 web_analytics.ContentAutopilotRun products.web_analytics.backend.facade.content_autopilot.start_run facade-returns 1
 web_analytics.ContentAutopilotSiteProfile products.web_analytics.backend.facade.content_autopilot.delete_profile facade-returns 1
-web_analytics:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.api.test.dashboards.test_dashboard drives(TrendsQuery) 6
 web_analytics:backend/hogql_queries/ posthog.api.test.test_alert_15_minute_interval drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ posthog.api.test.test_alert_real_time_interval drives(TrendsQuery) 1
@@ -1076,6 +1075,7 @@ web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpo
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(TrendsQuery) 9
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.experiments.backend.test.test_saved_metrics_api drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_data_warehouse_query drives(TrendsQuery) 23
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_query_runner drives(TrendsQuery) 2

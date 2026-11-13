@@ -1379,8 +1379,6 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.experiment_saved_metric_service.*",
-    "backend\\.metric_utils.*",
     "backend\\.models.*",
 ]
 from = [
