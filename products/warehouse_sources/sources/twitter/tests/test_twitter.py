@@ -300,8 +300,6 @@ class TestTwitterSourceRequests:
         ("should_use_incremental_field", "watermark_age", "sends_start_time"),
         [
             (False, None, False),
-            # With no usable watermark, no bound is sent and X returns its whole 7-day window. A
-            # bound near the window's edge would expire during long paging or rate-limit waits.
             (True, None, False),
             (True, timedelta(days=400), False),
             (True, timedelta(days=6, hours=12), False),

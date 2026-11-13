@@ -10,9 +10,8 @@ API_VERSION_2 = "2"
 # X rejects a `start_time` before this instant, so it is the floor for a first incremental run.
 EARLIEST_START_TIME = "2010-11-06T00:00:00Z"
 
-# Recent search refuses a `start_time` older than 7 days. The bound is computed once per run and reused
-# on every page and retry, so a watermark older than this is not sent and X returns its whole window.
-# The day of margin keeps a sent bound valid through long paging runs and rate-limit waits.
+# Recent search refuses a `start_time` older than 7 days, and one bound is reused across every page and
+# rate-limit wait of a run. An older watermark is not sent, so X returns its whole 7-day window.
 RECENT_SEARCH_MAX_START_AGE = timedelta(days=6)
 
 # The usage endpoint reports at most this many days back.
