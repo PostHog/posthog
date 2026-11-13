@@ -37,11 +37,9 @@ from products.engineering_analytics.backend.facade.contracts import GitHubSource
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewUserSettings
 from products.review_hog.backend.reviewer.artefact_content import (
-    ArtefactContentValidationError,
     FindingOutcomeArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
-    parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
@@ -69,7 +67,7 @@ from products.review_hog.backend.reviewer.outcomes.github_fetch import (
 )
 from products.review_hog.backend.reviewer.outcomes.judge import judge_finding
 from products.review_hog.backend.reviewer.outcomes.line_proximity import parse_compare_files, touched_near
-from products.review_hog.backend.reviewer.persistence import load_findings_bundle
+from products.review_hog.backend.reviewer.persistence import load_finding_outcomes, load_findings_bundle
 from products.review_hog.backend.reviewer.telemetry import finding_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
@@ -348,31 +346,7 @@ def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[lis
     findings/verdicts they rule on — so the re-emitted events are identical to what the interrupted
     attempt sent, never a recomputation that could disagree with it.
     """
-    stored: dict[str, FindingOutcomeArtefact] = {}
-    rows = (
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id=str(report.id), type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
-        .order_by("created_at", "id")
-    )
-    for row in rows:
-        try:
-            content = parse_artefact_content(row.type, row.content)
-        except ArtefactContentValidationError as e:
-            logger.warning("Skipping unparseable finding_outcome artefact %s: %s", row.id, e)
-            continue
-        assert isinstance(content, FindingOutcomeArtefact)
-        if content.issue_key in stored:
-            # An outcome is decided once: the persist is transactional and the resume path re-emits
-            # rather than re-deciding, so a second row for one finding means something re-decided it.
-            # Latest-wins would absorb that silently, and the two rows can disagree — say so instead.
-            logger.warning(
-                "Duplicate finding_outcome for %s on report %s (%s then %s); taking the latest",
-                content.issue_key,
-                report.id,
-                stored[content.issue_key].outcome,
-                content.outcome,
-            )
-        stored[content.issue_key] = content
+    stored = load_finding_outcomes(team_id=team_id, report_id=str(report.id))
 
     bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id)])
     pairs = {finding.issue_key: (finding, verdict) for finding, verdict in bundle.all_valid(str(report.id))}

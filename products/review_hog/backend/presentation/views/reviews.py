@@ -590,7 +590,49 @@ class ReviewFindingLineRangeSerializer(serializers.Serializer):
     end = serializers.IntegerField(allow_null=True, help_text="Last affected line; null for a single line.")
 
 
+# Mirrors `FindingOutcome`.
+class ReviewFindingOutcomeKind(models.TextChoices):
+    ADDRESSED = "addressed", "Addressed"
+    REACTED = "reacted", "Reacted"
+    IGNORED = "ignored", "Ignored"
+
+
+# Mirrors `FindingOutcomeMethod`.
+class ReviewFindingOutcomeMethod(models.TextChoices):
+    JUDGE_CONFIRMED = "judge_confirmed", "A judge confirmed the fix"
+    JUDGE_REJECTED = "judge_rejected", "A judge found no fix"
+    COMMENT_REPLY = "comment_reply", "A person replied"
+    COMMENT_REPLY_AGENT = "comment_reply_agent", "An agent replied"
+    COMMENT_REACTION = "comment_reaction", "A person reacted"
+    NO_SIGNAL = "no_signal", "No signal"
+    JUDGE_BUDGET_EXHAUSTED = "judge_budget_exhausted", "Not judged"
+    JUDGE_FAILED = "judge_failed", "The judge failed"
+
+
+class ReviewFindingOutcomeSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=ReviewFindingOutcomeKind.choices,
+        help_text="What happened to the published finding by the time its pull request merged. `reacted`: a "
+        "person or another agent replied to or reacted on its comment. `addressed`: a later commit changed "
+        "the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.",
+    )
+    method = serializers.ChoiceField(
+        choices=ReviewFindingOutcomeMethod.choices,
+        help_text="The signal that decided `outcome`. `judge_confirmed` gives `addressed`. `comment_reply`, "
+        "`comment_reply_agent` and `comment_reaction` give `reacted`. `judge_rejected` (the lines changed but "
+        "the judge found no fix), `no_signal` (nothing touched the lines), `judge_budget_exhausted` and "
+        "`judge_failed` (the judge did not rule) give `ignored`.",
+    )
+    reviewed_head = serializers.CharField(
+        help_text="The commit the finding was published at, the base of the diff the outcome was judged on."
+    )
+    final_head = serializers.CharField(help_text="The pull request's head commit when it merged.")
+
+
 class ReviewFindingSerializer(serializers.Serializer):
+    issue_key = serializers.CharField(
+        help_text="The finding's id, unique within the review: it starts with the turn that raised it."
+    )
     title = serializers.CharField(help_text="One-line summary of the finding.")
     file = serializers.CharField(help_text="Repository-relative path of the affected file.")
     lines = ReviewFindingLineRangeSerializer(many=True, help_text="Affected line ranges within the file.")
@@ -613,6 +655,13 @@ class ReviewFindingSerializer(serializers.Serializer):
     )
     validator_note = serializers.CharField(
         help_text="The validator's argumentation for keeping or dismissing the finding."
+    )
+    outcome = ReviewFindingOutcomeSerializer(
+        allow_null=True,
+        help_text="What the pull request did about the finding, decided once after it merged. Null while the "
+        "pull request is open, when it closed without merging, for a dismissed finding, and until the hourly "
+        "outcome sweep reaches it. The sweep finds merges through the project's GitHub data warehouse source, "
+        "so a project without one gets no outcomes.",
     )
 
 
