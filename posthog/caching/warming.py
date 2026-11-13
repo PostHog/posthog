@@ -34,7 +34,8 @@ from posthog.utils import variables_override_requested_by_client
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.dashboards.backend.facade import api as dashboards_api
 from products.dashboards.backend.facade.contracts import InsightPlacement
-from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.api import insight_variables_for_team, insights_viewed_standalone
+from products.product_analytics.backend.facade.contracts import INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -144,11 +145,28 @@ def insights_to_keep_fresh(
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
-        single_insight_q_filter = Q(
-            team=team,
-            insightviewed__last_viewed_at__gte=threshold,
-            pk__in=insight_ids_single,
+        standalone_demand = posthoganalytics.feature_enabled(
+            "cache-warming-standalone-demand",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.pk)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.pk)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
+        single_insight_q_filter = Q(team=team, pk__in=insight_ids_single)
+        if standalone_demand:
+            single_insight_q_filter &= Q(
+                pk__in=insights_viewed_standalone(
+                    team_id=team.pk,
+                    insight_ids=[int(pk) for pk in insight_ids_single],
+                    viewed_since=threshold - INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL,
+                )
+            )
+        else:
+            single_insight_q_filter &= Q(insightviewed__last_viewed_at__gte=threshold)
         if shared_only:
             single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
 

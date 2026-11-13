@@ -55,3 +55,13 @@ def insight_view_contexts(
     if viewed_since is not None:
         rows = rows.filter(last_viewed_at__gte=viewed_since)
     return rows
+
+
+def insights_viewed_standalone(*, team_id: int, insight_ids: Collection[int], viewed_since: datetime) -> set[int]:
+    return set(
+        insight_view_contexts(team_id=team_id, insight_ids=insight_ids, viewed_since=viewed_since)
+        .filter(dashboard_id__isnull=True)
+        .exclude(source="")
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )

@@ -179,6 +179,17 @@ def insight_view_contexts(
     ]
 
 
+def insights_viewed_standalone(*, team_id: int, insight_ids: Collection[int], viewed_since: datetime) -> set[int]:
+    """Return the insights someone viewed outside a dashboard since ``viewed_since``.
+
+    Only views recorded with a source count. History from before views carried a source does not
+    say whether the insight was opened by itself or on a dashboard.
+    """
+    from products.product_analytics.backend import view_context
+
+    return view_context.insights_viewed_standalone(team_id=team_id, insight_ids=insight_ids, viewed_since=viewed_since)
+
+
 def store_backfilled_query_metadata(
     *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
 ) -> bool:

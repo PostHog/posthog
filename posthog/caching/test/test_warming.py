@@ -18,6 +18,7 @@ from posthog.caching.warming import (
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.query_cache.freshness_index import update_target_age
 from posthog.query_cache.read_history import record_read
 from posthog.scheduling.jitter import deterministic_offset
@@ -27,7 +28,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models import PropertyDefinition
-from products.product_analytics.backend.facade.api import record_insight_views
+from products.product_analytics.backend.facade.api import record_insight_view_context, record_insight_views
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
@@ -67,6 +68,80 @@ class TestWarming(APIBaseTest):
                 self.insight5.id: datetime.now(UTC) - timedelta(days=1),
             },
         )
+
+    @parameterized.expand([("web", 59, True), ("mcp", 59, True), ("shared", 59, True), ("web", 61, False)])
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["1234:"])
+    def test_warmer_owns_context_recency_across_sources(
+        self, source: str, seconds: int, eligible: bool, _stale: MagicMock, _flag: MagicMock
+    ) -> None:
+        current = datetime.now(UTC)
+        with time_machine.travel(current - timedelta(days=7, seconds=seconds), tick=False):
+            record_insight_view_context(
+                team_id=self.team.pk,
+                insight_ids=[self.insight1.pk],
+                user_id=None if source == "shared" else self.user.pk,
+                source=source,
+            )
+        with time_machine.travel(current, tick=False):
+            assert list(insights_to_keep_fresh(self.team)) == ([(self.insight1.pk, None)] if eligible else [])
+
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["1234:", "2345:", "3456:"])
+    def test_shared_only_requires_sharing_and_standalone_demand_in_the_shared_window(
+        self, _stale: MagicMock, _flag: MagicMock
+    ) -> None:
+        current = datetime.now(UTC)
+        for insight in (self.insight1, self.insight3):
+            SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+        for insight, age in (
+            (self.insight1, timedelta(days=2)),
+            (self.insight2, timedelta(days=2)),
+            (self.insight3, timedelta(days=4)),
+        ):
+            with time_machine.travel(current - age, tick=False):
+                record_insight_view_context(
+                    team_id=self.team.pk, insight_ids=[insight.pk], user_id=None, source="shared"
+                )
+        with time_machine.travel(current, tick=False):
+            assert list(insights_to_keep_fresh(self.team, shared_only=True)) == [(self.insight1.pk, None)]
+
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["3456:", "3456:7890"])
+    def test_dashboard_view_does_not_keep_standalone_candidate_alive(self, _stale: MagicMock, flag: MagicMock) -> None:
+        record_insight_views(
+            team_id=self.team.pk,
+            user_id=self.user.pk,
+            last_viewed_at_by_insight_id={self.insight3.pk: datetime.now(UTC) - timedelta(days=8)},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/viewed/",
+            {"insight_ids": [self.insight3.pk], "query_context": "dashboard", "dashboard_id": self.dashboard2.pk},
+        )
+        assert response.status_code == 201
+        assert list(insights_to_keep_fresh(self.team)) == [(self.insight3.pk, self.dashboard2.pk)]
+
+        flag.return_value = False
+        assert set(insights_to_keep_fresh(self.team)) == {
+            (self.insight3.pk, None),
+            (self.insight3.pk, self.dashboard2.pk),
+        }
+        flag.return_value = True
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/viewed/",
+            {"insight_ids": [self.insight3.pk], "query_context": "standalone"},
+        )
+        assert response.status_code == 201
+        assert set(insights_to_keep_fresh(self.team)) == {
+            (self.insight3.pk, None),
+            (self.insight3.pk, self.dashboard2.pk),
+        }
+
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["3456:"])
+    def test_unattributed_history_does_not_imply_standalone_demand(self, _stale: MagicMock, _flag: MagicMock) -> None:
+        self.insight3.insightviewed_set.create(team=self.team, user=self.user, last_viewed_at=datetime.now(UTC))
+        assert list(insights_to_keep_fresh(self.team)) == []
 
     @patch("posthog.caching.warming.get_stale_insights")
     def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
