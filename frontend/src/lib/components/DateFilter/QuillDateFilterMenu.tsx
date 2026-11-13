@@ -207,64 +207,68 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                 <DropdownMenuContent>
                     <DropdownMenuList>
                         <DropdownMenuRadioGroup value={selectedValue}>
-                            {visibleOptions.map(({ key: optionKey, values }) => (
-                                <DropdownMenuRadioItem
-                                    key={optionKey}
-                                    value={optionKey}
-                                    // pinned: data-attr values feed autocapture dashboards and tests
-                                    data-attr={`date-filter-${optionKey.toLowerCase().replace(/\s+/g, '-')}`}
-                                    onClick={() => setDate(values[0] || null, values[1] || null, false, explicitDate)}
-                                    tooltip={makeLabel?.(
-                                        dateFilterToText(
-                                            values[0],
-                                            values[1],
-                                            CUSTOM_OPTION_DESCRIPTION,
-                                            dateOptions,
-                                            true,
-                                            undefined,
-                                            undefined,
-                                            weekStartDay
-                                        ),
-                                        dateFilterToText(values[0], undefined, '', [], false, 'MMMM D, YYYY', true),
-                                        values[1]
-                                            ? dateFilterToText(
-                                                  values[1],
-                                                  undefined,
-                                                  '',
-                                                  [],
-                                                  false,
-                                                  'MMMM D, YYYY',
-                                                  true
-                                              )
-                                            : undefined
-                                    )}
-                                >
-                                    {optionKey === CUSTOM_OPTION_KEY ? NO_OVERRIDE_RANGE_PLACEHOLDER : optionKey}
-                                </DropdownMenuRadioItem>
-                            ))}
-                            <div className="flex items-center gap-1">
-                                <DropdownMenuRadioItem
-                                    value={ROLLING_VALUE}
-                                    className="w-auto shrink-0"
-                                    data-attr="rolling-date-range-filter"
-                                    onClick={select}
-                                    tooltip={makeLabel?.(formattedDate, startOfDateRange)}
-                                >
-                                    In the last
-                                </DropdownMenuRadioItem>
-                                <div onKeyDown={keepKeysInField}>
-                                    <RelativeRangeInput
-                                        value={{ count: counter ?? 1, unit: dateOption as RelativeRangeUnit }}
-                                        onChange={({ count, unit }) => {
-                                            if (unit !== dateOption) {
-                                                setDateOption(unit)
-                                            } else {
-                                                setCounter(count)
-                                            }
-                                        }}
-                                        units={allowedRollingDateOptions}
-                                        max={max ?? undefined}
-                                    />
+                            <div className="max-h-80 overflow-y-auto scroll-mask-y-4 scroll-py-4">
+                                {visibleOptions.map(({ key: optionKey, values }) => (
+                                    <DropdownMenuRadioItem
+                                        key={optionKey}
+                                        value={optionKey}
+                                        // pinned: data-attr values feed autocapture dashboards and tests
+                                        data-attr={`date-filter-${optionKey.toLowerCase().replace(/\s+/g, '-')}`}
+                                        onClick={() =>
+                                            setDate(values[0] || null, values[1] || null, false, explicitDate)
+                                        }
+                                        tooltip={makeLabel?.(
+                                            dateFilterToText(
+                                                values[0],
+                                                values[1],
+                                                CUSTOM_OPTION_DESCRIPTION,
+                                                dateOptions,
+                                                true,
+                                                undefined,
+                                                undefined,
+                                                weekStartDay
+                                            ),
+                                            dateFilterToText(values[0], undefined, '', [], false, 'MMMM D, YYYY', true),
+                                            values[1]
+                                                ? dateFilterToText(
+                                                      values[1],
+                                                      undefined,
+                                                      '',
+                                                      [],
+                                                      false,
+                                                      'MMMM D, YYYY',
+                                                      true
+                                                  )
+                                                : undefined
+                                        )}
+                                    >
+                                        {optionKey === CUSTOM_OPTION_KEY ? NO_OVERRIDE_RANGE_PLACEHOLDER : optionKey}
+                                    </DropdownMenuRadioItem>
+                                ))}
+                                <div className="flex items-center gap-1">
+                                    <DropdownMenuRadioItem
+                                        value={ROLLING_VALUE}
+                                        className="w-auto shrink-0"
+                                        data-attr="rolling-date-range-filter"
+                                        onClick={select}
+                                        tooltip={makeLabel?.(formattedDate, startOfDateRange)}
+                                    >
+                                        In the last
+                                    </DropdownMenuRadioItem>
+                                    <div onKeyDown={keepKeysInField}>
+                                        <RelativeRangeInput
+                                            value={{ count: counter ?? 1, unit: dateOption as RelativeRangeUnit }}
+                                            onChange={({ count, unit }) => {
+                                                if (unit !== dateOption) {
+                                                    setDateOption(unit)
+                                                } else {
+                                                    setCounter(count)
+                                                }
+                                            }}
+                                            units={allowedRollingDateOptions}
+                                            max={max ?? undefined}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                             <DropdownMenuSeparator />
