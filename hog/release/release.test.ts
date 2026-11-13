@@ -48,6 +48,28 @@ describe('npm launcher', () => {
     })
 })
 
+const IS_LATEST = join(import.meta.dir, 'is-latest.ts')
+
+// The publishing job promotes only on "true", so anything it can't compare must fail instead of answering.
+describe('is-latest', () => {
+    test.each([
+        ['an older latest', '{"version":"0.1.0-alpha.2"}', 0, 'true'],
+        ['the same version', '{"version":"0.1.0-alpha.3"}', 0, 'true'],
+        ['a newer latest', '{"version":"0.2.0"}', 0, 'false'],
+        ['a manifest with no version', '{}', 1, ''],
+        ['a version that is not semver', '{"version":"latest"}', 1, ''],
+        ['a file that is not JSON', '<Error><Code>AccessDenied</Code></Error>', 1, ''],
+    ])('answers for %s', async (_name, manifest, exitCode, stdout) => {
+        const path = join(await mkdtemp(join(tmpdir(), 'hog-latest-')), 'manifest.json')
+        await writeFile(path, manifest)
+
+        const child = Bun.spawnSync([process.execPath, IS_LATEST, '--version', '0.1.0-alpha.3', '--current', path])
+
+        expect(child.exitCode).toBe(exitCode)
+        expect(child.stdout.toString().trim()).toBe(stdout)
+    })
+})
+
 const hostHasMuslLoader = ['/lib', '/usr/lib'].some((folder) => {
     try {
         return readdirSync(folder).some((name) => name.startsWith('ld-musl-'))
