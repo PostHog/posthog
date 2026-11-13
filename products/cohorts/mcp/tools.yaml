@@ -95,7 +95,6 @@ tools:
             - last_error_message
             - count
             - experiment_set
-            # Each turn-on starts a backfill, and nothing limits how many cohorts a project turns on yet.
             - realtime_enabled
         ui_app: cohort
     cohorts-list:
@@ -178,7 +177,6 @@ tools:
             - last_error_message
             - count
             - experiment_set
-            # Each turn-on starts a backfill, and nothing limits how many cohorts a project turns on yet.
             - realtime_enabled
         param_overrides:
             id:
