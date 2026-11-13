@@ -113,6 +113,7 @@ from products.feature_flags.backend.tasks import (
     compute_feature_flag_metrics,
     drain_flag_definitions_rebuild_requests,
     feature_flags_local_eval_canary_task,
+    maintain_flag_definitions_v2_cache_entries,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
     report_django_local_evaluation_usage_task,
@@ -524,6 +525,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="50"),
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache",
+        expires_seconds=60 * 60,
+    )
+
+    # Flag definitions v2 cache upkeep - hourly at minute 5
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="5"),
+        maintain_flag_definitions_v2_cache_entries.s(),
+        name="maintain flag definitions v2 cache entries",
         expires_seconds=60 * 60,
     )
 

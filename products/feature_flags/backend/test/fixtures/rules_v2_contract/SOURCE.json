@@ -50,6 +50,8 @@
         "manifest.json": "90d99c41300e8067117648ad5b7591c9864a35d38e61f06f02690b79f067ec18",
         "registries/literals.json": "3e87e6c7c760f0ebac80289faa5412a6ecd17749cb5c79dabe5ed1efaea22578",
         "schemas/config.schema.json": "163507e0db1219329caef034a50516d27eb5759b5e4c250f313ceb53ca3f1e08",
+        "schemas/definitions_entry.schema.json": "6d920c77fb7f20c2031dc188d495ed28c3789b3f362334517a2e86021a226e85",
+        "schemas/definitions_v2.schema.json": "f361158f8a5572feee09fd03ce8d41f31e077f6003b90f776ea2d9ed9e38dcd8",
         "schemas/management_warning.schema.json": "9aafe3c28785298bbc143e170881df43866d1b6f1070f685cbdf3d6e4418f361"
     }
 }
