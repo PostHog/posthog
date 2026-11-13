@@ -178,9 +178,9 @@ jobs:
               run: git pull --ff-only origin master
 
             # The release ships every change to hog's sources since the last release, so nobody who
-            # authored or merged one of those pull requests may approve it. The range ends at the commit
-            # checked out here. The release job checks what merged after it, while the release pull
-            # request waited in the merge queue.
+            # opened, merged or pushed commits to one of those pull requests may approve it. The range
+            # ends at the commit checked out here. The release job checks what merged after it, while
+            # the release pull request waited in the merge queue.
             - name: Check approvers against every change since the last release
               id: range-guard
               env:
@@ -220,7 +220,7 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they authored or merged a hog change this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
+                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they opened, merged or pushed commits to a hog change this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
                   emoji_reaction: 'no_entry'
 
             - name: Check for remaining changesets
