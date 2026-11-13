@@ -28,6 +28,8 @@ logger = structlog.get_logger(__name__)
 WRITABLE_SCHEDULE_FIELDS = frozenset({"rrule", "starts_at", "timezone", "variables"})
 SCHEDULED_RUNS_PER_DISPATCH = 100
 SCHEDULED_RUN_BYTES_PER_DISPATCH = 4 * 1024 * 1024
+# A gateway can answer these after the CDP API queued the batch, so their runs stay claimed rather than run twice.
+GATEWAY_ERRORS_AFTER_QUEUEING = frozenset({502, 504})
 
 
 @frozen
@@ -36,6 +38,8 @@ class ScheduledRun:
     team_id: int
     hog_flow_id: str
     variables: dict[str, Any]
+    claimed_run_at: datetime | None
+    next_run_at: datetime | None
 
 
 def _to_schedule(schedule: HogFlowSchedule) -> WorkflowSchedule:
@@ -168,6 +172,8 @@ class _ScheduledRunDispatch:
             response = create_hog_flow_scheduled_invocations(
                 [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk]
             )
+            if not response.ok and response.status_code not in GATEWAY_ERRORS_AFTER_QUEUEING:
+                _return_to_due(chunk)
             response.raise_for_status()
             outcomes = list(zip(chunk, [result["status"] for result in response.json()["results"]], strict=True))
         except Exception:
@@ -190,7 +196,17 @@ class _ScheduledRunDispatch:
                 self.failed.append(run.schedule_id)
 
 
-def _scheduled_run(schedule: HogFlowSchedule, hog_flow: HogFlow) -> ScheduledRun:
+def _return_to_due(chunk: list[ScheduledRun]) -> None:
+    for run in chunk:
+        HogFlowSchedule.objects.filter(
+            id=run.schedule_id,
+            team_id=run.team_id,
+            status=HogFlowScheduleStatus.ACTIVE if run.next_run_at else HogFlowScheduleStatus.COMPLETED,
+            next_run_at=run.next_run_at,
+        ).update(status=HogFlowScheduleStatus.ACTIVE, next_run_at=run.claimed_run_at, updated_at=timezone.now())
+
+
+def _scheduled_run(schedule: HogFlowSchedule, hog_flow: HogFlow, claimed_run_at: datetime | None) -> ScheduledRun:
     if not WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.enabled():
         raise ImproperlyConfigured("Set WORKFLOWS_CANCEL_JWT_SECRET on the web tier to send scheduled runs")
     return ScheduledRun(
@@ -198,6 +214,8 @@ def _scheduled_run(schedule: HogFlowSchedule, hog_flow: HogFlow) -> ScheduledRun
         team_id=schedule.team_id,
         hog_flow_id=str(hog_flow.id),
         variables=_resolve_variables(hog_flow, schedule),
+        claimed_run_at=claimed_run_at,
+        next_run_at=schedule.next_run_at,
     )
 
 
@@ -243,7 +261,8 @@ def process_due_schedules() -> ProcessedSchedules:
                     schedule.save(update_fields=["next_run_at", "updated_at"])
                     continue
 
-                _advance_next_run(schedule, after=schedule.next_run_at)
+                claimed_run_at = schedule.next_run_at
+                _advance_next_run(schedule, after=claimed_run_at)
 
                 if trigger_type == "batch":
                     batch_job_params = {
@@ -253,7 +272,7 @@ def process_due_schedules() -> ProcessedSchedules:
                         "filters": (hog_flow.trigger or {}).get("filters", {}),
                     }
                 else:
-                    scheduled_run = _scheduled_run(schedule, hog_flow)
+                    scheduled_run = _scheduled_run(schedule, hog_flow, claimed_run_at)
 
             if scheduled_run:
                 dispatch.add(scheduled_run)

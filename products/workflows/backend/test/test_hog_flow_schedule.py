@@ -730,17 +730,14 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("engine_error_fails", 500, None, "failed", "failed"),
-            ("over_quota_skips_the_run", 200, "quota_limited", "processed", "processed"),
-            ("refused_run_fails", 200, "workflow_not_found", "failed", "processed"),
+            ("over_quota_skips_the_run", "quota_limited", "processed", "processed"),
+            ("refused_run_fails", "workflow_not_found", "failed", "processed"),
         ]
     )
-    def test_cdp_refusal_outcome(self, _name, status_code, run_outcome, outcome, neighbour_outcome):
+    def test_cdp_refusal_outcome(self, _name, run_outcome, outcome, neighbour_outcome):
         _, neighbour = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
         hog_flow, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
-        self.cdp.status_code = status_code
-        if run_outcome:
-            self.cdp.outcome_by_hog_flow[str(hog_flow.id)] = run_outcome
+        self.cdp.outcome_by_hog_flow[str(hog_flow.id)] = run_outcome
 
         response = self._post()
         assert response.status_code == 200
@@ -754,6 +751,39 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             due.refresh_from_db()
             assert due.next_run_at is not None
             assert due.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("cdp_api_without_the_batch_route", 404, True),
+            ("batch_over_the_insert_size", 400, True),
+            ("token_from_another_signing_key", 401, True),
+            ("queue_insert_failed", 500, True),
+            ("gateway_timed_out_after_queueing", 504, False),
+            ("last_occurrence_of_the_schedule", 404, True, True),
+        ]
+    )
+    def test_refused_batch_keeps_its_schedules_due_for_the_next_poll(
+        self, _name, status_code, kept_due, last_occurrence=False
+    ):
+        latest_occurrence = timezone.now().replace(minute=0, second=0, microsecond=0)
+        rrule = "FREQ=HOURLY;INTERVAL=1"
+        if last_occurrence:
+            rrule += f";UNTIL={latest_occurrence:%Y%m%dT%H%M%SZ}"
+        schedules = [
+            self._create_workflow_with_schedule(next_run_at=latest_occurrence, rrule=rrule)[1] for _ in range(2)
+        ]
+        schedule_ids = sorted(str(schedule.id) for schedule in schedules)
+        self.cdp.status_code = status_code
+
+        refused = self._post().json()
+        self.cdp.status_code = 200
+        retried = self._post().json()
+
+        assert sorted(refused["failed"]) == schedule_ids
+        assert sorted(retried["processed"]) == (schedule_ids if kept_due else [])
+        assert sorted(run["hog_flow_id"] for run in self.cdp.received_runs) == (
+            sorted(str(schedule.hog_flow_id) for schedule in schedules) if kept_due else []
+        )
 
 
 def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Response:
