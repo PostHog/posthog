@@ -3,16 +3,16 @@ import type { TileDisplayOptions } from 'scenes/dashboard/dashboardLogic'
 
 import { DashboardTile } from '~/types'
 
-export function TextCardDisplayOptions({
+export function TransparentBackgroundOption({
     tile,
     onUpdateDisplayOptions,
     saving,
-    dataAttr = 'text-card-menu-transparent-background',
+    dataAttr,
 }: {
     tile: DashboardTile
     onUpdateDisplayOptions: (displayOptions: TileDisplayOptions) => void
     saving?: boolean
-    dataAttr?: string
+    dataAttr: string
 }): JSX.Element {
     return (
         <ChartOptionSwitch

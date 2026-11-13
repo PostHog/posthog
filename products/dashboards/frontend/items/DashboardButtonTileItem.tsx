@@ -17,8 +17,8 @@ import type { TileDisplayOptions } from 'scenes/dashboard/dashboardLogic'
 
 import type { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
-import { TextCardDisplayOptions } from '../components/DashboardTextItem/TextCardDisplayOptions'
 import { QuillDashboardTileMenuItems } from '../components/QuillDashboardTileMenuItems'
+import { TransparentBackgroundOption } from '../components/TransparentBackgroundOption'
 
 type BaseButtonTileCardProps = React.ComponentProps<typeof ButtonTileCard>
 
@@ -63,7 +63,7 @@ function DashboardButtonTileItemInternal(
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const displayOptions = onUpdateDisplayOptions ? (
-        <TextCardDisplayOptions
+        <TransparentBackgroundOption
             tile={tile}
             onUpdateDisplayOptions={onUpdateDisplayOptions}
             saving={displayOptionsSaving}
