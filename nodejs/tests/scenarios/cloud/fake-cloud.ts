@@ -18,6 +18,8 @@ type Resource = {
     clusterResourceId?: string
     secretArn?: string
     rdsClusterArn?: string
+    clusterId?: string
+    createdAt?: number
     image?: string
 }
 
@@ -38,6 +40,8 @@ type Stack = {
 
 const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
 const MINUTE_MS = 60_000
+const SECRET_LISTING_LAG_MS = 5 * MINUTE_MS
+const BACKUP = 'AWS::RDS::DBClusterAutomatedBackup'
 const TAKES_MS: Record<string, number> = {
     CREATE_IN_PROGRESS: MINUTE_MS / 4,
     UPDATE_IN_PROGRESS: 10 * MINUTE_MS,
@@ -254,6 +258,7 @@ export class FakeCloud implements Aws {
                 }
                 secret.arn = secret.id
                 secret.rdsClusterArn = `arn:aws:rds:us-east-1:${this.account}:cluster:${clusterId}`
+                secret.createdAt = this.options.now().getTime()
                 created.push(
                     {
                         logicalId,
@@ -346,6 +351,20 @@ export class FakeCloud implements Aws {
             stack.status = 'DELETE_FAILED'
         } else if (stack.status === 'DELETE_IN_PROGRESS') {
             this.removeResources(stack, ({ type }) => !(this.options.outlives ?? []).includes(type))
+            if ((this.options.outlives ?? []).includes(BACKUP)) {
+                this.resources.push(
+                    ...stack.resources
+                        .filter(({ type }) => type === 'AWS::RDS::DBCluster')
+                        .map((cluster) => ({
+                            logicalId: `${cluster.logicalId}Backup`,
+                            type: BACKUP,
+                            id: cluster.clusterResourceId!,
+                            arn: '',
+                            state: 'retained',
+                            clusterId: cluster.id,
+                        }))
+                )
+            }
             this.stacks.delete(name)
         }
     }
@@ -519,11 +538,23 @@ export class FakeCloud implements Aws {
                 }
             case 'rds describe-db-cluster-snapshots':
                 return { DBClusterSnapshots: [] }
-            case 'rds describe-db-cluster-automated-backups':
+            case 'rds describe-db-cluster-automated-backups': {
+                const retained = this.resources.filter(({ type, state }) => type === BACKUP && state !== 'gone')
                 if (flags.has('filters')) {
-                    return { DBClusterAutomatedBackups: [] }
+                    return {
+                        DBClusterAutomatedBackups: retained
+                            .filter(
+                                ({ clusterId }) => flags.get('filters') === `Name=db-cluster-id,Values=${clusterId}`
+                            )
+                            .map(({ id, state }) => ({ DbClusterResourceId: id, Status: state })),
+                    }
+                }
+                const backup = retained.find(({ id }) => id === flags.get('db-cluster-resource-id'))
+                if (backup) {
+                    return { DBClusterAutomatedBackups: [{ Status: backup.state }] }
                 }
                 throw serviceError(operation, 'DBClusterAutomatedBackupNotFoundFault', 'no retained backups')
+            }
             case 'ec2 describe-instances': {
                 if (!flags.has('instance-ids')) {
                     return { Reservations: [] }
@@ -554,9 +585,10 @@ export class FakeCloud implements Aws {
                 return {
                     SecretList: this.resources
                         .filter(
-                            ({ type, state, rdsClusterArn }) =>
+                            ({ type, state, rdsClusterArn, createdAt }) =>
                                 type === 'AWS::SecretsManager::Secret' &&
                                 state !== 'gone' &&
+                                this.options.now().getTime() - (createdAt ?? 0) >= SECRET_LISTING_LAG_MS &&
                                 filters.includes('Key=tag-key,Values=aws:rds:primaryDBClusterArn') &&
                                 filters.includes(`Key=tag-value,Values=${rdsClusterArn}`)
                         )

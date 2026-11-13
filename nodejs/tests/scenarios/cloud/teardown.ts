@@ -171,9 +171,11 @@ async function discover(
         return ResourceTagMappingList.map(({ ResourceARN }) => resourceOfArn(ResourceARN))
     })
     for (const { id } of [...inventory.values()].filter(({ type }) => type === CLUSTER)) {
-        await list(`the secret and backups of cluster ${id}`, () =>
-            clusterCopiesOf(aws, `arn:aws:rds:${region}:${account}:cluster:${id}`, id)
+        await list(`the secret and backups of cluster ${id}`, () => liveClusterCopiesOf(aws, id))
+        await list(`the secrets tagged for cluster ${id}`, () =>
+            taggedSecretsOf(aws, `arn:aws:rds:${region}:${account}:cluster:${id}`)
         )
+        await list(`the retained backups of cluster ${id}`, () => retainedBackupsOf(aws, id))
         await list(`the snapshots of cluster ${id}`, () => snapshotsOf(aws, id))
     }
     return { failures, tagged: new Set(tagged.map(keyOfResource)) }
@@ -187,7 +189,26 @@ async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Man
     return receipts
 }
 
-async function clusterCopiesOf(aws: Aws, clusterArn: string, clusterId: string): Promise<Resource[]> {
+const SECRET = 'AWS::SecretsManager::Secret'
+const BACKUP = 'AWS::RDS::DBClusterAutomatedBackup'
+
+async function liveClusterCopiesOf(aws: Aws, clusterId: string): Promise<Resource[]> {
+    const cluster = await orGone(
+        aws.call(['rds', 'describe-db-clusters', '--db-cluster-identifier', clusterId]),
+        ({ DBClusters }) => DBClusters[0] as { MasterUserSecret?: { SecretArn?: string }; DbClusterResourceId: string },
+        'DBClusterNotFoundFault'
+    )
+    if (cluster === GONE) {
+        return []
+    }
+    const { MasterUserSecret, DbClusterResourceId } = cluster
+    return [
+        ...(MasterUserSecret?.SecretArn ? [{ type: SECRET, id: MasterUserSecret.SecretArn }] : []),
+        { type: BACKUP, id: DbClusterResourceId },
+    ]
+}
+
+async function taggedSecretsOf(aws: Aws, clusterArn: string): Promise<Resource[]> {
     const { SecretList } = (await aws.call([
         'secretsmanager',
         'list-secrets',
@@ -195,19 +216,17 @@ async function clusterCopiesOf(aws: Aws, clusterArn: string, clusterId: string):
         `Key=tag-key,Values=${RDS_CLUSTER_TAG}`,
         `Key=tag-value,Values=${clusterArn}`,
     ])) as { SecretList: { ARN: string }[] }
+    return SecretList.map(({ ARN }) => ({ type: SECRET, id: ARN }))
+}
+
+async function retainedBackupsOf(aws: Aws, clusterId: string): Promise<Resource[]> {
     const { DBClusterAutomatedBackups } = (await aws.call([
         'rds',
         'describe-db-cluster-automated-backups',
         '--filters',
         `Name=db-cluster-id,Values=${clusterId}`,
     ])) as { DBClusterAutomatedBackups: { DbClusterResourceId: string }[] }
-    return [
-        ...SecretList.map(({ ARN }) => ({ type: 'AWS::SecretsManager::Secret', id: ARN })),
-        ...DBClusterAutomatedBackups.map(({ DbClusterResourceId }) => ({
-            type: 'AWS::RDS::DBClusterAutomatedBackup',
-            id: DbClusterResourceId,
-        })),
-    ]
+    return DBClusterAutomatedBackups.map(({ DbClusterResourceId }) => ({ type: BACKUP, id: DbClusterResourceId }))
 }
 
 async function snapshotsOf(aws: Aws, clusterId: string): Promise<Resource[]> {

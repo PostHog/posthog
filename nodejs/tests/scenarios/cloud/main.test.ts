@@ -860,6 +860,25 @@ describe('cloud controller', () => {
             (fake) => fake.failWhen('list-objects-v2', listsReceipts),
             (fake) => fake.heal(),
         ],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even when the run stops while the stack is created',
+            (fake) => {
+                onSleep = () => {
+                    if (fake.resources.length > 0) {
+                        interrupt?.()
+                    }
+                }
+            },
+            () => undefined,
+        ],
+        ['AWS::RDS::DBClusterAutomatedBackup', '', () => undefined, () => undefined],
+        [
+            'AWS::RDS::DBClusterAutomatedBackup',
+            ', even when the run cannot read the live cluster',
+            (fake) => fake.failWhen('describe-db-clusters', () => true),
+            (fake) => fake.heal(),
+        ],
     ])('keeps the schedules and names a %s that outlives the stack%s', async (type, _, beforeRun, beforeCleanup) => {
         const { controller } = prepare({ cloud: { outlives: [type] } })
         beforeRun(cloud)
@@ -890,6 +909,7 @@ describe('cloud controller', () => {
 
         cloud.heal()
         err.length = 0
+        now = new Date(now.getTime() + HOUR_MS / 6)
         await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
 
         const [secret] = cloud.billable().filter((resource) => resource.startsWith('AWS::SecretsManager::Secret'))
