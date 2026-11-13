@@ -16,6 +16,7 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.issue_tags import registry, runner
+from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, JevTaggerConfig
 from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun, run_issue_taggers
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer, TagContext
@@ -169,12 +170,18 @@ class TestRunIssueTaggers(BaseTest):
 
     @parameterized.expand(
         [
-            ("issue_tags_off", False, True, IssueTaggingSkipReason.DISABLED),
-            ("ai_data_processing_not_approved", True, False, IssueTaggingSkipReason.NO_TAGGER),
+            ("issue_tags_off", set(), True, IssueTaggingSkipReason.DISABLED),
+            ("jev_tags_off", {ISSUE_TAGS_FLAG}, True, IssueTaggingSkipReason.NO_TAGGER),
+            (
+                "ai_data_processing_not_approved",
+                {ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG},
+                False,
+                IssueTaggingSkipReason.NO_TAGGER,
+            ),
         ]
     )
     def test_reads_no_event_and_asks_no_model_when_no_tagger_applies(
-        self, _name: str, flag_on: bool, ai_approved: bool, expected: IssueTaggingSkipReason
+        self, _name: str, flags_on: set[str], ai_approved: bool, expected: IssueTaggingSkipReason
     ) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save()
@@ -182,7 +189,7 @@ class TestRunIssueTaggers(BaseTest):
         load_event_properties = MagicMock(return_value=EVENT_PROPERTIES)
 
         with (
-            patch.object(team_flags, "feature_enabled_or_false", return_value=flag_on),
+            patch.object(team_flags, "feature_enabled_or_false", new=lambda flag, *args, **kwargs: flag in flags_on),
             patch(DECIDE) as decide,
         ):
             result = run_issue_taggers(self.team.id, issue.id, load_event_properties)
