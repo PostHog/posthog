@@ -842,3 +842,95 @@ func TestRunChunkedEnvelope(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessEnvelopeLineStoresNestedAsStrings(t *testing.T) {
+	proc := newProcessor(eventEnvelopeNestedAsStrings)
+	deepArrays := strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9)
+	tests := []struct {
+		name, properties, person string
+		want                     envelopeResult
+	}{
+		{
+			"source text is kept byte for byte",
+			`{"plan": { "seats" : 5, "gone":null, "seats":6, "id":18446744073709551616 },"path":["a\/b","\u0041"],"n":1}`,
+			`{"address":{"city":null},"tags":[null]}`,
+			envelopeResult{
+				Properties:          `{"plan":"{ \"seats\" : 5, \"gone\":null, \"seats\":6, \"id\":18446744073709551616 }","path":"[\"a\\/b\",\"\\u0041\"]","n":1}`,
+				TemporaryProperties: `{}`,
+				PersonProperties:    `{"address":"{\"city\":null}","tags":"[null]"}`,
+			},
+		},
+		{
+			"only top-level nulls are dropped and recorded",
+			`{"a":null,"b":{"c":null},"$set":{"email":null},"$set_once":null}`,
+			`{"email":null}`,
+			envelopeResult{
+				Properties:                  `{"b":"{\"c\":null}"}`,
+				TemporaryProperties:         `{"$set":"{\"email\":null}"}`,
+				PersonProperties:            `{}`,
+				PropertiesNullKeys:          []string{"a"},
+				TemporaryPropertiesNullKeys: []string{"$set_once"},
+				PersonPropertiesNullKeys:    []string{"email"},
+			},
+		},
+		{
+			"feature flags stay a map",
+			`{"$feature/demo":"control","$feature/off":"false","$feature/obj":{"a":1},"$feature_flags":{"old":"x"}}`,
+			`{"$feature_flags":{"p":1}}`,
+			envelopeResult{
+				Properties:          `{"$feature_flags":{"demo":"control","obj":"{\"a\":1}","off":"$false","old":"x"}}`,
+				TemporaryProperties: `{}`,
+				PersonProperties:    `{"$feature_flags":"{\"p\":1}"}`,
+			},
+		},
+		{
+			"exception properties are stored as sent",
+			`{"$exception_types":"TypeError","$exception_values":[1,"x"],"$exception_list":{"type":"E"},"$exception_sources":null}`,
+			`{}`,
+			envelopeResult{
+				Properties:          `{"$exception_types":"TypeError","$exception_values":"[1,\"x\"]","$exception_list":"{\"type\":\"E\"}"}`,
+				TemporaryProperties: `{}`,
+				PersonProperties:    `{}`,
+				PropertiesNullKeys:  []string{"$exception_sources"},
+			},
+		},
+		{
+			"deep arrays are not quarantined",
+			`{"x":` + deepArrays + `,"$ai_input":` + deepArrays + `}`,
+			`{}`,
+			envelopeResult{
+				Properties:          fmt.Sprintf(`{"x":%q}`, deepArrays),
+				TemporaryProperties: `{}`,
+				PersonProperties:    `{}`,
+			},
+		},
+		{
+			"a duplicate key keeps the first non-empty value",
+			`{"a":{ },"a":[1],"b":[],"b":"s","c":"{not json","d":{}}`,
+			`{}`,
+			envelopeResult{
+				Properties:          `{"a":"[1]","b":"s","c":"{not json","d":"{}"}`,
+				TemporaryProperties: `{}`,
+				PersonProperties:    `{}`,
+			},
+		},
+		{
+			"malformed nested value quarantines the document",
+			`{"a":{"b":}}`,
+			`{"a":[1,]}`,
+			envelopeResult{
+				Properties:          `{"$unparseable_properties":"{\"a\":{\"b\":}}"}`,
+				TemporaryProperties: `{}`,
+				PersonProperties:    `{"$unparseable_properties":"{\"a\":[1,]}"}`,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := processEnvelope(t, &proc, tt.properties, tt.person)
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Fatalf("got  %+v\nwant %+v", got, tt.want)
+			}
+		})
+	}
+}

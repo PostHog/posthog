@@ -72,6 +72,32 @@ SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","pla
 -- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":{"score":7}}','{}',['plan'],[],['email'])
 ```
 
+### `JSONCleanPostHogEventNestedAsStrings(properties, person_properties)`
+
+Takes the same arguments and returns the same named tuple as `JSONCleanPostHogEvent`, for a destination table that stores objects and arrays as strings.
+The existing functions and the tables they feed are unchanged.
+
+In all three documents, every top-level object and array becomes a JSON string that holds the text that was sent.
+The cleaner validates that text and copies it without rebuilding it, so whitespace, key order, escapes, duplicate keys, large integers and `null` fields inside it are stored as sent.
+A search for a substring of the original value, such as a file path in a stack trace, matches the stored string.
+The event `$feature_flags` map is the exception: it stays an object, and `$feature/<key>` properties are grouped into it as before.
+
+Differences from `JSONCleanPostHogEvent`:
+
+- Only top-level `null` fields are dropped and recorded in the null-key arrays. The exception is a `null` flag, which is recorded under `$feature_flags`.
+- The `$exception_*` and `$mcp_listed_tool_names` properties are not coerced to arrays. They are stored as sent, so a scalar stays a scalar.
+- The eight-array nesting limit does not apply, because ClickHouse does not infer a type for an array inside a string. The JSON depth limit of 300 still applies.
+- A string that was sent as a string is stored unchanged, so a stored string that starts with `{` or `[` can be either a nested value or text the SDK sent.
+
+The dropped properties, the temporary allowlist, duplicate handling for top-level keys, integer protection for top-level numbers, and quarantine under `$unparseable_properties` are the same.
+
+```sql
+SELECT JSONCleanPostHogEventNestedAsStrings('{"plan":{"seats":5,"trial":null},"tags":["a/b"],"gone":null,"$set":{"score":7}}', '{"address":{"city":null}}');
+-- ('{"plan":"{\\"seats\\":5,\\"trial\\":null}","tags":"[\\"a/b\\"]"}','{"$set":"{\\"score\\":7}"}','{"address":"{\\"city\\":null}"}',['gone'],[],[])
+```
+
+The function uses the event cleaner executable with `--event --nested-as-strings`.
+
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
 Accepts a JSON object and retains only the following top-level properties. A dotted key is one flat key, so `$set.foo` is not retained; a key that starts with `$sdk_debug_` is, except `$sdk_debug_current_session_duration`. It uses the event cleaner's null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.

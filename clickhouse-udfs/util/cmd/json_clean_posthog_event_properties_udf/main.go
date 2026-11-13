@@ -31,6 +31,8 @@ const (
 	personProperties
 	temporaryProperties
 	eventEnvelope
+	// Selects the envelope protocol with nestedAsStrings set; a processor never holds this kind.
+	eventEnvelopeNestedAsStrings
 )
 
 const (
@@ -47,12 +49,17 @@ type pathRule struct {
 
 var eventPropertyRules = makeEventPropertyRules()
 
+// A destination that stores objects and arrays as strings has no typed array paths to coerce values into, so only
+// the feature-flags map keeps a rule.
+var nestedAsStringsEventPropertyRules = makeFeatureFlagsRule()
+
 const (
 	// Match fastjson's parser ceiling so every stored document remains readable by the blob-cleanup UDF.
 	maxJSONDepth = 300
 	// Nested arrays can amplify ClickHouse type inference even for small documents.
 	maxJSONArrayDepth        = 8
 	unparseablePropertiesKey = "$unparseable_properties"
+	featureFlagsKey          = "$feature_flags"
 	maxRecycledValues        = 4096
 	// Each null path repeats its ancestor keys, so a small document with a long key and many null
 	// children can expand to gigabytes of paths. The budget bounds that expansion per document.
@@ -141,7 +148,13 @@ func makeEventPropertyRules() *pathRule {
 	addPathRules(root, normalizationObjectArray,
 		"$exception_list",
 	)
-	addPathRules(root, normalizationObject, "$feature_flags")
+	addPathRules(root, normalizationObject, featureFlagsKey)
+	return root
+}
+
+func makeFeatureFlagsRule() *pathRule {
+	root := makePathRules()
+	addPathRules(root, normalizationObject, featureFlagsKey)
 	return root
 }
 
@@ -157,6 +170,9 @@ const (
 	kindNumber
 	kindBool
 	kindNull
+	// The source text of an object or array that is stored as a string. It orders before kindObject because the
+	// cleaner treats it as a scalar: nothing inside it is cleaned, deduplicated, or checked for nulls.
+	kindRaw
 	kindObject
 	kindArray
 )
@@ -200,6 +216,24 @@ type processor struct {
 	nullKeySeen   map[string]struct{}
 	nullKeyBytes  int
 	nullKeysOver  bool
+	// Store every top-level object and array, except the event feature-flags map, as a string of its source text.
+	nestedAsStrings bool
+	// True only while parsing a properties document, so the envelope row itself is never captured.
+	captureNested bool
+}
+
+func newProcessor(kind propertiesKind) processor {
+	if kind == eventEnvelopeNestedAsStrings {
+		return processor{kind: eventEnvelope, nestedAsStrings: true}
+	}
+	return processor{kind: kind}
+}
+
+func (p *processor) eventRules() *pathRule {
+	if p.nestedAsStrings {
+		return nestedAsStringsEventPropertyRules
+	}
+	return eventPropertyRules
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -249,7 +283,8 @@ func (p *processor) parseDocument(raw []byte) (*value, error) {
 		return nil, fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
 	}
 	// Parsing counts arrays inside discarded properties so quarantine preserves rejected inputs.
-	if p.tooDeepArrays {
+	// The array limit protects ClickHouse type inference, which never sees an array that is stored as a string.
+	if p.tooDeepArrays && !p.nestedAsStrings {
 		p.recycle(parsed)
 		return nil, nil
 	}
@@ -332,7 +367,7 @@ func (p *processor) cleanTemporaryProperties(v *value) (*value, error) {
 
 func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	if v.kind != kindObject {
-		return p.cleanNode(eventPropertyRules, v, 1)
+		return p.cleanNode(p.eventRules(), v, 1)
 	}
 
 	var featureFlags *value
@@ -345,12 +380,12 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 		hasFeatureKeys = true
 		if strings.HasPrefix(property.key, "$feature/") {
 			hasFeatureProperties = true
-		} else if property.key == "$feature_flags" && property.value.kind == kindObject && featureFlags == nil {
+		} else if property.key == featureFlagsKey && property.value.kind == kindObject && featureFlags == nil {
 			featureFlags = property.value
 		}
 	}
 	if !hasFeatureKeys {
-		return p.cleanNode(eventPropertyRules, v, 1)
+		return p.cleanNode(p.eventRules(), v, 1)
 	}
 	createdFeatureFlags := hasFeatureProperties && featureFlags == nil
 	if createdFeatureFlags {
@@ -376,7 +411,7 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	if createdFeatureFlags {
 		v.entries = append(v.entries, entry{key: "$feature_flags", value: featureFlags})
 	}
-	cleaned, err := p.cleanNode(eventPropertyRules, v, 1)
+	cleaned, err := p.cleanNode(p.eventRules(), v, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +593,12 @@ func (p *processor) parseObject(depth, arrayDepth int) (*value, error) {
 			p.mutated = p.mutated || p.discard
 		}
 		// Discarded properties still pass the same syntax and depth validation.
-		child, err := p.parseValue(depth+1, arrayDepth)
+		var child *value
+		if depth == 1 && p.captureNested && !p.discard && !(p.kind == eventEnvelope && key == featureFlagsKey) {
+			child, err = p.parseNestedAsString(depth+1, arrayDepth)
+		} else {
+			child, err = p.parseValue(depth+1, arrayDepth)
+		}
 		p.discard = discard
 		if err != nil {
 			p.recycle(obj)
@@ -576,6 +616,25 @@ func (p *processor) parseObject(depth, arrayDepth int) (*value, error) {
 			return nil, fmt.Errorf("expected ',' or '}' at byte %d", p.pos)
 		}
 	}
+}
+
+// An object or array is validated without building its tree and kept as its source text, so the stored string
+// is the bytes that were sent: nested nulls, duplicate keys, large integers and escapes are not rewritten.
+func (p *processor) parseNestedAsString(depth, arrayDepth int) (*value, error) {
+	p.skipWS()
+	if p.pos >= len(p.data) || (p.data[p.pos] != '{' && p.data[p.pos] != '[') {
+		return p.parseValue(depth, arrayDepth)
+	}
+	start := p.pos
+	p.discard = true
+	_, err := p.parseValue(depth, arrayDepth)
+	p.discard = false
+	if err != nil {
+		return nil, err
+	}
+	v := p.newValue(kindRaw)
+	v.s = borrowedString(p.data[start:p.pos])
+	return v, nil
 }
 
 func (p *processor) parseArray(depth, arrayDepth int) (*value, error) {
@@ -1080,6 +1139,8 @@ func valueKindName(kind valueKind) string {
 		return "Bool"
 	case kindNull:
 		return "Null"
+	case kindRaw:
+		return "JSON"
 	case kindObject:
 		return "Object"
 	case kindArray:
@@ -1213,7 +1274,7 @@ func (p *processor) parseStringifiedJSONArray(raw string, depth int) (*value, bo
 
 func (p *processor) nodeString(v *value) string {
 	switch v.kind {
-	case kindString, kindNumber:
+	case kindString, kindNumber, kindRaw:
 		return v.s
 	case kindBool:
 		if v.b {
@@ -1231,7 +1292,7 @@ func (p *processor) nodeString(v *value) string {
 
 func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
 	switch v.kind {
-	case kindString:
+	case kindString, kindRaw:
 		writeJSONString(buf, v.s)
 	case kindNumber:
 		buf.WriteString(v.s)
@@ -1311,6 +1372,8 @@ func isNonEmptyValue(v *value) bool {
 		return false
 	case kindString:
 		return v.s != ""
+	case kindRaw:
+		return !isEmptyContainer(v.s)
 	case kindArray:
 		return len(v.values) > 0
 	case kindObject:
@@ -1318,6 +1381,12 @@ func isNonEmptyValue(v *value) bool {
 	default:
 		return true
 	}
+}
+
+// Reports whether the source text of an object or array has no members, such as `{}` or `[ ]`.
+func isEmptyContainer(s string) bool {
+	rest := strings.TrimLeft(s[1:], " \t\n\r")
+	return rest == "}" || rest == "]"
 }
 
 func isEmptyArrayString(s string) bool {
@@ -1477,6 +1546,17 @@ func (p *processor) processEnvelopeLine(rawLine []byte, buf *bytes.Buffer) error
 	return nil
 }
 
+func (p *processor) parsePropertiesDocument(raw []byte) (*value, error) {
+	p.captureNested = p.nestedAsStrings
+	parsed, err := p.parseDocument(raw)
+	p.captureNested = false
+	return parsed, err
+}
+
+func (p *processor) exceedsArrayDepthAfterCleaning(v *value) bool {
+	return !p.nestedAsStrings && p.mutated && exceedsJSONArrayDepth(v, 0)
+}
+
 func (p *processor) cleanEventDocument(raw []byte) {
 	permanent := &p.docs[envelopeProperties]
 	temporary := &p.docs[envelopeTemporaryProperties]
@@ -1496,7 +1576,7 @@ func (p *processor) cleanEventDocument(raw []byte) {
 		temporary.WriteString("{}")
 	}
 
-	parsed, err := p.parseDocument(raw)
+	parsed, err := p.parsePropertiesDocument(raw)
 	if err != nil || parsed == nil || parsed.kind != kindObject {
 		p.recycle(parsed)
 		quarantine()
@@ -1522,7 +1602,7 @@ func (p *processor) cleanEventDocument(raw []byte) {
 
 	p.resetNullKeys()
 	cleaned, err := p.cleanEventProperties(parsed)
-	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
+	if err != nil || p.exceedsArrayDepthAfterCleaning(cleaned) {
 		if err != nil {
 			p.recycle(parsed)
 		} else {
@@ -1538,7 +1618,7 @@ func (p *processor) cleanEventDocument(raw []byte) {
 
 	p.resetNullKeys()
 	cleanedTemporary, err := p.cleanNode(nil, temporaryObject, 1)
-	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleanedTemporary, 0)) {
+	if err != nil || p.exceedsArrayDepthAfterCleaning(cleanedTemporary) {
 		// The permanent output already quarantines the raw document; do not duplicate it outside the allowlist.
 		if err != nil {
 			p.recycle(temporaryObject)
@@ -1563,7 +1643,7 @@ func (p *processor) cleanPersonDocument(raw []byte) {
 		return
 	}
 	p.kind = personProperties
-	parsed, err := p.parseDocument(raw)
+	parsed, err := p.parsePropertiesDocument(raw)
 	p.kind = eventEnvelope
 	if err != nil || parsed == nil || parsed.kind != kindObject {
 		p.recycle(parsed)
@@ -1576,7 +1656,7 @@ func (p *processor) cleanPersonDocument(raw []byte) {
 
 	p.resetNullKeys()
 	cleaned, err := p.cleanNode(nil, parsed, 1)
-	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
+	if err != nil || p.exceedsArrayDepthAfterCleaning(cleaned) {
 		if err != nil {
 			p.recycle(parsed)
 		} else {
@@ -1733,7 +1813,7 @@ func run(input io.Reader, output io.Writer, kind propertiesKind) error {
 	reader := bufio.NewReaderSize(input, 64*1024)
 	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
-	proc := processor{kind: kind}
+	proc := newProcessor(kind)
 
 	for {
 		line, err := readLine(reader)
@@ -1768,7 +1848,7 @@ func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
 	reader := bufio.NewReaderSize(input, 64*1024)
 	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
-	proc := processor{kind: kind}
+	proc := newProcessor(kind)
 
 	for {
 		var rows int
@@ -1806,7 +1886,12 @@ func main() {
 	cleanPersonProperties := flag.Bool("person-properties", false, "clean person properties without event-specific transformations")
 	cleanTemporaryProperties := flag.Bool("temporary-properties", false, "retain only temporary event properties")
 	envelope := flag.Bool("event", false, "read JSONEachRow rows of event and person properties and write a JSONEachRow named tuple with every cleaned output")
+	nestedAsStrings := flag.Bool("nested-as-strings", false, "with event, write each top-level object and array as a string of its source text")
 	flag.Parse()
+	if *nestedAsStrings && !*envelope {
+		fmt.Fprintln(os.Stderr, "nested-as-strings requires event")
+		os.Exit(1)
+	}
 	modes := 0
 	for _, enabled := range []bool{*cleanPersonProperties, *cleanTemporaryProperties, *envelope} {
 		if enabled {
@@ -1848,6 +1933,9 @@ func main() {
 	}
 	if *envelope {
 		kind = eventEnvelope
+	}
+	if *nestedAsStrings {
+		kind = eventEnvelopeNestedAsStrings
 	}
 	if err := runner(os.Stdin, os.Stdout, kind); err != nil {
 		fmt.Fprintln(os.Stderr, err)
