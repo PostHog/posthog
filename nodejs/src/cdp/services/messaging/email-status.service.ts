@@ -268,6 +268,21 @@ export class EmailStatusService {
         })
     }
 
+    // The send API refuses these sends before it queues a run, so no worker records them. The log lists a send only
+    // when it has a queued row, so the send gets a queued row and then the failed row that says why it did not go out.
+    queueRefusedSend(send: {
+        teamId: number
+        messageId: string
+        recipient: string
+        functionId: string
+        reason: EmailSkipReason
+        messageCreatedAt: Date | undefined
+    }): void {
+        const { reason, ...row } = send
+        this.queue({ ...row, status: 'queued' })
+        this.queue({ ...row, status: 'failed', reason })
+    }
+
     // A run that fails or is canceled before its email step never reaches the email service, so the
     // run's outcome is the email's. A failed row is written even when the email went out or failed
     // earlier in the run, because a run failure ranks below both and so never replaces them.

@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -25,11 +24,7 @@ function startDisabledReason(isImportRunning: boolean, accessToken: string): str
     return accessToken.trim() ? undefined : 'Enter an access token'
 }
 
-export function IntercomImportSection(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_INTERCOM_IMPORT]) {
-        return null
-    }
+export function IntercomImportSection(): JSX.Element {
     return (
         <SceneSection
             title="Intercom import"
