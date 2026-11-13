@@ -14,6 +14,7 @@ from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_MODEL,
     EMBEDDING_PRODUCT,
     EMBEDDING_RENDERING,
+    MAX_EMBEDDING_TEXT_LENGTH,
 )
 from products.mcp_analytics.backend.intent_topics.corpus import DistinctIntent
 
@@ -45,7 +46,7 @@ def emit_intent_embeddings(team: Team, intents: Sequence[DistinctIntent], *, now
     for start in range(0, len(intents), DELIVERY_BATCH_SIZE):
         results = [
             emit_embedding_request(
-                content=intent.text,
+                content=intent.text[:MAX_EMBEDDING_TEXT_LENGTH],
                 team_id=team.pk,
                 product=EMBEDDING_PRODUCT,
                 document_type=EMBEDDING_DOCUMENT_TYPE,

@@ -10,6 +10,9 @@ EMBEDDING_RENDERING = "raw"
 # The 256-dimension model table keeps rows for one month; an intent older than this has no vector.
 EMBEDDING_RETENTION_DAYS = 30
 
+# Intent text sent for embedding, in characters. Above the model's input limit anyway, and it keeps an
+# escaped request far below the Kafka message limit; the hash still covers the full text.
+MAX_EMBEDDING_TEXT_LENGTH = 8_000
 # Hourly sync: once a run has read this many distinct intents it stops at the next hour boundary, and the
 # next run resumes there. An hour is always read whole, so the budget bounds a catch-up without dropping intents.
 MAX_INTENTS_PER_SYNC = 200_000
