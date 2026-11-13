@@ -26,6 +26,7 @@ from products.actions.backend.facade.enums import ACTIONS_ARRAY_JSONPATH
 from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
+from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
 
 _B = "products.cdp.backend."
 
@@ -36,6 +37,7 @@ __all__ = [
     "HogFunctionActionReference",
     "count_hog_functions_referencing_actions",
     "create_hog_functions",
+    "has_distinct_id_hashing_transformation",
     "has_enabled_hog_function_for_warehouse_table",
     "hog_functions_referencing_action",
     "is_hog_function_template_available",
@@ -82,6 +84,38 @@ def create_hog_functions(
         serializer.is_valid(raise_exception=True)
         created_ids.append(serializer.save(team=team, created_by=created_by).id)
     return created_ids
+
+
+def _input_value(inputs: dict[str, Any], key: str) -> Any:
+    entry = inputs.get(key)
+    return entry.get("value") if isinstance(entry, dict) else None
+
+
+def _hashes_distinct_id(template_id: str | None, inputs: dict[str, Any] | None) -> bool:
+    inputs = inputs or {}
+    if template_id == "template-pii-hashing":
+        return _input_value(inputs, "hashDistinctId") is True
+    if template_id == "template-hash-properties":
+        fields = _input_value(inputs, "privateFields")
+        return isinstance(fields, str) and "distinct_id" in {field.strip() for field in fields.split(",")}
+    return False
+
+
+def has_distinct_id_hashing_transformation(*, team_id: int) -> bool:
+    """Whether an enabled transformation hashes the distinct_id of the team's incoming events.
+
+    Such a team stores persons under hashed distinct IDs, and every event it captures is hashed again,
+    so an event sent with a stored distinct ID lands on a new person. Only the built-in hashing
+    templates are recognized; a custom transformation that hashes distinct_id is not.
+    """
+    transformations = HogFunction.objects.filter(
+        team_id=team_id,
+        type=HogFunctionType.TRANSFORMATION,
+        enabled=True,
+        deleted=False,
+        template_id__in=["template-pii-hashing", "template-hash-properties"],
+    ).values_list("template_id", "inputs")
+    return any(_hashes_distinct_id(template_id, inputs) for template_id, inputs in transformations)
 
 
 def _enabled_hog_functions_triggered_by(

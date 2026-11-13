@@ -50,6 +50,7 @@ from posthog.test.persons import add_distinct_id, create_person, delete_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 
@@ -1645,6 +1646,38 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("no distinct IDs", response.json()["detail"])
+        mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("update_property", "post", "update_property", {"key": "foo", "value": "bar"}),
+            ("delete_property", "post", "delete_property", {"$unset": "foo"}),
+            ("patch", "patch", "", {"properties": {"foo": "bar"}}),
+        ]
+    )
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_property_edit_is_refused_when_a_transformation_hashes_distinct_ids(
+        self, _name, method, action, body, mock_capture
+    ) -> None:
+        HogFunction.objects.create(
+            team=self.team,
+            type="transformation",
+            template_id="template-pii-hashing",
+            enabled=True,
+            inputs_schema=[{"key": "hashDistinctId", "type": "boolean", "secret": False}],
+            inputs={"hashDistinctId": {"value": True}},
+        )
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["already_hashed_distinct_id"],
+            properties={"foo": "a"},
+            immediate=True,
+        )
+
+        response = getattr(self.client, method)(f"/api/person/{person.uuid}/{action}", body, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("hashes distinct IDs", response.json()["detail"])
         mock_capture.assert_not_called()
 
     @mock.patch("posthog.api.person.capture_internal")
