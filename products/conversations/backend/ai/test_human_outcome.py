@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.conversations.backend.ai.human_outcome import classify_human_outcome
+from products.conversations.backend.ai.human_outcome import MAX_SCORED_CHARS, classify_human_outcome
 
 _LONG_DRAFT = (
     "Open Project settings and go to Session replay. Add your domain to the authorized list, "
@@ -42,6 +42,11 @@ class TestClassifyHumanOutcome(SimpleTestCase):
     )
     def test_long_draft_is_scored_over_its_whole_text(self, _name, reply, expected):
         assert classify_human_outcome(_LONG_DRAFT, reply) == expected
+
+    def test_texts_past_the_scoring_limit_get_no_outcome(self):
+        draft = _LONG_DRAFT * 2
+        assert len(draft) > MAX_SCORED_CHARS
+        assert classify_human_outcome(draft, f"Hey Sam! {draft}") is None
 
     @parameterized.expand(
         [

@@ -29,6 +29,10 @@ class AiDraftHumanOutcome(models.TextChoices):
 USED_RATIO = 0.85
 EDITED_RATIO = 0.4
 
+# Matching is quadratic in the token counts, and comment content has no size limit. Texts past this
+# size get no outcome, so a giant comment cannot hold the ticket row lock while it is matched.
+MAX_SCORED_CHARS = 20_000
+
 
 # Chinese, Japanese, Thai and Korean write without spaces between words, so a run of word
 # characters is a whole sentence. One token per character there keeps a small edit from
@@ -37,9 +41,11 @@ _UNSPACED_SCRIPTS = "぀-ヿ㐀-䶿一-鿿豈-﫿가-힯฀-๿"
 _TOKEN_PATTERN = re.compile(rf"[{_UNSPACED_SCRIPTS}]|[^\W{_UNSPACED_SCRIPTS}]+")
 
 
-def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
+def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome | None:
     draft = ai_draft.strip()
     reply = human_reply.strip()
+    if len(draft) > MAX_SCORED_CHARS or len(reply) > MAX_SCORED_CHARS:
+        return None
     if not draft or not reply:
         return "ignored"
     if draft == reply:
@@ -53,9 +59,9 @@ def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
     # the ticket row lock short on the common path, where the human wrote their own reply.
     if 2 * min(len(draft_tokens), len(reply_tokens)) / total_tokens < EDITED_RATIO:
         return "ignored"
-    # rapidfuzz matches both whole token lists in bit-parallel C, fast enough to run under the ticket
-    # row lock without a cap, so text kept anywhere in a long draft counts. Matching characters instead
-    # would score unrelated replies as edited, because two texts in one language share many letters in order.
+    # Indel matches both whole token lists, so text kept anywhere in a long draft counts. Matching
+    # characters instead would score unrelated replies as edited, because two texts in one language
+    # share many letters in order.
     ratio = Indel.normalized_similarity(draft_tokens, reply_tokens)
     if ratio >= USED_RATIO:
         return "used"
@@ -160,7 +166,7 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
             # Investigation notes with no suggested question give the human nothing to adopt.
             return
         classified = classify_human_outcome(draft_text, human_content)
-        if current == classified:
+        if classified is None or current == classified:
             return
         if current and current != "used":
             return
