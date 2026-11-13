@@ -1766,8 +1766,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "duration_ms": duration_ms,
                 **self._filter_analytics_props(query_data),
                 "is_paginated": bool(after_cursor),
-                # Session and person scopes come from embeds that load on page open, not from a search.
-                "scope": "session" if query.sessionId else "person" if query.personId else "none",
+                # Same presence test as the runner, so a blank id reports the scope the query ran with.
+                "scope": "session"
+                if query.sessionId is not None
+                else "person"
+                if query.personId is not None
+                else "none",
                 # Never rejected: a bad analytics label must not fail the query it describes.
                 "trigger": trigger if trigger in LogsQueryTrigger.values else "unknown",
             }
