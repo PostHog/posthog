@@ -15,6 +15,11 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # Distributed proxy to metrics1 on the ingestion-apm nodes that nothing writes to any more.
 # These tables can be larger than the server's max_table_size_to_drop, which the drops lift.
 #
+# metrics2_backfill_series_dict is a dictionary that was created by hand on the logs nodes
+# over metrics2_backfill_series; ClickHouse refuses to drop a table a dictionary depends on,
+# so it goes before the storage tables. Every statement is IF EXISTS so a partly applied run
+# (prod-us stopped after metric_attributes2) resumes cleanly.
+#
 # metric_samples1, metric_series1 and their readers stay. The local stack runs every role on
 # one node and still declares these tables, so the drop runs only in cloud.
 DISTRIBUTED_TABLES = (
@@ -23,6 +28,8 @@ DISTRIBUTED_TABLES = (
     "metric_series_distributed",
     "metric_attributes_distributed",
 )
+
+DICTIONARIES = ("metrics2_backfill_series_dict",)
 
 STORAGE_TABLES = (
     "metrics1",
@@ -45,6 +52,10 @@ operations = (
         *[
             run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.{name}", node_roles=[NodeRole.LOGS])
             for name in DISTRIBUTED_TABLES
+        ],
+        *[
+            run_sql_with_exceptions(f"DROP DICTIONARY IF EXISTS {DB}.{name}", node_roles=[NodeRole.LOGS])
+            for name in DICTIONARIES
         ],
         *[
             run_sql_with_exceptions(

@@ -1153,7 +1153,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'personal-inbox-ranking',
             'inbox-reports-search',
             'anomalies-search',
-            'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
             'workflows-customerio-import',
@@ -1205,9 +1204,9 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
+                'logs-agent-tools',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

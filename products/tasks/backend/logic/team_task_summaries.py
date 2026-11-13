@@ -2,14 +2,17 @@
 
 Signals scouts read discussion tasks on their own reports through the facade. A scout acts for no
 person, so only tasks the whole team can read qualify: null-channel tasks from a team-readable
-origin, and tasks in a public channel. The query pulls the summary keys out of the run state in
+origin, and tasks in a public channel. A Slack task sits in its creator's personal channel, so it
+qualifies on its thread instead: only when every thread it answers in is a public Slack channel,
+because the conversation was already open to the whole workspace. A private channel, a direct
+message, a group DM, and a thread nobody classified stay out. The query pulls the summary keys out of the run state in
 Postgres instead of loading whole state blobs.
 """
 
 import datetime
 from collections.abc import Collection
 
-from django.db.models import BooleanField, Case, F, OuterRef, Subquery, Value, When
+from django.db.models import BooleanField, Case, Exists, F, OuterRef, Q, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Coalesce
 
@@ -26,9 +29,24 @@ class TeamTaskSummary:
     # When a run of the task last changed, such as a new summary. The creation time for a task with no run.
     active_at: datetime.datetime
     created_by_id: int | None
+    origin_product: str
     run_status: str | None
     # None when the latest run wrote no summary, or when its summary is not readable without a viewer.
     summary: str | None
+
+
+def _readable_by_team_q(team_id: int) -> Q:
+    """Tasks any member of the team may read, with a Slack task judged by its thread rather than its channel."""
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the import path
+        PUBLIC_CHANNEL_CONVERSATION_TYPES,
+        SlackThreadTaskMapping,
+    )
+
+    thread_mappings = SlackThreadTaskMapping.objects.filter(task_id=OuterRef("pk"))
+    in_public_thread = Exists(thread_mappings.filter(conversation_type__in=sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES)))
+    in_other_thread = Exists(thread_mappings.exclude(conversation_type__in=sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES)))
+    slack_q = Q(origin_product=Task.OriginProduct.SLACK)
+    return (slack_q & in_public_thread & ~in_other_thread) | (~slack_q & task_visibility_q(None, team_id))
 
 
 def list_team_task_summaries(
@@ -62,7 +80,7 @@ def list_team_task_summaries(
             origin_product__in=list(origin_products),
             deleted=False,
         )
-        .filter(task_visibility_q(None, team_id))
+        .filter(_readable_by_team_q(team_id))
         .annotate(active_at=Coalesce(Subquery(last_run_change), F("created_at")))
         .filter(active_at__gte=active_after)
         .order_by("-active_at", "id")
@@ -102,6 +120,7 @@ def list_team_task_summaries(
                 created_at=task["created_at"],
                 active_at=task["active_at"],
                 created_by_id=task["created_by_id"],
+                origin_product=task["origin_product"],
                 run_status=run["status"] if run is not None else None,
                 summary=summary,
             )

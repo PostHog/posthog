@@ -8,7 +8,31 @@ import { TraceSpanView, type TraceSpanData } from './TraceSpanView'
 export interface TraceSpanListData {
     results: TraceSpanData[]
     hasMore?: boolean
+    /** Set by `apm-trace-get` in summary mode, which returns no spans in `results`. */
+    summary?: {
+        span_count: number
+        duration_ms?: number
+        error_count?: number
+        truncated: boolean
+    }
     _posthogUrl?: string
+}
+
+function headline(data: TraceSpanListData): string {
+    const { summary } = data
+    if (summary && data.results.length === 0) {
+        const parts = [
+            `${summary.span_count}${summary.truncated ? '+' : ''} span${summary.span_count === 1 ? '' : 's'}`,
+        ]
+        if (summary.duration_ms != null) {
+            parts.push(formatDuration(summary.duration_ms * 1_000_000))
+        }
+        if (summary.error_count) {
+            parts.push(`${summary.error_count} error${summary.error_count === 1 ? '' : 's'}`)
+        }
+        return `Trace summary: ${parts.join(' \u00b7 ')}`
+    }
+    return `${data.results.length} span${data.results.length === 1 ? '' : 's'}${data.hasMore ? '+' : ''}`
 }
 
 export interface TraceSpanListViewProps {
@@ -119,17 +143,18 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                     <div className="p-4">
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-muted-foreground">
-                                    {data.results.length} span{data.results.length === 1 ? '' : 's'}
-                                    {data.hasMore ? '+' : ''}
-                                </span>
+                                <span className="text-sm text-muted-foreground">{headline(data)}</span>
                             </div>
                             <DataTable<TraceSpanData>
                                 columns={columns}
                                 data={data.results}
                                 pageSize={20}
                                 defaultSort={{ key: 'timestamp', direction: 'desc' }}
-                                emptyMessage="No trace spans found"
+                                emptyMessage={
+                                    data.summary
+                                        ? 'Open the trace in PostHog to see every span'
+                                        : 'No trace spans found'
+                                }
                             />
                         </div>
                     </div>

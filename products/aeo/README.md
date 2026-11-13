@@ -11,6 +11,12 @@ Everything is built from existing machinery:
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads that table and files inbox/Slack reports on citation-rate drops or spikes. Engine-derived columns carry third-party text by nature, so the runner strips invisible characters and LLM framing markers before writing (`posthog/security/llm_prompt_sanitization.py`), and the scout drives findings from counts while quoting text inertly.
 - **The prompt set** is written by hand or imported from a CSV, so every prompt sent to an engine is one a person reviewed. Deriving prompts from first-party data (signup free-text, AI-landed pages, AI-crawled paths, search-console queries) is deliberately out of this POC: those sources put visitor-supplied text into a live engine call, and they need the prompt-injection handling the rest of our AI tooling has first.
 
+## Agent access
+
+Every API operation of this product has an MCP tool in `mcp/tools.yaml`, so agents can do what the app does.
+`backend/test/test_mcp_tools.py` fails when an operation has no entry. Add one with `pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product aeo`, or record why it stays off with `enabled: false` and a `disabled_reason`.
+Enable a tool for a new route only after the route is deployed, so MCP never serves a tool that returns 404.
+
 ## Setup
 
 Environment (all default empty — the runner is a no-op until configured):
@@ -60,7 +66,7 @@ Its Opportunities and Drafts tabs are content autopilot, which drafts pages for 
 
 `POST /api/projects/<id>/aeo_prompts/suggest/` takes a `domain` (plus optional `brand`, `description`, `competitors`, `topics` and `count`) and returns a pending job. A Celery task asks Claude, through the AI gateway with web search, for prompts a buyer would ask, each labeled with a topic, a circle (differentiation, battleground, vulnerability, table stakes or branded), a funnel stage and a branded flag. Poll `GET aeo_prompts/suggest/<job id>/` for the result; jobs live in the cache for an hour after their last update, and a job still pending after 8 minutes reads as failed. Imported suggestions record `via: suggestion` in their evidence.
 Nothing is saved as a prompt: a person imports the ones they keep. Suggestions need the organization's AI data processing approval, and prompts the project already tracks are left out.
-The MCP tools for it (`aeo-prompts-suggest`, `aeo-prompts-suggestion-get`) ship disabled until the route is deployed.
+The MCP tools for it are `aeo-prompts-suggest` and `aeo-prompts-suggestion-get`.
 
 ### Import over the API
 
@@ -84,7 +90,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 
 ### Weekly dashboard
 
-`POST aeo_prompts/create_dashboard/` (the "Create AI visibility dashboard" button on the Overview, MCP tool `aeo-prompts-create-dashboard`, off until the route is deployed) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
+`POST aeo_prompts/create_dashboard/` (the "Create AI visibility dashboard" button on the Overview, MCP tool `aeo-prompts-create-dashboard`) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
 Its SQL insights (`dashboard.py`) read `system.aeo_citation_checks` over non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend.
 Each query reads `system.aeo_brands`, the brand catalog, when it runs. Own and competitor pages come from the `own` and `competitor` kinds, and a prompt is branded when it names the first label of an own domain, so the dashboard follows catalog edits.
 This differs from the branded split above, which reads `AEO_TARGET_DOMAINS`, when the own domain has not been cited yet and so is not in the catalog.
@@ -195,7 +201,7 @@ Keywords belong to the project, not to a prompt. Each one is measured over the c
 - `GET /api/projects/<id>/aeo_keywords/` lists the keywords, `POST` with `{"keywords": [...]}` adds many at once and reports `created` and `skipped` (blank entries and keywords already listed are skipped, and passing the cap fails with 400), and `DELETE <keyword_id>/` removes one.
 - `GET aeo_keywords/report/?days=7` (at most 30, in the project's timezone) returns one row per keyword over answered checks: the prompts that contain it with their mention and citation rates, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, the citation position and how early the brand is named.
 - `GET aeo_keywords/modifiers/?days=7&keyword=` returns the words and two-word phrases the engines added to their searches beyond the prompt, each counted once per answer, with a kind (freshness, pricing, comparison, docs, site, competitor or other), its citation rate against the baseline, the engines that used it and example searches. `keyword` restricts it to answers whose searches contain that keyword. The kinds come from a fixed word list in `keywords.py`, and competitor terms come from the brand catalog.
-- The MCP tools (`aeo-keywords-list`, `aeo-keywords-create`, `aeo-keywords-delete`, `aeo-keywords-report-get` and `aeo-keywords-modifiers-get`) ship disabled until the route is deployed.
+- The MCP tools are `aeo-keywords-list`, `aeo-keywords-get`, `aeo-keywords-create`, `aeo-keywords-delete`, `aeo-keywords-report-get` and `aeo-keywords-modifiers-get`.
 
 The AI visibility page has a Keywords tab with the list, the report and the modifiers.
 

@@ -42,6 +42,7 @@ import {
     SandboxEmailActionHandler,
     SandboxEmailStep,
     SandboxEmailTestClient,
+    sendsOnSandboxSender,
 } from './actions/email_sandbox'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
@@ -87,7 +88,9 @@ const PER_SEND_METADATA_KEYS = [
     'teamCapped',
     'suppressionLookupAttempts',
     'attachmentLoadRetries',
+    'ownershipCheckRetries',
     'teamBudgetClaimed',
+    'workflowRateClaimed',
 ] as const
 
 const SEND_WITH_FILES_METADATA_KEYS = ['attachmentDueAt', 'attachmentDeferrals'] as const
@@ -233,7 +236,8 @@ export class HogFlowExecutorService {
             email_sandbox: new SandboxEmailActionHandler(
                 { enabled: options.sandboxEmail?.enabled ?? false },
                 options.sandboxEmail?.send ?? null,
-                options.sandboxEmail?.testClient ?? null
+                options.sandboxEmail?.testClient ?? null,
+                emailStatusService
             ),
             exit: new ExitHandler(),
         }
@@ -780,7 +784,10 @@ export class HogFlowExecutorService {
                 actionType: currentAction.type,
             })
 
-            const handler = this.actionHandlers[currentAction.type]
+            const handler =
+                this.actionHandlers[
+                    sendsOnSandboxSender(invocation, currentAction) ? 'email_sandbox' : currentAction.type
+                ]
             if (!handler) {
                 throw new Error(`Action type '${currentAction.type}' not supported`)
             }

@@ -443,6 +443,7 @@ class TestForcedVariantReleaseCondition(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.reason, "can't measure" in finding.detail), (expected_reason, says_not_measurable))
+        self.assertEqual("pinned_people" in finding.evidence, "pinned_share" in finding.evidence)
 
     @parameterized.expand(
         [
