@@ -773,6 +773,13 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert row[6].isoformat() == "2024-01-01T00:00:00+00:00"
 
 
+def test_resolve_log_source_unmapped_workflow_type():
+    assert resolve_log_source("ducklake-copy-data-imports", "ducklake-copy-123") == (
+        "temporal_workflow",
+        "ducklake-copy-data-imports",
+    )
+
+
 def test_resolve_log_source_dwh_cdp_producer_job():
     source, source_id = resolve_log_source(
         "dwh-cdp-producer-job", "dwh-cdp-producer-job-019bdc25-3569-0000-9f32-e7d02775304b"
@@ -975,14 +982,14 @@ class _RecordingProducer:
 
 
 @pytest.mark.parametrize(
-    "workflow_type, workflow_id, expected_source",
+    "workflow_type, workflow_id, expected_source, expected_source_id",
     [
-        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "external_data_jobs"),
-        ("some-unmapped-workflow", "wf-1", None),
+        ("external-data-job", "schema-1-2024-01-01T00:00:00Z", "external_data_jobs", "schema-1"),
+        ("some-unmapped-workflow", "wf-1", "temporal_workflow", "some-unmapped-workflow"),
     ],
 )
 def test_internal_logs_sink_sends_rendered_messages_with_a_source(
-    workflow_type: str, workflow_id: str, expected_source: str | None
+    workflow_type: str, workflow_id: str, expected_source: str, expected_source_id: str
 ) -> None:
     from posthog.temporal.common.internal_logs import InternalLogsSink
     from posthog.temporal.common.logger import Logger, LogMessagesRenderer
@@ -1008,24 +1015,21 @@ def test_internal_logs_sink_sends_rendered_messages_with_a_source(
     if rendered["produce_message"] is not None:
         sink.offer(rendered["produce_message"])
 
-    if expected_source is None:
-        assert producer.enqueued == []
-    else:
-        assert producer.enqueued == [
-            (
-                expected_source,
-                [
-                    InternalLogEntry(
-                        team_id=2,
-                        log_source_id="schema-1",
-                        instance_id="run-1",
-                        timestamp=dt.datetime(2024, 1, 1, 0, 0, 0, 123456),
-                        level="info",
-                        message="synced 3 rows",
-                    )
-                ],
-            )
-        ]
+    assert producer.enqueued == [
+        (
+            expected_source,
+            [
+                InternalLogEntry(
+                    team_id=2,
+                    log_source_id=expected_source_id,
+                    instance_id="run-1",
+                    timestamp=dt.datetime(2024, 1, 1, 0, 0, 0, 123456),
+                    level="info",
+                    message="synced 3 rows",
+                )
+            ],
+        )
+    ]
 
 
 class _ImmediateKafkaProducer:
