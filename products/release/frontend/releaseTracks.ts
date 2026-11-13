@@ -121,8 +121,8 @@ export function relatedFor(
     }
 }
 
-function surveyStatus(survey: RelatedSurvey): string {
-    return survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft'
+export function surveyStatus(survey: RelatedSurvey): 'Archived' | 'Complete' | 'Running' | 'Draft' {
+    return survey.archived ? 'Archived' : survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft'
 }
 
 export function buildTrack(
@@ -204,8 +204,17 @@ export function buildTrack(
                 key: `survey-span-${survey.id}`,
                 kind: 'survey',
                 from: survey.startDate ?? survey.createdAt,
-                to: survey.endDate ?? dayjs().toISOString(),
-                label: status === 'Draft' ? 'Survey draft' : status === 'Running' ? 'Survey running' : 'Survey',
+                to:
+                    survey.endDate ??
+                    (status === 'Archived' ? (survey.startDate ?? survey.createdAt) : dayjs().toISOString()),
+                label:
+                    status === 'Draft'
+                        ? 'Survey draft'
+                        : status === 'Running'
+                          ? 'Survey running'
+                          : status === 'Archived'
+                            ? 'Survey archived'
+                            : 'Survey',
                 href: urls.survey(survey.id),
             },
             href: urls.survey(survey.id),

@@ -41,7 +41,7 @@ def existing_survey_ids(
     team_id: int,
     access_control: UserAccessControl | None = None,
 ) -> set[UUID]:
-    queryset = Survey.objects.filter(team_id=team_id, id__in=list(survey_ids))
+    queryset = Survey.objects.filter(team_id=team_id, id__in=list(survey_ids)).exclude(product_tour__isnull=False)
     if access_control is not None:
         queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
     return set(queryset.values_list("id", flat=True))

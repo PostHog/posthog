@@ -39,6 +39,7 @@ import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { ReleaseShowMore } from './ReleaseShowMore'
+import { surveyStatus } from './releaseTracks'
 import { ReleaseBadgeVariant, ReleaseRow, badgeVariantForTag } from './releaseUtils'
 
 interface LinkedObject {
@@ -101,8 +102,8 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
     const { canEditReleases } = useValues(releaseLogic)
     const { updateRelease, unlinkBroadcast } = useActions(releaseLogic)
-    const { relatedByRelease } = useValues(releaseRelatedLogic)
-    const { unlinkRelated } = useActions(releaseRelatedLogic)
+    const { relatedByRelease, linkedLookupFailed } = useValues(releaseRelatedLogic)
+    const { unlinkRelated, reloadLinked } = useActions(releaseRelatedLogic)
     const related = relatedByRelease[row.id]
     const items: LinkedObject[] = [
         ...row.flags.map((flag) => ({
@@ -131,12 +132,8 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
             type: 'survey',
             title: survey.name,
             meta: 'Survey',
-            badge: survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft',
-            badgeVariant: (survey.endDate
-                ? 'default'
-                : survey.startDate
-                  ? 'success'
-                  : 'default') as ReleaseBadgeVariant,
+            badge: surveyStatus(survey),
+            badgeVariant: (surveyStatus(survey) === 'Running' ? 'success' : 'default') as ReleaseBadgeVariant,
             to: urls.survey(survey.id),
             onRemove: canEditReleases ? () => unlinkRelated(row.id, 'survey', survey.id) : undefined,
         })),
@@ -211,6 +208,22 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                                 </Button>
                             </ItemActions>
                         )}
+                    </Item>
+                )}
+                {linkedLookupFailed && (
+                    <Item variant="outline" tone="warning" size="sm" data-attr="release-linked-lookup-failed">
+                        <ItemMedia variant="icon">
+                            <IconWarning />
+                        </ItemMedia>
+                        <ItemContent>
+                            <ItemTitle>Some linked surveys or insights could not load</ItemTitle>
+                            <ItemDescription>They are still linked. Try again to show them.</ItemDescription>
+                        </ItemContent>
+                        <ItemActions>
+                            <Button size="sm" variant="outline" onClick={reloadLinked}>
+                                Try again
+                            </Button>
+                        </ItemActions>
                     </Item>
                 )}
                 {items.length > 0 ? (

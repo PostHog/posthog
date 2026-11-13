@@ -74,6 +74,7 @@ interface ReleaseRelatedLogicValues {
     relatedSearchLoading: boolean
     dismissed: Record<string, true>
     creatingSurvey: boolean
+    linkedLookupFailed: boolean
     lastRelatedSearch: string
     surveysById: Record<string, RelatedSurvey>
     insightsById: Record<number, RelatedInsight>
@@ -117,6 +118,7 @@ interface ReleaseRelatedLogicActions {
         insights: RelatedInsight[]
     ) => { surveys: RelatedSurvey[]; insights: RelatedInsight[] }
     reloadReleases: () => void
+    reloadLinked: () => { reload: true }
 }
 
 type releaseRelatedLogicType = MakeLogicType<ReleaseRelatedLogicValues, ReleaseRelatedLogicActions>
@@ -138,6 +140,11 @@ function toSurvey(survey: SurveyApi): RelatedSurvey {
 function toInsight(row: unknown[]): RelatedInsight {
     const [id, shortId, name, createdAt, lastModifiedAt] = row as [number, string, string | null, string, string | null]
     return { id, shortId, name: name || 'Untitled insight', createdAt, lastModifiedAt }
+}
+
+function flagKeysPattern(keys: string[]): string {
+    const escaped = keys.map((key) => key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    return `\\$feature/(?:${escaped.join('|')})(?:[^A-Za-z0-9_\\-]|$)`
 }
 
 function batches<T>(items: T[]): T[][] {
@@ -166,6 +173,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
         createReleaseSurvey: (row: ReleaseRow) => ({ row }),
         createReleaseSurveyDone: () => ({ done: true as const }),
         rememberLinked: (surveys: RelatedSurvey[], insights: RelatedInsight[]) => ({ surveys, insights }),
+        reloadLinked: () => ({ reload: true as const }),
     }),
     loaders(({ values }) => ({
         linkedSurveys: [
@@ -267,7 +275,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                                   hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
                                   WHERE deleted = 0 AND saved = 1
                                   AND last_modified_at >= toDateTime(${firstFlagCreated})
-                                  AND multiSearchAny(concat(toString(query), toString(filters)), ${flagKeys.map((key) => `$feature/${key}`)})
+                                  AND match(concat(toString(query), toString(filters)), ${flagKeysPattern(flagKeys)})
                                   ORDER BY last_modified_at DESC LIMIT 20`
                               ).catch(() => [] as RelatedInsight[])
                             : Promise.resolve([] as RelatedInsight[]),
@@ -353,6 +361,15 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
             {} as Record<string, true>,
             {
                 dismissSuggestion: (state, { key }) => ({ ...state, [key]: true as const }),
+            },
+        ],
+        linkedLookupFailed: [
+            false,
+            {
+                loadLinkedSurveys: () => false,
+                loadLinkedInsights: () => false,
+                loadLinkedSurveysFailure: () => true,
+                loadLinkedInsightsFailure: () => true,
             },
         ],
         creatingSurvey: [
@@ -455,6 +472,10 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
             }
         },
         reloadReleases: () => {
+            actions.loadLinkedSurveys()
+            actions.loadLinkedInsights()
+        },
+        reloadLinked: () => {
             actions.loadLinkedSurveys()
             actions.loadLinkedInsights()
         },
