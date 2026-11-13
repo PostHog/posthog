@@ -61,7 +61,7 @@ Mobile SDKs do not write these. Their absence on mobile is normal.
 | Tag                         | Payload                                                                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `$session_options`          | `sessionRecordingOptions` (rrweb options: `recordCanvas`, `recordCrossOriginIframes`, `blockClass`, `inlineStylesheet`, masking) and `activePlugins` |
-| `$remote_config_received`   | Project replay settings: `recordCanvas`, `canvasFps`, `canvasQuality`, `masking`, `networkPayloadCapture`                                            |
+| `$remote_config_received`   | Project replay settings: `canvasRecording` (`enabled`, `fps`, `quality`), `masking`, `networkPayloadCapture`                                         |
 | `$posthog_config`           | The full `posthog.init` config, in `config`. Look at `config.session_recording`                                                                      |
 | `$pageview`, `$url_changed` | Route changes, with `href`                                                                                                                           |
 | `chrome-extension-stripped` | Added by the player when it removed known extension nodes from a full snapshot                                                                       |
@@ -72,6 +72,9 @@ For example, "Too many mutations on node" means attribute changes on that node w
 ## Recipes
 
 Set `F` to the attached file path first.
+Recipes that print seconds count them in player time.
+Set `START_MS` to the recording's `start_time` from `session-recording-get`, as epoch ms. Player time 0 is the earlier of that and the first snapshot.
+If you leave it unset, the recipes count from the first snapshot, which is later than player time 0 when the start of the recording is missing.
 
 ### Overview
 
@@ -90,8 +93,15 @@ jq -c '{
 
 ### Recorder config
 
+`$session_options` holds what the recorder ran with. `$remote_config_received` holds the project settings, and `$posthog_config` the local ones that override them.
+Older posthog-js writes the whole remote config, with the replay settings under `sessionRecording` and the canvas settings as `recordCanvas`, `canvasFps` and `canvasQuality`. The second command reads both shapes.
+
 ```sh
-jq -c '.data.snapshots[] | select(.type == 5 and (.data.tag == "$session_options" or .data.tag == "$remote_config_received")) | {tag: .data.tag, payload: .data.payload}' "$F"
+jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$session_options") | .data.payload' "$F"
+jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$remote_config_received") | .data.payload
+  | select(type == "object")
+  | (if (.sessionRecording | type) == "object" then . + .sessionRecording else . end)
+  | {canvasRecording: (.canvasRecording // {enabled: .recordCanvas, fps: .canvasFps, quality: .canvasQuality}), masking, networkPayloadCapture, consoleLogRecordingEnabled}' "$F"
 jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$posthog_config") | .data.payload.config | {session_recording, capture_pageview, defaults, api_host}' "$F"
 ```
 
@@ -134,10 +144,9 @@ def incr($src): [.data.snapshots[] | select(.type == 3 and .data.source == $src)
 ### What happened around the symptom
 
 Lists events within 5 seconds of a player offset `OFFSET_S`.
-Set `START_MS` to player time 0: the earlier of the recording's `start_time` (in epoch ms) and the first snapshot's `timestamp`.
 
 ```sh
-jq -c --argjson off "$OFFSET_S" --argjson start "$START_MS" '([$start, (.data.snapshots | map(.timestamp) | min)] | min) as $s
+jq -c --argjson off "$OFFSET_S" --argjson start "${START_MS:-null}" '([$start // empty, (.data.snapshots | map(.timestamp) | min)] | min) as $s
   | .data.snapshots[]
   | ((.timestamp - $s) / 1000) as $t
   | select($t >= $off - 5 and $t <= $off + 5)
@@ -149,7 +158,7 @@ jq -c --argjson off "$OFFSET_S" --argjson start "$START_MS" '([$start, (.data.sn
 Node ids are only unique inside one window, so pass the window id too.
 
 ```sh
-jq -c --argjson id "$NODE_ID" --argjson w "$WINDOW_ID" 'first(.data.snapshots[] | select(.windowId == $w) | (.data.node?, (.data.adds? // [])[]?.node) | .. | objects | select(.id? == $id)) | {tagName, attributes: (.attributes | with_entries(.value |= (tostring | .[0:200])))}' "$F"
+jq -c --argjson id "$NODE_ID" --argjson w "$WINDOW_ID" 'first(.data.snapshots[] | select(.windowId == $w) | (.data.node?, (.data.adds? // [])[]?.node) | .. | objects | select(.id? == $id)) | {type, tagName, attributes: ((.attributes // {}) | with_entries(.value |= (tostring | .[0:200])))}' "$F"
 ```
 
 ### Failed network requests
@@ -159,7 +168,8 @@ For `fetch` and `xmlhttprequest`, `responseStatus` 0 means the request never got
 For other initiator types (`link`, `script`, `img`, `iframe`, `css`), 0 is normal for a cross-origin resource without a `Timing-Allow-Origin` header, so the recipe leaves those out.
 
 ```sh
-jq -c '(.data.snapshots | map(.timestamp) | min) as $s | .data.snapshots[] | select(.type == 6 and .data.plugin == "rrweb/network@1") | .timestamp as $ts | .data.payload.requests[] | select((.responseStatus // 200) >= 400 or (.responseStatus == 0 and (.initiatorType == "fetch" or .initiatorType == "xmlhttprequest"))) | {t: ((($ts - $s) / 1000) | floor), status: .responseStatus, type: .initiatorType, url: (.name | .[0:160])}' "$F"
+jq -c --argjson start "${START_MS:-null}" '([$start // empty, (.data.snapshots | map(.timestamp) | min)] | min) as $s
+  | .data.snapshots[] | select(.type == 6 and .data.plugin == "rrweb/network@1") | .timestamp as $ts | .data.payload.requests[] | select((.responseStatus // 200) >= 400 or (.responseStatus == 0 and (.initiatorType == "fetch" or .initiatorType == "xmlhttprequest"))) | {t: ((($ts - $s) / 1000) | floor), status: .responseStatus, type: .initiatorType, url: (.name | .[0:160])}' "$F"
 ```
 
 These are requests the user's browser made while recording.

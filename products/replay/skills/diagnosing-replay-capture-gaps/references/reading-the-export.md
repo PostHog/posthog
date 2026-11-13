@@ -39,7 +39,7 @@ The recorder also writes warnings into the console stream with the prefix `[Sess
 
 | Field                                        | Meaning                                                                                                                                                              |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`                                    | Replay is on for the project.                                                                                                                                        |
+| `enabled`                                    | Replay is on for the project. Older posthog-js does not write it, so the config recipe derives it.                                                                   |
 | `version`                                    | `2` when the project uses trigger groups, `1` for legacy conditions only.                                                                                            |
 | `triggerGroups`                              | Trigger groups. Each has its own conditions and sample rate.                                                                                                         |
 | `sampleRate`                                 | Share of sessions recorded. `null` means no sampling. This is the rate the SDK used: `session_recording.sampleRate` in `posthog.init` overrides the project setting. |
@@ -55,13 +55,18 @@ Before you point the user to project settings for the sample rate, check `sessio
 
 ## Recipes
 
+Every recipe that prints seconds counts them in player time.
+Player time 0 is the earlier of the recording's `start_time` and the first snapshot, so the two differ when the start of the recording is missing.
+Set `START_MS` to `start_time` from `session-recording-get`, as epoch ms.
+If you leave it unset, the recipes count from the first snapshot, and every time is too early by the size of that missing start.
+
 ### Timeline
 
-Page loads, full snapshots, and SDK custom events, in seconds from the start.
+Page loads, full snapshots, and SDK custom events, in seconds of player time.
 Config events are left out because they are long. Read them with the config recipe.
 
 ```sh
-jq -r '(.data.snapshots | map(.timestamp) | min) as $s
+jq -r --argjson start "${START_MS:-null}" '([$start // empty, (.data.snapshots | map(.timestamp) | min)] | min) as $s
   | .data.snapshots[]
   | select(.type == 2 or .type == 4 or (.type == 5 and (.data.tag | IN("$posthog_config", "$session_options", "$remote_config_received") | not)))
   | [((.timestamp - $s) / 1000 | floor), .windowId,
@@ -79,7 +84,7 @@ For each window: when it started, its first non-Custom event, when its first ful
 `first_full_s: null` means the window never plays.
 
 ```sh
-jq -c '(.data.snapshots | map(.timestamp) | min) as $s
+jq -c --argjson start "${START_MS:-null}" '([$start // empty, (.data.snapshots | map(.timestamp) | min)] | min) as $s
   | .data.snapshots | group_by(.windowId) | map({
       window: .[0].windowId,
       first_s: (((map(.timestamp) | min) - $s) / 1000 | floor),
@@ -94,26 +99,28 @@ jq -c '(.data.snapshots | map(.timestamp) | min) as $s
 ### Gaps
 
 Stretches of 30 seconds or more with no data at all. Match each one to the timeline.
+With `START_MS` set, a stretch with no snapshots before the first one shows as a gap at 0.
 
 ```sh
-jq -c '(.data.snapshots | map(.timestamp) | min) as $s
-  | [.data.snapshots[].timestamp] | sort
+jq -c --argjson start "${START_MS:-null}" '([$start // empty, (.data.snapshots | map(.timestamp) | min)] | min) as $s
+  | [$s] + ([.data.snapshots[].timestamp] | sort)
   | [range(1; length) as $i | {at_s: ((.[$i - 1] - $s) / 1000 | floor), gap_s: ((.[$i] - .[$i - 1]) / 1000 | floor)}]
   | map(select(.gap_s >= 30))' "$F"
 ```
 
 ### Config
 
-Newer posthog-js writes only the replay settings into `$remote_config_received`.
+Current posthog-js writes the replay settings at the top level of `$remote_config_received`, with `enabled`.
 Older versions write the whole remote config, with the replay settings under `sessionRecording`, which is `false` when replay is off.
-The first command handles both.
+The first command reads a field from either level, and sets `enabled` from `sessionRecording` when the payload has no `enabled`.
 
 ```sh
 jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$remote_config_received") | .data.payload
-  | (if type == "object" and has("sessionRecording") then .sessionRecording else . end)
-  | if type == "object"
-    then {version, enabled, sampleRate, minimumDurationMilliseconds, triggerMatchType, urlTriggers, eventTriggers, linkedFlag, triggerGroups, urlBlocklist}
-    else {sessionRecording: .} end' "$F"
+  | select(type == "object")
+  | ((.sessionRecording | type) == "object") as $nested
+  | (if $nested then . + .sessionRecording else . end)
+  | {enabled: (if has("enabled") then .enabled else $nested end),
+     version, sampleRate, minimumDurationMilliseconds, triggerMatchType, urlTriggers, eventTriggers, linkedFlag, triggerGroups, urlBlocklist}' "$F"
 jq -c '.data.snapshots[] | select(.type == 5 and (.data.tag == "$recording_started" or .data.tag == "triggerGroupSamplingDecisionMade")) | {tag: .data.tag, payload: .data.payload}' "$F"
 jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$posthog_config") | .data.payload.config
   | {disable_session_recording, opt_out_capturing_by_default, cookieless_mode, api_host, persistence, session_recording}' "$F"
@@ -128,7 +135,8 @@ posthog-js leaves its own `/s/`, `/e/`, and `/i/` requests out of network captur
 What does appear: `/flags`, the `config.js` remote config, and the recorder script (`posthog-recorder.js` or `recorder.js`) under the API host, which also shows whether a reverse proxy is in use.
 
 ```sh
-jq -c '(.data.snapshots | map(.timestamp) | min) as $s | .data.snapshots[] | select(.type == 6 and .data.plugin == "rrweb/network@1") | .timestamp as $ts | .data.payload.requests[]
+jq -c --argjson start "${START_MS:-null}" '([$start // empty, (.data.snapshots | map(.timestamp) | min)] | min) as $s
+  | .data.snapshots[] | select(.type == 6 and .data.plugin == "rrweb/network@1") | .timestamp as $ts | .data.payload.requests[]
   | select(.name | test("/flags/|/decide/|/config\\.js|recorder(-v2)?\\.js|posthog-recorder\\.js"))
   | {t: ((($ts - $s) / 1000) | floor), status: .responseStatus, type: .initiatorType, url: (.name | .[0:160])}' "$F"
 ```

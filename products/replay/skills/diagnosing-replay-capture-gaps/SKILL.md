@@ -39,9 +39,10 @@ Name which one it is, and back it with timestamps from this recording.
 
 ### Step 1: Build the lifecycle timeline
 
-Run the recipes in [reading-the-export.md](./references/reading-the-export.md):
+Run the recipes in [reading-the-export.md](./references/reading-the-export.md).
+Set `START_MS` from the recording's `start_time` first, so the recipes print player time. The player starts at `start_time` when that is earlier than the first snapshot.
 
-- **Timeline**: page loads (Meta), full snapshots, and SDK custom events, in seconds from the start, with window ids.
+- **Timeline**: page loads (Meta), full snapshots, and SDK custom events, in seconds of player time, with window ids.
 - **Windows**: for each `windowId`, the first event, the first full snapshot, and the last event.
 - **Gaps**: stretches of 30 seconds or more with no data.
 - **Config**: `$remote_config_received`, `$recording_started`, `triggerGroupSamplingDecisionMade`, and the replay-related keys of `$posthog_config`.
@@ -64,9 +65,11 @@ Read the custom events around each gap. The [lifecycle tags table](./references/
 ### Step 3: Compare with what the user actually did
 
 Events show pages and actions that the recording lacks.
-Bound the query by time, because `$session_id` alone does not limit the partitions it reads.
+Bound both queries by time, because `$session_id` alone does not limit the partitions it reads.
 Take `<start>` and `<end>` from `session-recording-get`, or from the first and last snapshot timestamps.
-A session lasts at most 24 hours, so a one-day buffer on each side keeps events from before the recording started:
+A session lasts at most 24 hours, so a one-day buffer on each side keeps events from before the recording started.
+
+First, the pages and SDK states the session has:
 
 ```sql
 SELECT
@@ -85,15 +88,35 @@ WHERE $session_id = '<session_id>'
     AND timestamp <= toDateTime('<end>') + INTERVAL 1 DAY
     AND event IN ('$pageview', '$screen', '$pageleave', '$autocapture', '$exception')
 GROUP BY url, lib, lib_version, recording_status
-ORDER BY first_seen ASC
+ORDER BY last_seen ASC
 LIMIT 500
 ```
 
-Each row covers every event for one URL and SDK state, so a long session does not push its end out of the result.
-If the query returns 500 rows, the result is cut off: narrow the time range before you read anything into where events end.
+Each row covers every event for one URL and SDK state, so a long session does not push pages out of the result.
+The rows are not a timeline. A page the user visited twice is one row, with `first_seen` from the first visit and `last_seen` from the last.
+If the query returns 500 rows, the result is cut off: narrow the time range.
+
+Then, the order of pages and how the session ended, newest first:
+
+```sql
+SELECT
+    timestamp,
+    event,
+    properties.$current_url AS url,
+    properties.$lib AS lib,
+    properties.$recording_status AS recording_status
+FROM events
+WHERE $session_id = '<session_id>'
+    AND timestamp >= toDateTime('<start>') - INTERVAL 1 DAY
+    AND timestamp <= toDateTime('<end>') + INTERVAL 1 DAY
+    AND event IN ('$pageview', '$screen', '$pageleave')
+ORDER BY timestamp DESC
+LIMIT 100
+```
 
 - Events on URLs that the recording does not cover: those pages were not recorded. A single-page app changes route without a page load, so compare against Meta `href` values **and** the `href` of `$pageview` and `$url_changed` custom events, and check that snapshots continue around that time. Only then check `$lib_version` on the unrecorded events. A different version or `$lib` means a different app or init.
-- `recording_status` that changes during the session (for example to `disabled`, `paused`, or `buffering`) shows where the SDK stopped.
+- `recording_status` that changes from one page to the next in the second query (for example to `disabled`, `paused`, or `buffering`) shows where the SDK stopped.
+- Events that continue after the recording's last snapshot: the user was still there, so the recording stopped early. Read the last page and its `recording_status` from the top rows of the second query.
 - No client events at all after a point (only server-side `$lib` values): the client SDK stopped loading.
 
 ### Step 4: Match to a cause
@@ -103,20 +126,7 @@ Each cause lists the evidence that proves it.
 Accept a cause only when its evidence is in this recording or in the events.
 If the evidence points outside what you can see (proxy config, an ad blocker on the user's device), say so and say how the user can check.
 
-### Step 5: Say what the config means for other sessions
-
-The config in this recording applies to every session on the same site and SDK version.
-If the user also asks why other sessions are missing, give these facts, then hand off:
-
-- First find which conditions the SDK used. With `version: 2` and a non-empty `triggerGroups`, a current SDK uses the trigger groups, and `triggerGroupSamplingDecisionMade` events appear. The top-level `sampleRate` and triggers are then only a fallback for SDKs too old for trigger groups.
-- The active sample rate below 1: most sessions are left out on purpose.
-- Active URL, event, or flag conditions: sessions that never match are not recorded. Check the patterns for typos.
-- `minimumDurationMilliseconds`: shorter sessions are dropped.
-- `urlBlocklist`: those pages never record.
-
-For a specific session with no recording, or recordings that stopped across the project, hand off to the `diagnosing-missing-recordings` skill.
-
-### Step 6: Answer
+### Step 5: Answer
 
 Lead with one sentence: expected by config, data lost on the way, or never recorded.
 Then give:
@@ -126,7 +136,7 @@ Then give:
 3. **Fix**: the setting path or SDK option and value, the minimum SDK version if one applies, and a docs link.
 4. **What cannot be recovered**: data that never reached PostHog is gone.
 
-If the user asked about other sessions, add the config facts from Step 5 and point to `diagnosing-missing-recordings`.
+If the user also asks about a session with no recording, or recordings that stopped across the project, hand off to the `diagnosing-missing-recordings` skill.
 
 Do not quote personal data from the recording (URLs with tokens, emails, input values) unless the user needs it.
 

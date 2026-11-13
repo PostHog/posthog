@@ -11,7 +11,8 @@ Recipes are in [reading-the-export.md](./reading-the-export.md).
 **Evidence:**
 
 - `canvases` in the inventory is not empty.
-- Canvas capture is off: `$remote_config_received.payload.recordCanvas` is false or missing, and `$session_options.payload.sessionRecordingOptions.recordCanvas` is not true.
+- Canvas capture is off: `$session_options.payload.sessionRecordingOptions.recordCanvas` is not true. That is what the recorder ran with.
+  The config recipe shows where the value comes from: `canvasRecording.enabled` is the project setting, and `session_recording.captureCanvas.recordCanvas` in `$posthog_config` overrides it.
 - Or capture is on, but `canvases_with_frames` does not include the blank canvas (same window and id), and the canvas has no `rr_dataURL`.
 - Library class names hint at the renderer, for example `maplibregl-canvas` or `mapboxgl-canvas`.
 

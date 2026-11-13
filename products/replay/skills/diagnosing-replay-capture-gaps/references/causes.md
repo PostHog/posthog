@@ -95,10 +95,17 @@ After consent the SDK starts sending to `/s/` and `/e/`, and the proxy breaks th
 
 Docs: https://posthog.com/docs/advanced/proxy
 
-### Recordings stopped for everyone on a date
+### A replay billing limit was reached during the session
 
-Not a gap in this recording: hand off to the `diagnosing-missing-recordings` skill.
-A replay billing limit never shows in an export, because a limited SDK starts no recorder. Confirm it in the organization's billing settings.
+**Symptom:** the recording stops while the user keeps using the site.
+
+**Evidence:** the recording's data ends with no lifecycle event to explain it: no `sessionIdle`, `window hidden`, `recording paused`, or `$session_ending`.
+Events for the session continue after the last snapshot, and still report `$recording_status` as `active` or `sampled`.
+A tab that was already recording keeps its recorder when the limit is reached, and PostHog drops the replay data when it arrives.
+Nothing in the export names the limit, so confirm it and its date in the organization's billing settings.
+
+**Fix:** raise the replay billing limit. The dropped part of the recording cannot be recovered.
+Pages that load after the limit start no recorder, so later sessions have no recording at all. For those, hand off to the `diagnosing-missing-recordings` skill.
 
 ## Never recorded
 
