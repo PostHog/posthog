@@ -939,9 +939,34 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 # Demo data
 #
 
-COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
-    table_name=WRITABLE_EVENTS_DATA_TABLE(),
-    columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
+# In cloud, the nodes the app queries have the Distributed read tables but not writable_events or
+# writable_events_json, so both event copies read and write through the read tables. The setting makes the copy
+# shard-local: each shard runs the INSERT SELECT from its sharded table into the same table, so a copied row stays on
+# the shard of its distinct_id and the shard computes the columns it declares MATERIALIZED. Without it, the Distributed
+# sink sends the read table's copies of those columns and the shard rejects the insert.
+_SHARD_LOCAL_COPY_SETTINGS = "SETTINGS parallel_distributed_insert_select = 2"
+
+COPY_EVENTS_BETWEEN_TEAMS = (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+        table_name="events",
+        columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
      group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",
+    )
+    + _SHARD_LOCAL_COPY_SETTINGS
+)
+
+# The copy takes the rows that native ingestion wrote for the source team, so the event cleaner does not run again
+# and the target gets the same events as the source. The elements_chain_* columns stay out of the list because the
+# sharded table computes them from elements_chain.
+COPY_EVENTS_JSON_BETWEEN_TEAMS = (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+        table_name=DISTRIBUTED_EVENTS_JSON_TABLE,
+        columns_except_team_id="""uuid, event, properties, temporary_properties, properties_null_keys,
+    temporary_properties_null_keys, timestamp, distinct_id, elements_chain, created_at, captured_at, person_id,
+    person_created_at, person_properties, person_properties_null_keys, group0_properties, group1_properties,
+    group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at,
+    group3_created_at, group4_created_at, person_mode, total_event_size""",
+    )
+    + _SHARD_LOCAL_COPY_SETTINGS
 )
