@@ -89,7 +89,6 @@ export interface Runner {
 const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
 const SEED_STATEMENT_TIMEOUT_MS = 5000
-const SEED_WITHIN_MS = 60_000
 const WRITER_PROBE_EVERY_MS = 1000
 const QUEUE_PROBE_EVERY_MS = 5000
 const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
@@ -209,77 +208,26 @@ function withEvidenceError(verdict: RunVerdict, error: string | undefined): RunV
           }
 }
 
-type OpenPool = {
-    ending: boolean
-    end(): Promise<void>
-    _clients: { connection: { stream: { destroy(): void } } }[]
-}
-
-function destroyConnections(postgres: PostgresRouter): void {
-    const { pools } = postgres as unknown as { pools: Map<unknown, OpenPool> }
-    for (const pool of new Set(pools.values())) {
-        if (!pool.ending) {
-            void pool.end().catch(() => undefined)
-        }
-        pool._clients.forEach((client) => client.connection.stream.destroy())
-    }
-}
-
-class SeedingCutShort extends Error {}
-
 function messageOf(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
 }
 
-async function seedWithin(
-    loaded: LoadedCard,
-    seedingUrl: string,
-    signal: AbortSignal,
-    withinMs: number
-): Promise<SeedState> {
+async function seedRun(loaded: LoadedCard, seedingUrl: string, signal: AbortSignal): Promise<SeedState> {
     if (signal.aborted) {
         throw new Error('seeding was interrupted')
     }
-    const deadline = AbortSignal.timeout(withinMs)
-    const stop = AbortSignal.any([signal, deadline])
     const postgres = new PostgresRouter(
         { DATABASE_URL: seedingUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
         'posthog-scenarios'
     )
-    const stage = (async () => {
-        try {
-            return await seed(loaded, postgres, stop)
-        } finally {
-            await postgres.end()
-        }
-    })()
-    let onStop = (): void => undefined
-    const stopped = new Promise<never>((_, reject) => {
-        onStop = () => reject(stop.reason)
-        stop.addEventListener('abort', onStop, { once: true })
-    })
     try {
-        return await Promise.race([stage, stopped])
-    } catch (error) {
-        if (!stop.aborted) {
-            throw error
-        }
-        stage.catch(() => undefined)
-        destroyConnections(postgres)
-        const why = deadline.aborted ? `seeding did not finish within ${withinMs} ms` : 'seeding was interrupted'
-        throw new SeedingCutShort(`${why}; its connections were destroyed, restart required`)
+        return await seed(loaded, postgres, signal)
     } finally {
-        stop.removeEventListener('abort', onStop)
+        await postgres.end()
     }
 }
 
-export type RunnerOptions = { seedWithinMs?: number }
-
-export function createRunner(
-    environment: Environment,
-    env: NodeJS.ProcessEnv = process.env,
-    { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
-): Runner {
+export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
     let restartRequired: Error | undefined
 
@@ -350,16 +298,7 @@ export function createRunner(
                     )
                     throw error
                 })
-                const seeded = await seedWithin(loaded, seedingUrlOf(specs[0]), signal, seedWithinMs).catch(
-                    (error: unknown) => {
-                        if (error instanceof SeedingCutShort) {
-                            restartRequired = new Error(
-                                `The seeding stage of run ${runId} was cut short and its connections were destroyed, so a write it sent may still land in the next card. Restart the runner, then run the card again.`
-                            )
-                        }
-                        throw error
-                    }
-                )
+                const seeded = await seedRun(loaded, seedingUrlOf(specs[0]), signal)
                 await judge.open(seeded)
                 const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
@@ -427,19 +366,7 @@ export function createRunner(
                 await stopHealth?.()
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
-                try {
-                    await producer?.disconnect()
-                } catch (error) {
-                    restartRequired = new Error(
-                        `The load producer of run ${runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
-                    )
-                    const failed = `the load producer did not disconnect: ${messageOf(error)}`
-                    outcome = {
-                        ...outcome,
-                        status: 'invalid',
-                        statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
-                    }
-                }
+                await producer?.disconnect()
             }
             const verdict: RunVerdict = {
                 runId,
