@@ -24,8 +24,6 @@ export type SecretReentrySource = 'save' | 'test' | 'publish'
 
 export type SecretReentryConfiguration = Pick<Partial<HogFunctionConfigurationType>, 'inputs_schema' | 'inputs'>
 
-export type EnteredSecretInputs = HogFunctionPublishRequestApiInputs
-
 export interface SecretReentryField {
     key: string
     label: string
@@ -40,14 +38,14 @@ export interface SecretReentryPrompt {
 }
 
 interface SecretReentryCache {
-    onContinue?: (entered: EnteredSecretInputs) => void
+    onContinue?: (entered: HogFunctionPublishRequestApiInputs) => void
     configuration?: SecretReentryConfiguration | null
     markedInputKeys?: Set<string>
 }
 
 export function withEnteredSecrets<T extends SecretReentryConfiguration>(
     configuration: T,
-    entered: EnteredSecretInputs | undefined
+    entered: HogFunctionPublishRequestApiInputs | undefined
 ): T {
     if (!entered) {
         return configuration
@@ -182,11 +180,11 @@ export interface hogFunctionSecretReentryLogicActions {
     requireSecretReentry: (
         refusal: SecretReentryRefusal,
         source: SecretReentrySource,
-        onContinue: (entered: EnteredSecretInputs) => void,
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void,
         configuration?: SecretReentryConfiguration | null
     ) => {
         configuration: SecretReentryConfiguration | null | undefined
-        onContinue: (entered: EnteredSecretInputs) => void
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void
         refusal: SecretReentryRefusal
         source: SecretReentrySource
     }
@@ -248,7 +246,7 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
         requireSecretReentry: (
             refusal: SecretReentryRefusal,
             source: SecretReentrySource,
-            onContinue: (entered: EnteredSecretInputs) => void,
+            onContinue: (entered: HogFunctionPublishRequestApiInputs) => void,
             configuration?: SecretReentryConfiguration | null
         ) => ({ refusal, source, onContinue, configuration }),
         openSecretReentry: (prompt: SecretReentryPrompt) => ({ prompt }),
@@ -381,7 +379,7 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
                     return
                 }
                 const configuration = cache.configuration ?? values.configuration
-                const entered: EnteredSecretInputs = Object.fromEntries(
+                const entered: HogFunctionPublishRequestApiInputs = Object.fromEntries(
                     prompt.secrets.map((field) => [
                         field.key,
                         {

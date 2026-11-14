@@ -15,13 +15,16 @@ import {
     hogFunctionsPublishCreate,
     hogFunctionsRetrieve,
 } from 'products/cdp/frontend/generated/api'
-import type { HogFunctionApi, HogFunctionPublishResponseApi } from 'products/cdp/frontend/generated/api.schemas'
+import type {
+    HogFunctionApi,
+    HogFunctionPublishRequestApiInputs,
+    HogFunctionPublishResponseApi,
+} from 'products/cdp/frontend/generated/api.schemas'
 
 import { buildHogFunctionDraftDiff } from './hogFunctionConfigDiffUtils'
 import { HogFunctionConfigurationLogicProps, hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { openHogFunctionPublishDraftDialog } from './HogFunctionPublishDraftDialog'
 import {
-    EnteredSecretInputs,
     SecretReentryConfiguration,
     SecretReentrySource,
     hogFunctionSecretReentryLogic,
@@ -60,11 +63,11 @@ export interface hogFunctionDraftLogicActions {
     requireSecretReentry: (
         refusal: SecretReentryRefusal,
         source: SecretReentrySource,
-        onContinue: (entered: EnteredSecretInputs) => void,
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void,
         configuration?: SecretReentryConfiguration | null | undefined
     ) => {
         configuration: SecretReentryConfiguration | null | undefined
-        onContinue: (entered: EnteredSecretInputs) => void
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void
         refusal: SecretReentryRefusal
         source: SecretReentrySource
     } // hogFunctionSecretReentryLogic
@@ -74,11 +77,11 @@ export interface hogFunctionDraftLogicActions {
     confirmPublishDraft: (
         confirmToken: string,
         draft: SecretReentryConfiguration | null,
-        inputs?: EnteredSecretInputs
+        inputs?: HogFunctionPublishRequestApiInputs
     ) => {
         confirmToken: string
         draft: SecretReentryConfiguration | null
-        inputs: EnteredSecretInputs | undefined
+        inputs: HogFunctionPublishRequestApiInputs | undefined
     }
     discardDraft: () => {
         value: true
@@ -138,7 +141,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
         confirmPublishDraft: (
             confirmToken: string,
             draft: SecretReentryConfiguration | null,
-            inputs?: EnteredSecretInputs
+            inputs?: HogFunctionPublishRequestApiInputs
         ) => ({ confirmToken, draft, inputs }),
         discardDraft: true,
         confirmDiscardDraft: true,
