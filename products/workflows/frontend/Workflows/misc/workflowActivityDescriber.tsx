@@ -7,6 +7,7 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -237,6 +238,8 @@ function describeBatchRun(
     objectNoun: string
 ): HumanizedChange {
     const workflowName = nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+    const context = logItem.detail.context
+    const audienceFilters = Array.isArray(context?.filters?.properties) ? context.filters.properties : []
     return {
         summary: activityLogSummary(logItem, `${verbs.summary} a batch run`, workflowName),
         description: (
@@ -245,6 +248,17 @@ function describeBatchRun(
                 {workflowName}
             </>
         ),
+        extendedDescription: context?.batch_job_id ? (
+            <div className="flex flex-col gap-2 items-start">
+                <span>Batch run {context.batch_job_id}</span>
+                {audienceFilters.length ? (
+                    <>
+                        <span className="text-muted">Job filters</span>
+                        <PropertyFiltersDisplay filters={audienceFilters} />
+                    </>
+                ) : null}
+            </div>
+        ) : undefined,
     }
 }
 

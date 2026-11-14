@@ -41,6 +41,7 @@ def to_batch_job(job: HogFlowBatchJob) -> WorkflowBatchJob:
 
 def create_batch_job(
     *,
+    batch_job_id: UUID,
     team_id: int,
     hog_flow_id: UUID,
     created_by_id: int,
@@ -50,6 +51,7 @@ def create_batch_job(
 ) -> WorkflowBatchJob:
     """Save the job row. Its post_save receiver dispatches the run to the plugin server."""
     job = HogFlowBatchJob.objects.create(
+        id=batch_job_id,
         team_id=team_id,
         hog_flow_id=hog_flow_id,
         created_by_id=created_by_id,
@@ -103,8 +105,8 @@ def set_batch_job_status(
     batch_job_id: UUID,
     status: HogFlowBatchJobState,
     from_statuses: Collection[HogFlowBatchJobState] | None = None,
-) -> None:
-    """Write the status. With from_statuses, only a job still in one of them changes."""
+) -> bool:
+    """Write the status and return whether a row changed. With from_statuses, only a job still in one of them changes."""
     jobs = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id)
     if from_statuses is not None:
         jobs = jobs.filter(status__in=from_statuses)
@@ -112,6 +114,7 @@ def set_batch_job_status(
     updated = jobs.update(status=status, updated_at=timezone.now())
     if updated and status in TERMINAL_BATCH_JOB_STATES:
         _schedule_audience_snapshot_cleanup(team_id=team_id, batch_job_id=batch_job_id)
+    return bool(updated)
 
 
 TERMINAL_BATCH_JOB_STATES = {

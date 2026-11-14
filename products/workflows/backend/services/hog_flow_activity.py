@@ -103,7 +103,7 @@ def log_workflow_schedule_activity(
 @frozen(slots=False)
 class WorkflowBatchRunContext(ActivityContextBase):
     batch_job_id: str
-    filters: Optional[dict[str, Any]] = None
+    filters: dict[str, Any]
 
 
 def log_workflow_batch_run_activity(
@@ -113,26 +113,22 @@ def log_workflow_batch_run_activity(
     name: Optional[str],
     activity: Literal["batch_run_started", "batch_run_stopped"],
     batch_job_id: UUID,
-    filters: Optional[dict[str, Any]] = None,
+    filters: dict[str, Any],
 ) -> None:
-    """Log who started or stopped a batch run. A start keeps the audience filters the run sends to."""
-    try:
-        log_activity(
-            organization_id=actor.organization_id,
-            team_id=actor.team_id,
-            user=actor.user,
-            was_impersonated=actor.was_impersonated,
-            item_id=str(workflow_id),
-            scope=_SCOPE,
-            activity=activity,
-            detail=Detail(
-                name=name or _SCOPE,
-                context=WorkflowBatchRunContext(batch_job_id=str(batch_job_id), filters=filters),
-            ),
-        )
-    except Exception:
-        # A failed audit write must not fail the change it describes.
-        pass
+    """Log who started or stopped a batch run, with the audience filters the run sends to."""
+    log_activity(
+        organization_id=actor.organization_id,
+        team_id=actor.team_id,
+        user=actor.user,
+        was_impersonated=actor.was_impersonated,
+        item_id=str(workflow_id),
+        scope=_SCOPE,
+        activity=activity,
+        detail=Detail(
+            name=name or _SCOPE,
+            context=WorkflowBatchRunContext(batch_job_id=str(batch_job_id), filters=filters),
+        ),
+    )
 
 
 def _schedule_timing(schedule: Optional[WorkflowSchedule]) -> Optional[dict[str, str]]:

@@ -90,6 +90,7 @@ from posthog.scopes import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
+from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
@@ -7916,7 +7917,19 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
+            # Logged before the job is saved, because saving dispatches the run, and a dispatch that
+            # times out after the plugin server queued it raises here while the run still sends.
+            batch_job_id = UUIDT()
+            log_workflow_batch_run_activity(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id,
+                name=hog_flow.name,
+                activity="batch_run_started",
+                batch_job_id=batch_job_id,
+                filters=hog_flow.trigger_filters,
+            )
             batch_job = create_batch_job(
+                batch_job_id=batch_job_id,
                 team_id=self.team_id,
                 hog_flow_id=hog_flow.id,
                 created_by_id=cast(User, request.user).id,
@@ -7925,14 +7938,6 @@ class HogFlowViewSet(
                 # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
                 # caller-supplied filters are never what actually runs.
                 filters=hog_flow.trigger_filters,
-            )
-            log_workflow_batch_run_activity(
-                actor=self._activity_actor(),
-                workflow_id=hog_flow.id,
-                name=hog_flow.name,
-                activity="batch_run_started",
-                batch_job_id=batch_job.id,
-                filters=batch_job.filters,
             )
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
@@ -8000,25 +8005,25 @@ class HogFlowViewSet(
             if data["done"]:
                 break
 
-        if data["done"]:
-            # Conditional so a completion that landed mid-cancel wins over the flip; the
-            # resolver's own terminal write absorbs the reverse race.
-            set_batch_job_status(
-                team_id=self.team_id,
-                batch_job_id=batch_job.id,
-                status=HogFlowBatchJobState.CANCELLED,
-                from_statuses=non_terminal,
-            )
-
-        batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
-        if data["done"] and batch_job.status == HogFlowBatchJobState.CANCELLED:
+        # Conditional so a completion that landed mid-cancel wins over the flip; the
+        # resolver's own terminal write absorbs the reverse race. Only the request whose
+        # flip landed logs the stop, so concurrent stops leave one entry.
+        if data["done"] and set_batch_job_status(
+            team_id=self.team_id,
+            batch_job_id=batch_job.id,
+            status=HogFlowBatchJobState.CANCELLED,
+            from_statuses=non_terminal,
+        ):
             log_workflow_batch_run_activity(
                 actor=self._activity_actor(),
                 workflow_id=hog_flow.id,
                 name=hog_flow.name,
                 activity="batch_run_stopped",
                 batch_job_id=batch_job.id,
+                filters=batch_job.filters,
             )
+
+        batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
         self._report_workflow_action(
             "hog_flow_batch_job_cancel_requested",
             hog_flow,

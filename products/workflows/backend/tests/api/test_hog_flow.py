@@ -17,6 +17,7 @@ from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -6242,6 +6243,23 @@ class TestHogFlowAPI(APIBaseTest):
             "batch_job_id": response.json()["id"],
             "filters": response.json()["filters"],
         }
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_logs_the_start_when_the_dispatch_times_out(self, mock_create_invocation):
+        flow_id = self._create_active_hog_flow()
+        mock_create_invocation.return_value.raise_for_status.side_effect = requests.ReadTimeout("read timed out")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {"variables": []})
+
+        assert response.status_code == 500
+
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+        entry = ActivityLog.objects.get(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert entry.user == self.user
+        assert entry.detail is not None
+        assert entry.detail["context"]["batch_job_id"] == str(batch_job.id)
 
     @parameterized.expand([("on_realtime_pipeline", "all", 200), ("off_realtime_pipeline", "none", 400)])
     @patch(

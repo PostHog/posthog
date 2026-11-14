@@ -154,7 +154,7 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         entry = ActivityLog.objects.get(scope="HogFlow", item_id=str(self.hog_flow.id), activity="batch_run_stopped")
         assert entry.user == self.user
         assert entry.detail is not None
-        assert entry.detail["context"] == {"batch_job_id": str(batch_job.id), "filters": None}
+        assert entry.detail["context"] == {"batch_job_id": str(batch_job.id), "filters": batch_job.filters}
 
     @parameterized.expand([("completed",), ("cancelled",), ("failed",)])
     def test_cancel_terminal_batch_job_is_a_no_op(self, terminal_status):
@@ -167,22 +167,23 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         assert response.json()["status"] == terminal_status
         mock_cancel.assert_not_called()
 
-    def test_cancel_does_not_clobber_a_run_that_completed_mid_request(self):
-        # The resolver's terminal write can land between the flag sweep and the status
-        # flip; the genuine completion must win over the cancel.
+    # The resolver's terminal write, or a concurrent stop, can land between the flag sweep and
+    # the status flip; the other writer's status wins, and this request logs no stop.
+    @parameterized.expand([("a_completion", "completed"), ("a_concurrent_stop", "cancelled")])
+    def test_cancel_leaves_a_status_written_mid_request_to_the_other_writer(self, _name, other_status):
         batch_job = self._create_batch_job("active")
 
-        def complete_job_then_respond(**kwargs):
-            HogFlowBatchJob.objects.filter(id=batch_job.id).update(status="completed")
+        def write_status_then_respond(**kwargs):
+            HogFlowBatchJob.objects.filter(id=batch_job.id).update(status=other_status)
             return _cdp_response(marked=0)
 
-        with patch(CANCEL_BATCH_PROXY, side_effect=complete_job_then_respond):
+        with patch(CANCEL_BATCH_PROXY, side_effect=write_status_then_respond):
             response = self._cancel(batch_job.id)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == other_status
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == other_status
         assert not ActivityLog.objects.filter(scope="HogFlow", activity="batch_run_stopped").exists()
 
     def test_cancel_not_done_after_sweep_cap_leaves_status_untouched(self):
