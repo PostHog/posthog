@@ -34,12 +34,24 @@ _DKIM_CNAME_SELECTORS = ("k1", "s1", "kl", "brevo1")
 _RESEND_DKIM_SELECTOR = "resend"
 
 
-def detect_existing_email_tools(*, spf_records: list[str], dkim_targets: list[str], has_resend_dkim: bool) -> list[str]:
+def detect_existing_email_tools(
+    *, spf_records: list[str], dkim_targets: list[str], resend_dkim_records: list[str]
+) -> list[str]:
     targets = [*_spf_include_targets(spf_records), *(target.lower() for target in dkim_targets)]
     tools = [tool for marker, tool in _TOOLS_BY_TARGET_MARKER if any(marker in target for target in targets)]
-    if has_resend_dkim:
+    if any(_has_dkim_key(record) for record in resend_dkim_records):
         tools.append("Resend")
     return list(dict.fromkeys(tools))
+
+
+# An empty p= tag carries no key. It revokes a key, and domains that send no mail publish one for every
+# selector under a wildcard *._domainkey name, so its presence alone does not mean Resend signs for the domain.
+def _has_dkim_key(record: str) -> bool:
+    for tag in record.split(";"):
+        name, _, value = tag.partition("=")
+        if name.strip() == "p":
+            return bool(value.strip())
+    return False
 
 
 def lookup_existing_email_tools(root_domain: str) -> list[str]:
@@ -65,7 +77,7 @@ def lookup_existing_email_tools(root_domain: str) -> list[str]:
     tools = detect_existing_email_tools(
         spf_records=_txt_values(answers["spf"]),
         dkim_targets=[target for selector in _DKIM_CNAME_SELECTORS for target in _cname_targets(answers[selector])],
-        has_resend_dkim=bool(answers[_RESEND_DKIM_SELECTOR]),
+        resend_dkim_records=_txt_values(answers[_RESEND_DKIM_SELECTOR]),
     )
     # A lookup without an answer says nothing about the domain, so the next check asks again.
     if all(answer is not None for answer in answers.values()):
