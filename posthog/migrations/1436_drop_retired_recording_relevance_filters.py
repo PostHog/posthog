@@ -1,12 +1,29 @@
-from django.db import migrations
+from django.db import migrations, transaction
+from django.db.models import Q
+
+
+def _without_retired_fields(filters: dict) -> dict:
+    cleaned = {key: value for key, value in filters.items() if key != "recommended_only"}
+    if cleaned.get("order") == "surfacing_score":
+        cleaned.pop("order")
+    return cleaned
+
 
 # A saved `order` the recordings query no longer accepts would fail validation, so dropping it falls back to the
-# default order. Removing keys inside one UPDATE keeps any edit a user makes to the row while the migration runs.
-DROP_RETIRED_RELEVANCE_FILTERS = """
-UPDATE posthog_sessionrecordingplaylist
-SET filters = CASE WHEN filters->>'order' = 'surfacing_score' THEN filters - 'order' ELSE filters END - 'recommended_only'
-WHERE filters->>'order' = 'surfacing_score' OR filters ? 'recommended_only'
-"""
+# default order. Each row is re-read under its own row lock, so an edit a user makes while this runs is kept.
+def drop_retired_relevance_filters(apps, schema_editor):
+    SessionRecordingPlaylist = apps.get_model("posthog", "SessionRecordingPlaylist")
+    retired = Q(filters__order="surfacing_score") | Q(filters__has_key="recommended_only")
+    ids = list(SessionRecordingPlaylist._base_manager.filter(retired).values_list("id", flat=True))
+    for playlist_id in ids:
+        with transaction.atomic():
+            playlist = (
+                SessionRecordingPlaylist._base_manager.select_for_update().filter(retired, id=playlist_id).first()
+            )
+            if playlist is None:
+                continue
+            playlist.filters = _without_retired_fields(playlist.filters)
+            playlist.save(update_fields=["filters"])
 
 
 class Migration(migrations.Migration):
@@ -15,5 +32,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(DROP_RETIRED_RELEVANCE_FILTERS, migrations.RunSQL.noop, elidable=True),
+        migrations.RunPython(drop_retired_relevance_filters, migrations.RunPython.noop, elidable=True),
     ]
