@@ -4446,16 +4446,21 @@ def _sender_id(value: Any) -> Any:
     return value
 
 
-def _email_step_sender_ids(action: Any) -> list[Any]:
-    if not isinstance(action, dict) or action.get("type") != "function_email":
+def _email_step_sender_ids(action: dict) -> list[Any]:
+    if action.get("type") != "function_email":
         return []
     email_input = ((action.get("config") or {}).get("inputs") or {}).get("email")
     value = email_input.get("value") if isinstance(email_input, dict) else None
-    return [_sender_id(sender_id) for sender_id in _patched_sender_ids(value) if sender_id not in (None, "")]
+    sender = value.get("from") if isinstance(value, dict) else None
+    if not isinstance(sender, dict):
+        return []
+    # The send path picks from the rotation alone when one is set.
+    rotation = sender.get("integrationIds")
+    configured = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
+    return [_sender_id(sender_id) for sender_id in configured if sender_id not in (None, "")]
 
 
-def _refuse_unusable_email_senders(actions: list[Any], *, team_id: int) -> None:
-    """Refuse email steps whose sender can't send, as the send path would fail on every run."""
+def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None:
     named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
     if not any(sender_ids for _, sender_ids in named):
         return

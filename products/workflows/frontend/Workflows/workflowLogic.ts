@@ -19,6 +19,7 @@ import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLog
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -3616,8 +3617,7 @@ function getSaveQueue(
 function senderErrors(
     action: EmailStepAction,
     emailValue: any,
-    templating: string | undefined,
-    integrations: IntegrationType[] | null
+    templating: string | undefined
 ): Pick<EmailFieldErrors, 'from'> {
     if (action.type === 'email_sandbox') {
         return {}
@@ -3625,24 +3625,15 @@ function senderErrors(
     return {
         from: !emailValue?.from?.integrationId
             ? 'Choose an email sender, or connect a new one'
-            : (unusableSenderError(emailValue.from, integrations) ??
-              getTemplatingError(emailValue?.from?.email, templating) ??
+            : (getTemplatingError(emailValue?.from?.email, templating) ??
               getTemplatingError(emailValue?.from?.name, templating)),
     }
 }
 
-// Mirrors the backend check that refuses enabling or publishing a step whose sender can't send.
-function unusableSenderError(from: any, integrations: IntegrationType[] | null): string | undefined {
-    if (!integrations) {
-        return undefined
-    }
-    const rotation = Array.isArray(from?.integrationIds) ? from.integrationIds : []
-    for (const senderId of [from?.integrationId, ...rotation]) {
-        if (senderId === undefined || senderId === null || senderId === '') {
-            continue
-        }
+function unusableSenderError(senderIds: number[], integrations: IntegrationType[]): string | undefined {
+    for (const senderId of senderIds) {
         const sender = integrations.find((integration) => integration.id === Number(senderId))
-        if (!sender || sender.kind !== 'email') {
+        if (!sender) {
             return 'This sender no longer exists. Choose another sender.'
         }
         if (!isVerifiedEmailSender(sender)) {
@@ -4430,11 +4421,17 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                ...senderErrors(action, emailValue, emailTemplating, integrations),
+                                ...senderErrors(action, emailValue, emailTemplating),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
+
+                            const unusableSender =
+                                action.type === 'function_email' && integrations
+                                    ? unusableSenderError(selectedSenderIds(emailValue?.from ?? {}), integrations)
+                                    : undefined
+                            emailErrors.from = unusableSender ?? emailErrors.from
 
                             const hasEmailErrors = Object.values(emailErrors).some((v) => !!v)
 
@@ -4446,16 +4443,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // always lacks a sender) reads as clean.
                                 if (saveAttemptedActionIds?.includes(action.id)) {
                                     result.emailErrors = emailErrors
-                                } else if (
-                                    action.type === 'function_email' &&
-                                    action.config.inputs?.email?.value?.from?.integrationId
-                                ) {
+                                } else if (unusableSender) {
                                     // A picked sender that can't send is no template-start gap, so it shows
                                     // straight away, also on a live workflow whose emails are failing now.
-                                    const unusable = unusableSenderError(emailValue?.from, integrations)
-                                    if (unusable) {
-                                        result.emailErrors = { from: unusable }
-                                    }
+                                    result.emailErrors = { from: unusableSender }
                                 }
                             }
                         } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {

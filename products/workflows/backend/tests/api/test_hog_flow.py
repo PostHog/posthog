@@ -1193,6 +1193,15 @@ class TestHogFlowAPI(APIBaseTest):
             assert fragment in response.json()["detail"]
         assert HogFlow.objects.get(pk=draft.json()["id"]).status == HogFlow.State.DRAFT
 
+    def test_going_live_checks_only_the_rotation_when_one_is_set(self):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        hog_flow = self._email_flow({"integrationId": unverified.id, "integrationIds": [verified.id]})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+
+        assert response.status_code == 201, response.json()
+
     def test_publishing_a_live_workflow_refuses_a_sender_that_cannot_send(self):
         sender = self._email_sender(verified=False)
         hog_flow = self._email_flow({"integrationId": sender.id})

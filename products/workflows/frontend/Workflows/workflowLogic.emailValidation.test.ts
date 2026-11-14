@@ -350,6 +350,7 @@ describe('workflowLogic email step "from" validation', () => {
         ['an unverified sender', { integrationId: 43 }, "This sender's domain isn't verified yet"],
         ['a deleted sender', { integrationId: 99 }, 'This sender no longer exists'],
         ['an unverified sender in the rotation', { integrationId: 42, integrationIds: [42, 43] }, "isn't verified yet"],
+        ['no unverified primary sender a rotation replaces', { integrationId: 43, integrationIds: [42] }, null],
     ])('flags %s on the step before any save attempt', async (_name, fromValue, message) => {
         const senders = [
             { id: 42, kind: 'email', config: { verified: true, email: 'hi@example.com' } },
@@ -371,8 +372,8 @@ describe('workflowLogic email step "from" validation', () => {
         ])
 
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-        expect(result?.valid).toBe(false)
-        expect(result?.emailErrors?.from).toContain(message)
+        expect(result?.valid).toBe(message === null)
+        expect(result?.emailErrors?.from ?? null).toEqual(message === null ? null : expect.stringContaining(message))
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {
