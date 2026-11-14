@@ -10,7 +10,11 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.property_access_types import RestrictedProperty
 
-from products.batch_exports.backend.custom_events_schema import parse_events_hogql_query, serialize_events_query_schema
+from products.batch_exports.backend.custom_events_schema import (
+    parse_events_hogql_query,
+    recompile_stored_schema,
+    serialize_events_query_schema,
+)
 from products.batch_exports.backend.facade.contracts import UnsupportedHogQLQueryError
 from products.event_definitions.backend.models import PropertyDefinition
 
@@ -128,17 +132,40 @@ class TestSerializeEventsQuerySchema(BaseTest):
         assert field["alias"] == "`x, (SELECT query FROM another_table LIMIT 100) AS leaked`"
         assert field["expression"] == "events.uuid"
 
+    @parameterized.expand(
+        [
+            (
+                "stored_fields",
+                False,
+                """accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s)""",
+                {"hogql_val_0": "amount", "hogql_val_1": "Float64"},
+            ),
+            (
+                "native_recompile",
+                True,
+                "accurateCastOrNull(events.properties.amount, 'Float64')",
+                {},
+            ),
+        ]
+    )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_native_query_keeps_property_type_casts(self):
+    def test_native_query_keeps_property_type_casts(
+        self, _name: str, recompile: bool, expected_expression: str, expected_values: dict[str, str]
+    ):
+        """Custom fields keep the cast a numeric property needs, in the stored fields and after a native recompile."""
         PropertyDefinition.objects.create(
             team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
         )
         query = "SELECT e.properties.amount AS amount FROM events AS e"
 
         schema = serialize_events_query_schema(self.team.pk, None, prepare_query(query, self.team.pk))
+        if recompile:
+            fields, values = recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
+        else:
+            fields, values = schema["fields"], schema["values"]
 
-        assert schema["fields"][0]["expression"].startswith("accurateCastOrNull(")
-        assert schema["values"]["hogql_val_1"] == "Float64"
+        assert fields[0]["expression"] == expected_expression
+        assert values == expected_values
 
     @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)

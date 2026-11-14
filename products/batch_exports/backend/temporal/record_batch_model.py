@@ -16,12 +16,10 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
@@ -479,8 +477,5 @@ def resolve_batch_exports_model(
                 user_id=model.user_id,
                 hogql_modifiers=model.modifiers,
             )
-
-    if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
-        fields, extra_query_parameters = recompile_stored_schema(team_id, schema, query)
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

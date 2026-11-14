@@ -4,9 +4,8 @@ import typing
 
 import pytest
 
-from django.test import override_settings
-
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
@@ -115,45 +114,95 @@ def test_compose_filters_clause(
     assert result_values == expected_values
 
 
-def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
-    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
-
+def test_compose_filters_clause_prints_for_the_new_schema(ateam):
+    """Filters printed for the new schema read typed paths and the `$feature_flags` map, not the properties text."""
     result_clause, result_values = compose_filters_clause(
-        [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+        [
+            {"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]},
+            {"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]},
+        ],
         team_id=ateam.id,
+        use_new_events_schema=True,
     )
 
-    assert (
-        result_clause
-        == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
-    )
-    assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
-
-
-@pytest.mark.parametrize(
-    "property_type,document,predicate",
-    [
-        ("Numeric", '{"value":2.5}', "properties.value > 2"),
-        ("Numeric", '{"value":2.5}', "round(properties.value) = 2"),
-        ("Boolean", '{"value":true}', "properties.value = true"),
-    ],
-)
-@pytest.mark.parametrize("use_new_events_schema", [False, True])
-async def test_filters_preserve_property_types(ateam, property_type, document, predicate, use_new_events_schema):
-    await database_sync_to_async(PropertyDefinition.objects.create)(
-        team=ateam, name="value", type=PropertyDefinition.Type.EVENT, property_type=property_type
-    )
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
-        clause, values = await database_sync_to_async(compose_filters_clause)(
-            [{"key": predicate, "type": "hogql"}], team_id=ateam.id
+    # `$browser` is read from its typed path. `$feature/checkout` is not a stored key, so it is read from the
+    # `$feature_flags` map: a missing flag is NULL (unset), and the `$true` / `$false` sentinels that boolean flags store
+    # map back to 'true' / 'false', so the filter value matches as it does on the legacy schema.
+    expected_clause = """
+        and(
+            equals(events.properties.`$browser`, %(hogql_val_0)s),
+            ifNull(
+                equals(
+                    if(
+                        has(events.properties.`$feature_flags`, %(hogql_val_1)s),
+                        multiIf(
+                            ifNull(equals(events.properties.`$feature_flags`[%(hogql_val_2)s], %(hogql_val_3)s), 0), 'false',
+                            ifNull(equals(events.properties.`$feature_flags`[%(hogql_val_4)s], %(hogql_val_5)s), 0), 'true',
+                            events.properties.`$feature_flags`[%(hogql_val_6)s]
+                        ),
+                        NULL
+                    ),
+                    %(hogql_val_7)s
+                ),
+                0
+            )
         )
+    """
+    # The expected clause is indented for reading, so both sides are compared without whitespace. This is safe because
+    # no literal in the clause contains whitespace: the filter values are query parameters.
+    assert "".join(result_clause.split()) == "".join(expected_clause.split())
+    assert result_values == {
+        "hogql_val_0": "Chrome",
+        "hogql_val_1": "checkout",
+        "hogql_val_2": "checkout",
+        "hogql_val_3": "$false",
+        "hogql_val_4": "checkout",
+        "hogql_val_5": "$true",
+        "hogql_val_6": "checkout",
+        "hogql_val_7": "true",
+    }
+
+
+async def _evaluate_filters_clause(clause: str, values: dict, document: str, *, use_new_events_schema: bool) -> bool:
+    """Run a filters clause against one event with the given properties and return whether the event matches."""
+    # A clause for the new schema reads the typed JSON column, so the document is cast to the type the native table
+    # stores. A clause for the legacy schema reads the String column as it is.
+    properties = f"CAST(%(document)s, '{EVENTS_PROPERTIES_JSON_TYPE()}')" if use_new_events_schema else "%(document)s"
 
     result = await database_sync_to_async(sync_execute)(
-        f"SELECT {clause} FROM (SELECT %(document)s AS properties) AS events",
+        f"SELECT {clause} FROM (SELECT {properties} AS properties) AS events",
         {**values, "document": document},
     )
 
-    assert result == [(1,)]
+    return bool(result[0][0])
+
+
+@pytest.mark.parametrize(
+    "property_type,document,predicate,expected",
+    [
+        ("Numeric", '{"value":2.5}', "properties.value > 2", True),
+        ("Numeric", '{"value":2.5}', "properties.value > 3", False),
+        ("Numeric", '{"value":2.5}', "round(properties.value) = 2", True),
+        ("Numeric", '{"value":2.5}', "round(properties.value) = 3", False),
+        ("Boolean", '{"value":true}', "properties.value = true", True),
+        ("Boolean", '{"value":false}', "properties.value = true", False),
+    ],
+)
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+async def test_filters_preserve_property_types(
+    ateam, property_type, document, predicate, expected, use_new_events_schema
+):
+    """Filters on a property with a defined type compare it as that type, on both schemas."""
+    await database_sync_to_async(PropertyDefinition.objects.create)(
+        team=ateam, name="value", type=PropertyDefinition.Type.EVENT, property_type=property_type
+    )
+    clause, values = await database_sync_to_async(compose_filters_clause)(
+        [{"key": predicate, "type": "hogql"}], team_id=ateam.id, use_new_events_schema=use_new_events_schema
+    )
+
+    matches = await _evaluate_filters_clause(clause, values, document, use_new_events_schema=use_new_events_schema)
+
+    assert matches is expected
 
 
 @pytest.mark.parametrize(

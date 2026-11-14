@@ -24,6 +24,7 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 
 from products.access_control.backend.models import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     validate_hogql_query_for_batch_export,
@@ -767,8 +768,15 @@ class TestHogQLQueryRecordBatchModel:
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("use_new_events_schema", [False, True])
-async def test_custom_export_recompilation_preserves_column_names(ateam, use_new_events_schema):
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+async def test_custom_export_recompilation_preserves_column_names(ateam):
+    """A team on the new schema keeps its stored custom-schema fields, and only a native run recompiles them.
+
+    `resolve_batch_exports_model` must return the stored fields unchanged, because runs that read a legacy table use
+    them as stored. `recompile_stored_schema` compiles the stored HogQL query for the native table: it keeps the stored
+    aliases, so the export's column names don't change, replaces expressions that no longer exist (the removed
+    materialized column), and drops values the stored query no longer uses.
+    """
     schema: BatchExportSchema = {
         "hogql_query": "SELECT lower(e.event), e.properties.$browser AS browser FROM events AS e",
         "fields": [
@@ -777,20 +785,17 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
         ],
         "values": {"unused_old_parameter": "stale"},
     }
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
-        _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-            team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
-        )
+    _, _, _, stored_fields, _, stored_values = await database_sync_to_async(resolve_batch_exports_model)(
+        team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
+    )
+    fields, values = await database_sync_to_async(recompile_stored_schema)(ateam.pk, schema, schema["hogql_query"])
 
-    assert fields is not None
+    assert stored_fields == schema["fields"]
+    assert stored_values == schema["values"]
     assert [field["alias"] for field in fields] == ["`lower(e.event)`", "browser"]
-    if use_new_events_schema:
-        assert fields[0]["expression"] == "lower(events.event)"
-        assert "mat_removed_column" not in fields[1]["expression"]
-        assert values == {"hogql_val_0": "$browser"}
-    else:
-        assert fields == schema["fields"]
-        assert values == schema["values"]
+    assert fields[0]["expression"] == "lower(events.event)"
+    assert "mat_removed_column" not in fields[1]["expression"]
+    assert "unused_old_parameter" not in values
     assert schema["fields"][0]["expression"] == "lower(e.event)"
 
 
@@ -800,6 +805,19 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
 async def test_custom_export_backfill_runs_without_legacy_events_tables(
     ateam, clickhouse_client, interval_start_is_none
 ):
+    """A backfill on the native table exports the stored documents, with filters and custom fields on typed columns.
+
+    The test database holds only `events_json`, so any read of a legacy table fails. It checks that:
+    - the exported `properties` and `person_properties` are the stored documents: flags in the `$feature_flags` map
+      with their sentinels, declared keys present with their defaults, and no `$feature/` keys,
+      `$active_feature_flags`, temporary properties or null fields.
+    - `set`, `set_once`, `unset` and `group_set` are empty.
+    - filters compiled for the new schema match on the typed columns: a flag through the map, and "is not set" on a
+      declared key whose stored value is its `""` default.
+    - recompiled custom-schema fields read the typed columns, so a flag field returns its value and the sentinels map
+      back to the variant names.
+    - duplicate rows and rows of another team are left out.
+    """
     database = f"native_export_{uuid7().hex}"
     await clickhouse_client.execute_query(f"CREATE DATABASE {database}")
     try:
@@ -817,8 +835,8 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "temporary_properties JSON, properties_null_keys Array(String), "
                 "temporary_properties_null_keys Array(String), person_properties_null_keys Array(String)) ENGINE = Memory"
             )
-            # The null-key columns hold what the cleaner records for fields the SDK sent as null. The export leaves
-            # those fields out of every document it rebuilds.
+            # The null-key columns hold what the cleaner records for fields the SDK sent as null. The export sends the
+            # stored documents, so those fields stay out of them.
             row = {
                 "uuid": str(uuid7()),
                 "person_id": str(uuid7()),
@@ -854,15 +872,18 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 ],
                 "values": {"unused_old_parameter": "stale"},
             }
-            _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-                team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
+            fields, values = await database_sync_to_async(recompile_stored_schema)(
+                ateam.pk, schema, schema["hogql_query"]
             )
-            assert fields is not None
             assert "unused_old_parameter" not in values
             predicate, values = await database_sync_to_async(compose_filters_clause)(
-                [{"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]}],
+                [
+                    {"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]},
+                    {"key": "$os", "type": "event", "operator": "is_not_set"},
+                ],
                 team_id=ateam.pk,
                 values=values,
+                use_new_events_schema=True,
             )
             batches: list[pa.RecordBatch] = await database_sync_to_async(
                 lambda: list(
@@ -895,20 +916,22 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["named_true"] == "true"
             exported_properties = json.loads(rows[0]["properties"])
             assert exported_properties["$browser"] == "Firefox"
-            assert exported_properties["$set"] == {"email": "buyer@example.com"}
-            assert "$feature_flags" not in exported_properties
-            assert exported_properties["$feature/some-feature"] is True
-            assert exported_properties["$feature/named-false"] == "false"
-            assert exported_properties["$feature/named-true"] == "true"
-            assert exported_properties["$active_feature_flags"] == ["named-false", "named-true", "some-feature"]
+            assert exported_properties["$os"] == ""
+            assert exported_properties["$feature_flags"] == {
+                "named-false": "$false",
+                "named-true": "$true",
+                "some-feature": "true",
+            }
+            assert not any(key.startswith("$feature/") for key in exported_properties)
+            assert "$active_feature_flags" not in exported_properties
+            assert "$set" not in exported_properties
             assert exported_properties["cart"] == {"items": 2}
             assert "coupon" not in exported_properties
-            assert "$feature/retired-flag" not in exported_properties
-            assert json.loads(rows[0]["person_properties"]) == {"email": "buyer@example.com"}
-            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
-            assert rows[0]["set_once"] is None
-            assert json.loads(rows[0]["unset"]) == ["old_property"]
-            assert rows[0]["group_set"] is None
+            exported_person_properties = json.loads(rows[0]["person_properties"])
+            assert exported_person_properties["email"] == "buyer@example.com"
+            assert exported_person_properties["$initial_os"] == ""
+            assert "nickname" not in exported_person_properties
+            assert [rows[0][key] for key in ("set", "set_once", "unset", "group_set")] == [None, None, None, None]
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
     finally:
         await clickhouse_client.execute_query(f"DROP DATABASE {database}")
