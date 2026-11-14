@@ -78,8 +78,14 @@ export interface AnalyticsFeed {
     loadFailed: boolean
 }
 
+export type TaggableAnalyticsType = 'dashboard' | 'insight'
+
 // Only dashboards and insights carry tags, so a tag filter leaves the other types out of the read.
 const TAGGABLE_ANALYTICS_TYPES: ReadonlySet<AnalyticsType> = new Set<AnalyticsType>(['dashboard', 'insight'])
+
+export function isTaggableAnalyticsType(type: AnalyticsType): type is TaggableAnalyticsType {
+    return TAGGABLE_ANALYTICS_TYPES.has(type)
+}
 
 export function analyticsFeedTypes(query: AnalyticsFeedQuery): AnalyticsType[] {
     const types = query.types.length

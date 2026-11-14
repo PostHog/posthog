@@ -26,6 +26,7 @@ from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job imp
     REALTIME_COHORT_WAIT_LIMIT,
     handle_hog_flow_batch_job_created,
 )
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.batch_run_outcome import settle_batch_job_outcome
 from products.workflows.backend.utils.audience_snapshot import AUDIENCE_SNAPSHOT_WAIT_LIMIT
 
@@ -76,6 +77,40 @@ class TestHogFlowBatchJob(TestCase):
         assert batch_job.variables == [{"key": "event_name", "value": "$pageview"}]
         assert str(batch_job) == f"HogFlow batch run {batch_job.id}"
         mock_create_invocation.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("without_a_rate_limit", None, 3000, None),
+            ("with_a_qualifying_rate_limit", {"count": 60, "period": "hour"}, 60 * 24 * 7, None),
+            ("when_the_call_times_out", {"count": 60, "period": "hour"}, 60 * 24 * 7, requests.ReadTimeout()),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_dispatch_caps_the_audience_with_the_workflows_rate_limit(
+        self, _name, email_rate_limit, expected_cap, invocation_error, mock_create_invocation
+    ):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        self.hog_flow.actions = [*self.hog_flow.actions, {"id": "email", "type": "function_email", "config": {}}]
+        self.hog_flow.email_sending_rate_limit = email_rate_limit
+        self.hog_flow.save()
+        mock_create_invocation.side_effect = invocation_error
+
+        with pytest.raises(type(invocation_error)) if invocation_error else nullcontext():
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow)
+
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == expected_cap
+        # A timed-out call may still have queued the resolver, so the cap that locks the rate limit stays recorded.
+        assert HogFlowBatchJob.objects.get(hog_flow=self.hog_flow).max_audience_size == expected_cap
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

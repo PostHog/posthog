@@ -243,6 +243,11 @@ class SignalSourceProduct(StrEnum):
     VITALLY_NPS = "vitally_nps"
     WOOCOMMERCE = "woocommerce"
     YOTPO = "yotpo"
+    # Monitoring alerts and error tracking
+    AIRBRAKE = "airbrake"
+    AMAZON_CLOUDWATCH = "amazon_cloudwatch"
+    LOGICMONITOR = "logicmonitor"
+    MUX = "mux"
 
 
 class SignalSourceType(StrEnum):
@@ -414,6 +419,10 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.VITALLY_NPS: "Vitally NPS",
     SignalSourceProduct.WOOCOMMERCE: "WooCommerce",
     SignalSourceProduct.YOTPO: "Yotpo",
+    SignalSourceProduct.AIRBRAKE: "Airbrake",
+    SignalSourceProduct.AMAZON_CLOUDWATCH: "Amazon CloudWatch",
+    SignalSourceProduct.LOGICMONITOR: "LogicMonitor",
+    SignalSourceProduct.MUX: "Mux",
 }
 
 

@@ -86,7 +86,9 @@ export const FilterRow = React.memo(function FilterRow({
             <div
                 className={clsx('property-filter-row flex items-center max-w-full', {
                     'flex-wrap gap-2': !!suffix,
-                    'flex-nowrap deprecated-space-x-2': !suffix,
+                    'flex-nowrap deprecated-space-x-2': !suffix && !quillSurface,
+                    // The quill popover adds focus guards beside its trigger; gap skips them, margins would shift the button.
+                    'flex-nowrap gap-2': !suffix && quillSurface,
                     'grow sm:grow-0': isValid,
                     'grow-0': !isValid,
                     'wrap-filters': !disablePopover,

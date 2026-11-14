@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Pool, PoolClient } from 'pg'
+import { Pool, PoolClient, QueryResult } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -9,7 +9,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
-import { QUEUE_DEPTH_SQL } from './due-rows-sql'
+import { QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
 import { JobRow, withReschedule } from './job-codec'
 import { createCyclotronPool } from './pg-pool'
 import {
@@ -158,7 +158,8 @@ const dbWriteFailureCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
-export const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1000
+// Outlives the intake topics' 72h retention, so a message read twice from Kafka still finds its key.
+export const IDEMPOTENCY_KEY_TTL_MS = 96 * 60 * 60 * 1000
 
 const idempotentInsertsCounter = new Counter({
     name: 'cdp_cyclotron_v2_idempotent_inserts_total',
@@ -196,7 +197,7 @@ const enqueuePhaseHistogram = new Histogram({
 export async function timeEnqueuePhase<T>(
     phase: EnqueuePhase,
     caller: EnqueueCaller,
-    step: () => Promise<T>
+    step: () => Promise<T> | T
 ): Promise<T> {
     const end = enqueuePhaseHistogram.startTimer({ phase, caller })
     try {
@@ -296,9 +297,14 @@ export class CyclotronV2Manager {
     private lookupPool: Pool
     private readonly depthLimit: number
     private readonly depthCheckIntervalMs: number
+    private readonly backgroundDepthCheck: boolean
     private readonly idempotencyKeyLookupTimeoutMs: number
     private depthCheckPromise: Promise<boolean> | null = null
     private depthCheckExpiresAt = 0
+    private lastDepthFull: boolean | null = null
+    private lastDepthCountedAt = 0
+    private depthRefresh: Promise<boolean> | null = null
+    private readonly depthRefreshSql: string
     private readonly reschedule: {
         floorSeconds: number
         wakeRatePerSecond: number
@@ -317,6 +323,8 @@ export class CyclotronV2Manager {
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
+        this.backgroundDepthCheck = config.backgroundDepthCheck ?? false
+        this.depthRefreshSql = `SET LOCAL statement_timeout = ${Math.max(1, Math.floor(this.depthCheckIntervalMs))}; ${cappedQueueDepthSql(this.depthLimit)}`
         this.idempotencyKeyLookupTimeoutMs = config.idempotencyKeyLookupTimeoutMs ?? IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS
         // Its own pool, because a connect timeout is the only way to close a handshake that never answers, and on the
         // main pool it would also cut how long inserts wait for a free client. The timeout outlasts the lookup, so a
@@ -1054,7 +1062,8 @@ export class CyclotronV2Manager {
     async rescheduleUnclaimed(
         teamId: number,
         id: string,
-        scheduled: Date
+        scheduled: Date,
+        { maxAheadOfCreatedMs }: { maxAheadOfCreatedMs?: number } = {}
     ): Promise<CyclotronV2RescheduleUnclaimedResult> {
         const client = await this.pool.connect()
         try {
@@ -1068,6 +1077,12 @@ export class CyclotronV2Manager {
             const row = locked.rows[0]
             if (!row) {
                 await client.query('ROLLBACK')
+            } else if (
+                maxAheadOfCreatedMs !== undefined &&
+                scheduled.getTime() > toDateTime(row.created).toMillis() + maxAheadOfCreatedMs
+            ) {
+                await client.query('ROLLBACK')
+                return { outcome: 'too_far' }
             } else {
                 const clock = await client.query<{ now: string }>('SELECT clock_timestamp() AS now')
                 const { state, rescheduledAt } = withReschedule(
@@ -1080,6 +1095,12 @@ export class CyclotronV2Manager {
                     scheduled,
                     state,
                 ])
+                // The janitor deletes the job once it runs, and then only the claim answers retries, so the claim
+                // lasts as long past the new time as it did past the old one.
+                await client.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = GREATEST(expires_at, $2) WHERE id = $1`,
+                    [id, new Date(scheduled.getTime() + IDEMPOTENCY_KEY_TTL_MS)]
+                )
                 await client.query('COMMIT')
                 return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }), rescheduledAt }
             }
@@ -1152,11 +1173,14 @@ export class CyclotronV2Manager {
         }
     }
 
-    private isFull(db: Pool | PoolClient): Promise<boolean> {
+    private isFull(db: Pool | PoolClient): Promise<boolean> | boolean {
         // A transaction's own check stays out of the shared cache: a pool-backed check cached there may be waiting
         // for the very connection the transaction holds.
         if (db !== this.pool) {
             return this.queryDepth(db)
+        }
+        if (this.backgroundDepthCheck) {
+            return this.isFullFromLastDepth()
         }
         if (this.depthCheckPromise && Date.now() < this.depthCheckExpiresAt) {
             return this.depthCheckPromise
@@ -1167,10 +1191,39 @@ export class CyclotronV2Manager {
         return this.depthCheckPromise
     }
 
-    private async queryDepth(db: Pool | PoolClient): Promise<boolean> {
+    private isFullFromLastDepth(): Promise<boolean> | boolean {
+        const now = Date.now()
+        if (this.lastDepthFull === null || now >= this.lastDepthCountedAt + 2 * this.depthCheckIntervalMs) {
+            return this.refreshDepth()
+        }
+        if (now >= this.depthCheckExpiresAt) {
+            void this.refreshDepth()
+        }
+        return this.lastDepthFull
+    }
+
+    private refreshDepth(): Promise<boolean> {
+        if (!this.depthRefresh) {
+            const countedAt = Date.now()
+            this.depthCheckExpiresAt = countedAt + this.depthCheckIntervalMs
+            this.depthRefresh = this.queryDepth(this.pool, this.depthRefreshSql)
+                .then((full) => {
+                    this.lastDepthFull = full
+                    this.lastDepthCountedAt = countedAt
+                    return full
+                })
+                .finally(() => {
+                    this.depthRefresh = null
+                })
+        }
+        return this.depthRefresh
+    }
+
+    private async queryDepth(db: Pool | PoolClient, sql: string = QUEUE_DEPTH_SQL): Promise<boolean> {
         try {
-            const result = await db.query(QUEUE_DEPTH_SQL)
-            const count = parseInt(result.rows[0].count, 10)
+            const result: QueryResult | QueryResult[] = await db.query(sql)
+            const depth = Array.isArray(result) ? result[result.length - 1] : result
+            const count = parseInt(depth.rows[0].count, 10)
             const full = count >= this.depthLimit
 
             if (full) {

@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router'
 import { type ReactElement, useCallback, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, type StyleProp, Text, type TextStyle, View } from 'react-native'
+import { Linking, RefreshControl, ScrollView, Text, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
 import type { NavChrome } from '@/features/tabs/navPinStore'
@@ -53,6 +53,7 @@ import { statusText } from './liveFormat'
 
 /** A pushed screen has no bottom bar, so the toast sits low. */
 const TOAST_BOTTOM = 48
+const LIVE_TAB_CONTENT_TOP = TABS_HEADER_BOTTOM + 4
 
 export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrome }): ReactElement {
     const styles = useStyles()
@@ -81,7 +82,7 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     } else if (tab) {
         body = (
             <View
-                style={[styles.fill, { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottom }]}
+                style={[styles.fill, { paddingTop: topOffset(insets, LIVE_TAB_CONTENT_TOP), paddingBottom: tabBottom }]}
             >
                 <TabHeaderPublisher tab="live" status={null} />
                 <ViewsReauthState access={access} />
@@ -154,7 +155,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
     const [sheetOpen, setSheetOpen] = useState(false)
     const [sheetEvent, setSheetEvent] = useState<LiveEventRow | null>(null)
     const { snapshot, state } = feed
-    const contentTop = topOffset(insets, tab ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
+    const contentTop = topOffset(insets, tab ? LIVE_TAB_CONTENT_TOP : SCREEN_CONTENT_TOP)
     const contentBottom = tab ? tabBottom : bottomOffset(insets, 48)
 
     const openEvent = useCallback((event: LiveEventRow) => {
@@ -167,19 +168,9 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         setBreakdown(kind)
     }
 
-    const title = (
-        <LiveTitle
-            tab={tab}
-            status={feed.status}
-            state={state}
-            screenActive={feed.screenActive}
-            updatedAt={feed.updatedAt}
-            paused={feed.paused}
-            onPause={feed.pause}
-            onResume={feed.resume}
-            onTitleLayout={scrollTitle.onTitleLayout}
-        />
-    )
+    // A project with no events runs no reads, so there is nothing to pause.
+    const pausable = state !== 'not_set_up'
+    const togglePause = feed.paused ? feed.resume : feed.pause
     const nothingYet = Object.values(snapshot).every((part) => part === null)
     let content: ReactElement
     if (feed.loadFailed && !feed.reading) {
@@ -267,8 +258,13 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 
     return (
         <View style={styles.fill}>
-            {/* The status line sits in the content's first row, so the shared header shows the title alone. */}
-            {tab ? <TabHeaderPublisher tab="live" status={null} /> : null}
+            {tab ? (
+                <TabHeaderPublisher
+                    tab="live"
+                    status={feed.status === 'reconnecting' ? 'Reconnecting…' : null}
+                    pause={pausable ? { paused: feed.paused, onPress: togglePause } : null}
+                />
+            ) : null}
             <ScrollView
                 contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
                 onScroll={scrollTitle.onScroll}
@@ -285,7 +281,19 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 }
                 testID="live-scroll"
             >
-                {title}
+                {/* On a tab the shared tabs header draws the title and Pause. */}
+                {tab ? null : (
+                    <LiveTitle
+                        status={feed.status}
+                        state={state}
+                        screenActive={feed.screenActive}
+                        updatedAt={feed.updatedAt}
+                        paused={feed.paused}
+                        pausable={pausable}
+                        onTogglePause={togglePause}
+                        onTitleLayout={scrollTitle.onTitleLayout}
+                    />
+                )}
                 {feed.paused ? <PausedBanner onResume={feed.resume} /> : null}
                 {content}
             </ScrollView>
@@ -302,64 +310,30 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 }
 
 interface LiveTitleProps {
-    /** On a tab the shared tabs header draws the title, so one row holds the dot, the status line and Pause. */
-    tab: boolean
     status: LiveStatus
     state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
     paused: boolean
-    onPause: () => void
-    onResume: () => void
+    pausable: boolean
+    onTogglePause: () => void
     onTitleLayout: ScrollTitleState['onTitleLayout']
 }
 
+/** The pushed screen's title block. */
 function LiveTitle({
-    tab,
     status,
     state,
     screenActive,
     updatedAt,
     paused,
-    onPause,
-    onResume,
+    pausable,
+    onTogglePause,
     onTitleLayout,
 }: LiveTitleProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const on = status === 'live' && state !== 'quiet' && state !== 'not_set_up'
-    // A project with no events runs no reads, so there is nothing to pause.
-    const pauseButton =
-        state === 'not_set_up' ? null : (
-            <Pressable44
-                onPress={paused ? onResume : onPause}
-                accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
-                pressedBackground={colors.pressed}
-                style={styles.pauseButton}
-                testID="live-pause"
-            >
-                {paused ? <PlayIcon size={12} color={colors.ink} /> : <PauseIcon size={16} color={colors.ink} />}
-                <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
-            </Pressable44>
-        )
-    if (tab) {
-        return (
-            <View style={[styles.titleBlock, styles.titleRow, styles.tabTitleRow]}>
-                <View style={styles.tabStatus}>
-                    <LiveDot on={on} animate={screenActive} />
-                    <LiveStatusLine
-                        status={status}
-                        state={state}
-                        screenActive={screenActive}
-                        updatedAt={updatedAt}
-                        numberOfLines={1}
-                        style={styles.tabStatusText}
-                    />
-                </View>
-                {pauseButton}
-            </View>
-        )
-    }
     return (
         <View style={styles.titleBlock}>
             <View onLayout={onTitleLayout}>
@@ -371,7 +345,22 @@ function LiveTitle({
                         </Text>
                         <LiveDot on={on} animate={screenActive} />
                     </View>
-                    {pauseButton}
+                    {pausable ? (
+                        <Pressable44
+                            onPress={onTogglePause}
+                            accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
+                            pressedBackground={colors.pressed}
+                            style={styles.pauseButton}
+                            testID="live-pause"
+                        >
+                            {paused ? (
+                                <PlayIcon size={12} color={colors.ink} />
+                            ) : (
+                                <PauseIcon size={16} color={colors.ink} />
+                            )}
+                            <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
+                        </Pressable44>
+                    ) : null}
                 </View>
             </View>
             <LiveStatusLine status={status} state={state} screenActive={screenActive} updatedAt={updatedAt} />
@@ -384,30 +373,15 @@ interface LiveStatusLineProps {
     state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
-    /** The tab's row truncates the line beside the Pause pill. */
-    numberOfLines?: number
-    style?: StyleProp<TextStyle>
 }
 
 /** Its own component, so the one-second clock re-renders only this line. */
-function LiveStatusLine({
-    status,
-    state,
-    screenActive,
-    updatedAt,
-    numberOfLines,
-    style,
-}: LiveStatusLineProps): ReactElement {
+function LiveStatusLine({ status, state, screenActive, updatedAt }: LiveStatusLineProps): ReactElement {
     const styles = useStyles()
     const ticking = screenActive && status === 'live' && state !== 'quiet' && state !== 'not_set_up'
     const now = useNow(ticking ? 1000 : null).getTime()
     return (
-        <Text
-            style={[styles.status, style]}
-            numberOfLines={numberOfLines}
-            accessibilityLiveRegion="polite"
-            testID="live-status"
-        >
+        <Text style={styles.status} accessibilityLiveRegion="polite" testID="live-status">
             {statusText(status, updatedAt, now, state)}
         </Text>
     )
@@ -453,20 +427,6 @@ const useStyles = createStyles(({ colors }) => ({
         justifyContent: 'space-between',
         gap: 12,
         marginTop: 4,
-    },
-    tabTitleRow: {
-        marginTop: 0,
-        // The Pause pill's height, so the row keeps its place when a project without events hides the pill.
-        minHeight: 40,
-    },
-    tabStatus: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        flexShrink: 1,
-    },
-    tabStatusText: {
-        flexShrink: 1,
     },
     titleText: {
         flexDirection: 'row',

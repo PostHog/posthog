@@ -602,6 +602,7 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.feature_flags",
     "products.signals", "products.tasks",
     "products.warehouse_sources", "products.wizard",
 ]
@@ -1021,6 +1022,7 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.security",
     "products.signals",
     "products.surveys",
     "products.tasks", "products.access_control",
@@ -2041,7 +2043,7 @@ from = [
 
 [[modules]]
 path = "products.release"
-depends_on = ["posthog", "products.feature_flags", "products.workflows"]
+depends_on = ["posthog", "products.feature_flags", "products.product_analytics", "products.surveys", "products.workflows"]
 layer = "modules"
 
 [[interfaces]]
