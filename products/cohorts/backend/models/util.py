@@ -1683,6 +1683,7 @@ def clear_population_run_fields(cohort: Cohort, *, marker: datetime | None, mode
         return False
     cohort.pending_population_mode = None
     cohort.population_marker = None
+    cohort.population_claimed_at = None
     return True
 
 
