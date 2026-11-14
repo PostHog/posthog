@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { API_KEY_SCOPE_PRESETS } from 'lib/scopes'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { getBackendHost } from 'lib/utils/oauthClient'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,6 +18,12 @@ const TEST_QUERY = '1+1'
 export type PrometheusConnectionTest = { status: 'success' } | { status: 'error'; message: string }
 
 export type PrometheusConnectSnippet = 'server_url' | 'provisioning'
+
+// In OAuth mode the app runs locally against a cloud region, and `api` sends requests to that region's host,
+// so Grafana must use the same host as the connection test.
+export function prometheusServerOrigin(): string {
+    return getBackendHost()?.replace(/\/+$/, '') || apiHostOrigin()
+}
 
 function connectionErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -148,7 +155,7 @@ export const metricsPrometheusConnectLogic = kea<metricsPrometheusConnectLogicTy
             (s) => [s.currentTeamId],
             (currentTeamId: number | null): string => `api/projects/${currentTeamId}/metrics/prometheus`,
         ],
-        serverUrl: [(s) => [s.apiPath], (apiPath: string): string => `${apiHostOrigin()}/${apiPath}`],
+        serverUrl: [(s) => [s.apiPath], (apiPath: string): string => `${prometheusServerOrigin()}/${apiPath}`],
         provisioningSnippet: [
             (s) => [s.serverUrl],
             (serverUrl: string): string =>

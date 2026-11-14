@@ -6,12 +6,18 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { getBackendHost } from 'lib/utils/oauthClient'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { metricsPrometheusConnectLogic } from './metricsPrometheusConnectLogic'
+
+jest.mock('lib/utils/oauthClient', () => ({
+    ...jest.requireActual('lib/utils/oauthClient'),
+    getBackendHost: jest.fn(() => null),
+}))
 
 describe('metricsPrometheusConnectLogic', () => {
     let logic: ReturnType<typeof metricsPrometheusConnectLogic.build>
@@ -28,10 +34,20 @@ describe('metricsPrometheusConnectLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
+        jest.mocked(getBackendHost).mockReturnValue(null)
     })
 
     it('points the server URL at the Prometheus API of the current project', () => {
         expect(logic.values.serverUrl).toEqual(`${apiHostOrigin()}/api/projects/${MOCK_TEAM_ID}/metrics/prometheus`)
+    })
+
+    it('points the server URL at the selected region host in OAuth mode', () => {
+        logic.unmount()
+        jest.mocked(getBackendHost).mockReturnValue('https://eu.posthog.com/')
+        logic = metricsPrometheusConnectLogic()
+        logic.mount()
+
+        expect(logic.values.serverUrl).toEqual(`https://eu.posthog.com/api/projects/${MOCK_TEAM_ID}/metrics/prometheus`)
     })
 
     it('opens the personal API key form with only the metrics read scope', async () => {
