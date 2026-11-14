@@ -23,13 +23,24 @@ describe('logsSceneLogic', () => {
     const selectedServices = (): string[] =>
         facetSelection(logic.values.filters.filterGroup, SERVICE_NAME_FILTER).included
 
+    // The `slow123` view answers only when a test releases it, so a test can open another view meanwhile.
+    let releaseSlowView: () => void = () => {}
+
     beforeEach(async () => {
+        const slowViewAnswered = new Promise<void>((resolve) => {
+            releaseSlowView = resolve
+        })
         useMocks({
             get: {
-                '/api/projects/:team_id/logs/views/:short_id/': ({ params }) =>
-                    params.short_id === 'abc123'
+                '/api/projects/:team_id/logs/views/:short_id/': async ({ params }) => {
+                    if (params.short_id === 'slow123') {
+                        await slowViewAnswered
+                        return [200, { short_id: 'slow123', name: 'Slow view', filters: { searchTerm: 'slow' } }]
+                    }
+                    return params.short_id === 'abc123'
                         ? [200, { short_id: 'abc123', name: 'Checkout timeouts', filters: { searchTerm: 'timeout' } }]
-                        : [404, {}],
+                        : [404, {}]
+                },
             },
             post: {
                 '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
@@ -284,6 +295,29 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.todayRecent).toBeNull()
+        })
+
+        it('keeps the filters a link carries over the saved view', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { savedView: 'abc123', searchTerm: 'edited' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.searchTerm).toEqual('edited')
+            expect(logic.values.todayRecent?.name).toEqual('Checkout timeouts')
+        })
+
+        it('drops a slower response for a saved view the link no longer names', async () => {
+            router.actions.push('/logs', { savedView: 'slow123' })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { savedView: 'abc123' })
+            }).toDispatchActions(['applySavedView'])
+
+            releaseSlowView()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filters.searchTerm).toEqual('timeout')
+            expect(logic.values.todayRecent?.name).toEqual('Checkout timeouts')
         })
     })
 

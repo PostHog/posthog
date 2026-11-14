@@ -277,13 +277,21 @@ export interface logsSceneLogicActions {
     setLinkToLogId: (linkToLogId: string | null) => {
         linkToLogId: string | null
     } // logsViewerLogic
-    applySavedView: (view: LogsViewApi) => {
+    applySavedView: (
+        view: LogsViewApi,
+        keepFilters?: boolean
+    ) => {
+        keepFilters: boolean
         view: LogsViewApi
     }
     keepSqlEditorMounted: (editorTabId: string) => {
         editorTabId: string
     }
-    openSavedViewById: (shortId: string) => {
+    openSavedViewById: (
+        shortId: string,
+        keepFilters?: boolean
+    ) => {
+        keepFilters: boolean
         shortId: string
     }
     setActiveTab: (activeTab: LogsSceneActiveTab) => {
@@ -378,10 +386,13 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
         }
 
-        const applySavedViewParam = (raw: unknown): void => {
+        const applySavedViewParam = (params: Params): void => {
+            const raw = params[SAVED_VIEW_PARAM]
             const savedView = typeof raw === 'string' ? raw : null
             if (savedView && savedView !== values.openSavedView?.short_id) {
-                actions.openSavedViewById(savedView)
+                // A link edited after the view opened carries its own filters, which win over the view's.
+                const keepFilters = ['dateRange', 'filterGroup', 'searchTerm'].some((key) => params[key])
+                actions.openSavedViewById(savedView, keepFilters)
             } else if (!savedView && values.openSavedView) {
                 actions.setOpenSavedView(null)
             }
@@ -507,7 +518,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
 
-            applySavedViewParam(params[SAVED_VIEW_PARAM])
+            applySavedViewParam(params)
 
             const linkToLogId = params.linkToLogId as string | undefined
             if (linkToLogId && linkToLogId !== values.linkToLogId) {
@@ -713,8 +724,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
-        openSavedViewById: (shortId: string) => ({ shortId }),
-        applySavedView: (view: LogsViewApi) => ({ view }),
+        openSavedViewById: (shortId: string, keepFilters: boolean = false) => ({ shortId, keepFilters }),
+        applySavedView: (view: LogsViewApi, keepFilters: boolean = false) => ({ view, keepFilters }),
         setOpenSavedView: (view: LogsOpenSavedView | null) => ({ view }),
     }),
 
@@ -766,17 +777,24 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         setFacetNameSearch: () => {
             actions.syncUrl()
         },
-        openSavedViewById: async ({ shortId }) => {
+        openSavedViewById: async ({ shortId, keepFilters }, breakpoint) => {
+            let view: LogsViewApi
             try {
-                actions.applySavedView(await logsViewsRetrieve(String(values.currentProjectId), shortId))
+                view = await logsViewsRetrieve(String(values.currentProjectId), shortId)
             } catch {
                 lemonToast.error('Couldn’t open the saved view. It may have been deleted.')
+                return
             }
+            // A link opened while this one loaded wins, so a slower earlier response is dropped.
+            breakpoint()
+            actions.applySavedView(view, keepFilters)
         },
-        applySavedView: ({ view }) => {
+        applySavedView: ({ view, keepFilters }) => {
             // A null `columns` means the view has no column preference, so it opens with the default set.
             actions.setColumns(view.columns ?? DEFAULT_LOGS_COLUMNS)
-            actions.setFilters(view.filters || {})
+            if (!keepFilters) {
+                actions.setFilters(view.filters || {})
+            }
             actions.setActiveTab(DEFAULT_ACTIVE_TAB)
             actions.setOpenSavedView(view)
         },
