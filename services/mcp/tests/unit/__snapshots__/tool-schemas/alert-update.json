@@ -2273,6 +2273,86 @@
                                 }
                             },
                             "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "absolute_threshold": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Absolute mode: distance from the expected value, in the series' units"
+                                },
+                                "band": {
+                                    "anyOf": [
+                                        {
+                                            "anyOf": [
+                                                {
+                                                    "const": 0.8,
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "const": 0.9,
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "const": 0.98,
+                                                    "type": "number"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Forecast interval for band mode, and the range shown in every mode (default: 0.9)"
+                                },
+                                "direction": {
+                                    "anyOf": [
+                                        {
+                                            "enum": ["above", "below", "both"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Which side of the forecast can fire (default: both)"
+                                },
+                                "mode": {
+                                    "anyOf": [
+                                        {
+                                            "enum": ["band", "relative", "absolute"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "How the actual value is compared with the forecast (default: band)"
+                                },
+                                "relative_threshold": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Relative mode: fraction of the expected value. 1 = 100% away from expected"
+                                },
+                                "type": {
+                                    "default": "forecast",
+                                    "enum": ["forecast"],
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         }
                     ],
                     "description": "Detector configuration types"

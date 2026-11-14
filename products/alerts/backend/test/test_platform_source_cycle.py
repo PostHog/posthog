@@ -44,9 +44,12 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    ForecastDetectorPausedError,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
@@ -1014,10 +1017,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         # The error message names and links the insight, as a firing's does.
         assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
 
-    def test_a_paused_ai_detector_errors_and_stays_enabled(self) -> None:
+    @parameterized.expand(
+        [
+            ("ai", {"type": "llm"}, LLMDetectorPausedError, LLM_DETECTOR_PAUSED_ERROR_CODE),
+            ("forecast", {"type": "forecast"}, ForecastDetectorPausedError, FORECAST_DETECTOR_PAUSED_ERROR_CODE),
+        ]
+    )
+    def test_a_paused_gateway_detector_errors_and_stays_enabled(
+        self, _name: str, detector_config: dict, paused_error: type[LLMDetectorPausedError], code: str
+    ) -> None:
         outcome, _ = self._evaluate(
-            self._copy(self._alert(detector_config={"type": "llm"})),
-            result=LLMDetectorPausedError("consent withdrawn"),
+            self._copy(self._alert(detector_config=detector_config)),
+            result=paused_error("consent withdrawn"),
             uses_llm_detector=True,
         )
 
@@ -1027,7 +1038,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "consent withdrawn",
             False,
         )
-        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
+        assert outcome.failure.source_detail["error_code"] == code
 
     @parameterized.expand([("single", False), ("breakdown", True)])
     def test_a_check_without_enough_data_errors_and_stays_enabled(self, _name: str, breakdown: bool) -> None:
@@ -1103,6 +1114,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 True,
                 "LLMDetectorUnavailableError",
                 (AlertEventKind.ERRORED, "errored", LLM_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
+            ),
+            (
+                "forecast_unreachable",
+                True,
+                "ForecastDetectorUnavailableError",
+                (AlertEventKind.ERRORED, "errored", FORECAST_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
             ),
             # As production: switching an alert off mid-check is not a failure of the alert.
             ("switched_off", False, None, None),

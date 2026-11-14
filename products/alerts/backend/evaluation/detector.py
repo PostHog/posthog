@@ -50,6 +50,9 @@ from products.alerts.backend.evaluation.delay import (
     validate_evaluation_delay,
 )
 from products.alerts.backend.facade.contracts import MovedAlertCheck
+from products.alerts.backend.forecast import scorer as forecast_scorer
+from products.alerts.backend.forecast.access import FORECAST_DETECTOR_NO_CREATOR_MESSAGE
+from products.alerts.backend.forecast.rules import breach_detail
 from products.alerts.backend.judge import (
     EarlierFlag,
     JudgeAttribution,
@@ -58,6 +61,7 @@ from products.alerts.backend.judge import (
     SeriesJudge,
     SeriesJudgment,
 )
+from products.alerts.backend.judge.contract import ForecastDetectorMisconfiguredError
 from products.alerts.backend.judge.llm import LLMSeriesJudge, prompt_window
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -301,9 +305,16 @@ def _platform_fired_checks(alert: AlertConfiguration, moved_at: datetime) -> lis
 
 
 def _judge_attribution(
-    *, team: Team | None, user: User | None, evaluation_id: str | None, is_agent_billable: bool
+    *,
+    team: Team | None,
+    user: User | None,
+    evaluation_id: str | None,
+    is_agent_billable: bool,
+    detector_type: str = DetectorType.LLM.value,
 ) -> JudgeAttribution:
     """Who the judge's charged call runs as. Refused loudly when there is no one to attribute it to."""
+    if (team is None or user is None) and detector_type == DetectorType.FORECAST.value:
+        raise ForecastDetectorMisconfiguredError(FORECAST_DETECTOR_NO_CREATOR_MESSAGE)
     if team is None or user is None:
         raise LLMDetectorMisconfiguredError(
             "The AI detector needs a project and a user to attribute its model calls to. This "
@@ -369,15 +380,30 @@ def _score_series(
     series_context: SeriesContext,
     attribution: Callable[[], JudgeAttribution],
 ) -> _ScoredSeries:
-    """Score one series with whatever its config names: a registry detector, or the AI judge.
+    """Score one series with whatever its config names: a registry detector, the AI judge, or the forecast.
 
-    ``attribution`` is resolved only on the judge path, so an alert with no creator still
-    evaluates on a statistical detector and only fails when a charged call would need someone
-    to run as. The judge always judges the latest point only, so ``every_point`` applies to a
-    registry detector alone.
+    ``attribution`` is resolved only on the judge and forecast paths, so an alert with no creator
+    still evaluates on a statistical detector and only fails when a gateway call would need someone
+    to run as. The judge and the forecast score the latest point only, so ``every_point`` applies
+    to a registry detector alone.
     """
     data = np.array([p.value for p in series.points])
     detector_type_str = detector_config.get("type", "zscore")
+    if detector_type_str == DetectorType.FORECAST.value:
+        comparison = forecast_scorer.score_latest(data, detector_config, attribution=attribution())
+        if comparison is None:
+            return _ScoredSeries(data=data, detection=None, persisted_metadata={}, breach_suffix="")
+        return _ScoredSeries(
+            data=data,
+            # A forecast has no score. Its verdict flags the latest point only.
+            detection=DetectionResult(
+                is_anomaly=comparison.fires,
+                score=None,
+                triggered_indices=[len(data) - 1] if comparison.fires else [],
+            ),
+            persisted_metadata=comparison.persisted_metadata(),
+            breach_suffix=f": {breach_detail(comparison)}",
+        )
     if detector_type_str == DetectorType.LLM.value:
         judgment = _series_judge(detector_config).judge_latest(data, series=series_context, attribution=attribution())
         rationale = judgment.rationale.strip() if judgment is not None else ""
@@ -399,7 +425,7 @@ def _score_series(
 
 # The breach message a person reads names the detector. Every statistical type is already
 # a recognizable name; "llm" is not something the alert editor ever calls it.
-_DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
+_DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI", DetectorType.FORECAST.value: "forecast"}
 
 
 def _anomaly_breach(label: str, scored: _ScoredSeries, detector_type_str: str) -> str:
@@ -461,6 +487,7 @@ def evaluate_with_detector(
                 user=alert.created_by if alert is not None else None,
                 evaluation_id=evaluation_id,
                 is_agent_billable=True,
+                detector_type=detector_type_str,
             ),
         )
 
@@ -599,6 +626,10 @@ def simulate_detector_on_insight(
     # Read-only simulation runs outside the alert-check activity, so tag its query directly.
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
+    if score and detector_type_str == DetectorType.FORECAST.value:
+        # Before the query, so the preview refuses without running it. A preview of a forecast scores
+        # every point with a rolling forecast, which this function does not do.
+        raise ValueError("A preview is not available for the forecast detector yet.")
 
     # Route through the same kind→extractor registry as the alert path (check_detector_alert), so
     # simulation and evaluation can't drift: a kind added to DETECTOR_EXTRACTORS is automatically

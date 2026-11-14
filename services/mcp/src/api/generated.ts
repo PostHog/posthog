@@ -14813,10 +14813,58 @@ export namespace Schemas {
       type: LLMDetectorConfigType;
     }
 
+    export type ForecastDetectorBand = typeof ForecastDetectorBand[keyof typeof ForecastDetectorBand];
+
+
+    export const ForecastDetectorBand = {
+      '08': 0.8,
+      '09': 0.9,
+      '098': 0.98,
+    } as const;
+
+    export type ForecastDetectorDirection = typeof ForecastDetectorDirection[keyof typeof ForecastDetectorDirection];
+
+
+    export const ForecastDetectorDirection = {
+      Above: 'above',
+      Below: 'below',
+      Both: 'both',
+    } as const;
+
+    export type ForecastDetectorMode = typeof ForecastDetectorMode[keyof typeof ForecastDetectorMode];
+
+
+    export const ForecastDetectorMode = {
+      Band: 'band',
+      Relative: 'relative',
+      Absolute: 'absolute',
+    } as const;
+
+    export type ForecastDetectorConfigType = typeof ForecastDetectorConfigType[keyof typeof ForecastDetectorConfigType];
+
+
+    export const ForecastDetectorConfigType = {
+      Forecast: 'forecast',
+    } as const;
+
+    export interface ForecastDetectorConfig {
+      /** Absolute mode: distance from the expected value, in the series' units */
+      absolute_threshold?: number | null;
+      /** Forecast interval for band mode, and the range shown in every mode (default: 0.9) */
+      band?: ForecastDetectorBand | null;
+      /** Which side of the forecast can fire (default: both) */
+      direction?: ForecastDetectorDirection | null;
+      /** How the actual value is compared with the forecast (default: band) */
+      mode?: ForecastDetectorMode | null;
+      /** Relative mode: fraction of the expected value. 1 = 100% away from expected */
+      relative_threshold?: number | null;
+      type: ForecastDetectorConfigType;
+    }
+
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig | LLMDetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig | LLMDetectorConfig | ForecastDetectorConfig;
 
     /**
      * * `real_time` - real_time

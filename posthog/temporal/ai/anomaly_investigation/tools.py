@@ -109,14 +109,14 @@ def _run_detector_simulation(
     judged, so an investigation charts the series that fired. ``score=False`` returns the
     series unscored, for a check whose verdict is already saved.
 
-    An AI-detector alert is never re-scored here: the verdict that fired is already on the
-    check, and every extra scoring pass would be another billable model call that the agent
-    could repeat on every tool use. Its series comes back unscored.
+    An AI-detector or forecast alert is never re-scored here: the verdict that fired is already on
+    the check, and every extra scoring pass would be another gateway call that the agent could
+    repeat on every tool use. Its series comes back unscored.
     """
     # Imported lazily because the workflow module can't pull in heavy query machinery
     # at Temporal workflow-definition time — only activities can.
     from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
-    from products.alerts.backend.facade.api import is_llm_detector_config
+    from products.alerts.backend.facade.api import calls_ai_gateway
 
     try:
         return simulate_detector_on_insight(
@@ -135,7 +135,7 @@ def _run_detector_simulation(
             evaluation_delay_intervals=alert.evaluation_delay_intervals,
             date_from=date_from,
             user=alert.created_by,
-            score=score and not is_llm_detector_config(alert.detector_config),
+            score=score and not calls_ai_gateway(alert.detector_config),
         )
     except Exception as err:
         return str(err)

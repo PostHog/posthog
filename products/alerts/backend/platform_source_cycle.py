@@ -59,14 +59,12 @@ from products.alerts.backend.insight_alert_state_machine import (
     insight_snapshot,
 )
 from products.alerts.backend.judge.contract import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    UNAVAILABLE_ERRORS_BY_NAME,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+from products.alerts.backend.llm_detector_limits import calls_ai_gateway
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.logic.destinations import configured_destination_template_ids
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -570,9 +568,10 @@ def fail_insight_check(
     # As production: switching an alert off mid-check is not a failure of the alert.
     if alert is None or not alert.enabled:
         return None
-    if error_type == LLMDetectorUnavailableError.__name__:
+    unavailable = UNAVAILABLE_ERRORS_BY_NAME.get(error_type or "")
+    if unavailable is not None:
         # As production: the raw transport error is not the owner's configuration, so it gets its own wording.
-        error_message = LLM_DETECTOR_UNAVAILABLE_MESSAGE
+        error_message = unavailable.owner_message
     outcome = _verdict(
         checks[0],
         _snapshot(checks[0]),
@@ -747,7 +746,7 @@ def _decide(
         return _broken(check, snapshot, alert, now=now, message=entitlement_error)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
-    if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
+    if calls_ai_gateway(alert.detector_config) != uses_llm_detector:
         # As production: an edit since the plan means this worker may not hold the model
         # credentials. No outcome keeps the check due, so the next tick plans and routes it again.
         return None
@@ -787,7 +786,7 @@ def _decide(
         )
     except ClickHouseBudgetFull:
         return None
-    except LLMDetectorUnavailableError:
+    except LLMDetectorUnavailableError as error:
         if not final_attempt:
             # As production: a judge that reached no verdict gets another attempt, and only the
             # last one records the failure.
@@ -795,12 +794,12 @@ def _decide(
         return _verdict(
             check,
             snapshot,
-            CheckInput(threshold_breached=False, error_message=LLM_DETECTOR_UNAVAILABLE_MESSAGE),
+            CheckInput(threshold_breached=False, error_message=error.owner_message),
             now=now,
             skip=SkipReason.QUERY_FAILED,
             context=_context(alert),
             # History shows this reason by its code, and an errored check that repeats announces nothing.
-            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+            check_detail={ERROR_CODE_KEY: error.error_code},
         )
     except LLMDetectorPausedError as error:
         # As production: no retry, and the alert stays enabled so it resumes once access or credits return.
@@ -810,7 +809,7 @@ def _decide(
             alert,
             now=now,
             message=str(error),
-            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_PAUSED_ERROR_CODE},
+            check_detail={ERROR_CODE_KEY: error.error_code},
         )
     except AlertDataUnavailableError as error:
         return _errored_stays_enabled(check, snapshot, alert, now=now, message=str(error))
@@ -836,15 +835,15 @@ def _decide(
 
 
 def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
-    """Whether a parallel-run copy made without the AI detector would now run one.
+    """Whether a parallel-run copy made without a gateway detector (the AI or forecast detector) would now run one.
 
-    A check reads the alert's live detector, so an alert switched to the AI detector after the
-    backfill copied it would make a model call the project pays for twice. The backfill copies
+    A check reads the alert's live detector, so an alert switched to a gateway detector after the
+    backfill copied it would make a gateway call the project pays for twice. The backfill copies
     AI detector alerts only on request, and a copy it made that way stores the AI detector.
     """
-    if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
+    if check.owned_by_platform or not calls_ai_gateway(alert.detector_config):
         return False
-    return not is_llm_detector_config(check.condition.get("detector"))
+    return not calls_ai_gateway(check.condition.get("detector"))
 
 
 def _run_as_copy_creator(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> None:

@@ -25253,7 +25253,8 @@
                 "lof",
                 "ocsvm",
                 "pca",
-                "llm"
+                "llm",
+                "forecast"
             ],
             "type": "string"
         },
@@ -31803,6 +31804,50 @@
             },
             "required": ["key", "operator", "type", "value"],
             "type": "object"
+        },
+        "ForecastDetectorBand": {
+            "enum": [0.8, 0.9, 0.98],
+            "type": "number"
+        },
+        "ForecastDetectorConfig": {
+            "additionalProperties": false,
+            "description": "Forecasts the next point from the points before it, then compares the actual value with the forecast. Carries no preprocessing block: the forecast reads the series as it is.",
+            "properties": {
+                "absolute_threshold": {
+                    "description": "Absolute mode: distance from the expected value, in the series' units",
+                    "type": "number"
+                },
+                "band": {
+                    "$ref": "#/definitions/ForecastDetectorBand",
+                    "description": "Forecast interval for band mode, and the range shown in every mode (default: 0.9)"
+                },
+                "direction": {
+                    "$ref": "#/definitions/ForecastDetectorDirection",
+                    "description": "Which side of the forecast can fire (default: both)"
+                },
+                "mode": {
+                    "$ref": "#/definitions/ForecastDetectorMode",
+                    "description": "How the actual value is compared with the forecast (default: band)"
+                },
+                "relative_threshold": {
+                    "description": "Relative mode: fraction of the expected value. 1 = 100% away from expected",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "forecast",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "ForecastDetectorDirection": {
+            "enum": ["above", "below", "both"],
+            "type": "string"
+        },
+        "ForecastDetectorMode": {
+            "enum": ["band", "relative", "absolute"],
+            "type": "string"
         },
         "FormDismissPayload": {
             "additionalProperties": false,
@@ -60166,6 +60211,9 @@
                 },
                 {
                     "$ref": "#/definitions/LLMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ForecastDetectorConfig"
                 }
             ],
             "required": ["type"],
