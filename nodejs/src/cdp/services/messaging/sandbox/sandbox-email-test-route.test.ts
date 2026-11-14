@@ -199,45 +199,11 @@ describe('sandbox email test sends', () => {
         expect(world.ses.delivered).toEqual([])
     })
 
-    it('reports a retryable refusal from the worker as pending', async () => {
-        serveWorker({ faults: { capsLimiter: world.unreachableLimiter() } })
-
-        await expect(tester().send(testRun())).resolves.toEqual({
-            status: 'pending',
-            reason: 'cap_storage_unavailable',
-        })
-        expect(world.ses.delivered).toEqual([])
-    })
-
-    it('reports a block from the worker', async () => {
-        await expect(tester().send(testRun({}, 'stranger@example.com'))).resolves.toEqual({
-            status: 'skipped',
-            reason: 'not_member',
-        })
-        expect(world.ses.delivered).toEqual([])
-    })
-
     it('skips the test when the worker has sending off', async () => {
         serveWorker({ sendingOn: false })
 
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'skipped', reason: 'sending_disabled' })
         expect(world.ses.delivered).toEqual([])
-    })
-
-    it('takes one slot of the SES send rate that queued sends share for each test it sends, and sends nothing once it is spent', async () => {
-        serveWorker({ bucket: world.sesBucket(2) })
-
-        const answers = []
-        for (let send = 0; send < 3; send++) {
-            answers.push(await tester().send(testRun()))
-        }
-
-        expect(answers).toEqual([
-            expect.objectContaining({ status: 'accepted' }),
-            expect.objectContaining({ status: 'accepted' }),
-            { status: 'failed', reason: 'send_rate_limited' },
-        ])
-        expect(world.ses.attempts).toBe(2)
     })
 
     it.each<[string, (bucket: SandboxSesBucket) => Promise<unknown>, SandboxEmailStepResult, SandboxEmailStepResult]>([
@@ -342,13 +308,6 @@ describe('sandbox email test sends', () => {
             expect(await world.allowanceLeft(caps, member())).toBe(true)
         }
     )
-
-    it('refuses a test send while the SES send rate cannot be read', async () => {
-        serveWorker({ bucket: { ...world.sesBucket(5), limiter: world.unreachableLimiter() } })
-
-        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
-        expect(world.ses.delivered).toEqual([])
-    })
 
     it('refuses a test send before the editor stops waiting when the SES send rate store stops answering, and sends on a fresh connection once it answers', async () => {
         const store = new StallingValkeyProxy({

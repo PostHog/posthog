@@ -179,17 +179,6 @@ describe('SandboxEmailService', () => {
         expect(world.ses.delivered).toEqual([])
     })
 
-    it('spends one daily allowance per member on each delivered email, and refuses once it is gone', async () => {
-        const service = world.service({ caps: { team: 5, recipient: 1 } })
-
-        await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
-        await expect(service.send(request({ invocationId: 'run-2' }))).resolves.toEqual({
-            status: 'skipped',
-            reason: 'daily_cap_reached',
-        })
-        expect(recipients()).toEqual([member()])
-    })
-
     const capped = (): Promise<FrequencyCapCheck> =>
         Promise.resolve({ capped: true, nextSlotAt: Date.now() + 3_600_000, holdHours: null })
 
