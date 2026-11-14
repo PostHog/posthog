@@ -15,12 +15,10 @@ from products.tasks.backend.storage import append_jsonl_object
 
 class TestAppendJsonlObject(SimpleTestCase):
     @patch("products.tasks.backend.storage.get_client")
-    @patch("products.tasks.backend.storage.object_storage.write")
-    @patch("products.tasks.backend.storage.object_storage.read")
+    @patch("products.tasks.backend.storage.object_storage.append")
     def test_refuses_append_when_lock_contended(
         self,
-        mock_read: MagicMock,
-        mock_write: MagicMock,
+        mock_append: MagicMock,
         mock_get_client: MagicMock,
     ) -> None:
         mock_get_client.return_value.lock.return_value.acquire.return_value = False
@@ -28,31 +26,27 @@ class TestAppendJsonlObject(SimpleTestCase):
         with self.assertRaises(TaskRunLogAppendUnserialized):
             append_jsonl_object("sessions/example.jsonl", [{"type": "session"}])
 
-        mock_read.assert_not_called()
-        mock_write.assert_not_called()
+        mock_append.assert_not_called()
 
     @patch("products.tasks.backend.storage.get_client")
-    @patch("products.tasks.backend.storage.object_storage.write")
-    @patch("products.tasks.backend.storage.object_storage.read")
+    @patch("products.tasks.backend.storage.object_storage.append")
     def test_waits_for_the_lock_again_when_asked(
         self,
-        mock_read: MagicMock,
-        mock_write: MagicMock,
+        mock_append: MagicMock,
         mock_get_client: MagicMock,
     ) -> None:
-        mock_read.return_value = ""
         lock = mock_get_client.return_value.lock.return_value
         lock.acquire.side_effect = [False, True]
 
         append_jsonl_object("sessions/example.jsonl", [{"type": "session"}], lock_attempts=2)
 
         self.assertEqual(lock.acquire.call_count, 2)
-        mock_write.assert_called_once_with("sessions/example.jsonl", '{"type": "session"}')
+        mock_append.assert_called_once_with("sessions/example.jsonl", b'{"type": "session"}', separator=b"\n")
 
     @parameterized.expand(
         [
-            ("", True, '{"type": "session"}'),
-            ('{"type": "session"}', False, '{"type": "session"}\n{"type": "message"}'),
+            ("", True, '{"type": "session", "batch": "b1"}'),
+            ('{"type": "session"}', False, '{"type": "session"}\n{"type": "message", "batch": "b1"}'),
         ]
     )
     @patch("products.tasks.backend.storage.get_client")
@@ -69,21 +63,21 @@ class TestAppendJsonlObject(SimpleTestCase):
     ) -> None:
         mock_read.return_value = existing_content
 
-        is_new = append_jsonl_object("sessions/example.jsonl", [{"type": "session" if expected_is_new else "message"}])
+        is_new = append_jsonl_object(
+            "sessions/example.jsonl", [{"type": "session" if expected_is_new else "message"}], batch_id="b1"
+        )
 
         self.assertEqual(is_new, expected_is_new)
         mock_write.assert_called_once_with("sessions/example.jsonl", expected_content)
 
     @patch("products.tasks.backend.storage.get_client")
-    @patch("products.tasks.backend.storage.object_storage.write")
-    @patch("products.tasks.backend.storage.object_storage.read")
+    @patch("products.tasks.backend.storage.object_storage.append")
     def test_concurrent_appends_do_not_drop_entries(
         self,
-        mock_read: MagicMock,
-        mock_write: MagicMock,
+        mock_append: MagicMock,
         mock_get_client: MagicMock,
     ) -> None:
-        stored = ""
+        stored = b""
         mutex = threading.Lock()
 
         class _Mutex:
@@ -95,17 +89,13 @@ class TestAppendJsonlObject(SimpleTestCase):
 
         mock_get_client.return_value.lock.return_value = _Mutex()
 
-        def _read(key: str, missing_ok: bool = False) -> str:
+        def _append(key: str, content: bytes, separator: bytes) -> None:
+            nonlocal stored
             snapshot = stored
             time.sleep(0.005)
-            return snapshot
+            stored = snapshot + separator + content if snapshot else content
 
-        def _write(key: str, content: str) -> None:
-            nonlocal stored
-            stored = content
-
-        mock_read.side_effect = _read
-        mock_write.side_effect = _write
+        mock_append.side_effect = _append
 
         writers = [
             threading.Thread(target=append_jsonl_object, args=("sessions/example.jsonl", [{"n": n}])) for n in range(8)
@@ -115,20 +105,18 @@ class TestAppendJsonlObject(SimpleTestCase):
         for writer in writers:
             writer.join()
 
-        self.assertEqual(sorted(stored.split("\n")), sorted(json.dumps({"n": n}) for n in range(8)))
+        self.assertEqual(sorted(stored.split(b"\n")), sorted(json.dumps({"n": n}).encode() for n in range(8)))
 
     @parameterized.expand([("acquire",), ("release",)])
     @patch("products.tasks.backend.storage.get_client")
-    @patch("products.tasks.backend.storage.object_storage.write")
-    @patch("products.tasks.backend.storage.object_storage.read")
+    @patch("products.tasks.backend.storage.object_storage.append")
     def test_fails_open_when_redis_is_unavailable(
         self,
         failing_call: str,
-        mock_read: MagicMock,
-        mock_write: MagicMock,
+        mock_append: MagicMock,
         mock_get_client: MagicMock,
     ) -> None:
-        mock_read.return_value = ""
+        mock_append.return_value = True
         lock = mock_get_client.return_value.lock.return_value
         lock.acquire.return_value = True
         getattr(lock, failing_call).side_effect = redis.exceptions.ConnectionError("redis down")
@@ -136,4 +124,4 @@ class TestAppendJsonlObject(SimpleTestCase):
         is_new = append_jsonl_object("sessions/example.jsonl", [{"type": "session"}])
 
         self.assertTrue(is_new)
-        mock_write.assert_called_once_with("sessions/example.jsonl", '{"type": "session"}')
+        mock_append.assert_called_once_with("sessions/example.jsonl", b'{"type": "session"}', separator=b"\n")
