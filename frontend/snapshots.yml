@@ -15399,17 +15399,17 @@ snapshots:
     scenes-app-platformalerts--routing--light:
         hash: v1.k794b7964.dea075ade5283b6728b1e433b5e3450e09d322efc954ac30fd29e8691922a6c5.2M-kdtCkgUXtagW46aHmk1LNwzJW4nP5nfF4xtWFRn0
     scenes-app-posthog-ai--chat-history--dark:
-        hash: v1.k794b7964.eee0d73adae1a95b8020e415795b22d598502020aca651bbf0e9d6efc874570d.bRIMlhqBUQzGifiT0EX3if9HvBrvwa0aLAzSQMEAu-w
+        hash: v1.k794b7964.9216a8bcbd751fc15794480658598b826ff5f3f942a9f88f671ed91191966884.f4S5j0SqwLpO7teZysW0A7PWTCSrpTjwVr3-inyZkUo
     scenes-app-posthog-ai--chat-history--light:
-        hash: v1.k794b7964.50750e21ad706ef427aadf03eaebf1f17af6d50ad3503d962081cd6e0a6f8ff7.JWa-CT0_FhgQ7pL3pHYgPd-jhJ0BDasDzzhWdeDXsPk
+        hash: v1.k794b7964.7d7689d78b3d9bdf17849931ffb3ecbf8e8ae680d338b4cffc8d88f423a3467a.sQ--BKosafCt6PL42ZgDaL7sqzH_D_UKu7-G5h2Lj7Y
     scenes-app-posthog-ai--chat-history-empty--dark:
-        hash: v1.k794b7964.82c44c1f3dfdcdca5da5954190301b8d2ea1ad1c3d914c2f0c9fa17cbb9c2ed7.5cw8Hw6vzsjcxS4k8a8n4w0jrgltFIfGBL4oVPk6zQ8
+        hash: v1.k794b7964.7b7ffa097490bca8ac9287e43096c14a02e2c308454d6e346b2fe103ad239174.oVl_f42abIVWkQqZZhhQ7AiSLigHHF9yW9vdY8zczkQ
     scenes-app-posthog-ai--chat-history-empty--light:
-        hash: v1.k794b7964.cbbbe14f7f39feb9b7f2308f8adcca8ad89037cfb3fb1a2da4422915d32d8f4d.tiJk2pQbKL5gl6jVWe41TKGPYkDVXe7bGVOTUIzd7FQ
+        hash: v1.k794b7964.39aa8864991f72f40988fbf08b4ed84b1d06ba1301b0e31118ef043c4f24b4e3.uUiBKfxymTUXYaXaObUSlpL9BDEKqof3CVW4pkAIXkE
     scenes-app-posthog-ai--chat-history-loading--dark:
-        hash: v1.k794b7964.67507475336e2a56d0ce4df48b929a6ae4e0c414d99ec9187c9bcfaf3c7afeb8.B6iLC7aUBMX3LwcPpylpW8k14HmiiVGPmrLkYp9jgTw
+        hash: v1.k794b7964.0805270e63ff4c7fa3ca8e0566d4b3b4626e84920e0f931ade4be76d812f2506.0XIolIHgAr8fIxMS8_Kk5m8uaHOhNopvaYXidftjwyQ
     scenes-app-posthog-ai--chat-history-loading--light:
-        hash: v1.k794b7964.05fa0815535a48b597877509c5ca2e8eddcea3800776f3e377759a03ed8d6603.fQXhaKjt4tUt7qy1DhGem9A5rS1h_OhC3ak1AaqlvvU
+        hash: v1.k794b7964.747725f1dddf6401fd3f77bc512fc0dc5fe16ed9167082fe70fb71933191657e.MLNoz9jIlmGYBmUdFxoaSRM70yRSSOQjsGSJEnQEy3Q
     scenes-app-posthog-ai--chat-with-ui-context--dark:
         hash: v1.k794b7964.db1c384476d42e14a5c4d62fde07d310981ba20ca223778432583163a4ca808e.snfaPwZJ2bnCdiVBleY0OssExxUlpb-M2qSjsehdoNA
     scenes-app-posthog-ai--chat-with-ui-context--light:
