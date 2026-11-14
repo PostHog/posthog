@@ -81,6 +81,16 @@ recipient's, even though the task's `created_by` has moved by then. Additional p
 | `from_user_id` | `int?` | User ID of the previous owner        |
 | `to_user_id`   | `int`  | User ID of the recipient (new owner) |
 
+## Desktop beta terms events
+
+Source: `presentation/views/desktop.py`
+
+### `desktop beta terms withdrawn`
+
+Fires when an organization admin withdraws an existing PostHog Desktop beta terms acceptance. Repeating the
+request after acceptance has already been withdrawn does not emit another event. The event carries only the
+standard organization groups and no additional properties.
+
 ## Channel / Space Configuration Events
 
 Source: `repository_config_analytics.py`, called from `facade/api.py`, `models.py`, and

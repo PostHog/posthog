@@ -258,6 +258,20 @@ export const desktopBetaTermsCreate = async (
     })
 }
 
+export const getDesktopBetaTermsRevokeUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_beta_terms/revoke/`
+}
+
+export const desktopBetaTermsRevoke = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsRevokeUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSandboxCustomImagesListUrl = (projectId: string, params?: SandboxCustomImagesListParams) => {
     const normalizedParams = new URLSearchParams()
 
