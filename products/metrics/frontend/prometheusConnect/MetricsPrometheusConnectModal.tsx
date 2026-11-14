@@ -3,26 +3,43 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EditKeyModal } from 'scenes/settings/user/PersonalAPIKeys'
 
 import { metricsPrometheusConnectLogic } from './metricsPrometheusConnectLogic'
 
-export function MetricsPrometheusConnectModal(): JSX.Element {
+/**
+ * Mounting this modal mounts the connect logic and the personal API key logic it needs, so render it only once
+ * the user asks to connect. It opens on mount and calls `onClose` so the parent can unmount it again.
+ */
+export function MetricsPrometheusConnectModal({ onClose }: { onClose?: () => void }): JSX.Element {
     const { isConnectModalOpen, serverUrl, provisioningSnippet, connectionTest, connectionTestLoading } =
         useValues(metricsPrometheusConnectLogic)
-    const { closeConnectModal, snippetCopied, createApiKey, testConnection } = useActions(metricsPrometheusConnectLogic)
+    const { openConnectModal, closeConnectModal, snippetCopied, createApiKey, testConnection } =
+        useActions(metricsPrometheusConnectLogic)
+
+    useOnMountEffect(() => {
+        if (!isConnectModalOpen) {
+            openConnectModal()
+        }
+    })
+
+    const close = (): void => {
+        closeConnectModal()
+        onClose?.()
+    }
 
     return (
         <>
             <LemonModal
                 isOpen={isConnectModalOpen}
-                onClose={closeConnectModal}
+                onClose={close}
                 title="Connect Grafana"
                 description="Add PostHog as a Prometheus data source and query your metrics with PromQL."
                 width={640}
                 footer={
-                    <LemonButton type="secondary" onClick={closeConnectModal}>
+                    <LemonButton type="secondary" onClick={close}>
                         Close
                     </LemonButton>
                 }

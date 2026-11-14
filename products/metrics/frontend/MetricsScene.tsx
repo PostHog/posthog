@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -29,7 +30,6 @@ import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardI
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { DEFAULT_ACTIVE_TAB, MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
-import { metricsPrometheusConnectLogic } from './prometheusConnect/metricsPrometheusConnectLogic'
 import { MetricsPrometheusConnectModal } from './prometheusConnect/MetricsPrometheusConnectModal'
 
 export const METRICS_LOGIC_KEY = 'metrics'
@@ -96,7 +96,9 @@ const MetricsSceneContent = (): JSX.Element => {
     })
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const prometheusApiEnabled = useFeatureFlag('LOGS_METRICS_SNUFFLE_API')
-    const { openConnectModal } = useActions(metricsPrometheusConnectLogic)
+    // The connect modal mounts its logic (and the personal API key logic, which loads every project) only once opened.
+    const [isConnectModalMounted, setIsConnectModalMounted] = useState(false)
+    const openConnectModal = (): void => setIsConnectModalMounted(true)
 
     const onFeedbackClick = (): void => {
         posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
@@ -191,7 +193,9 @@ const MetricsSceneContent = (): JSX.Element => {
                 {shownTab === 'alerts' && <MetricsAlertingSection />}
             </div>
             <MetricsDashboardImportModal />
-            {prometheusApiEnabled && <MetricsPrometheusConnectModal />}
+            {prometheusApiEnabled && isConnectModalMounted && (
+                <MetricsPrometheusConnectModal onClose={() => setIsConnectModalMounted(false)} />
+            )}
         </>
     )
 }
