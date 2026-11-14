@@ -18,6 +18,17 @@ from posthog.dataclasses import frozen
 _ConfigT_co = TypeVar("_ConfigT_co", covariant=True)
 
 
+# Both stay ExposedHogQLError, so every caller that shows the message to the user keeps working. A caller
+# that retries needs to tell a warehouse-side failure from a query that is wrong and fails the same way on
+# every attempt.
+class DirectQueryTimeoutError(ExposedHogQLError):
+    """The warehouse did not answer within the statement timeout."""
+
+
+class DirectQueryUnavailableError(ExposedHogQLError):
+    """The warehouse failed or refused the request for a reason on its side, such as an outage or a rate limit."""
+
+
 class _ParseableSource(Protocol[_ConfigT_co]):
     def parse_config(self, job_inputs: dict) -> _ConfigT_co: ...
 

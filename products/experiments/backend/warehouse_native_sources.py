@@ -1,12 +1,10 @@
 from typing import Any
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from posthog.hogql.direct_connection import (
-    RAW_QUERY_TABLE_DENIED_ERROR,
-    get_direct_connection_source_none_or_raise,
-    raw_query_denied_by_table_access,
-)
+from posthog.hogql.direct_connection import get_direct_connection_source_none_or_raise, raw_query_denied_by_table_access
 from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled
 
 from posthog.dataclasses import frozen
@@ -22,6 +20,10 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 WAREHOUSE_NATIVE_NODE_KIND = "ExperimentWarehouseNativeNode"
 WAREHOUSE_NATIVE_EXPOSURE_KIND = "ExperimentWarehouseNativeExposureConfig"
+
+# The direct connection helpers word their errors for the raw SQL API. These reach the experiment UI.
+WAREHOUSE_NATIVE_CONNECTION_ERROR = "This connection does not exist, or you do not have access to it."
+WAREHOUSE_NATIVE_TABLE_ACCESS_ERROR = "You need access to this connection and every table on it."
 
 
 @frozen
@@ -99,6 +101,10 @@ def warehouse_native_sources_agree(sources: list[dict[str, Any]]) -> str | None:
     return connection_ids.pop()
 
 
+def _connection_error(_api_message: str) -> ValidationError:
+    return ValidationError(WAREHOUSE_NATIVE_CONNECTION_ERROR)
+
+
 def validate_warehouse_native_connection(connection_id: str, *, team: Team, user: Any) -> None:
     """The connection must be a direct BigQuery source that the saving user can read in full."""
     if not bigquery_direct_query_enabled(team):
@@ -109,7 +115,7 @@ def validate_warehouse_native_connection(connection_id: str, *, team: Team, user
         team,
         connection_id,
         user=user if isinstance(user, User) else None,
-        error_factory=ValidationError,
+        error_factory=_connection_error,
         require_pure_direct=True,
     )
     if connection is None:
@@ -119,7 +125,23 @@ def validate_warehouse_native_connection(connection_id: str, *, team: Team, user
     # The queries are raw SQL, which the runner cannot check table by table, so the same rule as the raw
     # query path applies: the user must be able to read every table on the connection.
     if isinstance(user, User) and raw_query_denied_by_table_access(team, connection, user=user):
-        raise PermissionDenied(RAW_QUERY_TABLE_DENIED_ERROR)
+        raise PermissionDenied(WAREHOUSE_NATIVE_TABLE_ACCESS_ERROR)
+
+
+def validate_warehouse_native_connection_access(team: Team, user: User | None, connection_id: str) -> None:
+    """The check for an async result served by id. Raises the Django PermissionDenied, which the facade can
+    hand to the query status endpoint without a DRF import."""
+    # A shared link authenticates without a user, and the connection check has no access control to apply to
+    # it. The result endpoint serves any query id of the team, so a share cannot stand for the totals.
+    if user is None:
+        raise DjangoPermissionDenied("Sign in to read the results of a warehouse-native experiment.")
+    try:
+        validate_warehouse_native_connection(connection_id, team=team, user=user)
+    except ValidationError as error:
+        # A connection the user cannot see and a deleted connection both come back as an invalid connection.
+        # Either way the totals are not theirs to read.
+        detail = error.detail[0] if isinstance(error.detail, list) else error.detail
+        raise DjangoPermissionDenied(str(detail)) from error
 
 
 def validate_saved_metric_query_against_linked_experiments(

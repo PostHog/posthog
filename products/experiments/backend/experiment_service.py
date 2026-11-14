@@ -1850,8 +1850,9 @@ class ExperimentService:
 
     @staticmethod
     def _reject_warehouse_native_launch(exposure_criteria: dict | None) -> None:
-        """Nothing runs a warehouse-native query yet, so a launched experiment would only fail every
-        calculation. The exposure stands for the experiment: a warehouse-native experiment always has one."""
+        """A launched experiment runs every recalculation trigger, and which of them may query the customer's
+        warehouse is not decided yet. The exposure stands for the experiment: a warehouse-native experiment
+        always has one."""
         if warehouse_native_exposure_config(exposure_criteria) is not None:
             raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
 
@@ -3809,6 +3810,14 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        # An update keeps the criteria as the client sent them. A filled-in default would move the legacy
+        # calculation key, which hashes the stored criteria, and so reset the results. The warehouse-native
+        # rule is the exception, because the runner refuses the experiment until the setting is stored off.
+        if warehouse_native_exposure_config(update_data.get("exposure_criteria")) is not None:
+            update_data = {
+                **update_data,
+                "exposure_criteria": self._apply_exposure_criteria_defaults(update_data["exposure_criteria"]),
+            }
         if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
             # The rule spans the exposure and every metric, so the fields left out of the update are read
             # from the experiment. An update that touches none of them skips the check, so a connection

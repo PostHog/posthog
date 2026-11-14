@@ -185,7 +185,7 @@ class _MetricCompiler:
         except pydantic.ValidationError as error:
             return _failure(ExperimentHealthMetricCompileErrorKind.DEFINITION, _definition_message(error))
         if metric_uses_warehouse_native_source(metric):
-            # No query runs in the customer's warehouse yet, so the compile would report a defect of PostHog.
+            # The statement runs in the customer's warehouse and has no HogQL to compile.
             return _Outcome.UNKNOWN
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=self.experiment.id, metric=metric),

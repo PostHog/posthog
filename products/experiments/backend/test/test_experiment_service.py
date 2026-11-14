@@ -8314,6 +8314,17 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         assert experiment.exposure_criteria["exposure_config"]["connection_id"] == connection_id
         assert experiment.metrics[0]["source"]["kind"] == "ExperimentWarehouseNativeNode"
 
+    def test_a_save_turns_the_test_account_filter_off_for_a_warehouse_native_exposure(self) -> None:
+        connection_id = str(self.bigquery.id)
+        criteria_with_filter = {**_warehouse_exposure(connection_id), "filterTestAccounts": True}
+        experiment = self._create(exposure_criteria=criteria_with_filter, metrics=[_warehouse_metric(connection_id)])
+        assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
+
+        self.service.update_experiment(experiment, {"exposure_criteria": criteria_with_filter})
+
+        experiment.refresh_from_db()
+        assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
+
     @parameterized.expand(
         [
             (
@@ -8350,7 +8361,7 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
                 "connection_does_not_exist",
                 "missing",
                 ["missing"],
-                "Invalid connectionId",
+                "does not exist, or you do not have access",
             ),
             (
                 "flag_off",

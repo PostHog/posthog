@@ -33,6 +33,7 @@ from posthog.models.team.team import Team
 
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 
 logger = logging.getLogger(__name__)
 
@@ -138,11 +139,17 @@ DEFAULT_FILTER_TEST_ACCOUNTS = True
 def apply_exposure_criteria_defaults(exposure_criteria: Union[dict, None]) -> dict:
     """Fill in what a new experiment gets when its criteria leave a field out.
 
-    Both experiment creation and the reads that estimate a baseline for a not-yet-created
-    experiment go through here, so the two cannot describe different populations.
+    Experiment creation and the reads that estimate a baseline for a not-yet-created experiment go
+    through here, so they cannot describe different populations. An update goes through here only for
+    a warehouse-native exposure, because a filled-in default moves the calculation key of an existing
+    experiment.
     """
     result = dict(exposure_criteria or {})
-    if result.get("filterTestAccounts") is None:
+    if warehouse_native_exposure_config(result) is not None:
+        # Test account filters match PostHog persons and events, which warehouse rows do not have. The exposure
+        # forms hide the switch, so the saved value is what makes the runner accept the experiment.
+        result["filterTestAccounts"] = False
+    elif result.get("filterTestAccounts") is None:
         result["filterTestAccounts"] = DEFAULT_FILTER_TEST_ACCOUNTS
     return result
 
