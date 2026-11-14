@@ -18,9 +18,6 @@
             ],
             "description": "Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical"
         },
-        "deleted": {
-            "type": "boolean"
-        },
         "description": {
             "maxLength": 1000,
             "type": "string"

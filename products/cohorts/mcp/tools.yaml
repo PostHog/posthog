@@ -96,6 +96,20 @@ tools:
             - count
             - experiment_set
         ui_app: cohort
+    cohorts-delete:
+        operation: cohorts_destroy
+        enabled: true
+        scopes:
+            - cohort:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete cohort
+        description: Soft-delete a cohort by ID. The cohort no longer appears in lists. The API refuses the delete while
+            something still relies on the cohort, such as a feature flag that is not archived, a workflow, or an
+            insight; the error names what to change first.
+        soft_delete: true
     cohorts-list:
         operation: cohorts_list
         enabled: true
@@ -148,7 +162,7 @@ tools:
         title: Update cohort
         description: >-
             Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers
-            recalculation. To soft-delete a cohort, set 'deleted: true'.
+            recalculation. To delete a cohort, use 'cohorts-delete'.
 
 
             To add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it —
@@ -166,6 +180,7 @@ tools:
             'cohorts-retrieve' and wait until 'is_calculating' is false.
         exclude_params:
             - groups
+            - deleted
             - version
             - pending_version
             - is_calculating

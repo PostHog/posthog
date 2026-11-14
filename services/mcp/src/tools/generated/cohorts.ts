@@ -81,6 +81,25 @@ const cohortsCreate = (): ToolBase<ReturnType<typeof CohortsCreateSchema>, WithP
         },
     })
 
+const CohortsDeleteSchema = () => {
+    const CohortsDestroyParams = orvalSchemas.CohortsDestroyParams()
+    return CohortsDestroyParams.omit({ project_id: true })
+}
+
+const cohortsDelete = (): ToolBase<ReturnType<typeof CohortsDeleteSchema>, Schemas.Cohort> => ({
+    name: 'cohorts-delete',
+    schema: CohortsDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CohortsDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Cohort>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
+            body: { deleted: true },
+        })
+        return result
+    },
+})
+
 const CohortsListSchema = () => {
     const CohortsListQueryParams = orvalSchemas.CohortsListQueryParams()
     return CohortsListQueryParams.extend({
@@ -156,9 +175,6 @@ const cohortsPartialUpdate = (): ToolBase<
             }
             if (params.description !== undefined) {
                 body['description'] = params.description
-            }
-            if (params.deleted !== undefined) {
-                body['deleted'] = params.deleted
             }
             if (params.filters !== undefined) {
                 body['filters'] = params.filters
@@ -247,6 +263,7 @@ const cohortsRmPersonFromStaticCohortPartialUpdate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cohorts-add-persons-to-static-cohort-partial-update': cohortsAddPersonsToStaticCohortPartialUpdate,
     'cohorts-create': cohortsCreate,
+    'cohorts-delete': cohortsDelete,
     'cohorts-list': cohortsList,
     'cohorts-partial-update': cohortsPartialUpdate,
     'cohorts-retrieve': cohortsRetrieve,

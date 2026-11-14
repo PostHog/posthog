@@ -3522,6 +3522,21 @@
             "readOnlyHint": false
         }
     },
+    "cohorts-delete": {
+        "description": "Soft-delete a cohort by ID. The cohort no longer appears in lists. The API refuses the delete while something still relies on the cohort, such as a feature flag that is not archived, a workflow, or an insight; the error names what to change first.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Delete cohort",
+        "title": "Delete cohort",
+        "required_scopes": ["cohort:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/cohorts/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cohorts-list": {
         "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search' rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
         "category": "Cohorts",
@@ -3538,7 +3553,7 @@
         }
     },
     "cohorts-partial-update": {
-        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.\n\nAn update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the first population right after 'cohorts-create' with a query. Before you send the next query, call 'cohorts-retrieve' and wait until 'is_calculating' is false.",
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To delete a cohort, use 'cohorts-delete'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.\n\nAn update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the first population right after 'cohorts-create' with a query. Before you send the next query, call 'cohorts-retrieve' and wait until 'is_calculating' is false.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Update cohort",
