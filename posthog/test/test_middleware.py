@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -35,6 +36,7 @@ from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 from structlog.testing import capture_logs
 
+from posthog.api.current_alias_usage import CURRENT_ALIAS_USED_EVENT, CurrentAliasScope, current_alias_scope
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -3674,3 +3676,50 @@ class TestUserLoggingContextMiddleware(APIBaseTest):
         assert "team_id" not in ctx
         assert "posthogDistinctId" not in ctx
         span.set_attribute.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("project", "/api/projects/@current/query/", CurrentAliasScope.PROJECT),
+        ("environment", "/api/environments/@current/web_vitals", CurrentAliasScope.PROJECT),
+        ("organization", "/api/organizations/@current/members/", CurrentAliasScope.ORGANIZATION),
+        ("organization_detail", "/api/organizations/@current", CurrentAliasScope.ORGANIZATION),
+        ("personal_api_key", "/api/personal_api_keys/@current/", CurrentAliasScope.PERSONAL_API_KEY),
+        ("numeric_project", "/api/projects/123/query/", None),
+        ("alias_deeper_in_path", "/api/projects/123/feature_flags/@current/", None),
+        ("unknown_collection", "/api/users/@current/", None),
+        ("non_api", "/project/@current/insights", None),
+    ]
+)
+def test_current_alias_scope(_name: str, path: str, expected: CurrentAliasScope | None) -> None:
+    assert current_alias_scope(path) == expected
+
+
+class TestCurrentAliasUsage(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _alias_events(self, capture: MagicMock) -> list[Mapping[str, Any]]:
+        return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == CURRENT_ALIAS_USED_EVENT]
+
+    def test_reports_each_caller_once_per_route(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="Reporting script", secure_value=hash_key_value(token), scopes=["*"]
+        )
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            self.client.get("/api/projects/@current/")
+            self.client.get("/api/projects/@current/")
+            self.client.logout()
+            self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        events = self._alias_events(capture)
+        assert [(event["properties"]["access_method"], event["properties"]["route"]) for event in events] == [
+            ("session", "api/projects/{id}/"),
+            ("personal_api_key", "api/projects/{id}/"),
+        ]
+        assert all(event["distinct_id"] == self.user.distinct_id for event in events)
+        assert events[1]["properties"]["scope"] == CurrentAliasScope.PROJECT
+        assert events[1]["properties"]["api_key_label"] == "Reporting script"
