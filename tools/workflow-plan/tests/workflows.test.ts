@@ -753,6 +753,24 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs.frontend_tests?.result).toBe('success')
     })
 
+    it.each([
+        ['master push', push(), false, true, false],
+        ['ready PR', pullRequest(), true, true, false],
+        ['fork PR', pullRequest({ fork: true }), true, true, false],
+        ['merge group', { ...push(), event_name: 'merge_group' }, false, false, false],
+        ['cancelled master push', push(), false, false, true],
+    ] as const)(
+        'Desktop typecheck keeps coverage without an empty detector (%s)',
+        (name, github, changes, typecheck, cancelled) => {
+            const wf = workflow('desktop-typecheck.yml')
+            const plan = planWorkflow(wf, { name, github, cancelled, steps: allFiltersChanged(wf) })
+            expect(plan.errors).toEqual([])
+            expect(plan.jobs.changes?.result === 'success').toBe(changes)
+            expect(plan.jobs.typecheck?.result === 'success').toBe(typecheck)
+            expect(plan.jobs['desktop-typecheck-pass']?.result === 'success').toBe(!cancelled)
+        }
+    )
+
     it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
         const filters = (file: string): Record<string, string[]> =>
             load(
