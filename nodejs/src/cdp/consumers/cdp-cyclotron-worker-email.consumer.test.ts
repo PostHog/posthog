@@ -14,6 +14,7 @@ import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
+import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
 jest.setTimeout(5000)
 
@@ -39,9 +40,20 @@ describe('CdpCyclotronWorkerEmail', () => {
     })
 
     it.each([
-        ['counts a job the transactional email API marked once, not again on its reschedule', true, [1, 0]],
-        ['does not count a job without the mark', false, [0, 0]],
-    ])('%s', async (_desc, marked, expectedTriggeredPerRun) => {
+        [
+            'counts a job the transactional email API marked once, not again on its reschedule',
+            CdpCyclotronWorkerEmail,
+            true,
+            [1, 0],
+        ],
+        ['does not count a job without the mark', CdpCyclotronWorkerEmail, false, [0, 0]],
+        [
+            'counts a job the transactional push API marked on the workflow queue once',
+            CdpCyclotronWorkerHogFlow,
+            true,
+            [1, 0],
+        ],
+    ])('%s', async (_desc, Worker, marked, expectedTriggeredPerRun) => {
         const { team } = await createTestTeamFixture(hub.postgres)
         // The delay parks the run, so the second dequeue is a reschedule of the same job.
         const hogFlow: HogFlow = await insertHogFlow(
@@ -62,7 +74,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 } as any)
                 .build()
         )
-        const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), createMockJobQueue())
+        const worker = new Worker(hub, createCdpConsumerDeps(hub), createMockJobQueue())
         const triggered = (result: CyclotronJobInvocationResult) =>
             result.metrics.filter((metric) => metric.metric_name === 'triggered')
 

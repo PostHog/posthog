@@ -33,7 +33,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     ): Promise<CyclotronJobInvocationResult[]> {
         const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        return [...canceledResults, ...executed]
+        const results = [...canceledResults, ...executed]
+        results.forEach(countPendingTrigger)
+        return results
     }
 
     protected async hogFlowsFor(invocations: CyclotronJobInvocation[]): Promise<Record<HogFlow['id'], HogFlow | null>> {
@@ -172,4 +174,23 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         return { loadedInvocations, canceledResults }
     }
+}
+
+// The email and push APIs queue runs onto the worker queue directly, skipping the trigger pipeline that counts them.
+// The flag is cleared on the persisted state so a rescheduled job counts once; a canceled run still counts.
+export function countPendingTrigger(result: CyclotronJobInvocationResult): void {
+    const state = result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null | undefined
+    if (!state?.triggerMetricPending) {
+        return
+    }
+    delete state.triggerMetricPending
+    result.metrics.push({
+        team_id: result.invocation.teamId,
+        app_source_id: result.invocation.functionId,
+        metric_kind: 'other',
+        metric_name: 'triggered',
+        count: 1,
+        // A send can wait past the hour it was queued, and `conversion_by_start` files the run under that hour.
+        timestamp: result.invocation.queueCreatedAt,
+    })
 }
