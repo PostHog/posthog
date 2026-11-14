@@ -6244,22 +6244,32 @@ class TestHogFlowAPI(APIBaseTest):
             "filters": response.json()["filters"],
         }
 
+    # A dispatch that may have queued the run leaves it sending, so its start is logged; a rejected or
+    # unconnected dispatch fails the job, which sent nothing.
+    @parameterized.expand(
+        [
+            ("no_response", requests.ReadTimeout("read timed out"), True),
+            ("rejected", requests.HTTPError("400 Client Error", response=MagicMock(status_code=400)), False),
+            ("never_connected", requests.ConnectTimeout("connect timed out"), False),
+        ]
+    )
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_post_hog_flow_batch_jobs_logs_the_start_when_the_dispatch_times_out(self, mock_create_invocation):
+    def test_post_hog_flow_batch_jobs_logs_the_start_only_when_a_failed_dispatch_may_still_send(
+        self, _name, error, start_logged, mock_create_invocation
+    ):
         flow_id = self._create_active_hog_flow()
-        mock_create_invocation.return_value.raise_for_status.side_effect = requests.ReadTimeout("read timed out")
+        mock_create_invocation.return_value.raise_for_status.side_effect = error
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {"variables": []})
 
         assert response.status_code == 500
-
         batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
-        entry = ActivityLog.objects.get(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
-        assert entry.user == self.user
-        assert entry.detail is not None
-        assert entry.detail["context"]["batch_job_id"] == str(batch_job.id)
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert [entry.detail["context"]["batch_job_id"] for entry in entries if entry.detail] == (
+            [str(batch_job.id)] if start_logged else []
+        )
 
     @parameterized.expand([("on_realtime_pipeline", "all", 200), ("off_realtime_pipeline", "none", 400)])
     @patch(
