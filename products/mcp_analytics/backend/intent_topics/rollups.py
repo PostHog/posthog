@@ -7,17 +7,18 @@ reader goes through ``hourly_calls_source`` or ``topic_daily_source`` to see one
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
-from typing import Any, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import EmbeddedClickHouseQuery, HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
+from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.clickhouse_schema import (
-    MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
     MCP_INTENT_CALLS_HOURLY_DISTRIBUTED_TABLE,
     MCP_INTENT_CALLS_HOURLY_WRITABLE_TABLE,
     MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE,
@@ -68,19 +69,18 @@ FROM (
     WHERE team_id = %(team_id)s AND hour >= %(day_start)s AND hour < %(day_end)s
     GROUP BY hour, intent_hash, tool
 ) AS c
-LEFT JOIN (
-    SELECT intent_hash,
-           argMax(ifNull(topic_id, ''), timestamp) AS topic_id,
-           argMax(is_outlier, timestamp) AS is_outlier
-    FROM {assignments_table}
-    WHERE team_id = %(team_id)s
-      AND intent_hash IN (
-          SELECT DISTINCT intent_hash FROM {calls_table}
-          WHERE team_id = %(team_id)s AND hour >= %(day_start)s AND hour < %(day_end)s
-      )
-    GROUP BY intent_hash
-) AS a ON c.intent_hash = a.intent_hash
+LEFT JOIN ({assignments}) AS a ON c.intent_hash = a.intent_hash
 GROUP BY day, tool, topic_id
+"""
+
+
+_DAILY_ASSIGNMENTS_HOGQL = """
+SELECT intent_hash, topic_id, is_outlier
+FROM posthog.mcp_intent_assignments
+WHERE intent_hash IN (
+    SELECT DISTINCT intent_hash FROM posthog.mcp_intent_calls_hourly
+    WHERE hour >= {since} AND hour < {until}
+)
 """
 
 
@@ -116,8 +116,8 @@ class WholeDays:
 
 
 def build_topic_daily_insert(
-    *, team_id: int, window_start: datetime, window_end: datetime, now: datetime, timezone: str = "UTC"
-) -> tuple[str, dict[str, Any]]:
+    *, team: Team, window_start: datetime, window_end: datetime, now: datetime, timezone: str = "UTC"
+) -> EmbeddedClickHouseQuery:
     """Rebuild every project-local day the window touches from its first hour to its last.
 
     Days follow the project timezone because the queries resolve their date range in it. The hourly rows
@@ -128,32 +128,45 @@ def build_topic_daily_insert(
     reader that keeps the latest rebuild per day drops topics that lost all their intents to another topic.
     """
     days = WholeDays.covering(window_start, window_end, timezone)
+    # The guarded view selects one complete assignment before applying source retention.
+    assignments = HogQLQueryExecutor(
+        query=_DAILY_ASSIGNMENTS_HOGQL,
+        team=team,
+        workload=Workload.OFFLINE,
+        placeholders={"since": ast.Constant(value=days.start), "until": ast.Constant(value=days.end)},
+    ).generate_clickhouse_subquery_sql()
     sql = _TOPIC_DAILY_INSERT_SQL.format(
         target_table=MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE,
         calls_table=MCP_INTENT_CALLS_HOURLY_DISTRIBUTED_TABLE,
-        assignments_table=MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
+        assignments=assignments.sql,
     )
     # Passed as text: a datetime parameter loses everything below the second, and two rebuilds in one
     # second would then share a version.
     inserted_at = now.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
-    return sql, {
-        "team_id": team_id,
-        "day_start": days.start,
-        "day_end": days.end,
-        "inserted_at": inserted_at,
-        "timezone": timezone,
-    }
+    assignments.context.values.update(
+        {
+            "team_id": team.pk,
+            "day_start": days.start,
+            "day_end": days.end,
+            "inserted_at": inserted_at,
+            "timezone": timezone,
+        }
+    )
+    return EmbeddedClickHouseQuery(sql=sql, context=assignments.context, settings=assignments.settings)
 
 
 def rebuild_topic_daily(
     *, team_id: int, window_start: datetime, window_end: datetime, now: datetime, timezone: str = "UTC"
 ) -> None:
+    team = Team.objects.get(pk=team_id)
     # One insert per day keeps each query to a day of hourly rows, however long the window is.
     for day in WholeDays.covering(window_start, window_end, timezone).each_day(timezone):
-        sql, params = build_topic_daily_insert(
-            team_id=team_id, window_start=day.start, window_end=day.end, now=now, timezone=timezone
+        query = build_topic_daily_insert(
+            team=team, window_start=day.start, window_end=day.end, now=now, timezone=timezone
         )
-        sync_execute(sql, params, team_id=team_id, workload=Workload.OFFLINE)
+        sync_execute(
+            query.sql, query.context.values, settings=query.settings, team_id=team_id, workload=Workload.OFFLINE
+        )
 
 
 _HOURLY_SOURCE_SQL = """
