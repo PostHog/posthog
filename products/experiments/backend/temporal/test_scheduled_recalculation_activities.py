@@ -46,7 +46,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 MODULE = "products.experiments.backend.temporal.scheduled_recalculation_activities"
 
 # Unwrap the database_sync_to_async_pool decorator so the bodies run synchronously in the test
-# transaction, matching test_recalculation_activities.py.
+# transaction, matching recalculation/test_activities.py.
 _check_exposures_raw = _check_experiment_exposures_sync.func  # type: ignore[attr-defined]
 _start_recalculation_raw = _start_scheduled_recalculation_sync.func  # type: ignore[attr-defined]
 _discover_raw = _discover_scheduled_recalculation_candidates_sync.func  # type: ignore[attr-defined]
