@@ -2,7 +2,7 @@ import re
 import json
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from requests import Response
 
@@ -53,7 +53,8 @@ def build_query_url(
         params.append(("key", api_key))
     # Keep `:`, `*`, and `,` literal — the documented Census query syntax uses them raw
     # (e.g. for=state:*), and percent-encoding them is unverified against this API.
-    return f"{CENSUS_API_BASE_URL}/{dataset.strip('/')}?{urlencode(params, safe=':*,')}"
+    # Spaces in geography names go out as %20, as in the Census examples, not as `+`.
+    return f"{CENSUS_API_BASE_URL}/{dataset.strip('/')}?{urlencode(params, safe=':*,', quote_via=quote)}"
 
 
 def _is_key_error(response: Response) -> bool:
