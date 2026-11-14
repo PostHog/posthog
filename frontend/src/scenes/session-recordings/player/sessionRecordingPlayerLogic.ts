@@ -366,6 +366,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
+    // The opener must pass playerRef too, because it mounts the logic before SessionRecordingPlayer renders.
+    keepFullScreenAcrossRecordings?: boolean
     skipToFirstMatchingEvent?: boolean
     // The experiment whose recordings list the player was opened from. Its first in-session exposure
     // becomes a target for the initial skip, alongside any filtered events.
@@ -3804,6 +3806,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         setIsFullScreen: async ({ isFullScreen }) => {
             if (isFullScreen) {
+                const playerElement = props.playerRef?.current
+                if (playerElement && document.fullscreenElement === playerElement) {
+                    // The browser refuses a request without a user gesture even for the element it already shows in
+                    // fullscreen, and auto-advance to the next recording has no gesture.
+                    return
+                }
                 try {
                     await props.playerRef?.current?.requestFullscreen()
                 } catch (e) {
@@ -3982,6 +3990,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
+        // The browser sends no fullscreenchange event for an element that stays in fullscreen, so a new logic for
+        // the next recording reads the state once. Comparing with the player's own element keeps a page that is
+        // in fullscreen for another reason, such as a fullscreen dashboard, from turning the player fullscreen.
+        if (
+            props.keepFullScreenAcrossRecordings &&
+            props.playerRef?.current &&
+            document.fullscreenElement === props.playerRef.current
+        ) {
+            actions.setIsFullScreen(true)
+        }
 
         // Safety net: re-evaluate the buffering verdict at least this often. A recording stuck
         // buffering on a still-ingesting position (waitingForIngestion) flips to the terminal

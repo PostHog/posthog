@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
@@ -9,7 +10,7 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { buildRecordingMatchingEventFiltersForUrl } from 'products/web_analytics/frontend/heatmaps/components/heatmapRecordingFallbackLogic'
 
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
+import { SessionPlayerModalRecordingList, sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
 /**
  * When SessionPlayerModal is present in the page you can call `openSessionPlayer` action to open the modal
@@ -20,9 +21,13 @@ import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
  *
  */
 export function SessionPlayerModal(): JSX.Element | null {
-    const { activeSessionRecording, modalContext } = useValues(sessionPlayerModalLogic())
-    const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
+    const { activeSessionRecording, modalContext, recordingList, hasNextRecordingInList, showRecordingListPosition } =
+        useValues(sessionPlayerModalLogic())
+    const { closeSessionPlayer, playNextRecordingInList } = useActions(sessionPlayerModalLogic())
     const isChoosingHeatmapBackground = modalContext?.type === 'heatmap-background-selection'
+    // The modal builds and mounts the player logic before SessionRecordingPlayer renders, so the logic only sees
+    // the player element at mount when the modal owns the ref and passes it in.
+    const playerRef = useRef<HTMLDivElement>(null)
 
     // activeSessionRecording?.matching_events should always be a single element array
     // but, we're filtering and using flatMap just in case
@@ -47,6 +52,9 @@ export function SessionPlayerModal(): JSX.Element | null {
                   matchedEvents: matchedEvents,
               },
         skipToFirstMatchingEvent: isChoosingHeatmapBackground,
+        playNextRecording: hasNextRecordingInList ? () => playNextRecordingInList() : undefined,
+        playerRef,
+        keepFullScreenAcrossRecordings: true,
     }
 
     const playerLogic = sessionRecordingPlayerLogic(logicProps)
@@ -75,6 +83,8 @@ export function SessionPlayerModal(): JSX.Element | null {
                                 then use that moment as the heatmap background.
                             </p>
                         </div>
+                    ) : showRecordingListPosition && recordingList ? (
+                        <RecordingListPosition recordingList={recordingList} />
                     ) : (
                         <span />
                     )}
@@ -106,5 +116,18 @@ export function SessionPlayerModal(): JSX.Element | null {
                 {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noBorder />}
             </LemonModal.Content>
         </LemonModal>
+    )
+}
+
+function RecordingListPosition({ recordingList }: { recordingList: SessionPlayerModalRecordingList }): JSX.Element {
+    const { entries, position, hasMoreToLoad } = recordingList
+    const personDisplayName = entries[position]?.personDisplayName
+    return (
+        <div className="flex items-center gap-1 min-w-0 text-sm">
+            <span className="font-semibold shrink-0">
+                {`Recording ${position + 1} of ${entries.length}${hasMoreToLoad ? ' loaded' : ''}`}
+            </span>
+            {personDisplayName ? <span className="truncate text-secondary">{`· ${personDisplayName}`}</span> : null}
+        </div>
     )
 }
