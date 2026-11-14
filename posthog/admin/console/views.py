@@ -575,6 +575,9 @@ def _with_query(url: str, request: HttpRequest) -> str:
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
+    app_response = tool.app_page(request)
+    if app_response is not None:
+        return app_response
     operations = [
         _rendered_operation(
             request,

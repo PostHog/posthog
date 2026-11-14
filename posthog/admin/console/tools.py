@@ -292,6 +292,11 @@ class ConsoleTool:
     def page(self, request: "HttpRequest") -> Page:
         raise NotImplementedError
 
+    def app_page(self, request: "HttpRequest") -> "HttpResponse | None":
+        """A page the product renders itself, such as a React app that blocks cannot express. The console serves it
+        in place of `page` and `operations`, for GET and HEAD only. None for a tool built from blocks."""
+        return None
+
     def operations(self, request: "HttpRequest") -> list[ToolOperation]:
         """The actions the tool page offers. The console runs them; `page` stays read-only."""
         return []
