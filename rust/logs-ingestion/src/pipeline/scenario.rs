@@ -18,6 +18,11 @@ use crate::pattern::MESSAGE_KEYS;
 use crate::rate_limiter::{Clock, KeyRoot, TokenBucketRedis};
 use crate::retention::{compile_retention_rule_set, CompiledRetentionRuleSet, RetentionRuleRow};
 use crate::sampling::{compile_rule_set, CompiledRuleSet, SamplingRuleRow};
+use crate::transformations::functions::row_from_js;
+use crate::transformations::{
+    HogFunction, HogFunctionMonitoring, LogsTransformerConfig, LogsTransformerService,
+    StaticHogFunctions,
+};
 
 use super::config::LogsIngestionConsumerConfig;
 use super::consumer::LogsIngestionConsumer;
@@ -509,6 +514,43 @@ fn faults_with_times(v: Option<&JsValue>) -> HashMap<i64, (u64, JsValue)> {
         .collect()
 }
 
+pub const PARITY_SITE_URL: &str = "http://localhost:8010";
+
+/// `parity-harness.ts` builds a `LogsTransformerService` only for a scenario with `hog_functions`.
+fn scenario_transformer(
+    scenario: &JsValue,
+    outputs: Arc<CapturingOutputs>,
+    clock: Clock,
+) -> Option<Arc<dyn LogsTransformer>> {
+    let rows = match get(scenario, "hog_functions") {
+        Some(JsValue::Array(rows)) => rows,
+        _ => return None,
+    };
+    let functions = rows
+        .iter()
+        .map(|row| Arc::new(HogFunction::from_row(row_from_js(row))))
+        .collect();
+    let setting = |key: &str| {
+        get(scenario, "config")
+            .and_then(|c| n(get(c, key)))
+            .unwrap_or(0.0)
+    };
+    Some(Arc::new(LogsTransformerService::new(
+        Arc::new(StaticHogFunctions(functions)),
+        Arc::new(HogFunctionMonitoring::new(outputs, clock.clone(), true)),
+        LogsTransformerConfig {
+            site_url: PARITY_SITE_URL.to_string(),
+            hog_timeout_ms: setting("LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS"),
+            message_budget_ms: setting("LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS"),
+            batch_budget_ms: setting("LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS"),
+            max_error_logs_per_function_per_message: setting(
+                "LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION",
+            ) as usize,
+        },
+        clock,
+    )))
+}
+
 pub struct ScenarioConsumer {
     pub consumer: LogsIngestionConsumer,
     pub outputs: Arc<CapturingOutputs>,
@@ -651,7 +693,7 @@ pub fn scenario_parts(
                 recorded: recorded.clone(),
             }) as _
         }),
-        logs_transformer: None,
+        logs_transformer: scenario_transformer(scenario, outputs.clone(), clock.clone()),
         retention_rules: Some(Arc::new(ScenarioRetention(
             field("retention_rules"),
             Compiled::default(),

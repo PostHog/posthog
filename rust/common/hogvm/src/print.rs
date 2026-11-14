@@ -5,6 +5,8 @@
 //! (which is `toString` semantics) on purpose — the two are subtly different and the
 //! parity loop is what reconciles them.
 
+use std::collections::HashSet;
+
 use crate::values::HogMap;
 
 use crate::{
@@ -42,7 +44,94 @@ pub fn escape_string(value: &str) -> String {
 pub fn print_hog_string_output(heap: &VmHeap, value: &HogValue) -> Result<String, crate::VmError> {
     match value.deref(heap)? {
         HogLiteral::String(s) => Ok(s.to_string()),
-        _ => print_hog_value(heap, value, &mut Vec::new(), 0),
+        _ => {
+            assert_repeats_fit(heap, value, PRINT_RECURSION_LIMIT)?;
+            print_hog_value(heap, value, &mut Vec::new(), 0)
+        }
+    }
+}
+
+/// A printer writes a container again for each reference to it, so a few kilobytes can print as
+/// gigabytes. This fails when the repeated containers hold more text than the heap has room for.
+pub(crate) fn assert_repeats_fit(
+    heap: &VmHeap,
+    value: &HogValue,
+    max_depth: usize,
+) -> Result<(), crate::VmError> {
+    if matches!(value, HogValue::Lit(_)) {
+        return Ok(());
+    }
+    RepeatMeasure {
+        heap,
+        seen: HashSet::new(),
+        path: Vec::new(),
+        inside_repeats: 0,
+        repeated_bytes: 0,
+        max_depth,
+    }
+    .walk(value, 0)
+}
+
+struct RepeatMeasure<'a> {
+    heap: &'a VmHeap,
+    seen: HashSet<HeapReference>,
+    path: Vec<HeapReference>,
+    inside_repeats: usize,
+    repeated_bytes: usize,
+    max_depth: usize,
+}
+
+impl RepeatMeasure<'_> {
+    fn count(&mut self, bytes: usize) -> Result<(), crate::VmError> {
+        if self.inside_repeats > 0 {
+            self.repeated_bytes = self.repeated_bytes.saturating_add(bytes);
+            self.heap.assert_can_allocate(self.repeated_bytes)?;
+        }
+        Ok(())
+    }
+
+    fn walk(&mut self, value: &HogValue, depth: usize) -> Result<(), crate::VmError> {
+        self.count(1)?;
+        if depth > self.max_depth {
+            return Ok(());
+        }
+        let lit = value.deref(self.heap)?;
+        let container = match value {
+            HogValue::Ref(ptr)
+                if matches!(
+                    lit,
+                    HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
+                ) =>
+            {
+                Some(*ptr)
+            }
+            _ => None,
+        };
+        let mut repeated = false;
+        if let Some(ptr) = container {
+            if self.path.contains(&ptr) {
+                return Ok(());
+            }
+            self.path.push(ptr);
+            repeated = !self.seen.insert(ptr);
+            self.inside_repeats += usize::from(repeated);
+        }
+        let result = match lit {
+            HogLiteral::String(s) => self.count(s.len()),
+            HogLiteral::Array(items) | HogLiteral::Tuple(items) => {
+                items.iter().try_for_each(|item| self.walk(item, depth + 1))
+            }
+            HogLiteral::Object(map) => map.iter().try_for_each(|(key, item)| {
+                self.count(key.len())?;
+                self.walk(item, depth + 1)
+            }),
+            _ => Ok(()),
+        };
+        if container.is_some() {
+            self.path.pop();
+            self.inside_repeats -= usize::from(repeated);
+        }
+        result
     }
 }
 

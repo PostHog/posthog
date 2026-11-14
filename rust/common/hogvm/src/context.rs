@@ -8,8 +8,20 @@ use crate::{
     program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
     vm::HogVM,
-    HogLiteral, HogValue,
+    HogLiteral, HogValue, Num,
 };
+
+/// A global value whose objects keep their key order, which `serde_json` does not. Object keys
+/// must be unique. Strings are shared, so a read of a global copies its structure but not its text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrderedJson {
+    Null,
+    Bool(bool),
+    Number(Num),
+    String(Arc<str>),
+    Array(Vec<OrderedJson>),
+    Object(Vec<(String, OrderedJson)>),
+}
 
 /// Function names that always suspend, mirroring the reference VM's `ASYNC_STL`. These are async
 /// regardless of host configuration; `with_async_functions` registers additional ones.
@@ -66,6 +78,8 @@ pub struct ExecutionContext {
     // When set, the VM records a per-opcode execution trace (the reference's `telemetry`), surfaced
     // in the snapshot for the playground/debugger. Off by default (it has a per-step cost).
     pub(crate) collect_telemetry: bool,
+    pub(crate) ordered_globals: Option<OrderedJson>,
+    pub(crate) raw_result: bool,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -97,6 +111,8 @@ impl ExecutionContext {
             async_fns: HashSet::new(),
             max_async_steps: 0,
             collect_telemetry: false,
+            ordered_globals: None,
+            raw_result: false,
         }
     }
 
@@ -119,6 +135,8 @@ impl ExecutionContext {
             async_fns: HashSet::new(),
             max_async_steps: 0,
             collect_telemetry: false,
+            ordered_globals: None,
+            raw_result: false,
         }
     }
 
@@ -145,6 +163,22 @@ impl ExecutionContext {
     /// Swap globals in place (no clone) so one context can be reused across evaluations sharing them.
     pub fn set_globals(&mut self, globals: JsonValue) {
         self.globals = globals;
+    }
+
+    /// The resumable path does not carry them into a snapshot.
+    pub fn with_ordered_globals(mut self, globals: OrderedJson) -> Self {
+        self.ordered_globals = Some(globals);
+        self
+    }
+
+    pub fn set_ordered_globals(&mut self, globals: OrderedJson) {
+        self.ordered_globals = Some(globals);
+    }
+
+    /// For a host that steps the VM and calls `HogVM::take_result`. `sync_execute` returns null with it.
+    pub fn with_raw_result(mut self) -> Self {
+        self.raw_result = true;
+        self
     }
 
     /// Swap the program in place to reuse one context across many programs (e.g. catalog conditions).

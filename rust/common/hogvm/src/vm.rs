@@ -6,17 +6,18 @@ use std::sync::Arc;
 use serde_json::{json, Value as JsonValue};
 
 use crate::{
-    context::{ExecutionContext, Symbol},
+    context::{ExecutionContext, OrderedJson, Symbol},
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
+    print::assert_repeats_fit,
     program::Token,
     state::{
         chunk_str, chunk_to_symbol, close_over_cells, closure_from_json, closure_to_json,
         collect_cells, rebuild_cells, root_closure_json, value_from_json, value_to_json,
         CallFrameJson, CellRegistry, Resumable, ThrowFrameJson, UpvalueJson, VmSnapshot,
     },
-    util::{get_json_nested, like, regex_match},
+    util::{get_json_nested, get_ordered_nested, like, regex_match},
     values::{
         boolean_text_equals, compare_values, temporal_seconds_pair, Callable, Closure,
         FromHogLiteral, HogLiteral, HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue,
@@ -87,6 +88,7 @@ pub struct HogVM<'a> {
     // `set_chunk`) so the per-step fetch is a bounds-checked index instead of a symbol match plus
     // table lookup. Borrows from the context, like every other program view.
     current_tokens: &'a [Token],
+    result: Option<HogValue>,
 }
 
 struct CallFrame {
@@ -121,7 +123,50 @@ impl<'a> HogVM<'a> {
             current_tokens: context.chunk_tokens(&None)?,
             context,
             heap: VmHeap::new(context.max_heap_size),
+            result: None,
         })
+    }
+
+    /// The finished program's value under [`ExecutionContext::with_raw_result`]. Its heap
+    /// references point into this VM's heap, so read it before the VM is dropped.
+    pub fn take_result(&mut self) -> Option<HogValue> {
+        self.result.take()
+    }
+
+    /// Strings on the stack are not on the heap, so a host that bounds memory reads this.
+    pub fn memory_bytes(&self) -> usize {
+        self.stack.iter().fold(self.heap.current_bytes, |acc, v| {
+            acc.saturating_add(v.size())
+        })
+    }
+
+    /// The object the reference VM keeps for a closure or a callable value. `None` for any other
+    /// value. Upvalue ids count from 1 within this call, so they can differ from the reference's.
+    pub fn closure_json(&self, literal: &HogLiteral) -> Option<JsonValue> {
+        let mut registry = CellRegistry::default();
+        let header_len = self.context.program_header_len();
+        match literal {
+            HogLiteral::Closure(closure) => {
+                Some(closure_to_json(closure, &mut registry, header_len))
+            }
+            HogLiteral::Callable(callable) => Some(closure_to_json(
+                &Closure {
+                    captures: Vec::new(),
+                    callable: (**callable).clone(),
+                },
+                &mut registry,
+                header_len,
+            )),
+            _ => None,
+        }
+    }
+
+    fn finish(&mut self, result: HogValue) -> Result<StepOutcome, VmError> {
+        if self.context.raw_result {
+            self.result = Some(result);
+            return Ok(StepOutcome::Finished(JsonValue::Null));
+        }
+        Ok(StepOutcome::Finished(self.hog_to_json(&result)?))
     }
 
     /// Step the virtual machine, writing some debug information to the provided output function.
@@ -160,7 +205,7 @@ impl<'a> HogVM<'a> {
                 } else {
                     self.pop_stack()?
                 };
-                return Ok(StepOutcome::Finished(self.hog_to_json(&result)?));
+                return self.finish(result);
             }
             Err(e) => return Err(e),
         };
@@ -195,7 +240,18 @@ impl<'a> HogVM<'a> {
                 // Copy out the `Copy` `&ExecutionContext` so the `found` borrow is tied to it, not to
                 // `self` — leaving `self` free for the `&mut self` `json_to_hog` call below.
                 let context = self.context;
-                if let Some(found) = get_json_nested(&context.globals, &chain, self)? {
+                if let Some(ordered) = &context.ordered_globals {
+                    if let Some(found) = get_ordered_nested(ordered, &chain, self)? {
+                        let val = self.ordered_to_hog(found, 0)?;
+                        self.push_stack(val)?;
+                    } else if let Some(closure) = self.get_fn_reference(&chain) {
+                        self.push_stack(closure)?;
+                    } else if get_ordered_nested(ordered, &chain[..1], self)?.is_some() {
+                        self.push_stack(HogLiteral::Null)?;
+                    } else {
+                        return Err(VmError::UnknownGlobal(format!("{chain:?}")));
+                    }
+                } else if let Some(found) = get_json_nested(&context.globals, &chain, self)? {
                     let val = self.json_to_hog(found)?;
                     self.push_stack(val)?;
                 } else if let Some(closure) = self.get_fn_reference(&chain) {
@@ -408,7 +464,7 @@ impl<'a> HogVM<'a> {
                 let result = self.pop_stack()?;
                 let last_frame = self.stack_frames.pop();
                 let Some(frame) = last_frame else {
-                    return Ok(StepOutcome::Finished(self.hog_to_json(&result)?));
+                    return self.finish(result);
                 };
 
                 // NOTE - this diverges from the TS impl
@@ -1109,7 +1165,8 @@ impl<'a> HogVM<'a> {
         Ok(())
     }
 
-    pub(crate) fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
+    /// For a host that answers a [`StepOutcome::NativeCall`] itself. A container must already be on this VM's heap.
+    pub fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
         if self.stack.len() >= self.context.max_stack_depth {
             return Err(VmError::StackOverflow);
         }
@@ -1246,7 +1303,36 @@ impl<'a> HogVM<'a> {
 
     // Convert back from an arbitrary HogValue to a json Value. Again, this function exists on
     // the VM, because HogValues don't really exist in any other context.
+    fn ordered_to_hog(&mut self, current: &OrderedJson, depth: usize) -> Result<HogValue, VmError> {
+        if depth > MAX_JSON_SERDE_DEPTH {
+            return Err(VmError::OutOfResource(
+                "json->hog deserialization depth".to_string(),
+            ));
+        };
+        match current {
+            OrderedJson::Null => Ok(HogLiteral::Null.into()),
+            OrderedJson::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
+            OrderedJson::Number(n) => Ok(HogLiteral::Number(n.clone()).into()),
+            OrderedJson::String(s) => Ok(HogLiteral::String(HogStr::Shared(s.clone())).into()),
+            OrderedJson::Array(arr) => {
+                let mut values = Vec::with_capacity(arr.len());
+                for value in arr {
+                    values.push(self.ordered_to_hog(value, depth + 1)?);
+                }
+                Ok(self.heap.emplace(HogLiteral::Array(values))?.into())
+            }
+            OrderedJson::Object(entries) => {
+                let mut map = HogMap::default();
+                for (key, value) in entries {
+                    map.insert(key.clone(), self.ordered_to_hog(value, depth + 1)?);
+                }
+                Ok(self.heap.emplace(HogLiteral::Object(Box::new(map)))?.into())
+            }
+        }
+    }
+
     pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
+        assert_repeats_fit(&self.heap, value, MAX_JSON_SERDE_DEPTH)?;
         self.hog_to_json_impl(value, 0)
     }
 

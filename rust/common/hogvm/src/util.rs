@@ -6,6 +6,7 @@ use regex::{Regex, RegexBuilder};
 use serde_json::Value;
 
 use crate::{
+    context::OrderedJson,
     error::VmError,
     values::{HogValue, Num},
     vm::HogVM,
@@ -147,7 +148,7 @@ pub fn get_json_nested<'h>(
                 let idx = match raw {
                     0 => return Ok(None),
                     r if r > 0 && r <= len => (r - 1) as usize,
-                    r if r < 0 && -r <= len => (len + r) as usize,
+                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
                     _ => return Ok(None),
                 };
                 let Some(found) = values.get(idx) else {
@@ -168,6 +169,43 @@ pub fn get_json_nested<'h>(
     }
 
     Ok(None)
+}
+
+pub fn get_ordered_nested<'h>(
+    haystack: &'h OrderedJson,
+    mut chain: &[HogValue],
+    vm: &HogVM,
+) -> Result<Option<&'h OrderedJson>, VmError> {
+    let mut current = haystack;
+    while let Some(first) = chain.first() {
+        let next_key = first.deref(&vm.heap)?;
+        current = match current {
+            OrderedJson::Array(values) => {
+                let key: &Num = next_key.try_as()?;
+                if key.is_float() {
+                    return Err(VmError::InvalidIndex);
+                }
+                let raw = key.to_integer();
+                let len = values.len() as i64;
+                let idx = match raw {
+                    r if r > 0 && r <= len => (r - 1) as usize,
+                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
+                    _ => return Ok(None),
+                };
+                &values[idx]
+            }
+            OrderedJson::Object(entries) => {
+                let key: &str = next_key.try_as()?;
+                match entries.iter().find(|(k, _)| k == key) {
+                    Some((_, v)) => v,
+                    None => return Ok(None),
+                }
+            }
+            _ => return Ok(None),
+        };
+        chain = &chain[1..];
+    }
+    Ok(Some(current))
 }
 
 #[cfg(test)]

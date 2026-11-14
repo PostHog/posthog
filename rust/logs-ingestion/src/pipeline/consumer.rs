@@ -224,9 +224,15 @@ async fn process_admitted(
     usage: LogsBatchUsage,
 ) -> anyhow::Result<()> {
     let team_ids: Vec<i64> = billed.iter().map(|m| m.team_id).collect();
+    let transformation_budget = context
+        .deps
+        .logs_transformer
+        .as_ref()
+        .map(|t| t.start_batch());
     let billed_pass = LogsProcessingPass {
         usage: usage.clone(),
         metric_tallies: Default::default(),
+        transformation_budget: transformation_budget.clone(),
     };
     run_processing_pass(&context, billed, billed_pass.clone()).await?;
     // Rows that are never emitted keep internal stats off the team's billed usage.
@@ -236,6 +242,7 @@ async fn process_admitted(
         LogsProcessingPass {
             usage: Default::default(),
             metric_tallies: Default::default(),
+            transformation_budget,
         },
     )
     .await?;

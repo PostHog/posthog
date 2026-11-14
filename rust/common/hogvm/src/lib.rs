@@ -18,6 +18,7 @@ mod vm;
 
 // Execution context
 pub use context::ExecutionContext;
+pub use context::OrderedJson;
 
 // Programs and modules
 pub use program::ExportedFunction;
@@ -66,6 +67,8 @@ pub use values::HogValue;
 pub use values::LocalCallable;
 pub use values::Num;
 pub use values::NumOp;
+
+pub use memory::HeapReference;
 
 // Errors
 pub use error::VmError;
