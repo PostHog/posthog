@@ -284,7 +284,8 @@ class ClickHousePrinter(BasePrinter):
                     ]
 
                     if isinstance(suffix_arg.value, str):
-                        suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                        # suffix_args are shared module-level constants, so never mutate them in place
+                        suffix_arg = ast.Constant(value=suffix_arg.value.format(*suffix_arg_args_values))
                     else:
                         raise QueryError(
                             f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
