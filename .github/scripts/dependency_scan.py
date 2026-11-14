@@ -33,6 +33,7 @@ GO_VERSION = re.compile(r"v[0-9][0-9A-Za-z.+-]*")
 NAME_PATTERNS = {"npm": NPM_NAME, "pypi": PLAIN_NAME, "crates": PLAIN_NAME, "go": GO_MODULE}
 VERSION_PATTERNS = {"npm": VERSION, "pypi": VERSION, "crates": VERSION, "go": GO_VERSION}
 GO_REQUIREMENT = re.compile(r"^\s*(?:require\s+)?(\S+)\s+(v\S+)\s*(?://.*)?$")
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 PNPM_PACKAGE_KEY = re.compile(r"^\s+'?([^'\s]+)@([^@'\s]+)'?:\s*$")
 PYPI_REGISTRY = "https://pypi.org/simple"
 CRATES_REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
@@ -306,29 +307,38 @@ def sarif_output(findings: list[Finding], locations: dict[Package, Location]) ->
     )
 
 
-def main() -> int:
-    base, head = os.environ.get("BASE_REF", "HEAD^1"), os.environ.get("HEAD_REF", "HEAD")
+def is_clean(findings: list[Finding], skipped: list[Package]) -> bool:
+    return not skipped and all(finding.label not in (BLOCKING_LABEL, NOT_SCANNED) for finding in findings)
+
+
+def scan_additions(
+    base: str, head: str, fallback: Iterable[Package]
+) -> tuple[list[Finding], list[Package], dict[Package, Location]]:
     locations: dict[Package, Location] = {}
     for path in changed_lockfiles(base, head):
         head_lockfile = blob(head, path)
         for package in added_packages(path.rpartition("/")[2], blob(base, path), head_lockfile):
             locations.setdefault(package, Location(path, line_of(head_lockfile, package)))
-    candidates = sorted(locations) or [Package(*package) for package in SCANNER_SELF_CHECK]
-    scannable = [package for package in candidates if package.scannable]
-    to_scan = scannable[:MAX_PACKAGES]
+    candidates = sorted(locations) or list(fallback)
+    to_scan = [package for package in candidates if package.scannable][:MAX_PACKAGES]
     skipped = [package for package in candidates if package not in to_scan]
-
     findings = scan_all(to_scan)
     report = summary(findings, skipped)
     sys.stdout.write(report)
+    if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(summary_path, "a") as handle:
+            handle.write(report)
+    return findings, skipped, locations
+
+
+def report() -> int:
+    base, head = os.environ.get("BASE_REF", "HEAD^1"), os.environ.get("HEAD_REF", "HEAD")
+    findings, skipped, locations = scan_additions(base, head, [Package(*package) for package in SCANNER_SELF_CHECK])
     for finding in findings:
         if finding.label == BLOCKING_LABEL:
             sys.stdout.write(
                 f"::warning title=Dependency scan::{finding.package.ecosystem} {finding.package.spec} is {finding.label}\n"
             )
-    if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(summary_path, "a") as handle:
-            handle.write(report)
     if output_path := os.environ.get("GITHUB_OUTPUT"):
         with open(output_path, "a") as handle:
             handle.write(f"findings={findings_output(findings, skipped)}\n")
@@ -337,5 +347,19 @@ def main() -> int:
     return 1 if scanner_is_broken else 0
 
 
+def gate() -> int:
+    base, head = os.environ["MERGE_BASE"], os.environ["HEAD_SHA"]
+    if not (COMMIT_SHA.fullmatch(base) and COMMIT_SHA.fullmatch(head)):
+        raise SystemExit("the merge base or the head is not a commit id")
+    git("fetch", "--no-tags", "--depth=1", "origin", base, head)
+    findings, skipped, _ = scan_additions(base, head, [])
+    clean = is_clean(findings, skipped)
+    with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+        handle.write(f"clean={'true' if clean else 'false'}\n")
+    return 0
+
+
+MODES = {"report": report, "gate": gate}
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(MODES[sys.argv[1] if len(sys.argv) > 1 else "report"]())

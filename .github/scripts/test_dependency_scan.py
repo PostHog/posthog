@@ -203,3 +203,23 @@ def test_code_scanning_gets_one_result_per_rule_of_a_high_risk_package():
 )
 def test_only_a_registry_name_and_version_reach_the_scanner(ecosystem, name, version, scannable):
     assert scanner.Package(ecosystem, name, version).scannable is scannable
+
+
+LEFT_PAD = scanner.Package("npm", "left-pad", "1.3.1")
+TARBALL = scanner.Package("npm", "tarball-dep", "https://example.com/tarball-dep.tgz")
+
+
+@pytest.mark.parametrize(
+    "labels,skipped,clean",
+    [
+        ([], [], True),
+        (["no_risks_detected", "low", "suspicious"], [], True),
+        (["no_risks_detected", "high_risk"], [], False),
+        (["no_risks_detected", "not_scanned"], [], False),
+        (["no_risks_detected"], [TARBALL], False),
+    ],
+)
+def test_the_gate_is_clean_only_when_every_added_package_was_scanned_below_high_risk(labels, skipped, clean):
+    findings = [scanner.Finding(LEFT_PAD, label, 0.0, ()) for label in labels]
+
+    assert scanner.is_clean(findings, skipped) is clean
