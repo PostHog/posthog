@@ -31,6 +31,8 @@ export interface BroadcastPerformanceStats {
     bounced: number
     markedAsSpam: number
     failed: number
+    /** Sent with no delivery or bounce reported yet. */
+    awaitingResult: number
     unsubscribed: number
     /** Sends with open and click tracking, the denominator for engagement rates. */
     trackedSends: number
@@ -388,6 +390,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                         bounced: 0,
                         markedAsSpam: 0,
                         failed: totals.push_failed ?? 0,
+                        awaitingResult: 0,
                         trackedSends: pushSent,
                         engagementCountsPeople: true,
                         converted: totals.conversion ?? 0,
@@ -396,16 +399,21 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                     }
                 }
                 const sent = totals.email_sent ?? 0
+                const delivered = totals.email_delivered ?? 0
+                const bounced = totals.email_bounced ?? 0
+                const failed = totals.email_failed ?? 0
                 return {
                     sent,
-                    delivered: totals.email_delivered ?? 0,
+                    delivered,
                     opened: emailEngagement(totals, 'opened', runStartedAt),
                     clicked: emailEngagement(totals, 'clicked', runStartedAt),
                     engagementCountsPeople: countsEngagedPeople(totals, runStartedAt),
-                    bounced: totals.email_bounced ?? 0,
+                    bounced,
                     // Spam complaints are stored under email_blocked.
                     markedAsSpam: totals.email_blocked ?? 0,
-                    failed: totals.email_failed ?? 0,
+                    failed,
+                    // email_failed mostly counts sends that never reached the provider, and a spam complaint follows a delivery.
+                    awaitingResult: Math.max(sent - delivered - bounced, 0),
                     unsubscribed: totals.email_unsubscribed ?? 0,
                     trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
                     converted: totals.conversion ?? 0,

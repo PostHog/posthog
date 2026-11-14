@@ -267,13 +267,34 @@ describe('broadcastPerformanceLogic', () => {
             ],
             expected: { opened: 5, clicked: 8, engagementCountsPeople: false },
         },
-    ])('reports opens and clicks for $name', async ({ runStartedAt, totals, expected }) => {
+        {
+            name: 'a send where some emails have no result reported',
+            runStartedAt: '2026-11-10T22:28:56Z',
+            totals: [
+                [24, 'email_sent'],
+                [22, 'email_delivered'],
+            ],
+            expected: { delivered: 22, awaitingResult: 2 },
+        },
+        {
+            name: 'a send with spam complaints and emails that never reached the provider',
+            runStartedAt: '2026-11-10T22:28:56Z',
+            totals: [
+                [10, 'email_sent'],
+                [7, 'email_delivered'],
+                [1, 'email_bounced'],
+                [1, 'email_blocked'],
+                [2, 'email_failed'],
+            ],
+            expected: { markedAsSpam: 1, failed: 2, awaitingResult: 2 },
+        },
+    ])('reports what happened to the emails for $name', async ({ name, runStartedAt, totals, expected }) => {
         jest.spyOn(api, 'queryHogQL').mockImplementation(
             async (query) =>
                 ({ results: String(query).includes('email_link_clicked_by_link') ? [] : totals }) as HogQLQueryResponse
         )
         const logic = broadcastPerformanceLogic({
-            runId: `run-${totals.length}-${expected.opened}`,
+            runId: `run-${totals.length}-${name}`,
             runStartedAt,
         })
         logic.mount()
