@@ -41,6 +41,7 @@ import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
+    canCarrySelfLoopDepth,
     getSelfLoopDepth,
     injectSelfLoopDepth,
     isPostHogIngestUrl,
@@ -410,15 +411,43 @@ export class HogExecutorAsyncService {
         headers = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, replaceTokens(value)]))
         params.url = replaceTokens(params.url)
 
+        const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+            addLog('error', error)
+            result.error = new Error(error)
+            result.finished = true
+            return result
+        }
+
+        let signedHeaders = headers
+
+        // Secret headers are merged before signing so that the signatures cover them, and they are never written
+        // back to queueParameters, so every attempt resolves them again from the hog function.
+        if (params.secret_headers_input) {
+            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
+        }
+
         // Bound event-forwarding loops: a fetch back into this project's own ingestion
         // endpoint re-enters the pipeline and can re-trigger this same function. The
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
-        // it was only meant to protect.
+        // it was only meant to protect. It runs after the secret headers merge, where a capture v1
+        // token may sit, and before signing, because the signatures cover the body it rewrites.
         if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.deps.teamManager.getTeam(invocation.teamId)
-                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
+                if (
+                    team &&
+                    isSelfReferentialIngestFetch({
+                        url: params.url,
+                        body: params.body,
+                        headers: signedHeaders,
+                        team,
+                    })
+                ) {
                     // Depth is counted per function id, so this destination is bounded only
                     // by how many times IT has re-fed itself - an event that merely passed
                     // through other functions can never trip the guard for it.
@@ -433,6 +462,18 @@ export class HogExecutorAsyncService {
                             `Refusing to fetch a PostHog ingestion endpoint using this project's own API key - this destination's event-forwarding loop has already repeated ${SELF_LOOP_MAX_DEPTH} times. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
                         )
                         result.error = new Error('Self-referential event-forwarding loop blocked at max depth')
+                        result.finished = true
+                        return result
+                    }
+                    if (!canCarrySelfLoopDepth(params.url, params.body)) {
+                        selfLoopGuardCounter.inc({ mode: 'enforce', action: 'blocked_uncountable' })
+                        addLog(
+                            'error',
+                            `Refusing to fetch a PostHog ingestion endpoint using this project's own API key, because the request body is not a batch of JSON event objects and this destination's event-forwarding loop cannot be counted. Send every event in 'batch' as a JSON object, or use the 'postHogCapture' helper to capture an event back into this project.`
+                        )
+                        result.error = new Error(
+                            'Self-referential ingest fetch blocked because its loop cannot be counted'
+                        )
                         result.finished = true
                         return result
                     }
@@ -455,25 +496,6 @@ export class HogExecutorAsyncService {
         // regenerated here and never persisted back to queueParameters. Credential
         // resolution + missing-input handling live in `aws-sigv4.ts` — see
         // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
-        const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
-            addLog('error', error)
-            result.error = new Error(error)
-            result.finished = true
-            return result
-        }
-
-        let signedHeaders = headers
-
-        // Secret headers are merged before signing so that the signatures cover them, and they are never written
-        // back to queueParameters, so every attempt resolves them again from the hog function.
-        if (params.secret_headers_input) {
-            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
-            if (!resolved.ok) {
-                return failSigning(resolved.error)
-            }
-            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
-        }
-
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {
