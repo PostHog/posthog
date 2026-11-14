@@ -44,6 +44,11 @@ _BASELINE_LEDGER_LOCK_SECONDS = 15 * 60
 _BASELINE_LEDGER_FOLLOW_UP_COUNTDOWNS = (5, 15, 45)
 # A notice that sat in a backed-up queue no longer reports something that just happened.
 QUARANTINE_NOTICE_EXPIRY_SECONDS = 15 * 60
+# The retry delays together outlast GitHub's one-hour rate limit window, so a status refused for a
+# rate limit is still posted after the limit resets.
+_COMMIT_STATUS_MAX_RETRIES = 8
+_COMMIT_STATUS_FIRST_RETRY_SECONDS = 30
+_COMMIT_STATUS_MAX_RETRY_SECONDS = 20 * 60
 
 # Past the sweep budget in logic/retention.py and below the grace period a deploy gives a busy
 # worker. A sweep that overruns its budget then fails with a logged error. Without the limit the
@@ -476,3 +481,45 @@ def advance_visual_review_baseline_ledger_after_push(self, team_id: int, repo_id
     if not cache.add(f"visual_review_baseline_ledger:{repo_id}:advance:follow_up", "1", timeout=countdown):
         return
     raise self.retry(countdown=countdown)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.publish_visual_review_commit_status",
+    bind=True,
+    ignore_result=True,
+    max_retries=_COMMIT_STATUS_MAX_RETRIES,
+)
+@with_team_scope()
+def publish_visual_review_commit_status(self, team_id: int, repo_id: str, commit_sha: str, run_type: str) -> None:
+    """Publish the commit status of a commit and run type again.
+
+    Enqueued after a post that did not settle, and for the pull requests whose approvals a ledger
+    landing can make stale. The task carries no verdict. It publishes the verdict of the newest run
+    when it runs.
+    """
+    from ..logic import commit_status  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    repo = Repo.objects.filter(id=UUID(repo_id), team_id=team_id).first()
+    if repo is None:
+        return
+    if commit_status.publish_rounds(repo, commit_sha, run_type):
+        return
+    if self.max_retries is not None and self.request.retries >= self.max_retries:
+        logger.warning(
+            "visual_review.commit_status_giving_up", repo_id=repo_id, commit_sha=commit_sha, run_type=run_type
+        )
+        return
+    countdown = min(_COMMIT_STATUS_FIRST_RETRY_SECONDS * 2**self.request.retries, _COMMIT_STATUS_MAX_RETRY_SECONDS)
+    raise self.retry(countdown=countdown)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.publish_visual_review_quarantine_statuses",
+    ignore_result=True,
+)
+@with_team_scope()
+def publish_visual_review_quarantine_statuses(team_id: int, repo_id: str, run_type: str, identifier: str) -> None:
+    """Recount and publish the open pull request runs that a new quarantine can turn green."""
+    from ..logic import runs  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    runs.recount_runs_for_quarantine(UUID(repo_id), team_id, run_type, identifier)

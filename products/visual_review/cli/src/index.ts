@@ -16,6 +16,7 @@ import { VisualReviewClient, type Run } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
 import { log, reportRunOutcome } from './outcome.js'
 import { scanDirectory } from './scanner.js'
+import { reportNoRunNeeded } from './skip.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
 import { buildStoryIndex, type StoryIndexMap } from './storyIndex.js'
 
@@ -100,6 +101,30 @@ run.command('create')
             const runId = await runCreate(options)
             // Output just the run ID so CI can capture it
             process.stdout.write(runId + '\n')
+        } catch (error) {
+            console.error('Error:', error)
+            process.exit(1)
+        }
+    })
+
+run.command('skip')
+    .description('Report that a commit needs no visual run, so Visual Review posts a passing status for it')
+    .requiredOption('--type <type>', 'Run type (e.g., storybook, playwright)')
+    .requiredOption('--commit <sha>', 'Git commit SHA')
+    .requiredOption('--branch <name>', 'Git branch name')
+    .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
+    .option('--pr <number>', 'PR number')
+    .option('--api <url>', 'API URL (overrides snapshots.yml config)')
+    .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
+    .option('--repo <id>', 'Repo ID (UUID, overrides snapshots.yml config)')
+    .option('--token <value>', 'Personal API token')
+    .option('--cookie <value>', 'Session cookie')
+    .action(async (options: RunSkipOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
+        try {
+            process.exit(await runSkip(options))
         } catch (error) {
             console.error('Error:', error)
             process.exit(1)
@@ -205,6 +230,19 @@ interface RunCreateOptions {
     cookie?: string
     purpose?: string
     partial?: boolean
+}
+
+interface RunSkipOptions {
+    type: string
+    commit: string
+    branch: string
+    baseline: string
+    pr?: string
+    api?: string
+    team?: string
+    repo?: string
+    token?: string
+    cookie?: string
 }
 
 interface RunUploadOptions {
@@ -347,6 +385,17 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
 
     log(`Run created: ${result.run_id}`)
     return result.run_id
+}
+
+async function runSkip(options: RunSkipOptions): Promise<number> {
+    const { client, repo } = makeClient(options)
+    return reportNoRunNeeded(client, {
+        repo_id: repo,
+        run_type: options.type,
+        commit_sha: options.commit,
+        branch: options.branch,
+        pr_number: options.pr ? parseInt(options.pr, 10) : undefined,
+    })
 }
 
 // The map only attributes snapshots to teams, so a map that cannot be read or sent must not fail the

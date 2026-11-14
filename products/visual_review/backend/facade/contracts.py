@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
+from .enums import AutoQuarantineMode, NoRunNeededOutcome, QuarantineLiftState, RunGate, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -93,6 +93,25 @@ class CreateRunInput:
     # Tells the classifier to leave omitted baseline identifiers alone instead
     # of marking them as removed.
     is_partial: bool = False
+
+
+@dataclass(frozen=True)
+class NoRunNeededInput:
+    """CI decided that a commit needs no visual run of one run type."""
+
+    repo_id: UUID
+    run_type: str
+    commit_sha: str
+    branch: str
+    pr_number: int | None = None
+
+
+@dataclass(frozen=True)
+class NoRunNeededResult:
+    """What the report did. `detail` says it in a sentence for the CI log."""
+
+    outcome: NoRunNeededOutcome
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -362,6 +381,9 @@ class Run:
     metadata: dict = field(default_factory=dict)
     # How this row matched the `search` query param: "exact", "similar", or None when not searching.
     search_match_type: str | None = None
+    gate: RunGate = RunGate.CI_JOB
+    # Computed by the single-run read only, because it reads the ledger per run.
+    stale_approval_count: int = 0
 
 
 @dataclass(frozen=True)

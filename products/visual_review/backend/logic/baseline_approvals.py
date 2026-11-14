@@ -361,6 +361,57 @@ def record_carried_commits(run: Run) -> None:
         ).update(carried_commit_sha=run.commit_sha, updated_at=now)
 
 
+def is_stale(approval: BaselineApproval, current_hash: str) -> bool:
+    """Whether landing the approval now would make it `conflicted`.
+
+    The approved hash counts as fresh because the ledger already holds that picture.
+    """
+    return current_hash != approval.content_hash and not base_still_holds(approval, current_hash)
+
+
+def stale_approvals(run: Run) -> list[BaselineApproval]:
+    """The open approvals that the run's passing verdict rests on, whose base the ledger no longer holds.
+
+    These are the approvals made on the run and the approvals its frozen record applied as overlay.
+    The ledger is read at the cursor and not at the run's merge-base, because a merge after the run
+    makes the approval conflict when its pull request lands. Nothing is stored, so a revert that
+    moves the ledger back makes the approval fresh again.
+    """
+    record = baseline_record.record_for_run(run)
+    if record is None:
+        return []
+    overlay_approval_ids = [entry.approval_id for entry in record.overlay.values()]
+    # Only finalize writes approvals with this run as their source, and finalize marks the run approved.
+    if not run.approved and not overlay_approval_ids:
+        return []
+    approvals = list(
+        BaselineApproval.objects.using(WRITER_DB).filter(
+            Q(source_run_id=run.id) | Q(id__in=overlay_approval_ids),
+            repo_id=run.repo_id,
+            run_type=run.run_type,
+            state=BaselineApprovalState.OPEN,
+        )
+    )
+    if not approvals:
+        return []
+    head = ledger.cursor(run.repo_id)
+    if head is None:
+        return []
+    current = ledger.hashes_at(
+        run.repo_id, run.run_type, {approval.identifier for approval in approvals}, head.position
+    )
+    stale = [approval for approval in approvals if is_stale(approval, current.get(approval.identifier, ""))]
+    if not stale:
+        return []
+    # A quarantined snapshot does not gate the run, so a stale approval of it must not gate it either.
+    quarantined = set(
+        run.snapshots.using(WRITER_DB)
+        .filter(identifier__in={approval.identifier for approval in stale}, is_quarantined=True)
+        .values_list("identifier", flat=True)
+    )
+    return [approval for approval in stale if approval.identifier not in quarantined]
+
+
 def _is_evidence_candidate(run: Run) -> bool:
     return run.status != RunStatus.FAILED and not run.is_partial and run.purpose == RunPurpose.OBSERVE
 

@@ -243,3 +243,21 @@ export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
             'UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes.'
         ),
 })
+
+/**
+ * Report that CI decided a commit needs no visual run, so the required commit status passes.
+ *
+ * Does nothing when a run of the commit and run type exists, or when the repo reads its baselines from the YAML file.
+ */
+export const visualReviewRunsSkipCreateBodyCommitShaRegExp = new RegExp('^[0-9a-f]{40}$')
+
+export const VisualReviewRunsSkipCreateBody = /* @__PURE__ */ zod.object({
+    repo_id: zod.uuid().describe('ID of the Visual Review repo the commit belongs to.'),
+    run_type: zod.string().describe('Run type that needs no run at this commit, for example `storybook`.'),
+    commit_sha: zod
+        .string()
+        .regex(visualReviewRunsSkipCreateBodyCommitShaRegExp)
+        .describe('Full SHA of the commit that gets the passing status.'),
+    branch: zod.string().describe('Branch CI ran on. Only logged.'),
+    pr_number: zod.number().nullish().describe('Pull request the commit belongs to, if any. Only logged.'),
+})

@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F
+from django.db.models import Count, Exists, F, OuterRef
 from django.utils import timezone
 
 import structlog
@@ -16,7 +16,7 @@ from posthog.utils import safe_cache_add
 from ..classifier import SnapshotClassifier
 from ..db import WRITER_DB
 from ..facade.contracts import CreateRunInput
-from ..facade.enums import AutoQuarantineMode, BaselineMode, RunStatus, SnapshotResult
+from ..facade.enums import AutoQuarantineMode, BaselineMode, RunGate, RunPurpose, RunStatus, SnapshotResult
 from ..models import Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import (
@@ -28,6 +28,7 @@ from . import (
     baseline_resolution,
     baselines,
     ci_status,
+    commit_status,
     errors,
     gating,
     github_api,
@@ -92,6 +93,7 @@ def _create_run_inner(repo: Repo, team_id: int, input: CreateRunInput) -> tuple[
         total_snapshots=len(input.snapshots),
         metadata=input.metadata or {},
         is_partial=input.is_partial,
+        gate=RunGate.COMMIT_STATUS if repo.baseline_mode == BaselineMode.LEDGER else RunGate.CI_JOB,
     )
 
     # Fix up the sentinel pointers to reference the actual new run
@@ -111,9 +113,12 @@ def _create_run_inner(repo: Repo, team_id: int, input: CreateRunInput) -> tuple[
     _added, uploads = _register_snapshots(run, repo, snapshots)
     _update_run_counts(run, using=WRITER_DB)
 
-    transaction.on_commit(
-        lambda: ci_status._post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
-    )
+    if commit_status.publishes_by_commit(repo):
+        commit_status.publish_for_run(run)
+    else:
+        transaction.on_commit(
+            lambda: ci_status._post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
+        )
 
     return run, uploads
 
@@ -426,6 +431,8 @@ def _record_ledger_writes(run: Run) -> None:
             return
         logger.exception("visual_review.ledger_writes_failed", run_id=str(run.id))
         _mark_failed(run, f"Recording the run on the baseline approvals failed: {exc}")
+        # Nothing publishes after the raise on the synchronous path of `complete_run`.
+        commit_status.publish_for_run(run)
         raise
 
 
@@ -461,6 +468,7 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
         # failure rather than publish counts the recount did not settle.
         logger.exception("visual_review.recount_failed", run_id=str(run_id))
         _mark_failed(run, f"Recount failed: {exc}")
+        commit_status.publish_for_run(run)
         raise
 
     _record_ledger_writes(run)
@@ -579,7 +587,9 @@ def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: 
 
 @transaction.atomic(using=WRITER_DB)
 def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
-    """Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+    """Re-evaluate quarantine and counts, update commit status, and rerun the CI job of a `ci_job` run.
+
+    A `commit_status` run is gated by the status, so nothing in CI runs again.
 
     Returns a dict with counts_changed, ci_rerun_triggered, and ci_rerun_error.
     """
@@ -598,14 +608,13 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
 
     ci_rerun_triggered = False
     ci_rerun_error: str | None = None
-
-    check_run_id = (run.metadata or {}).get("github_check_run_id")
-
-    if not check_run_id:
-        ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
-    else:
-        # Stored as a string, but coerce defensively — `_rerun_github_job` calls `.isdigit()`.
-        ci_rerun_triggered, ci_rerun_error = ci_status._rerun_github_job(run, str(check_run_id))
+    if run.gate == RunGate.CI_JOB:
+        check_run_id = (run.metadata or {}).get("github_check_run_id")
+        if not check_run_id:
+            ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
+        else:
+            # Stored as a string, but coerce defensively — `_rerun_github_job` calls `.isdigit()`.
+            ci_rerun_triggered, ci_rerun_error = ci_status._rerun_github_job(run, str(check_run_id))
 
     return {
         "counts_changed": counts_changed,
@@ -613,3 +622,42 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
         "ci_rerun_triggered": ci_rerun_triggered,
         "ci_rerun_error": ci_rerun_error,
     }
+
+
+# Enough for the open pull requests of a busy repo. An older run's status is repaired by its next push or a recompute.
+QUARANTINE_RECOUNT_RUN_LIMIT = 100
+
+
+def recount_runs_for_quarantine(repo_id: UUID, team_id: int, run_type: str, identifier: str) -> None:
+    """Recount and publish the current, completed review runs that show a new quarantine's identifier as a change.
+
+    The quarantine can resolve the last unresolved snapshot of such a run, and its status turns green then.
+    """
+    run_ids = list(
+        Run.objects.using(WRITER_DB)
+        .filter(
+            repo_id=repo_id,
+            team_id=team_id,
+            run_type=run_type,
+            purpose=RunPurpose.REVIEW,
+            status=RunStatus.COMPLETED,
+            superseded_by__isnull=True,
+            approved=False,
+        )
+        .filter(
+            Exists(
+                RunSnapshot.objects.using(WRITER_DB)
+                .filter(run_id=OuterRef("id"), identifier=identifier)
+                .exclude(result=SnapshotResult.UNCHANGED)
+            )
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:QUARANTINE_RECOUNT_RUN_LIMIT]
+    )
+    for run_id in run_ids:
+        try:
+            with transaction.atomic(using=WRITER_DB):
+                run = run_queries._get_run_for_update(run_id, team_id=team_id)
+                gating._update_counts_and_post_status(run)
+        except Exception:
+            logger.warning("visual_review.quarantine_recount_failed", run_id=str(run_id), exc_info=True)
