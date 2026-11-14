@@ -870,7 +870,7 @@ describe('sidepanelTicketsLogic', () => {
 
     // The full-screen scene renders the list next to the open thread. Opening a ticket marks it
     // read, which under the unread filter would remove the row the user just clicked.
-    it('keeps the open ticket at the top of the list while it is being read', async () => {
+    it('keeps the open unread ticket in the list while it is being read', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -900,5 +900,41 @@ describe('sidepanelTicketsLogic', () => {
 
         logic.actions.setView('list')
         expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-other'])
+    })
+
+    it('keeps a read ticket in its place when it is opened', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const tickets = [
+            { id: 't-newest', status: 'new', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            { id: 't-middle', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-oldest', status: 'resolved', message_count: 2, created_at: '2026-07-12T00:00:00Z' },
+        ] as ConversationTicket[]
+        logic.actions.setTickets(tickets)
+        logic.actions.setStatusFilter('all')
+
+        logic.actions.setCurrentTicket(tickets[2])
+        expect(logic.values.view).toBe('ticket')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-newest', 't-middle', 't-oldest'])
+    })
+
+    it('gives the thread header the status a poll brought in for the open ticket', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const ticket = {
+            id: 't-reading',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-12T00:00:00Z',
+        } as ConversationTicket
+        logic.actions.setTickets([ticket])
+        logic.actions.setCurrentTicket(ticket)
+        logic.actions.setTickets([{ ...ticket, status: 'resolved' }])
+
+        expect(logic.values.latestCurrentTicket?.status).toBe('resolved')
     })
 })
