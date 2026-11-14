@@ -89,10 +89,11 @@ These are the failure modes that produce a plausible-looking answer rather than 
    incomplete interval via `products/mcp_analytics/frontend/timeBuckets.ts` (`resolveWindow`,
    `normalizeBucket`, `buildBucketKeys`, `lastBucketIsInProgress`). Omit it and a partial
    period reads as a real decline.
-4. **`harness` is derived, and its logic exists in three places that must move in lockstep:**
-   `products/mcp_analytics/backend/mcp_harness.py` (source of truth — see its module
-   docstring), `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`, and
-   [`models-mcp.md`](../../../products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
+4. **`harness` is derived, and its logic lives only in**
+   `products/mcp_analytics/backend/mcp_harness.py` (see its module docstring). SQL and
+   [`models-mcp.md`](../../../products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
+   select `properties.$virt_mcp_harness`. A new label also needs a mark entry in
+   `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`, or it shows the generic one.
 5. **Check which SDK version the dogfood server is on before trusting dogfood data.**
    `services/mcp` consumes the SDK through the `@posthog/mcp-analytics` alias in its
    `package.json` (`npm:@posthog/mcp@0.25.0` at the last check) and the pin moves independently

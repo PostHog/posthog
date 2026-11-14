@@ -8,9 +8,6 @@ export type LiveErrorKind = 'load_failed' | 'refresh_failed'
 export type LivePauseTrigger = 'button' | 'background'
 export type LiveResumeTrigger = 'button' | 'foreground'
 export type LiveEventAction = 'view_person' | 'watch_recording' | 'copy_distinct_id'
-/** `card`: a tap on the map card. `map_country`: a tap on a country of the card's map, which opens it selected. */
-export type LiveMapOpenedFrom = 'card' | 'map_country'
-export type LiveCountrySource = 'map' | 'row'
 /** Where a Meanwhile row on a Quiet or Not set up Live leads: a pinned view or the inbox. */
 export type LiveMeanwhileTarget = 'view' | 'inbox'
 
@@ -50,16 +47,8 @@ export function trackLiveEventActionTaken(props: { action: LiveEventAction }): v
     track('mobile_live_event_action_taken', { action: props.action })
 }
 
-export function trackLiveMapOpened(props: { from: LiveMapOpenedFrom }): void {
-    track('mobile_live_map_opened', { from: props.from })
-}
-
-export function trackLiveCountrySelected(props: { source: LiveCountrySource }): void {
-    track('mobile_live_country_selected', { source: props.source })
-}
-
-export function trackLiveCountryCleared(): void {
-    track('mobile_live_country_cleared')
+export function trackLiveMapOpened(): void {
+    track('mobile_live_map_opened', { from: 'card' })
 }
 
 export function trackLiveStateShown(props: { state: Exclude<LiveProjectState, 'web'> }): void {

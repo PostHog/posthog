@@ -13,6 +13,7 @@ import datetime
 from collections.abc import Collection
 
 from django.core.cache import cache
+from django.db.models import Min
 
 import structlog
 
@@ -230,6 +231,11 @@ def record_scored(
     row.next_due_at = max(due or now, now + ATTEMPT_COOLDOWN)
     row.series_scored_through = dump_watermarks(kept)
     row.save(update_fields=["next_due_at", "series_scored_through", "updated_at"])
+
+
+def first_listed_at(team_id: int) -> datetime.datetime | None:
+    """When the refresh added the oldest row of the team that is still on the list. None when the team has no row."""
+    return AnomalyScoringDueInsight.all_teams.filter(team_id=team_id).aggregate(created=Min("created_at"))["created"]
 
 
 def record_failed(team_id: int, insight_id: int, now: datetime.datetime, cooldown: datetime.timedelta) -> None:

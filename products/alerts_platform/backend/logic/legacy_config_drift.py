@@ -89,6 +89,8 @@ def drifted_settings(expectation: LegacyCopyExpectation, copy: Mapping[str, Any]
             expected[column] = json.loads(json.dumps(expected[column]))
     except (ValueError, TypeError):
         return [NO_PLATFORM_FORM]
+    if expectation.upsert.created_at is not None:
+        expected["created_at"] = expectation.upsert.created_at
     expected.update(
         expectation.extra_columns,
         team_id=expectation.team_id,
