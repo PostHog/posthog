@@ -849,6 +849,18 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
         s5.team_by_id_missing = [104]
         s5.batches = [[await f.logs(plain, 1), await f.logs(json, 2), await f.logs(both, 2)], [await f.logs(both, 1)]]
         scenarios.push(finish(s5))
+
+        const s6 = baseScenario(
+            'faults-team-lookup',
+            'The token lookup while parsing: a blip is retried in place, an outage or a non-retriable error drops.'
+        )
+        s6.team_lookup_faults = {
+            [plain.api_token]: { ...err('Error', 'pg blip', true), times: 1 },
+            [json.api_token]: { ...err('Error', 'pg down', true), times: 10 },
+            [both.api_token]: { ...err('TypeError', 'bad row'), times: 1 },
+        }
+        s6.batches = [[await f.logs(plain, 2), await f.logs(json, 2), await f.logs(both, 2)], [await f.logs(both, 1)]]
+        scenarios.push(finish(s6))
     }
     {
         const rng = new Rng(12)

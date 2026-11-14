@@ -287,6 +287,7 @@ export function buildParityConsumer(
     const teamByIdFaultsLeft = new Map(
         Object.entries(scenario.team_by_id_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
     )
+    const teamLookupFaultsLeft = new Map<string, number>()
     const patternFaultsLeft = new Map(
         Object.entries(scenario.pattern_keys_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
     )
@@ -315,7 +316,13 @@ export function buildParityConsumer(
         getTeamByToken: (token: string) => {
             const fault = scenario.team_lookup_faults[token]
             if (fault) {
-                return Promise.reject(toError(fault))
+                const left = teamLookupFaultsLeft.get(token) ?? fault.times
+                if (left === undefined || left > 0) {
+                    if (left !== undefined) {
+                        teamLookupFaultsLeft.set(token, left - 1)
+                    }
+                    return Promise.reject(toError(fault))
+                }
             }
             return Promise.resolve(teamsByToken.get(token) ?? null)
         },
