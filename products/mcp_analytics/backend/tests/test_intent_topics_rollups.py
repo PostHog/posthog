@@ -188,6 +188,76 @@ class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
 
         assert self._topic_calls() == [("topic-b", 3, 1)]
 
+    @parameterized.expand(
+        [
+            ("missing_source", True, None, "", 0),
+            ("expired_source", True, 120, "", 0),
+            ("retained_source", True, 2, "topic-new", 4),
+            ("missing_source_without_retention", False, None, "", 0),
+        ]
+    )
+    def test_daily_uses_only_the_eligible_latest_assignment(
+        self,
+        _name: str,
+        enforce_retention: bool,
+        source_days_ago: int | None,
+        expected_topic: str,
+        expected_outlier_calls: int,
+    ) -> None:
+        self.team.event_retention_months = 3
+        self.team.save()
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 4)], now=DAY)
+        _insert_assignment(
+            self.team.pk,
+            "h1",
+            "topic-old",
+            timestamp=DAY - timedelta(days=40),
+            source_min_timestamp=DAY - timedelta(days=45),
+        )
+        _insert_assignment(
+            self.team.pk,
+            "h1",
+            "topic-new",
+            is_outlier=1,
+            calls_in_run=999,
+            timestamp=DAY,
+            source_min_timestamp=DAY - timedelta(days=source_days_ago) if source_days_ago is not None else None,
+        )
+        _insert_assignment(
+            OTHER_TEAM_ID,
+            "h1",
+            "topic-other-team",
+            timestamp=DAY + timedelta(hours=1),
+            source_min_timestamp=DAY,
+        )
+
+        with self.settings(EVENTS_DATA_RETENTION_ENFORCED=enforce_retention):
+            rebuild_topic_daily(
+                team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+            )
+
+        assert self._daily() == [
+            (DAY.date().isoformat(), "query-trends", expected_topic, 4, 1, expected_outlier_calls, 1)
+        ]
+
+    def test_daily_keeps_tied_assignment_fields_from_one_row(self) -> None:
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 4)], now=DAY)
+        _insert_assignment(
+            self.team.pk, "h1", None, is_outlier=1, timestamp=DAY, source_min_timestamp=DAY - timedelta(days=1)
+        )
+        _insert_assignment(
+            self.team.pk, "h1", "topic-a", is_outlier=0, timestamp=DAY, source_min_timestamp=DAY - timedelta(days=2)
+        )
+
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+        )
+
+        assert self._daily() in [
+            [(DAY.date().isoformat(), "query-trends", "", 4, 1, 4, 1)],
+            [(DAY.date().isoformat(), "query-trends", "topic-a", 4, 1, 0, 1)],
+        ]
+
     def test_days_follow_the_project_timezone(self) -> None:
         self.team.timezone = "Europe/Berlin"
         self.team.save()
