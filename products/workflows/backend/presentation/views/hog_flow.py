@@ -3724,6 +3724,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
         # base_updated_at (see perform_update, which does the actual draft routing off it).
+        # Publish promotes the content to the live row, so it never counts as staging, whatever the body says.
+        if getattr(self.context.get("view"), "action", None) == "publish":
+            return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 

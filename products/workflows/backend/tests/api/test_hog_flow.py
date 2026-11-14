@@ -1234,12 +1234,14 @@ class TestHogFlowAPI(APIBaseTest):
             token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {}).json()[
                 "confirm_token"
             ]
-        published = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {"confirm": True, "confirm_token": token}
-        )
+        for extra in ({}, {"stage_draft": True}):
+            published = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish",
+                {"confirm": True, "confirm_token": token, **extra},
+            )
 
-        assert published.status_code == 400, published.json()
-        assert "isn't verified yet" in published.json()["detail"]
+            assert published.status_code == 400, (extra, published.json())
+            assert "isn't verified yet" in published.json()["detail"]
         live.refresh_from_db()
         assert live.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Hello"
         assert live.draft is not None
