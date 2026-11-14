@@ -33,7 +33,7 @@ from products.experiments.backend.health.context import (
     MetricCompileFailure,
     MetricCompiles,
 )
-from products.experiments.backend.health.skips import CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
@@ -45,7 +45,10 @@ KEY = ExperimentHealthCheckKey.METRIC_CALCULATION_FAILED
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
 OUT_OF_MEMORY = "This query ran out of memory before it could finish."
@@ -89,7 +92,7 @@ def _limited(exposures_path: ExposuresPath | None, role: str = "primary") -> Met
 
 def _outcome(
     *failures: MetricCalculationFailure, completed: tuple[ExposuresPath | None, ...] = (), **changes: Any
-) -> ExperimentHealthFinding | CheckSkip | None:
+) -> CheckOutcome:
     calculation = LatestCalculation(
         metric_count=len(failures) + len(completed),
         finished_at=FINISHED_AT,

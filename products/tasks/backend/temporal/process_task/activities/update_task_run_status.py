@@ -11,7 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.signals.backend.facade.spend import complete_task_spend
-from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
+from products.tasks.backend.constants import STOPPED_BEFORE_TURN_CLOSED_STATE_KEY, TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
@@ -21,6 +21,7 @@ from products.tasks.backend.metrics import (
     observe_wizard_run_unbound,
 )
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -38,6 +39,8 @@ _TERMINAL_STATE_MARKERS = (
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     SANDBOX_GONE_STATE_KEY,
 )
+
+_STOPPED_RUN_MARKERS = (TIMED_OUT_INACTIVITY_STATE_KEY, SANDBOX_GONE_STATE_KEY)
 
 _TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
@@ -59,6 +62,13 @@ class UpdateTaskRunStatusInput:
     last_agent_heartbeat_at: Optional[str] = None
     seconds_since_last_agent_heartbeat: Optional[float] = None
     sandbox_backend: Optional[str] = None
+
+
+def _terminal_state_updates(input: UpdateTaskRunStatusInput, marker: str) -> dict[str, bool]:
+    updates = {marker: True}
+    if marker in _STOPPED_RUN_MARKERS and input.end_of_turn_received is not True:
+        updates[STOPPED_BEFORE_TURN_CLOSED_STATE_KEY] = True
+    return updates
 
 
 @activity.defn
@@ -116,7 +126,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
-                task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates=_terminal_state_updates(input, marker)
+                )
             if (
                 input.status == TaskRun.Status.FAILED
                 and input.error_type
@@ -203,7 +215,8 @@ def complete_signal_spend(run_id: str) -> None:
         complete_task_spend(
             team_id=run.team_id,
             run_id=run_id,
-            report_id=str(run.task.signal_report_id) if run.task.signal_report_id else None,
+            report_id=str(run.task.signal_report_source_id) if run.task.signal_report_source_id else None,
+            final_attempt=activity.in_activity() and activity.info().attempt >= 10,
         )
 
 
@@ -297,6 +310,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     # A lost sandbox still completes the run, and this message carries its exit reason, e.g. OOM.
                     "error_message": truncate_error_message(input.error_message),
                     "has_summary": bool((task_run.state or {}).get("task_summary")),
+                    "pr_created": bool(read_pr_urls(task_run.output)),
                     **relay_state,
                 },
             )

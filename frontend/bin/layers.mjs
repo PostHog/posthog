@@ -16,6 +16,8 @@ const RULES = [
     ['kernel', /^frontend\/src\/(styles|vendor)\//],
     ['kernel', /^frontend\/@posthog\//],
     ['kernel', /^(common|packages)\//],
+    // Web startup consumes the same protocol that EAS bundles from the mobile directory.
+    ['kernel', /^products\/mobile\/shared\/handoffProtocol\.ts$/],
     ['query', /^frontend\/src\/queries\//],
     ['shell', /^frontend\/src\/(lib|layout|models|taxonomy)\//],
     ['shell', /^frontend\/src\/scenes\/[^/]+$/],
@@ -28,6 +30,25 @@ export function layerOf(file) {
 
 export function isUpward(fromFile, toFile) {
     return LAYERS.indexOf(layerOf(toFile)) > LAYERS.indexOf(layerOf(fromFile))
+}
+
+// A fixed entry fails too. If it stayed in the baseline, the same upward import could come back unnoticed.
+export function compareWithBaseline(current, baseline) {
+    const added = current.filter((edge) => !baseline.includes(edge))
+    const fixed = baseline.filter((edge) => !current.includes(edge))
+    const pruneHint = fixed.length
+        ? `${fixed.length} baseline entries are fixed. Run \`hogli lint:frontend-layers --prune-baseline\` to drop them:\n${fixed.map((edge) => `  ${edge}`).join('\n')}`
+        : null
+    const fixHint = added.length
+        ? [
+              'Fix each new upward import in one of these ways:',
+              '  1. Move the imported code down to the layer of the importer, or lower.',
+              '  2. Load it with a dynamic import: lazyWithRetry() or retryImport(() => import(...)).',
+              '  3. Register it in a registry that the higher layer fills.',
+              'Never run --update-baseline to hide a new upward import. Run --prune-baseline only after you fix one.',
+          ].join('\n')
+        : null
+    return { added, fixed, failed: added.length > 0 || fixed.length > 0, pruneHint, fixHint }
 }
 
 export const shortName = (file) => file.replace(/^frontend\/src\//, '')

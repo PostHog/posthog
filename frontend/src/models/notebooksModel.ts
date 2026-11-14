@@ -3,12 +3,11 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
@@ -27,17 +26,14 @@ import type { NotebookType } from '../scenes/notebooks/types'
 // kea logic. `openNotebook` pushes here; `notebookLogic.afterMount` drains.
 const pendingNotebookOperations = new Map<string, ((logic: BuiltLogic<notebookLogicType>) => void)[]>()
 
-export function drainPendingNotebookOperations(shortId: string): void {
+export function drainPendingNotebookOperations(shortId: string, logic: BuiltLogic<notebookLogicType>): void {
     const ops = pendingNotebookOperations.get(shortId)
     if (!ops?.length) {
         return
     }
     pendingNotebookOperations.delete(shortId)
-    const logic = notebookLogic.findMounted({ shortId })
-    if (logic) {
-        for (const op of ops) {
-            op(logic)
-        }
+    for (const op of ops) {
+        op(logic)
     }
 }
 
@@ -67,13 +63,15 @@ export const openNotebook = async (
     }
 
     if (onOpen) {
+        // Queued before the import, so a failed import still leaves the callback for the logic to drain on mount.
+        const ops = pendingNotebookOperations.get(notebookId) || []
+        ops.push(onOpen)
+        pendingNotebookOperations.set(notebookId, ops)
+        // A dynamic import keeps the notebook editor and its rich text stack out of every scene that can open a notebook.
+        const { notebookLogic } = await retryImport(() => import('scenes/notebooks/Notebook/notebookLogic'))
         const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
         if (mountedLogic) {
-            onOpen(mountedLogic)
-        } else {
-            const ops = pendingNotebookOperations.get(notebookId) || []
-            ops.push(onOpen)
-            pendingNotebookOperations.set(notebookId, ops)
+            drainPendingNotebookOperations(notebookId, mountedLogic)
         }
     }
 }
@@ -221,12 +219,24 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
-                    const notebook = await api.notebooks.create({
+                    const notebooks = values.notebooks
+                    const projectId = String(values.currentProjectId)
+                    const { notebooksCreate, notebooksRetrieve } = await retryImport(
+                        () => import('products/notebooks/frontend/generated/api')
+                    )
+                    let created = true
+                    const notebook = (await notebooksCreate(projectId, {
                         title,
                         content: defaultNotebookContent(title, content),
                         _create_in_folder: getLastNewFolder(),
                         ...(shortId ? { short_id: shortId } : {}),
-                    })
+                    }).catch((error) => {
+                        if (shortId && error.code === 'unique' && error.attr === 'short_id') {
+                            created = false
+                            return notebooksRetrieve(projectId, shortId)
+                        }
+                        throw error
+                    })) as unknown as NotebookListItemType
 
                     await openNotebook(notebook.short_id, location, (logic) => {
                         onCreate?.(logic)
@@ -236,17 +246,19 @@ export const notebooksModel = kea<notebooksModelType>([
                     // (emitted for every creation path) is the source of truth for counts. This
                     // one keeps the browser/session context for UI-funnel analysis without
                     // double-counting UI creations.
-                    posthog.capture(`notebook created (client)`, {
-                        short_id: notebook.short_id,
-                        is_markdown: true,
-                    })
+                    if (created) {
+                        posthog.capture(`notebook created (client)`, {
+                            short_id: notebook.short_id,
+                            is_markdown: true,
+                        })
+                    }
 
                     void addProductIntent({
                         product_type: ProductKey.NOTEBOOKS,
                         intent_context: ProductIntentContext.NOTEBOOK_CREATED,
                     })
 
-                    return [notebook, ...values.notebooks]
+                    return [notebook, ...notebooks.filter((existing) => existing.short_id !== notebook.short_id)]
                 },
 
                 deleteNotebook: async ({ shortId, title }) => {

@@ -4,7 +4,6 @@ import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../gen
 import {
     type ExposureChecksState,
     type HealthChipState,
-    type HealthPanelCheck,
     exposureChecksState,
     healthChipState,
     healthPanelChecks,
@@ -14,7 +13,16 @@ import type { HealthPanelFinding } from './healthPanelFindings'
 const check = (
     key: ExperimentHealthCheckResultApi['key'],
     status: ExperimentHealthCheckResultApi['status']
-): HealthPanelCheck => ({ key, name: key, status, reason: null })
+): ExperimentHealthCheckResultApi => ({
+    key,
+    name: key,
+    description: '',
+    status,
+    reason: null,
+    values: {},
+    rule: null,
+    rows: [],
+})
 
 const finding = (severity: HealthPanelFinding['severity']): HealthPanelFinding => ({
     code: 'no_metric',
@@ -120,53 +128,16 @@ describe('healthPanelChecks', () => {
     test.each<{
         name: string
         findings: HealthPanelFinding[] | null
-        checks: HealthPanelCheck[] | null
-        exposureChecks: ExposureChecksState
-        expected: Partial<HealthChipState>
+        expected: HealthChipState
     }>([
-        {
-            name: 'no chip without server findings',
-            findings: null,
-            checks: null,
-            exposureChecks: 'ready',
-            expected: { kind: 'hidden' },
-        },
+        { name: 'no chip without server findings', findings: null, expected: { kind: 'hidden' } },
         {
             name: 'issues count no info finding',
             findings: [finding('critical'), finding('warning'), finding('info')],
-            checks: [],
-            exposureChecks: 'ready',
             expected: { kind: 'issues', count: 2, hasCritical: true },
         },
-        {
-            name: 'an issue shows while the exposure checks run',
-            findings: [finding('warning')],
-            checks: [],
-            exposureChecks: 'pending',
-            expected: { kind: 'issues', count: 1, hasCritical: false },
-        },
-        {
-            name: 'no verdict while the exposure checks run',
-            findings: [],
-            checks: [check('no_metric', 'passed')],
-            exposureChecks: 'pending',
-            expected: { kind: 'pending' },
-        },
-        {
-            name: 'the label counts the passed checks and the notes',
-            findings: [finding('info')],
-            checks: [check('no_metric', 'passed'), check('flag_state', 'passed'), check('srm', 'not_applicable')],
-            exposureChecks: 'ready',
-            expected: { kind: 'checks', label: 'No problems found (2\u00a0checks) · 1\u00a0note' },
-        },
-        {
-            name: 'the label says so when no check applies',
-            findings: [],
-            checks: [check('no_metric', 'not_applicable')],
-            exposureChecks: 'not_launched',
-            expected: { kind: 'checks', label: 'No checks apply yet' },
-        },
-    ])('$name', ({ findings, checks, exposureChecks, expected }) => {
-        expect(healthChipState(findings, checks, exposureChecks)).toMatchObject(expected)
+        { name: 'no chip for notes alone', findings: [finding('info')], expected: { kind: 'hidden' } },
+    ])('$name', ({ findings, expected }) => {
+        expect(healthChipState(findings)).toEqual(expected)
     })
 })

@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration, user_slack_integration_from_identity
 
 from products.mcp_store.backend.agents import (
     create_gateway_agent_token,
@@ -14,16 +15,21 @@ from products.mcp_store.backend.agents import (
     resolve_gateway_agent_token,
 )
 from products.mcp_store.backend.facade.api import (
+    SLACK_MCP_URL,
     call_member_server_tool,
+    connect_slack_mcp_from_slack_link,
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
     member_server_tools,
     resolve_agent_gateway_server_ids,
     resolve_installations_for_sandbox,
+    slack_mcp_user_scopes,
+    team_tools_not_connected,
 )
 from products.mcp_store.backend.facade.contracts import (
     ActiveInstallation,
+    UnconnectedTeamTool,
     UnmountedInstallation,
     UnmountedInstallationReason,
 )
@@ -37,6 +43,7 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
+from products.mcp_store.backend.tools import UpstreamToolList
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -220,6 +227,153 @@ class TestGetActiveInstallations(BaseTest):
         assert (len(results) == 1) == expected_included
 
 
+class TestConnectSlackMcpFromSlackLink(BaseTest):
+    SCOPES = ["channels:read", "channels:history", "search:read.public"]
+
+    def _slack_template(self, source: str = "slack_app", team_enabled: bool = True) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source=source,
+            oauth_scope_allowlist=self.SCOPES,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=team_enabled
+        )
+
+    def _link_slack(self, scopes: list[str]) -> UserIntegration:
+        return user_slack_integration_from_identity(
+            self.user,
+            slack_user_id="U1",
+            slack_team_id="T1",
+            slack_team_name="Example",
+            slack_email_at_link=None,
+            user_access_token="xoxp-link",
+            user_scopes=" ".join(scopes),
+        )
+
+    @parameterized.expand(
+        [
+            ("connects", "slack_app", True, SCOPES, None, True),
+            ("missing_scope", "slack_app", True, SCOPES[:1], None, False),
+            # The allowlist is a ceiling too: a link that can read DMs never connects a public-only server.
+            ("wider_than_allowlist", "slack_app", True, [*SCOPES, "search:read.im"], None, False),
+            ("dev_app_template", "slack_dev_app", True, SCOPES, None, False),
+            ("turned_off_for_the_team", "slack_app", False, SCOPES, None, False),
+            ("keeps_a_working_connection", "slack_app", True, SCOPES, "tok-existing", True),
+        ]
+    )
+    def test_connects_the_slack_mcp_only_when_the_link_token_can(
+        self,
+        _name: str,
+        source: str,
+        team_enabled: bool,
+        granted: list[str],
+        existing_token: str | None,
+        connects: bool,
+    ) -> None:
+        self._slack_template(source, team_enabled)
+        if existing_token:
+            MCPServerInstallation.objects.create(
+                team=self.team,
+                user=self.user,
+                url=SLACK_MCP_URL,
+                auth_type="oauth",
+                sensitive_configuration={"access_token": existing_token},
+            )
+        link = self._link_slack(granted)
+
+        connected = connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
+
+        assert connected is connects
+        assert slack_mcp_user_scopes(self.team.id, self.user.id) == (
+            tuple(self.SCOPES) if source == "slack_app" and team_enabled else ()
+        )
+        installation = MCPServerInstallation.objects.filter(team=self.team, user=self.user, url=SLACK_MCP_URL).first()
+        if not connects:
+            assert installation is None
+            return
+        assert installation is not None
+        assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
+        if existing_token:
+            assert installation.sensitive_configuration == {"access_token": existing_token}
+            return
+        assert installation.sensitive_configuration == {}
+        assert installation.linked_user_integration_id == link.id
+        assert installation.gateway_server is not None
+        # The resolver holds the ceiling too: a link that later grants more than the allowlist stops connecting.
+        link.config = {**link.config, "scope": " ".join([*self.SCOPES, "search:read.im"])}
+        link.save(update_fields=["config"])
+        assert get_active_installations(self.team.id, self.user.id) == []
+        link.config = {**link.config, "scope": " ".join(self.SCOPES)}
+        link.save(update_fields=["config"])
+        assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
+        # The installation keeps no copy of the token, so an unlink also ends its access.
+        link.delete()
+        assert get_active_installations(self.team.id, self.user.id) == []
+
+    def test_a_relink_does_not_turn_on_a_slack_mcp_the_member_turned_off(self) -> None:
+        self._slack_template()
+        MCPServerInstallation.objects.create(
+            team=self.team, user=self.user, url=SLACK_MCP_URL, auth_type="oauth", is_enabled=False
+        )
+        link = self._link_slack(self.SCOPES)
+
+        connected = connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
+
+        assert connected is False
+        installation = MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+        # The access is restored for when the member turns the server on, but the agents it was granted to stay off.
+        assert installation.linked_user_integration_id == link.id and installation.is_enabled is False
+        assert get_active_installations(self.team.id, self.user.id) == []
+
+
+class TestTeamToolsNotConnected(BaseTest):
+    @parameterized.expand(
+        [
+            ("not_connected", True),
+            ("connected", False),
+            ("turned_off_for_the_team", False),
+            ("revoked_for_the_member", False),
+            ("registers_a_client_per_person", True),
+        ]
+    )
+    def test_lists_turned_on_tools_the_member_has_not_connected(self, case: str, listed: bool) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials={} if case == "registers_a_client_per_person" else {"client_id": "cid"},
+            created_by=self.user,
+        )
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Linear",
+            url=template.url,
+            template=template,
+            is_team_enabled=case != "turned_off_for_the_team",
+        )
+        if case == "connected":
+            MCPServerInstallation.objects.create(
+                team=self.team, user=self.user, url=template.url, auth_type="api_key", is_enabled=True
+            )
+        if case == "revoked_for_the_member":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team_id=self.team.id, gateway_server=server, user=self.user
+            )
+
+        tools = team_tools_not_connected(self.team.id, self.user.id)
+
+        # A template that registers a client per person only connects through install, never from a plain link.
+        connects = case != "registers_a_client_per_person"
+        expected = [UnconnectedTeamTool(template_id=str(template.id), name="Linear", connects_with_oauth=connects)]
+        assert tools == (expected if listed else [])
+
+
 class TestGetInstallationsForSandbox(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -300,6 +454,7 @@ class TestGetInstallationsForSandbox(BaseTest):
     @parameterized.expand(
         [
             ("needs_reconnect", None, "needs_reconnect"),
+            ("teammate_needs_reconnect", None, "teammate_needs_reconnect"),
             ("server_disabled", None, "server_disabled"),
             ("revoked", None, "revoked"),
             ("replaced_by_personal", None, "replaced_by_personal"),
@@ -319,12 +474,15 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         left_out = self._create_installation(
             scope="shared",
+            user=User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+            if reason == "teammate_needs_reconnect"
+            else self.user,
             display_name="Linear",
             url=server.url,
             gateway_server=server,
             auth_type="oauth",
             sensitive_configuration={"access_token": "tok", "needs_reauth": True}
-            if reason == "needs_reconnect"
+            if reason in ("needs_reconnect", "teammate_needs_reconnect")
             else {"access_token": "tok"},
         )
         if reason == "revoked":
@@ -477,6 +635,27 @@ class TestGetInstallationsForSandbox(BaseTest):
             credential_owner_id=self.user.id,
         )
         assert mismatched_results == []
+
+        profiled_results = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="user_created",
+            task_agent_key="support",
+            has_profile=True,
+            profile_agent_key="support",
+            credential_owner_id=self.user.id,
+        ).mounted
+        assert [result.id for result in profiled_results] == [str(personal.id)]
+
+        profiled_member_results = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            has_profile=True,
+        ).mounted
+        assert {result.name for result in profiled_member_results} == {"Personal", "Ungranted"}
 
     def test_built_in_agent_only_gets_the_run_credential_owner_s_grants(self) -> None:
         account = self._support_agent()
@@ -641,6 +820,74 @@ class TestGetInstallationsForSandbox(BaseTest):
         # with no servers selected runs without MCP servers.
         assert resolve([]) == set()
         assert resolve(None) == {str(picked.id), str(dropped.id)}
+
+    @parameterized.expand(
+        [
+            ("token_needs_reconnect", "needs_reconnect"),
+            ("teammates_token_needs_reconnect", "teammate_needs_reconnect"),
+            ("both_tokens_need_reconnect", "needs_reconnect"),
+            ("connection_turned_off", "needs_reconnect"),
+            ("server_turned_off_for_team", "server_disabled"),
+            ("no_grant", "not_shared"),
+            ("teammate_share_still_works", None),
+        ]
+    )
+    def test_agent_run_reports_why_a_selected_server_is_not_mounted(
+        self, case: str, expected_reason: UnmountedInstallationReason | None
+    ) -> None:
+        account = get_built_in_agent(self.team.id, "workflow")
+        assert account is not None
+        server = self._create_gateway_server(
+            name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=case != "server_turned_off_for_team"
+        )
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        needs_reauth = {"access_token": "tok", "needs_reauth": True}
+        if case == "both_tokens_need_reconnect":
+            teammates_broken = self._create_installation(
+                user=teammate,
+                gateway_server=server,
+                url=server.url,
+                auth_type="oauth",
+                sensitive_configuration=needs_reauth,
+            )
+            self._grant(account, server, user=teammate, installation=teammates_broken, scope="team")
+        grantor = teammate if case == "teammates_token_needs_reconnect" else self.user
+        installation = self._create_installation(
+            user=grantor,
+            gateway_server=server,
+            url=server.url,
+            auth_type="oauth",
+            is_enabled=case != "connection_turned_off",
+            sensitive_configuration=needs_reauth
+            if case
+            in (
+                "token_needs_reconnect",
+                "teammates_token_needs_reconnect",
+                "both_tokens_need_reconnect",
+                "teammate_share_still_works",
+            )
+            else {"access_token": "tok"},
+        )
+        if case != "no_grant":
+            self._grant(account, server, user=grantor, installation=installation, scope="team")
+        if case == "teammate_share_still_works":
+            working = self._create_installation(user=teammate, gateway_server=server, url=server.url)
+            self._grant(account, server, user=teammate, installation=working, scope="team")
+
+        resolution = resolve_installations_for_sandbox(
+            self.team.id,
+            task_origin="workflow",
+            task_agent_key="workflow",
+            credential_owner_id=self.user.id,
+            allowed_gateway_server_ids=[str(server.id)],
+        )
+
+        assert bool(resolution.mounted) == (expected_reason is None)
+        assert resolution.unmounted == (
+            (UnmountedInstallation(id=str(server.id), name="Linear", scope="team", reason=expected_reason),)
+            if expected_reason is not None
+            else ()
+        )
 
     def test_installation_allowlist_narrows_the_member_path_only(self) -> None:
         kept = self._create_installation(scope="shared", display_name="Kept", url="https://kept.example.com/mcp")
@@ -999,7 +1246,9 @@ class TestCallMemberServerTool(BaseTest):
         # A connection whose connect-time listing never landed holds no rows, and
         # without a re-listing it refuses every call for the life of the connection.
         self._installation()
-        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
 
         # Freshly listed tools are opt-in, so policy answers the call now.
         assert self._call().status == "needs_approval"
@@ -1010,7 +1259,9 @@ class TestCallMemberServerTool(BaseTest):
     def test_a_removed_tool_the_server_brought_back_is_callable_again(self, mock_call, mock_fetch) -> None:
         installation = self._installation()
         self._tool(installation, removed_at=timezone.now())
-        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
 
         assert self._call().status == "ok"
         mock_call.assert_called_once()
@@ -1115,9 +1366,16 @@ class TestCallMemberServerTool(BaseTest):
     @parameterized.expand(
         [("disabled", "do_not_use", None, "blocked"), ("removed", "needs_approval", "removed", "tool_missing")]
     )
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=UpstreamToolList(tools=[]))
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
     def test_approval_does_not_override_blocks(
-        self, _name: str, approval_state: str, removed: str | None, expected: str, mock_call: MagicMock
+        self,
+        _name: str,
+        approval_state: str,
+        removed: str | None,
+        expected: str,
+        mock_call: MagicMock,
+        _mock_fetch: MagicMock,
     ) -> None:
         installation = self._installation()
         self._tool(installation)

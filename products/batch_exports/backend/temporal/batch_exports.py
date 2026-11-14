@@ -48,7 +48,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     native_events_export_query,
 )
 from products.cdp.backend.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
@@ -227,40 +226,9 @@ def select_events_query_template(
         is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
     ):
         return SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        return SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     if is_backfill:
         return SELECT_FROM_EVENTS_VIEW_BACKFILL
     return SELECT_FROM_EVENTS_VIEW
-
-
-def reads_native_events_source(
-    *,
-    use_new_events_schema: bool,
-    team_id: int,
-    interval_start: str | None,
-    interval_end: str,
-    is_backfill: bool = False,
-    backfill_details: BackfillDetails | None = None,
-) -> bool:
-    """Whether a run reads the native events source instead of a legacy events table.
-
-    Only the native source projects the `$unset` and `$group_set` columns, so a caller that asks for
-    them on a run routed to a legacy table builds a query ClickHouse cannot resolve. The routing is
-    wider than `is_backfill`: a backfill over recent data still reads `distributed_events_recent`.
-    """
-    if not use_new_events_schema:
-        return False
-    return (
-        select_events_query_template(
-            team_id=team_id,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            is_backfill=is_backfill,
-            backfill_details=backfill_details,
-        )
-        is SELECT_FROM_EVENTS_VIEW_BACKFILL
-    )
 
 
 def iter_records(

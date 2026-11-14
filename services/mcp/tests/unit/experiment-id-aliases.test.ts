@@ -99,6 +99,20 @@ describe('experiment id aliases', () => {
         it('still rejects a call with no run id', () => {
             expect(schema.safeParse({ id: 1 }).success).toBe(false)
         })
+
+        // Production traces show agents sending the run UUID as `id`. The rejection echoes
+        // the param description, so the description must point at the right params or the
+        // agent's retry has nothing to go on.
+        it('tells an agent that sent the run UUID as `id` where both values belong', () => {
+            const result = schema.safeParse({ id: runId })
+            expect(result.success).toBe(false)
+            const advertised = z.toJSONSchema(schema, { io: 'input', reused: 'inline' }) as {
+                properties?: Record<string, { description?: string }>
+            }
+            expect(advertised.properties?.id?.description).toMatch(/not the recalculation run UUID/)
+            expect(advertised.properties?.id?.description).toMatch(/goes in recalculation_id/)
+            expect(advertised.properties?.recalculation_id?.description).toMatch(/run UUID/)
+        })
     })
 
     describe('experiment-results-get (hand-written) normalizes aliases to `id`', () => {
@@ -133,6 +147,9 @@ describe('feature flag id aliases', () => {
         'feature-flag-disable',
         'feature-flag-enable',
         'feature-flag-get-definition',
+        'feature-flag-get-version',
+        'feature-flag-restore',
+        'feature-flag-restore-version',
         'feature-flag-roll-out-to-everyone',
         'feature-flag-rules-update',
         'feature-flag-set-release-condition-rollout',
@@ -148,6 +165,8 @@ describe('feature flag id aliases', () => {
 
     const REQUIRED_EXTRAS: Record<string, Record<string, unknown>> = {
         'feature-flags-test-evaluation-create': { distinct_id: 'user-1' },
+        'feature-flag-get-version': { version_number: 2 },
+        'feature-flag-restore-version': { version_number: 2, version: 3 },
         'feature-flag-roll-out-to-everyone': { version: 3 },
         'feature-flag-rules-update': {
             version: 3,

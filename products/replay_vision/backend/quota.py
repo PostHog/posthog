@@ -36,7 +36,7 @@ logger = structlog.get_logger(__name__)
 
 # Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
 # limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
-# free-tier org; self-hosted deployments raise it via the env var.
+# free-tier org.
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
 
 
@@ -308,12 +308,11 @@ class ScannerBudget(QuotaState):
         return self.other_ceiling_settled_blocked or replace(self, credits_used=self.credits_settled).blocked
 
     @property
-    def settled_block_from_free_credits(self) -> bool:
-        """Whether the org's free credits, rather than the scanner's own limit, are the ceiling posted spend fills."""
-        if replace(self, credits_used=self.credits_settled).blocked:
-            return self.free_credits_bound
-        # The other ceiling of a free-only scanner is the own limit when this one is the free credits, and back.
-        return self.other_ceiling_settled_blocked and not self.free_credits_bound
+    def free_credits_filled_by_settled_spend(self) -> bool:
+        """Whether posted spend fills the org's free credits for this free-only scanner, whichever of its ceilings binds."""
+        if self.free_credits_bound:
+            return replace(self, credits_used=self.credits_settled).blocked
+        return self.other_ceiling_settled_blocked
 
 
 def _scanner_in_flight_credits(
@@ -740,6 +739,21 @@ def free_credits_ceiling(cap: OrgCreditCap) -> int:
     if cap.credit_limit is None:
         return FREE_TIER_MONTHLY_CREDITS
     return min(cap.credit_limit, FREE_TIER_MONTHLY_CREDITS)
+
+
+FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
+
+
+def free_credits_used_up(
+    organization_id: UUID, cap: OrgCreditCap | None = None, credits_per_observation: int = 1
+) -> bool:
+    """Whether a free-only scanner would stop before its first scan: one more observation won't fit the free credits.
+
+    Matches `ScannerBudget.blocked`, so the API never turns on a scanner the next sweep turns straight back off.
+    """
+    cap = cap or org_credit_cap(organization_id)
+    credits_used = quota_state_for_cap(organization_id, cap).credits_used
+    return credits_used + max(credits_per_observation, 1) > free_credits_ceiling(cap)
 
 
 def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:

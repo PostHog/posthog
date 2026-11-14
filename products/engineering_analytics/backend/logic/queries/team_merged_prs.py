@@ -1,6 +1,5 @@
-"""Merged-PR counts per team over a window and its prior twin, attributed through the
-``team_members`` snapshot exactly as ``team_merge_trend`` is: team aggregates only, bots
-excluded (SPEC §2/§6). A member of several teams credits each of them."""
+"""Merged-PR counts per team for a window and the window before it, attributed through the
+``team_members`` snapshot. A member of several teams credits each of them."""
 
 from datetime import datetime
 
@@ -33,8 +32,8 @@ def query_team_merged_pr_counts(
     scan_from: datetime,
     date_to: datetime,
 ) -> dict[str, WindowedCount] | None:
-    """``team_slug -> merged-PR counts``; None when the membership snapshot isn't synced, so
-    callers can degrade honestly instead of reporting zero merges."""
+    """Counts keyed by team slug. Returns None when the membership snapshot is not synced, which
+    callers must not report as zero merges."""
     members_source = curated.members_source()
     if members_source is None:
         return None

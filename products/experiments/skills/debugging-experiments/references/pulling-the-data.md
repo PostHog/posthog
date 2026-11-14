@@ -129,7 +129,7 @@ loaded get `false`/`undefined` and are dropped from their arm instead of showing
 
 | Cause                                     | The number that confirms it                                                                                                                        |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Uneven split + Exclude bias               | uneven `rollout_percentage` split **and** `$multiple` share > 0.1% (banner threshold), handling = `exclude`                                        |
+| Uneven split + Exclude bias               | uneven split of the served, analyzed variants **and** `$multiple` share > 0.1% from 5+ people (banner threshold), handling = `exclude`             |
 | Sample ratio mismatch                     | chi-squared p < 0.001 on §2's per-person `total_exposures` (see below); only meaningful once totals are healthy                                    |
 | Assignment override (assignment-side SRM) | the reassignment component carries the gap in the decisive test below; then localize with the SDK split / bootstrap mix below                      |
 | Capture-by-surface (capture-side SRM)     | a `$pathname`/`$screen_name` where one variant's share jumps to ~100% while other paths sit near the split                                         |

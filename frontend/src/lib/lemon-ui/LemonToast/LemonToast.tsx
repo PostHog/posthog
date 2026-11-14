@@ -40,6 +40,11 @@ interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     hideButton?: boolean
 }
 
+interface ErrorToastOptions<T = string> extends ToastOptionsWithButton<T> {
+    /** Sent to analytics in place of `message`, for a message that can repeat text the user typed. */
+    capturedMessage?: string
+}
+
 interface SuccessToastOptions<T = string> extends ToastOptionsWithButton<T> {
     /** A second action, shown after `button` on a row under the message. */
     secondaryButton?: ToastButton
@@ -292,12 +297,15 @@ export const lemonToast = {
         })
         return id
     },
-    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
+    error(
+        message: string | JSX.Element,
+        { button, hideButton, capturedMessage, ...toastOptions }: ErrorToastOptions = {}
+    ) {
         // The toolbar bundle initializes a named instance, so the default instance imported here stays
         // uninitialized there and posthog-js discards the event. `capture` is defined either way.
         if (posthog.__loaded) {
             posthog.capture('toast error', {
-                message: String(message),
+                message: capturedMessage ?? String(message),
                 button: button?.label,
                 toastId: toastOptions.toastId,
             })

@@ -1,7 +1,7 @@
 import json
 import hashlib
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -15,13 +15,14 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
+from rest_framework.utils.urls import replace_query_param
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
@@ -35,6 +36,7 @@ from products.canvas.backend.facade import api as canvas_api
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
     apply_source_edits,
+    blocks_session_action,
     canvas_actions_disabled,
     canvas_connectors_enabled,
     connector_listings,
@@ -51,8 +53,10 @@ from products.canvas.backend.facade.api import (
 from products.canvas.backend.facade.contracts import (
     CanvasBuildCapacityExceeded,
     CanvasBuildNotFoundError,
+    CanvasCapabilityWideningDenied,
     CanvasFieldChange,
     CanvasNotFoundError,
+    CanvasPinnedVersionDenied,
     CanvasRecord,
     CanvasRequestRejected,
     CanvasStateNotFoundError,
@@ -78,6 +82,8 @@ from products.canvas.backend.presentation.serializers import (
     CanvasConnectorCallSerializer,
     CanvasConnectorsResponseSerializer,
     CanvasCreateSerializer,
+    CanvasCreatorRequiredCode,
+    CanvasCreatorRequiredSerializer,
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
     CanvasFixRequestResultSerializer,
@@ -174,6 +180,30 @@ def _conflict_response(error: CanvasVersionConflict) -> Response:
     )
 
 
+def _widening_denied_response(error: CanvasCapabilityWideningDenied) -> Response:
+    return Response(
+        {
+            "detail": "Only the canvas creator can add capabilities. Ask the creator to publish this change, "
+            "or publish it without the added capabilities.",
+            "code": CanvasCreatorRequiredCode.CAPABILITY_WIDENING,
+            "capability_widening": error.widening,
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _pinned_version_denied_response(error: CanvasPinnedVersionDenied) -> Response:
+    return Response(
+        {
+            "detail": "Only a component's creator can pin a version other than its live version. "
+            'Place these components on "latest" or their live version.',
+            "code": CanvasCreatorRequiredCode.PINNED_VERSION,
+            "components": error.component_ids,
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def _invalid_response(diagnostics: list[dict[str, Any]]) -> Response:
     return Response(
         {
@@ -252,6 +282,29 @@ def _activity_changes(changes: list[CanvasFieldChange]) -> list[Change]:
 
 def _wrong_kind_response(detail: str) -> Response:
     return Response({"detail": detail, "code": "wrong_canvas_kind"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _authoring_task_rejection(outcome: str) -> Response | None:
+    if outcome == "not_found":
+        return Response(
+            {"detail": "The authoring task for this canvas no longer exists."},
+            status=status.HTTP_409_CONFLICT,
+        )
+    if outcome == "organization_deactivated":
+        return Response(
+            {
+                "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    if outcome == "quota_exhausted":
+        return Response(
+            {"detail": "The team's compute quota is exhausted; retry later."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    if outcome == "task_done":
+        return Response({"detail": str(tasks_facade.TaskDoneError())}, status=status.HTTP_409_CONFLICT)
+    return None
 
 
 class CanvasStateWriteThrottle(SimpleRateThrottle):
@@ -344,6 +397,22 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 CANVAS_LIST_ORDERINGS = ["-created_at", "-updated_at"]
 
 
+def _state_page_links(request: Request, query: dict[str, Any], result: dict[str, Any]) -> dict[str, str | None]:
+    """The `next` and `previous` URLs of one canvas state page."""
+    url = request.build_absolute_uri()
+    next_link = None
+    if query.get("cursor") is not None and result["next_cursor"] is not None:
+        next_link = replace_query_param(url, "cursor", result["next_cursor"])
+    elif result["next_offset"] is not None:
+        next_link = replace_query_param(url, "offset", result["next_offset"])
+    limit = query.get("limit")
+    offset = query["offset"]
+    previous_link = None
+    if query.get("cursor") is None and limit is not None and offset > 0:
+        previous_link = replace_query_param(url, "offset", max(0, offset - limit))
+    return {"next": next_link, "previous": previous_link}
+
+
 class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -354,7 +423,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     scope_object = "canvas"
     # The facade reads canvases; the viewset holds no queryset.
     queryset = None
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this canvas."),
+        "root_comment_id": UUID,
+    }
     serializer_class = CanvasSerializer
+    pagination_class = FacadeLimitOffsetPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     scope_object_read_actions = [
         "list",
@@ -394,6 +468,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "patch_layout",
         "home",
     ]
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if (
+            isinstance(request.successful_authenticator, SessionAuthentication)
+            and isinstance(request.user, User)
+            and blocks_session_action(self.action, request.data if self.action == "partial_update" else None)
+        ):
+            raise PermissionDenied("Create and edit canvases through the PostHog MCP server.")
 
     def get_throttles(self) -> list[BaseThrottle]:
         # On top of the defaults, not instead of them: the per-canvas key must
@@ -469,21 +552,6 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         self._check_object_access(canvas)
         return canvas
 
-    def _paginated(self, request: Request, fetch: Callable[[int, int], Any], count: int) -> Response:
-        """The standard limit/offset envelope around one facade page."""
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        # The default page size always applies, so there is always a limit.
-        if limit is None:
-            limit = count
-        offset = paginator.get_offset(request)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        page = [] if count == 0 or offset > count else fetch(offset, limit)
-        return paginator.get_paginated_response(page)
-
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -531,15 +599,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         }
         requested_ordering = request.query_params.get("ordering")
         ordering = requested_ordering if requested_ordering in CANVAS_LIST_ORDERINGS else None
-        return self._paginated(
-            request,
-            lambda offset, limit: (
-                CanvasSerializer(
-                    canvas_api.list_canvases(viewer, offset=offset, limit=limit, ordering=ordering, **filters),
-                    many=True,
-                ).data
-            ),
-            canvas_api.count_canvases(viewer, **filters),
+        return facade_page_response(
+            self,
+            lambda page: canvas_api.list_canvases(viewer, page=page, ordering=ordering, **filters),
+            serializer_class=CanvasSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -766,10 +829,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="canvases_comments_retrieve",
-        parameters=[
-            OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH),
-            CanvasCommentDetailQuerySerializer,
-        ],
+        parameters=[CanvasCommentDetailQuerySerializer],
         responses=CanvasCommentDetailSerializer,
     )
     @action(
@@ -778,21 +838,17 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         url_path=r"comments/(?P<root_comment_id>[^/.]+)",
         required_scopes=["canvas:read", "comment:read"],
     )
-    def comment(self, request: Request, *args: Any, root_comment_id: str | None = None, **kwargs: Any) -> Response:
+    def comment(self, request: Request, *args: Any, root_comment_id: UUID, **kwargs: Any) -> Response:
         """One comment thread on this canvas: the root comment and its replies, oldest first."""
         params = CanvasCommentDetailQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         canvas = self._canvas()
         try:
-            parsed_comment_id = UUID(str(root_comment_id))
-        except ValueError:
-            raise NotFound()
-        try:
             thread = tasks_facade.retrieve_canvas_comment(
                 team_id=self.team_id,
                 canvas_id=canvas.id,
                 canvas_name=canvas.name,
-                comment_id=parsed_comment_id,
+                comment_id=root_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
                 content_comment_id=params.validated_data.get("comment_id"),
@@ -866,7 +922,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasSourcePublishSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
-            403: OpenApiResponse(description="Only the canvas creator can supply a name when publishing."),
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The caller is not the canvas creator and either supplied a name or added capabilities. "
+                "Adding capabilities carries code capability_widening_requires_creator.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
@@ -907,7 +967,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasSourceEditSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
-            403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The caller is not the canvas creator and either supplied a name or added capabilities. "
+                "Adding capabilities carries code capability_widening_requires_creator.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An operation did not apply (a missing file, or old_string matched no place or several), or the edited project failed validation.",
@@ -1012,6 +1076,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except ObjectStorageError:
@@ -1077,6 +1143,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
             ),
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The draft adds capabilities and the caller is not the canvas creator.",
+            ),
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
         },
     )
@@ -1089,6 +1159,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         changes for viewers. Promote the version with `promote` to make it live.
         The response reports how the draft's declared capabilities widen the
         current head's, so growth in access can be reviewed before it ships.
+        Only the canvas creator can stage a draft that adds capabilities, because
+        a draft preview runs with the draft's capabilities.
         No version guard applies: a draft conflicts with nothing.
         """
         canvas = self._canvas()
@@ -1112,6 +1184,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 user_id=self._request_user_id(),
                 was_impersonated=is_impersonated(request),
             )
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except ObjectStorageError:
@@ -1142,6 +1216,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasPromoteSerializer,
         responses={
             200: CanvasBuildSerializer,
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The change adds capabilities and the caller is not the canvas creator.",
+            ),
             409: OpenApiResponse(
                 response=CanvasPublishConflictSerializer,
                 description="The canvas moved past expected_current_version_id (a concurrent publish or a revert).",
@@ -1170,6 +1248,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except CanvasVersionNotFoundError:
@@ -1187,7 +1267,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasRevertSerializer,
         responses={
             200: CanvasBuildSerializer,
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The change adds capabilities and the caller is not the canvas creator "
+                "(capability_widening_requires_creator), or the grid version pins a component version other than "
+                "that component's live version and the caller did not create that component "
+                "(pinned_version_requires_creator).",
+            ),
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+            503: OpenApiResponse(description="Canvas source storage is temporarily unavailable."),
         },
     )
     @action(methods=["POST"], detail=True)
@@ -1207,10 +1295,19 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
+        except CanvasPinnedVersionDenied as pinned:
+            return _pinned_version_denied_response(pinned)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except CanvasVersionNotFoundError:
             return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the canvas was not reverted."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         self._report_canvas_action(
             "canvas reverted", moved.canvas, version_id=str(payload.validated_data["version_id"])
         )
@@ -1335,6 +1432,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasLayoutPublishSerializer,
         responses={
             200: CanvasLayoutPublishResponseSerializer,
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The layout newly pins a component version other than that component's live version, "
+                "and the caller did not create that component.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The canvas is not a grid canvas, or the layout failed validation.",
@@ -1373,6 +1475,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         request=CanvasLayoutPatchSerializer,
         responses={
             200: CanvasLayoutPublishResponseSerializer,
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The layout newly pins a component version other than that component's live version, "
+                "and the caller did not create that component.",
+            ),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An operation targeted a missing placement, or the edited layout failed validation.",
@@ -1469,6 +1576,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
+        except CanvasPinnedVersionDenied as pinned:
+            return _pinned_version_denied_response(pinned)
         except ObjectStorageError:
             return Response(
                 {"detail": "Canvas source storage is temporarily unavailable; the layout was not saved."},
@@ -1616,7 +1725,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 )
             ),
             404: OpenApiResponse(description="Build not found for this canvas."),
-            409: OpenApiResponse(description="The canvas has no authoring task to route the fix to."),
+            409: OpenApiResponse(
+                description="The canvas has no authoring task to route the fix to, or the authoring task is done."
+            ),
             429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
         },
     )
@@ -1662,23 +1773,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 {"detail": "Only the authoring task's creator can dispatch a fix."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if outcome == "not_found":
-            return Response(
-                {"detail": "The authoring task for this canvas no longer exists."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        if outcome == "organization_deactivated":
-            return Response(
-                {
-                    "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-        if outcome == "quota_exhausted":
-            return Response(
-                {"detail": "The team's compute quota is exhausted; retry later."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+        if (rejection := _authoring_task_rejection(outcome)) is not None:
+            return rejection
         self._log_canvas_activity(
             canvas,
             "fix_requested",
@@ -1709,7 +1805,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={
             202: CanvasAgentRequestResultSerializer,
             403: OpenApiResponse(description="Agent requests are not declared or the caller is a sandbox."),
-            409: OpenApiResponse(description="The canvas has no authoring task."),
+            409: OpenApiResponse(description="The canvas has no authoring task, or the authoring task is done."),
             429: OpenApiResponse(
                 description=(
                     "The request was denied for compute: the team's quota is exhausted (retry later), "
@@ -1751,23 +1847,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             viewer_prompt=payload.validated_data["prompt"],
             acting_user_id=self._request_user_id(),
         )
-        if outcome == "not_found":
-            return Response(
-                {"detail": "The authoring task for this canvas no longer exists."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        if outcome == "organization_deactivated":
-            return Response(
-                {
-                    "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-        if outcome == "quota_exhausted":
-            return Response(
-                {"detail": "The team's compute quota is exhausted; retry later."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+        if (rejection := _authoring_task_rejection(outcome)) is not None:
+            return rejection
         self._log_canvas_activity(
             canvas,
             "agent_requested",
@@ -1796,8 +1877,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
 
     def _connector_actor(self, request: Request) -> User | None:
         """The viewer whose third-party connections a connector call may use.
-        A sandbox token acts for an agent, not a viewer, so it gets none."""
-        if self._is_sandbox_authenticated(request):
+        A sandbox token acts for an agent, not a viewer, so it gets none. A workload token acts as the
+        organization owner without the owner minting it, so it gets none either."""
+        if self._is_sandbox_authenticated(request) or isinstance(
+            request.successful_authenticator, WorkloadAccessTokenAuthentication
+        ):
             return None
         return self._request_user()
 
@@ -2000,7 +2084,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         user = self._connector_actor(request)
         if user is None:
             return Response(
-                {"detail": "Connector calls are made by viewers; sandbox tokens cannot use them."},
+                {"detail": "Connector calls are made by viewers; sandbox and workload tokens cannot use them."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         if not canvas_connectors_enabled(self.team.uuid):
@@ -2073,7 +2157,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasRequestRejected as rejection:
             return Response(rejection.body, status=rejection.status_code)
-        return Response(CanvasStateResponseSerializer(result).data)
+        links = _state_page_links(request, query.validated_data, result)
+        return Response(CanvasStateResponseSerializer({**result, **links}).data)
 
     @extend_schema(
         operation_id="canvases_state_value_retrieve",
@@ -2198,20 +2283,3 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             canvas_name=canvas.name or "Canvas",
             canvas_url=canvas_url(canvas),
         )
-
-
-# The viewset holds no model, so drf-spectacular cannot type the id path parameter by itself.
-_CANVAS_ID_PARAMETER = OpenApiParameter(
-    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this canvas."
-)
-for _detail_action in [
-    "retrieve",
-    "partial_update",
-    "destroy",
-    *(extra.__name__ for extra in CanvasViewSet.get_extra_actions() if getattr(extra, "detail", False)),
-]:
-    setattr(
-        CanvasViewSet,
-        _detail_action,
-        extend_schema(parameters=[_CANVAS_ID_PARAMETER])(getattr(CanvasViewSet, _detail_action)),
-    )

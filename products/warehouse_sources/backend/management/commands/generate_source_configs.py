@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 from django.core.management.base import BaseCommand
@@ -20,11 +21,27 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources import (
+    PLUGIN_SOURCES_PACKAGE,
+    SourceRegistry,
+    source_module_path,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType, SourceKey
 
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
+
+REPO_ROOT = Path(__file__).parents[5]
+GENERATED_CONFIGS_DIR = (
+    REPO_ROOT
+    / "products"
+    / "warehouse_sources"
+    / "backend"
+    / "temporal"
+    / "data_imports"
+    / "sources"
+    / "generated_configs"
+)
 
 
 # Generates `@config.Config` dataclasses to be used by sources to parse inputs from the frontend.
@@ -45,14 +62,19 @@ class SourceConfigGenerator:
     def __init__(self):
         self.generated_classes: dict[str, str] = {}
         self.imports: set[str] = set()
+        self.is_plugin_vendor = False
         self.typing_import: set[str] = set()
         self.nested_configs: dict[str, str] = {}
 
     def generate_all_modules(self) -> dict[str, str]:
-        """One generated module per source, keyed by module name (`ExternalDataSourceType.<MEMBER>.name.lower()`).
+        """One generated module per source, keyed by its file path relative to the repo root.
 
-        The module-name rule is shared with `generated_configs/__init__.py`'s
-        `get_config_for_source`, which resolves configs by deriving the same name at runtime —
+        A vendor in the `products.warehouse_sources.sources` package keeps its config next to its code, in
+        `products/warehouse_sources/sources/<vendor>/_config.py`. Any other vendor gets
+        `generated_configs/<ExternalDataSourceType.<MEMBER>.name.lower()>.py`.
+
+        The path rule is shared with `generated_configs/__init__.py`'s
+        `get_config_for_source`, which resolves configs by deriving the same path at runtime —
         neither side needs regenerating when a source is added."""
         try:
             sources = SourceRegistry.get_all_sources()
@@ -61,19 +83,29 @@ class SourceConfigGenerator:
             modules: dict[str, str] = {}
             for source_type, source_config in configs.items():
                 logger.info(f"Generating config for {source_type}")
-                module_name = source_type.name.lower()
-                if not module_name.isidentifier():
-                    raise ValueError(f"{source_type.name} does not lower() to a valid module name")
-                if module_name in modules:
-                    raise ValueError(f"Module name collision for {source_type.name}: {module_name}")
-                modules[module_name] = self._generate_module(source_type, source_config)
+                module_path = self._module_path(source_type)
+                if module_path in modules:
+                    raise ValueError(f"Module name collision for {source_type}: {module_path}")
+                modules[module_path] = self._generate_module(source_type, source_config)
         except Exception as e:
             logger.exception(f"Error generating config: {e}")
             raise
 
         return modules
 
-    def _generate_module(self, source_type: ExternalDataSourceType, source_config: SourceConfig) -> str:
+    @staticmethod
+    def _module_path(source_type: SourceKey) -> str:
+        source_module = source_module_path(source_type)
+        if source_module is not None and source_module.startswith(f"{PLUGIN_SOURCES_PACKAGE}."):
+            return f"{source_module.removesuffix('.source').replace('.', '/')}/_config.py"
+        if not isinstance(source_type, ExternalDataSourceType):
+            raise ValueError(f"{source_type} has no enum member, so its vendor must live in {PLUGIN_SOURCES_PACKAGE}")
+        module_name = source_type.name.lower()
+        if not module_name.isidentifier():
+            raise ValueError(f"{source_type.name} does not lower() to a valid module name")
+        return str((GENERATED_CONFIGS_DIR / f"{module_name}.py").relative_to(REPO_ROOT))
+
+    def _generate_module(self, source_type: SourceKey, source_config: SourceConfig) -> str:
         self.generated_classes = {}
         self.imports = set()
         self.typing_import = set()
@@ -81,8 +113,17 @@ class SourceConfigGenerator:
         self.generate_source_config(source_type, source_config)
         return self._build_module()
 
-    def generate_source_config(self, source_type: ExternalDataSourceType, source_config: SourceConfig) -> None:
-        self.imports.add("from products.warehouse_sources.backend.temporal.data_imports.sources.common import config")
+    @staticmethod
+    def _config_import(source_type: SourceKey) -> str:
+        # A vendor in the `products.warehouse_sources.sources` package imports shared code only from `products.warehouse_sources.sources.sdk` (tach).
+        source_module = source_module_path(source_type)
+        if source_module is not None and source_module.startswith(f"{PLUGIN_SOURCES_PACKAGE}."):
+            return f"from {PLUGIN_SOURCES_PACKAGE}.sdk import config"
+        return "from products.warehouse_sources.backend.temporal.data_imports.sources.common import config"
+
+    def generate_source_config(self, source_type: SourceKey, source_config: SourceConfig) -> None:
+        self.imports.add(self._config_import(source_type))
+        self.is_plugin_vendor = self._config_import(source_type).startswith(f"from {PLUGIN_SOURCES_PACKAGE}.sdk")
 
         class_name = self._get_config_class_name(source_type)
         fields = []
@@ -394,7 +435,10 @@ class SourceConfigGenerator:
     def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
         """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
 
-        self.imports.add("from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig")
+        if self.is_plugin_vendor:
+            self.imports.add(f"from {PLUGIN_SOURCES_PACKAGE}.sdk import SSHTunnelConfig")
+        else:
+            self.imports.add("from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig")
 
         python_field_name, should_alias = self._make_python_identifier(field.name)
 
@@ -439,8 +483,8 @@ class SourceConfigGenerator:
 
         raise ValueError(f"Converter value {field.converter} not recognized")
 
-    def _get_config_class_name(self, source_type: ExternalDataSourceType) -> str:
-        return f"{source_type.value}SourceConfig"
+    def _get_config_class_name(self, source_type: SourceKey) -> str:
+        return f"{source_type}SourceConfig"
 
     def _get_nested_class_name(self, field_name: str, parent_class: str) -> str:
         parent_prefix = parent_class.replace("SourceConfig", "")
@@ -582,18 +626,19 @@ class Command(BaseCommand):
         generator = SourceConfigGenerator()
         modules = generator.generate_all_modules()
 
-        output_dir = os.path.join(
-            os.path.dirname(__file__), "..", "..", "temporal", "data_imports", "sources", "generated_configs"
-        )
+        output_dir = str(GENERATED_CONFIGS_DIR)
         os.makedirs(output_dir, exist_ok=True)
 
-        for module_name, module_source in modules.items():
-            with open(os.path.join(output_dir, f"{module_name}.py"), "w") as f:
+        for module_path, module_source in modules.items():
+            with open(REPO_ROOT / module_path, "w") as f:
                 f.write(module_source)
 
         # __init__.py is hand-written (the runtime resolver); never write it. Remove modules for
         # sources no longer in the registry so a deleted source can't leave stale config classes.
-        expected = {f"{name}.py" for name in modules} | {"__init__.py"}
+        # A vendor in the `products.warehouse_sources.sources` package deletes its `_config.py` with its directory.
+        expected = {Path(path).name for path in modules if (REPO_ROOT / path).parent == GENERATED_CONFIGS_DIR} | {
+            "__init__.py"
+        }
         for stale in set(os.listdir(output_dir)) - expected:
             if stale.endswith(".py"):
                 os.remove(os.path.join(output_dir, stale))

@@ -4,6 +4,7 @@ import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series, TimeScale } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { dimensions as testDimensions, getChart, rawDrag, renderChart } from '../../testing'
+import { createDefaultTooltipAccessor } from '../../testing/tooltip'
 import { LineChart } from './LineChart'
 
 function legendButtons(container: HTMLElement): HTMLButtonElement[] {
@@ -333,6 +334,18 @@ describe('LineChart', () => {
             await chart.clickAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.isPinned).toBe(true)
+        })
+
+        it.each([
+            ['all', 2],
+            ['single', 1],
+        ] as const)('lists %s rows with config.tooltip.mode', async (mode, rowCount) => {
+            const { chart } = renderChart(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { mode } }} />
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            expect(createDefaultTooltipAccessor(tooltip.element).rows()).toHaveLength(rowCount)
         })
 
         it('does not crash on hover for overlay series', async () => {

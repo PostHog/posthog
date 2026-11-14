@@ -13,9 +13,11 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
+from billiard.common import _shutdown_cleanup
 from parameterized import parameterized
 
-from posthog.management.commands.resave_cohorts import UNWIND_SIGNALS, StaleFlagsCacheError, termination_unwinds
+from posthog.cohort_resave import UNWIND_SIGNALS, termination_unwinds
+from posthog.management.commands.resave_cohorts import StaleFlagsCacheError
 from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -229,6 +231,62 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         # would mean the team row is hydrated onto each cohort row.
         for sql in cohort_selects:
             assert 'posthog_team"."event_names"' not in sql
+
+    @parameterized.expand(
+        [
+            (
+                "list_properties",
+                [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}],
+                ("email", "is_set", "is_set"),
+            ),
+            # Old dict-style groups carry no operator, which filters validation requires.
+            ("dict_properties", [{"properties": {"email": "a@example.com"}}], ("email", "exact", "a@example.com")),
+        ]
+    )
+    def test_resave_legacy_groups_cohort_derives_filters_and_condition_type(
+        self, _name: str, groups: list[dict], expected_leaf: tuple[str, str, str]
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="legacy_groups_cohort", groups=groups, filters=None)
+
+        call_command("resave_cohorts", team_id=[self.team.id])
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert cohort.filters is not None
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        assert (leaf["key"], leaf["operator"], leaf["value"]) == expected_leaf
+        assert cohort.condition_type == {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+
+    def test_resave_counts_unconvertible_legacy_groups_as_errors(self) -> None:
+        # A behavioral leaf without a time window converts to nothing.
+        leaf = {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"}
+        cohort = Cohort.objects.create(
+            team=self.team, name="unconvertible_groups_cohort", groups=[{"properties": [leaf]}], filters=None
+        )
+        out = StringIO()
+
+        call_command("resave_cohorts", team_id=[self.team.id], stdout=out)
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert not cohort.filters
+        assert "1 errors" in out.getvalue()
+
+    def test_resave_leaves_static_legacy_groups_cohort_untouched(self) -> None:
+        # The flags service assumes a static cohort is never realtime.
+        groups = [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}]
+        cohort = Cohort.objects.create(
+            team=self.team, name="static_legacy_groups_cohort", groups=groups, filters=None, is_static=True
+        )
+
+        call_command("resave_cohorts", team_id=[self.team.id])
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert not cohort.filters
+        assert cohort.cohort_type != "realtime"
 
 
 class TestResaveCohortsCommandWithDependencies(BaseTest):
@@ -508,6 +566,49 @@ class TestResaveCohortsCommandWithDependencies(BaseTest):
         # 3. Cohort A cannot be realtime (references B which has dependencies)
         assert cohort_a.cohort_type is None
 
+    def test_cohort_referencing_legacy_groups_non_leaf_cannot_be_realtime(self):
+        """Same as above, with B defined only through legacy `groups`."""
+        team: Team = self.team
+
+        cohort_c = Cohort.objects.create(
+            team=team, name="cohort_c", filters=_make_person_only_filters(email="c@example.com")
+        )
+        cohort_b = Cohort.objects.create(
+            team=team,
+            name="cohort_b",
+            filters=None,
+            groups=[
+                {
+                    "properties": [
+                        {"type": "cohort", "key": "id", "value": cohort_c.id},
+                        {"type": "person", "key": "name", "value": "B User"},
+                    ]
+                }
+            ],
+        )
+        cohort_a = Cohort.objects.create(
+            team=team,
+            name="cohort_a",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": cohort_b.id},
+                        {"type": "person", "key": "name", "operator": "exact", "value": "A User"},
+                    ],
+                }
+            },
+        )
+
+        call_command("resave_cohorts", team_id=[team.id])
+
+        cohort_a.refresh_from_db()
+        cohort_b.refresh_from_db()
+
+        assert cohort_b.filters
+        assert cohort_b.cohort_type == "realtime"
+        assert cohort_a.cohort_type is None
+
 
 class TestResaveCohortsCommandTwoTeams(BaseTest):
     def test_resave_two_teams_each_five_types(self):
@@ -685,21 +786,23 @@ class TestTerminationUnwinds(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("sigterm_claimed", signal.SIGTERM, _other_handler, False),
-            ("sighup_claimed", signal.SIGHUP, _other_handler, False),
-            ("sighup_ignored_by_nohup", signal.SIGHUP, signal.SIG_IGN, True),
+            ("sigterm_claimed", (signal.SIGTERM,), _other_handler, False),
+            ("sighup_claimed", (signal.SIGHUP,), _other_handler, False),
+            ("sighup_ignored_by_nohup", (signal.SIGHUP,), signal.SIG_IGN, True),
+            ("unwound_by_a_prefork_celery_child", UNWIND_SIGNALS, _shutdown_cleanup, True),
         ]
     )
     def test_a_disposition_someone_else_set_is_left_in_place(
-        self, _name: str, signum: int, disposition: Any, expected_unwinds: bool
+        self, _name: str, signums: tuple[int, ...], disposition: Any, expected_unwinds: bool
     ) -> None:
-        signal.signal(signum, disposition)
+        for signum in signums:
+            signal.signal(signum, disposition)
 
         with termination_unwinds() as unwinds:
             assert unwinds is expected_unwinds
-            assert signal.getsignal(signum) is disposition
+            assert all(signal.getsignal(signum) is disposition for signum in signums)
 
-        assert signal.getsignal(signum) is disposition
+        assert all(signal.getsignal(signum) is disposition for signum in signums)
 
 
 class TestResaveCohortsCommandTeamSelection(BaseTest):

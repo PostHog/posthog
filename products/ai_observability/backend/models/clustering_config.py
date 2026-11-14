@@ -13,6 +13,7 @@ class ClusteringConfig(models.Model):
 
     # Property filters applied to both summarization and clustering pipelines
     event_filters = models.JSONField(default=list, blank=True)
+    enabled = models.BooleanField(default=False, db_default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -7,7 +7,7 @@ import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import type { ScopeAccessLevel } from 'lib/scopes'
+import { scopeRowWarning, type ScopeAccessLevel } from 'lib/scopes'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
@@ -177,38 +177,34 @@ export function CLIAuthorize(): JSX.Element {
                                                             No scopes match "{searchTerm}"
                                                         </div>
                                                     ) : (
-                                                        filteredScopes.map(
-                                                            ({ key, objectName, disabledActions, warnings, info }) => {
-                                                                const value = (formScopeRadioValues[key] ??
-                                                                    'none') as ScopeAccessLevel
-                                                                const disabledReason = (
-                                                                    action: 'read' | 'write'
-                                                                ): string | undefined =>
-                                                                    disabledActions?.includes(action)
-                                                                        ? 'Does not apply to this resource'
-                                                                        : undefined
-                                                                return (
-                                                                    <ScopeAccessRow
-                                                                        key={key}
-                                                                        row={{
-                                                                            key,
-                                                                            label: objectName,
-                                                                            info,
-                                                                            value,
-                                                                            warning:
-                                                                                value === 'none'
-                                                                                    ? undefined
-                                                                                    : warnings?.[value],
-                                                                            disabledReasons: {
-                                                                                read: disabledReason('read'),
-                                                                                write: disabledReason('write'),
-                                                                            },
-                                                                        }}
-                                                                        onChange={setScopeRadioValue}
-                                                                    />
-                                                                )
-                                                            }
-                                                        )
+                                                        filteredScopes.map((apiScope) => {
+                                                            const { key, objectName, disabledActions, info } = apiScope
+                                                            const value = (formScopeRadioValues[key] ??
+                                                                'none') as ScopeAccessLevel
+                                                            const disabledReason = (
+                                                                action: 'read' | 'write'
+                                                            ): string | undefined =>
+                                                                disabledActions?.includes(action)
+                                                                    ? 'Does not apply to this resource'
+                                                                    : undefined
+                                                            return (
+                                                                <ScopeAccessRow
+                                                                    key={key}
+                                                                    row={{
+                                                                        key,
+                                                                        label: objectName,
+                                                                        info,
+                                                                        value,
+                                                                        warning: scopeRowWarning(apiScope, key, value),
+                                                                        disabledReasons: {
+                                                                            read: disabledReason('read'),
+                                                                            write: disabledReason('write'),
+                                                                        },
+                                                                    }}
+                                                                    onChange={setScopeRadioValue}
+                                                                />
+                                                            )
+                                                        })
                                                     )}
                                                 </div>
                                             </>

@@ -7,6 +7,19 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `off` - off
+ * * `preview` - preview
+ * * `on` - on
+ */
+export type AutoQuarantineModeEnumApi = (typeof AutoQuarantineModeEnumApi)[keyof typeof AutoQuarantineModeEnumApi]
+
+export const AutoQuarantineModeEnumApi = {
+    Off: 'off',
+    Preview: 'preview',
+    On: 'on',
+} as const
+
 export type RepoApiBaselineFilePaths = { [key: string]: string }
 
 export interface RepoApi {
@@ -17,6 +30,7 @@ export interface RepoApi {
     baseline_file_paths: RepoApiBaselineFilePaths
     enable_pr_comments: boolean
     debt_digest_enabled: boolean
+    auto_quarantine_mode: AutoQuarantineModeEnumApi
     created_at: string
 }
 
@@ -53,6 +67,12 @@ export interface PatchedUpdateRepoRequestInputApi {
      * @nullable
      */
     debt_digest_enabled?: boolean | null
+    /** Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. `off` (the default) does nothing. `preview` logs each finding and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines.
+     *
+     * * `off` - off
+     * * `preview` - preview
+     * * `on` - on */
+    auto_quarantine_mode?: AutoQuarantineModeEnumApi | null
 }
 
 export interface UserBasicInfoApi {
@@ -250,6 +270,8 @@ export interface QuarantinedIdentifierEntryApi {
     created_by?: UserBasicInfoApi | null
     /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
     source_run?: QuarantineSourceRunApi | null
+    /** Why visual review lifted this quarantine by itself, for example after 500 clean default-branch runs. Empty when a person, an agent, a merged fix, or the expiry ended it, and while it is active. */
+    readonly lift_reason: string
     id: string
     identifier: string
     run_type: string
@@ -347,9 +369,9 @@ export interface TolerationPileupsApi {
  * * `review` - review
  * * `observe` - observe
  */
-export type PurposeEnumApi = (typeof PurposeEnumApi)[keyof typeof PurposeEnumApi]
+export type RunPurposeEnumApi = (typeof RunPurposeEnumApi)[keyof typeof RunPurposeEnumApi]
 
-export const PurposeEnumApi = {
+export const RunPurposeEnumApi = {
     Review: 'review',
     Observe: 'observe',
 } as const
@@ -379,7 +401,7 @@ export interface RunApi {
      *
      * * `review` - review
      * * `observe` - observe */
-    readonly purpose: PurposeEnumApi
+    readonly purpose: RunPurposeEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
      *
      * * `exact` - exact
@@ -952,6 +974,7 @@ export type VisualReviewRunsSnapshotsListParams = {
     include_quarantined?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 10000
      */
     limit?: number
     /**

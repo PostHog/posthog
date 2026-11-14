@@ -1,13 +1,17 @@
 from copy import deepcopy
+from io import StringIO
 
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from pydantic import JsonValue
 
+from products.signals.backend.facade.filter_catalog import SignalFilterField, get_filter_catalog
 from products.signals.backend.filter_catalog_schema import validate_catalog_bundle
+from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.models import SignalFilterCatalogVersion, SignalFilterSourceDefinition
 
 
@@ -206,3 +210,54 @@ class TestFilterCatalogPersistence(TestCase):
             self.catalog.delete()
         with self.assertRaises(ValidationError):
             SignalFilterCatalogVersion.objects.filter(pk=self.catalog.pk).delete()
+
+
+def publish(bundle: dict[str, JsonValue]) -> None:
+    SignalFilterSourceDefinition.publish(
+        source_product="linear",
+        source_type="issue",
+        adapter_kind=SignalFilterSourceDefinition.AdapterKind.WAREHOUSE,
+        initial_rollout_state=SignalFilterSourceDefinition.RolloutState.INTERNAL,
+        bundle=bundle,
+    )
+
+
+class TestFilterCatalogPublication(TestCase):
+    def test_publish_is_idempotent_and_keeps_rollout_decisions(self) -> None:
+        self.assertIsNone(get_filter_catalog(source_product="linear", source_type="issue"))
+        call_command("publish_signal_filter_catalogs", stdout=StringIO())
+        call_command("publish_signal_filter_catalogs", stdout=StringIO())
+        source = SignalFilterSourceDefinition.objects.get(source_product="linear", source_type="issue")
+        self.assertEqual(source.catalog_versions.count(), 1)
+        self.assertEqual(source.rollout_state, "internal")
+        self.assertFalse(source.filter_query_eligible)
+
+        source.rollout_state = SignalFilterSourceDefinition.RolloutState.ENABLED
+        source.save()
+        revised = deepcopy(LINEAR_ISSUE_SEED.bundle)
+        revised["starter_expressions"] = ["assignee_id IS NULL"]
+        publish(revised)
+
+        source.refresh_from_db()
+        self.assertEqual(source.rollout_state, "enabled")
+        self.assertEqual(source.catalog_versions.count(), 2)
+        catalog = get_filter_catalog(source_product="linear", source_type="issue")
+        assert catalog is not None
+        self.assertEqual(catalog.version, 2)
+        self.assertEqual(catalog.starter_expressions, ("assignee_id IS NULL",))
+        self.assertEqual(
+            catalog.fields[0],
+            SignalFilterField(name="team_id", type="string", description="ID of the Linear team the issue belongs to."),
+        )
+
+    @parameterized.expand(
+        [
+            ("unknown_starter_field", {"starter_expressions": ["category_id IS NULL"]}),
+            ("starter_not_boolean", {"starter_expressions": ["priority"]}),
+            ("unexecutable_field_type", {"fields": [catalog_field(type="number")], "starter_expressions": []}),
+        ]
+    )
+    def test_unfilterable_catalog_is_not_published(self, _name: str, changes: dict[str, JsonValue]) -> None:
+        with self.assertRaises(ValidationError):
+            publish({**LINEAR_ISSUE_SEED.bundle, **changes})
+        self.assertFalse(SignalFilterSourceDefinition.objects.exists())

@@ -299,86 +299,6 @@ SETTINGS
 )
 
 
-SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template(
-    """
-SELECT
-    $fields
-FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        COALESCE(inserted_at, _timestamp) AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
-    FROM
-        events
-    PREWHERE
-        COALESCE(events.inserted_at, events._timestamp) >= {interval_start:DateTime64}
-        AND COALESCE(events.inserted_at, events._timestamp) < {interval_end:DateTime64}
-    WHERE
-        team_id = {team_id:Int64}
-        AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
-        AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-        $filters
-    $order
-) AS events
-FORMAT ArrowStream
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1
-"""
-)
-
-
-EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED = Template(
-    """
-INSERT INTO FUNCTION $s3_function
-SELECT
-    $fields
-FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        COALESCE(inserted_at, _timestamp) AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
-    FROM
-        events
-    PREWHERE
-        COALESCE(events.inserted_at, events._timestamp) >= {interval_start:DateTime64}
-        AND COALESCE(events.inserted_at, events._timestamp) < {interval_end:DateTime64}
-    WHERE
-        team_id = {team_id:Int64}
-        AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
-        AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-        $filters
-) AS events
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1,
-    log_comment=%(log_comment)s
-"""
-)
-
-
 SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
     """
 SELECT
@@ -488,17 +408,20 @@ SETTINGS
 _PROPERTIES_DOCUMENT = event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
 _PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties")
 SERIALIZED_EVENTS_JSON_SOURCE = """(
-    SELECT * REPLACE (
-        toString(uuid) AS uuid,
-        toString(person_id) AS person_id,
-        __PROPERTIES_DOCUMENT__ AS properties,
-        __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
-    ),
-        nullIf(toJSONString(temporary_properties.^`$set`), '{}') AS set,
-        nullIf(toJSONString(temporary_properties.^`$set_once`), '{}') AS set_once,
-        nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
-        nullIf(toJSONString(temporary_properties.^`$group_set`), '{}') AS group_set
-    FROM events_json
+    SELECT *,
+        nullIf(JSONExtractRaw(properties, '$set'), '') AS set,
+        nullIf(JSONExtractRaw(properties, '$set_once'), '') AS set_once,
+        nullIf(JSONExtractRaw(properties, '$unset'), '') AS unset,
+        nullIf(JSONExtractRaw(properties, '$group_set'), '') AS group_set
+    FROM (
+        SELECT * REPLACE (
+            toString(uuid) AS uuid,
+            toString(person_id) AS person_id,
+            __PROPERTIES_DOCUMENT__ AS properties,
+            __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
+        )
+        FROM events_json
+    )
 )""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT).replace(
     "__PERSON_PROPERTIES_DOCUMENT__", _PERSON_PROPERTIES_DOCUMENT
 )

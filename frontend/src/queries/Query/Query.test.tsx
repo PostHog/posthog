@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 
@@ -11,9 +11,8 @@ const insightVizQueryCalls: InsightVizNode[] = []
 jest.mock('~/queries/nodes/InsightViz/InsightViz', () => ({
     InsightViz: (props: { query: InsightVizNode }) => {
         insightVizQueryCalls.push(props.query)
-        return <div data-testid="insight-viz" />
+        return <div data-attr="insight-viz" />
     },
-    insightVizDataNodeKey: () => 'test-key',
 }))
 
 jest.mock('~/layout/ErrorBoundary', () => ({
@@ -36,11 +35,16 @@ describe('Query', () => {
         insightVizQueryCalls.length = 0
     })
 
-    it('immediately uses propsQuery on re-render when controlled via setQuery (no stale localQuery)', () => {
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('immediately uses propsQuery on re-render when controlled via setQuery (no stale localQuery)', async () => {
         const originalQuery = makeInsightVizQuery()
         const setQuery = jest.fn()
 
-        const { rerender } = render(<Query query={originalQuery} setQuery={setQuery} uniqueKey="test" />)
+        const { rerender, findByTestId } = render(<Query query={originalQuery} setQuery={setQuery} uniqueKey="test" />)
+        await findByTestId('insight-viz')
 
         insightVizQueryCalls.length = 0
 
@@ -52,20 +56,22 @@ describe('Query', () => {
         expect(insightVizQueryCalls[0]).toBe(updatedQuery)
     })
 
-    it('uses propsQuery when readOnly is true', () => {
+    it('uses propsQuery when readOnly is true', async () => {
         const query = makeInsightVizQuery({
             personsOnEventsMode: 'person_id_override_properties_joined',
         })
 
-        render(<Query query={query} readOnly uniqueKey="test" />)
+        const { findByTestId } = render(<Query query={query} readOnly uniqueKey="test" />)
+        await findByTestId('insight-viz')
 
         expect(insightVizQueryCalls[0]).toBe(query)
     })
 
-    it('syncs updated propsQuery via useEffect when uncontrolled', () => {
+    it('syncs updated propsQuery via useEffect when uncontrolled', async () => {
         const originalQuery = makeInsightVizQuery()
 
-        const { rerender } = render(<Query query={originalQuery} uniqueKey="test" />)
+        const { rerender, findByTestId } = render(<Query query={originalQuery} uniqueKey="test" />)
+        await findByTestId('insight-viz')
 
         insightVizQueryCalls.length = 0
 

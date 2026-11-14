@@ -1,0 +1,58 @@
+.TodayPane {
+    // The pane sits on the shell's chrome, not the app background.
+    --quill-icon-stack-ring: var(--chrome);
+
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 8px;
+}
+
+.TodayIconBadge .LemonBadge:not(.LemonBadge--hidden) {
+    width: var(--lemon-badge-size);
+    padding: 0;
+    font-size: 0.5625rem;
+    letter-spacing: -0.03em;
+}
+
+.SidebarSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
+    background: transparent;
+}
+
+// A row that was just added grows from no height, so the rows below slide down, while it fades in from just above.
+.SidebarRowEnter {
+    display: grid;
+    animation: SidebarRowEnter__grow 240ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)) both;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation-duration: 1ms;
+    }
+}
+
+.SidebarRowEnter__row {
+    min-height: 0;
+    overflow: hidden;
+    animation: SidebarRowEnter__slide 240ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)) both;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
+}
+
+@keyframes SidebarRowEnter__grow {
+    from {
+        grid-template-rows: 0fr;
+    }
+
+    to {
+        grid-template-rows: 1fr;
+    }
+}
+
+@keyframes SidebarRowEnter__slide {
+    from {
+        opacity: 0;
+        transform: translateY(-0.375rem);
+    }
+}

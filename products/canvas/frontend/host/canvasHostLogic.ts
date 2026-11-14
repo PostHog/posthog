@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { TeamPublicType, TeamType, UserType } from '../../../../frontend/src/types'
-import { CANVAS_EVENTS, canvasErrorType } from '../canvasAnalytics'
+import { CANVAS_EVENTS, CanvasSurface, canvasErrorType } from '../canvasAnalytics'
 import { canvasesReportErrorCreate } from '../generated/api'
 import { CanvasActionConfirmation, CanvasConnectorPermissionRequest, CanvasDataBridge } from './canvasDataBridge'
 import { CanvasNavIntent, isSafeGitHubPullRequestUrl } from './canvasProtocol'
@@ -32,6 +32,10 @@ export interface CanvasHostLogicProps {
     spaceId: string | null
     /** The source version the running code came from. */
     sourceVersionId: string | null
+    /** Where the canvas is rendered. Defaults to the canvas scene. */
+    surface?: CanvasSurface
+    /** Gives each render of the same canvas its own prompts and bridge state, for example two dashboard tiles. */
+    instanceKey?: string
 }
 
 export type CanvasHostPrompt =
@@ -145,7 +149,7 @@ export type canvasHostLogicType = MakeLogicType<
  */
 export const canvasHostLogic = kea<canvasHostLogicType>([
     props({} as CanvasHostLogicProps),
-    key((props) => props.canvasId),
+    key((props) => (props.instanceKey ? `${props.canvasId}:${props.instanceKey}` : props.canvasId)),
     path((key) => ['products', 'canvas', 'frontend', 'host', 'canvasHostLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], teamLogic, ['currentTeam'], userLogic, ['user']],
@@ -199,14 +203,11 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
                 case 'canvas':
                     router.actions.push(urls.canvasDetail(intent.dashboardId))
                     break
-                case 'new-canvas':
-                    router.actions.push(urls.canvasNew(props.spaceId))
-                    break
                 case 'connect':
                     router.actions.push(connectorSettingsUrl(intent.provider))
                     break
                 default:
-                    // The web app has no task composer route to prefill, so these are dropped.
+                    // The web app has no task composer route to prefill, and it does not create canvases, so these are dropped.
                     break
             }
         },
@@ -215,6 +216,7 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
                 channel_id: props.spaceId ?? undefined,
                 dashboard_id: props.canvasId,
                 build_id: buildId ?? undefined,
+                surface: props.surface ?? 'web_canvas_scene',
             })
         },
         canvasErrored: ({ message, buildId }) => {
@@ -230,6 +232,7 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
                 dashboard_id: props.canvasId,
                 build_id: buildId ?? undefined,
                 error_type: errorType,
+                surface: props.surface ?? 'web_canvas_scene',
             })
             // Files the error in the authoring task's thread so its agent hears about it. Only the
             // class name leaves the browser: the message can carry the viewer's data.

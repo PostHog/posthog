@@ -5,6 +5,9 @@ on:
     pull_request:
         paths:
             - 'cli/**'
+            - 'rust/cymbal/tests/static/native/**'
+            - 'rust/cymbal/tests/static/apple/**'
+            - '.github/actions/paths-filter/**'
             - 'services/mcp/src/cli/**'
             - 'services/mcp/src/tools/**'
             - 'services/mcp/src/api/**'
@@ -23,13 +26,44 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    changes:
+        name: Detect Rust CLI changes
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            rust: ${{ steps.filter.outputs.rust != 'false' || steps.filter.outputs.unmatched_paths != 'false' || steps.filter.outputs.all_count == '' || steps.filter.outputs.all_count < github.event.pull_request.changed_files || steps.filter.outputs.all_count >= 3000 }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+            - uses: ./.github/actions/paths-filter
+              id: filter
+              with:
+                  filters: |
+                      all:
+                          - '**'
+                      unmatched_paths:
+                          - '!**'
+                      rust:
+                          - 'cli/**'
+                          - 'rust/cymbal/tests/static/native/**'
+                          - 'rust/cymbal/tests/static/apple/**'
+                          - '.github/workflows/ci-cli.yml'
+                          - '.github/actions/paths-filter/**'
+
     tests:
         name: Run tests
+        needs: changes
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
         # constituent PR already ran this in full.
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ !cancelled() && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.rust != 'false' }}
         defaults:
             run:
                 working-directory: cli
@@ -57,9 +91,10 @@ jobs:
 
     clippy:
         name: Clippy
+        needs: changes
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ !cancelled() && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.rust != 'false' }}
         defaults:
             run:
                 working-directory: cli
@@ -83,9 +118,10 @@ jobs:
 
     format:
         name: Format
+        needs: changes
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ !cancelled() && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.rust != 'false' }}
         defaults:
             run:
                 working-directory: cli

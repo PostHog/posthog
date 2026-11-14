@@ -18,6 +18,7 @@ import trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsN
 import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { performQuery } from '~/queries/query'
+import { InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { isInsightQueryNode, isRetentionQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import type { DataNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -42,6 +43,10 @@ jest.mock('~/queries/nodes/InsightViz/InsightVizDisplay', () => ({
 const mockedQuery = jest.mocked(performQuery)
 
 describe('HomeTabDefault query reuse', () => {
+    beforeAll(async () => {
+        await InsightVizRenderer.preload()
+    })
+
     beforeEach(() => {
         initKeaTests()
         savedInsightsLogic.mount()
@@ -70,7 +75,9 @@ describe('HomeTabDefault query reuse', () => {
         await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
         await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
         expect(
-            within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
+            within(screen.getByLabelText('Active users', { selector: '[data-attr^="home-tab-metric-"]' })).getByText(
+                '10'
+            )
         ).toBeInTheDocument()
 
         await act(async () => rerender(<div>Another tab</div>))
@@ -79,7 +86,9 @@ describe('HomeTabDefault query reuse', () => {
 
         expect(mockedQuery).toHaveBeenCalledTimes(14)
         expect(
-            within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
+            within(screen.getByLabelText('Active users', { selector: '[data-attr^="home-tab-metric-"]' })).getByText(
+                '10'
+            )
         ).toBeInTheDocument()
 
         await act(async () => homeTabDefaultLogic.actions.setDates(dateFrom, null))
@@ -92,7 +101,9 @@ describe('HomeTabDefault query reuse', () => {
                 .every(([query]) => isInsightQueryNode(query) && query.dateRange?.date_from === dateFrom)
         ).toBe(true)
         expect(
-            within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('20')
+            within(screen.getByLabelText('Active users', { selector: '[data-attr^="home-tab-metric-"]' })).getByText(
+                '20'
+            )
         ).toBeInTheDocument()
         await act(async () => rerender(<div>Another tab</div>))
         await act(async () => rerender(<HomeTabDefault />))
@@ -155,8 +166,6 @@ describe('HomeTabDefault query reuse', () => {
             <HomeTabStatTile
                 stat={getHomeTabStatQueries({ date_from: dateFrom }, false).find(({ key }) => key === 'sessions')!}
                 compare={false}
-                selected={false}
-                onSelect={() => {}}
             />
         )
         const { container, rerender } = render(tile('-7d'))
@@ -168,7 +177,7 @@ describe('HomeTabDefault query reuse', () => {
         await waitFor(() => expect(container.querySelector('[data-attr="metric-sparkline"]')).not.toBeNull())
     })
 
-    it('shows the metric details and opens the same total in the insight editor, outside the tile button', async () => {
+    it('shows the metric details and opens the same total in the insight editor', async () => {
         mockedQuery.mockImplementation(async () => ({
             results: [{ ...trendsNumber.result[0], aggregated_value: 10 }],
             last_refresh: new Date().toISOString(),
@@ -177,16 +186,13 @@ describe('HomeTabDefault query reuse', () => {
             <HomeTabStatTile
                 stat={getHomeTabStatQueries({ date_from: '-7d' }, true).find(({ key }) => key === 'sessions')!}
                 compare
-                selected={false}
-                onSelect={() => {}}
             />
         )
-        const tileButton = screen.getByLabelText('Sessions', { selector: 'button' })
-        await waitFor(() => expect(within(tileButton).getByText('10')).toBeInTheDocument())
+        const tile = document.querySelector('[data-attr="home-tab-metric-sessions"]') as HTMLElement
+        await waitFor(() => expect(within(tile).getByText('10')).toBeInTheDocument())
 
         const info = document.querySelector('[data-attr="card-meta-info"]') as HTMLElement
         const more = screen.getByLabelText('more')
-        expect(tileButton.contains(info) || tileButton.contains(more)).toBe(false)
 
         await act(async () => info.click())
         expect(await screen.findByText('Last 7 days')).toBeInTheDocument()
@@ -233,7 +239,9 @@ describe('HomeTabDefault query reuse', () => {
         expect(container.querySelector('[data-attr="insight-sample-data-tag"]')).toBeNull()
         await waitFor(() =>
             expect(
-                within(screen.getByLabelText('Sessions', { selector: 'button' })).getByText('10')
+                within(screen.getByLabelText('Sessions', { selector: '[data-attr^="home-tab-metric-"]' })).getByText(
+                    '10'
+                )
             ).toBeInTheDocument()
         )
     })
@@ -246,7 +254,9 @@ describe('HomeTabDefault query reuse', () => {
         await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
         await waitFor(() =>
             expect(
-                within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
+                within(
+                    screen.getByLabelText('Active users', { selector: '[data-attr^="home-tab-metric-"]' })
+                ).getByText('10')
             ).toBeInTheDocument()
         )
         expect(container.querySelector('[data-attr="insight-sample-data-tag"]')).toBeNull()

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 
 import {
     buildInParallel,
+    buildOrWatch,
     commonConfig,
     copyIndexHtml,
     copyPublicFolder,
@@ -20,6 +21,7 @@ import { minifySeparately } from '@posthog/esbuilder/minify.mjs'
 
 import { AUTHENTICATED_SHELL, ENTRY } from './bin/bootEntries.mjs'
 import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './bin/loggedOutScenes.mjs'
+import { quillImportsEsbuildPlugin } from './bin/quillImports.mjs'
 import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
@@ -35,12 +37,17 @@ const PRELOAD_MIN_CHUNK_BYTES = 50 * 1024
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copyPublicFolder(
+    path.resolve(__dirname, '..', 'products', 'slack_app', 'backend', 'static'),
+    path.resolve(__dirname, 'dist')
+)
 
 copyPublicFolder(
     path.resolve(__dirname, 'node_modules', '@posthog', 'hedgehog-mode', 'assets'),
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
+copyWarehouseSourceIcons()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
@@ -58,7 +65,43 @@ const common = {
 
 // Not part of `common`: the toolbar spreads `common` over its own config, so an `extraPlugins` key
 // there would replace the toolbar's module plugin. The toolbar bundles no zod.
-const appBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
+const workerBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
+
+async function buildWorkers() {
+    const hashedFileNames = {}
+    await Promise.all(
+        WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) =>
+            buildOrWatch({
+                name,
+                entryPoints: [entryPoint],
+                format: 'esm',
+                outfile: path.resolve(__dirname, 'dist', outfileName),
+                ...workerBundle,
+                ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
+                onBuildComplete(config, buildResponse) {
+                    if (!buildResponse) {
+                        return
+                    }
+                    const workerFile = buildResponse.entrypoints.find((file) => file.endsWith('.js'))
+                    hashedFileNames[outfileName] = path.basename(workerFile)
+                    createHashlessEntrypoints(__dirname, buildResponse.entrypoints)
+                },
+            })
+        )
+    )
+    return hashedFileNames
+}
+
+// lib/utils/createWorker.ts loads each worker by its hashed name, so the app bundles need the names at build time.
+const appBundle = {
+    ...workerBundle,
+    // Not in the worker bundles, because no worker imports quill. Not in dev, where bundle size does not matter.
+    extraPlugins: [
+        ...workerBundle.extraPlugins,
+        ...(isDev ? [] : [quillImportsEsbuildPlugin(path.resolve(__dirname, '..'))]),
+    ],
+    define: { ...commonConfig.define, __POSTHOG_WORKER_FILES__: JSON.stringify(await buildWorkers()) },
+}
 
 await buildInParallel(
     [
@@ -74,14 +117,6 @@ await buildInParallel(
             // minifyAppChunks minifies the identifiers of each chunk on its own, after the build.
             ...(isDev ? {} : { minify: false, minifyWhitespace: true, minifySyntax: true }),
         },
-        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
-            name,
-            entryPoints: [entryPoint],
-            format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', outfileName),
-            ...appBundle,
-            ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
-        })),
         {
             name: 'Exporter',
             entryPoints: {
@@ -335,11 +370,25 @@ function copyEmojibaseData() {
     }
 }
 
+// A warehouse source plugin keeps its icon in its own directory, and its catalog entry points at
+// /static/warehouse-sources/<vendor>/icon.png. Copying the icons to that path in dist puts them on the
+// static host with the rest of dist, so no vendor needs a file in frontend/public.
+function copyWarehouseSourceIcons() {
+    const sourcesDir = path.resolve(__dirname, '..', 'products', 'warehouse_sources', 'sources')
+    for (const entry of fs.readdirSync(sourcesDir, { withFileTypes: true })) {
+        const icon = path.resolve(sourcesDir, entry.name, 'icon.png')
+        if (entry.isDirectory() && fs.existsSync(icon)) {
+            const to = path.resolve(__dirname, 'dist', 'warehouse-sources', entry.name)
+            fs.mkdirSync(to, { recursive: true })
+            fs.copyFileSync(icon, path.resolve(to, 'icon.png'))
+        }
+    }
+}
+
 export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
     copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
-    // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
-    // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
+    // posthog/utils.py sets stable_chunks only for "index.html", so layout.html gets the default boot script alone.
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {

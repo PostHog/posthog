@@ -11,26 +11,35 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.split_changes import format_change_time
 
 SECONDS_PER_DAY = 24 * 60 * 60
+# Every finding that recommends a reset follows it with this, because the word doesn't say that a reset returns the
+# experiment to draft.
+RESET_EFFECT = (
+    "A reset returns the experiment to draft, and once you launch it again, the results count only exposures from "
+    "then on."
+)
 
 
-def suggested_start(changed_at: datetime, team_timezone: str) -> str:
+def suggested_start_at(changed_at: datetime) -> datetime:
     # The start date picker saves whole minutes, so a start inside the minute of the change keeps exposures
     # from before it.
     minute = changed_at.replace(second=0, microsecond=0)
-    start = minute if minute == changed_at else minute + timedelta(minutes=1)
-    return format_change_time(start, team_timezone)
+    return minute if minute == changed_at else minute + timedelta(minutes=1)
+
+
+def suggested_start(changed_at: datetime, team_timezone: str) -> str:
+    return format_change_time(suggested_start_at(changed_at), team_timezone)
 
 
 def delay(
-    *, launched_at: datetime, first_changed_at: datetime, exposed_before_first: bool | None, change_count: int
+    *, start_date: datetime, first_changed_at: datetime, exposed_before_first: bool | None, change_count: int
 ) -> list[str]:
-    # When nobody knows whether anyone was exposed before the change, or the change came days after launch,
-    # the time since launch tells the reader how many people the change can have moved.
-    seconds = (first_changed_at - launched_at).total_seconds()
+    # When nobody knows whether anyone was exposed before the change, or the change came days after the start date,
+    # the time since the start date tells the reader how many people the change can have moved.
+    seconds = (first_changed_at - start_date).total_seconds()
     if exposed_before_first is not None and seconds <= SECONDS_PER_DAY:
         return []
     change = "The change" if change_count == 1 else "The first change"
-    return [f"{change} came {duration(seconds)} after launch."]
+    return [f"{change} came {duration(seconds)} after the start date."]
 
 
 def the_change(change_count: int, determiner: Literal["the", "this"]) -> str:
@@ -42,7 +51,7 @@ def the_change(change_count: int, determiner: Literal["the", "this"]) -> str:
 def not_checked_because(reason: FlagHistoryNotCheckedReason) -> str:
     match reason:
         case FlagHistoryNotCheckedReason.EXPOSURE_FILTERS:
-            return "the exposure criteria filter by properties"
+            return "the exposure criteria use a filter that this check can't apply"
         case FlagHistoryNotCheckedReason.EXPOSURE_ACTION:
             return "exposures come from an action"
         case FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA:
@@ -52,7 +61,7 @@ def not_checked_because(reason: FlagHistoryNotCheckedReason) -> str:
         case FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS:
             return "you can't view the linked feature flag's history"
         case FlagHistoryNotCheckedReason.TOO_MANY_SAVES:
-            return f"the flag was saved more than {MAX_FLAG_SAVES} times since launch"
+            return f"the flag was saved more than {MAX_FLAG_SAVES} times since the start date"
         case FlagHistoryNotCheckedReason.TOO_MANY_CONDITIONS:
             return f"the flag has more than {MAX_RELEASE_CONDITIONS} release conditions"
 

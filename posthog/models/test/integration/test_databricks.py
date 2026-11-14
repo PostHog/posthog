@@ -56,8 +56,8 @@ class TestDatabricksIntegrationModel(BaseTest):
             client_secret="client_secret",
             created_by=self.user,
         )
-        assert integration.team == self.team
-        assert integration.created_by == self.user
+        assert integration.team_id == self.team.id
+        assert integration.created_by_id == self.user.id
         assert integration.config == {"server_hostname": expected_hostname}
         assert integration.integration_id == expected_hostname
         assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}

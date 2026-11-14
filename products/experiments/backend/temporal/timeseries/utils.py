@@ -1,0 +1,191 @@
+from datetime import datetime
+
+from django.db.models import Q
+
+import structlog
+
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
+from products.experiments.backend.facade.timeseries import (
+    apply_saved_metric_overrides,
+    previous_completed_metric_result,
+)
+from products.experiments.backend.metric_utils import get_default_quantile_metric_title
+from products.experiments.backend.models.experiment import Experiment
+
+logger = structlog.get_logger(__name__)
+
+# Default hour (UTC) for experiment recalculation when team has no specific time set
+DEFAULT_EXPERIMENT_RECALCULATION_HOUR = 2  # 02:00 UTC
+
+
+def recalculation_hour_filter(hour: int) -> Q:
+    """Experiments whose team recalculates at this UTC hour.
+
+    The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse
+    relation. experiment_recalculation_times holds "HH:00:00" strings, so hour membership
+    is a jsonb containment check. A null list or a missing config row means the default
+    hour.
+    """
+    match = Q(team__teamexperimentsconfig__experiment_recalculation_times__contains=[f"{hour:02d}:00:00"])
+    if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
+        return (
+            match
+            | Q(team__teamexperimentsconfig__experiment_recalculation_times__isnull=True)
+            | Q(team__teamexperimentsconfig__isnull=True)
+        )
+    return match
+
+
+def _get_significant_variant_keys(result_dict: dict) -> set[str]:
+    variant_results = result_dict.get("variant_results") or []
+    return {v["key"] for v in variant_results if v.get("significant")}
+
+
+def _get_variant_result(result_dict: dict, variant_key: str) -> dict | None:
+    for v in result_dict.get("variant_results") or []:
+        if v.get("key") == variant_key:
+            return v
+    return None
+
+
+def _get_relative_change(result_dict: dict, variant_key: str) -> str | None:
+    variant = _get_variant_result(result_dict, variant_key)
+    if not variant:
+        return None
+    # The stats layer centers both interval kinds on its point estimate, which applies the ratio and retention
+    # denominators and the CUPED adjustment. The results page shows this midpoint, so the notification uses it too.
+    interval = variant.get("credible_interval") or variant.get("confidence_interval")
+    if not interval or len(interval) != 2 or None in interval:
+        return None
+    pct = (interval[0] + interval[1]) / 2 * 100
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{round(pct)}%"
+
+
+def _get_source_name(source: dict) -> str | None:
+    kind = source.get("kind")
+    if kind == "EventsNode":
+        return source.get("custom_name") or source.get("name") or source.get("event")
+    elif kind == "ActionsNode":
+        name = source.get("custom_name") or source.get("name")
+        return name or f"Action {source.get('id')}"
+    elif kind == "ExperimentDataWarehouseNode":
+        return source.get("table_name")
+    return None
+
+
+def _get_metric_name(metric_dict: dict) -> str:
+    if metric_dict.get("name"):
+        return metric_dict["name"]
+    metric_type = metric_dict.get("metric_type")
+    if metric_type == "mean":
+        source = metric_dict.get("source", {})
+        return _get_source_name(source) or "Untitled metric"
+    elif metric_type == "funnel":
+        series = metric_dict.get("series", [])
+        return (_get_source_name(series[0]) or "Untitled funnel") if series else "Untitled funnel"
+    elif metric_type == "ratio":
+        num = _get_source_name(metric_dict.get("numerator", {})) or "Numerator"
+        den = _get_source_name(metric_dict.get("denominator", {})) or "Denominator"
+        return f"{num} / {den}"
+    elif metric_type == "retention":
+        start = _get_source_name(metric_dict.get("start_event", {})) or "Start event"
+        completion = _get_source_name(metric_dict.get("completion_event", {})) or "Completion event"
+        return f"{start} / {completion}"
+    elif metric_type == "quantile":
+        return get_default_quantile_metric_title(metric_dict)
+    return "Untitled metric"
+
+
+def _find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict | None:
+    all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+    for m in all_metrics:
+        if m.get("uuid") == metric_uuid:
+            return m
+    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+        query = link.saved_metric.query
+        if isinstance(query, dict) and query.get("uuid") == metric_uuid:
+            return apply_saved_metric_overrides(query, link.metadata)
+    return None
+
+
+def check_significance_transition(
+    experiment: Experiment,
+    metric_uuid: str,
+    fingerprint: str,
+    result_dict: dict,
+    query_to_utc: datetime,
+    *,
+    display_key: str | None = None,
+) -> None:
+    try:
+        new_significant_keys = _get_significant_variant_keys(result_dict)
+        if not new_significant_keys:
+            return
+
+        previous_result = previous_completed_metric_result(
+            experiment.id,
+            team_id=experiment.team_id,
+            metric_uuid=metric_uuid,
+            calculation_key=fingerprint,
+            before=query_to_utc,
+            display_key=display_key,
+        )
+
+        prev_significant_keys = _get_significant_variant_keys(previous_result) if previous_result else set()
+        newly_significant = new_significant_keys - prev_significant_keys
+
+        if not newly_significant:
+            return
+
+        experiment_url = f"/experiments/{experiment.id}"
+
+        metric_dict = _find_metric_dict(experiment, metric_uuid)
+        metric_name = _get_metric_name(metric_dict) if metric_dict else "Untitled metric"
+        goal_direction = metric_dict.get("goal", "increase") if metric_dict else "increase"
+
+        for variant_key in newly_significant:
+            variant_result = _get_variant_result(result_dict, variant_key)
+            chance_to_win_raw = variant_result.get("chance_to_win") if variant_result else None
+            if chance_to_win_raw is None:
+                # No probability computed (e.g. frequentist results) — don't fabricate one
+                chance_to_win = "N/A"
+            else:
+                # chance_to_win is P(variant > control); invert it for decrease goals so lower is better
+                if goal_direction == "decrease":
+                    chance_to_win_raw = 1 - chance_to_win_raw
+                chance_to_win = f"{round(chance_to_win_raw * 100)}%"
+            raw_change = _get_relative_change(result_dict, variant_key)
+            relative_change = f"({raw_change})" if raw_change else ""
+
+            logger.info(
+                "Producing internal event for experiment significance transition",
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                variant_key=variant_key,
+            )
+
+            produce_internal_event(
+                team_id=experiment.team_id,
+                event=InternalEventEvent(
+                    event="$experiment_metric_significant",
+                    distinct_id=f"team_{experiment.team_id}",
+                    properties={
+                        "experiment_id": experiment.id,
+                        "experiment_name": experiment.name,
+                        "metric_uuid": metric_uuid,
+                        "variant_key": variant_key,
+                        "metric_name": metric_name,
+                        "goal_direction": goal_direction,
+                        "chance_to_win": chance_to_win,
+                        "relative_change": relative_change or "",
+                        "experiment_url": experiment_url,
+                    },
+                ),
+            )
+    except Exception:
+        logger.warning(
+            "Significance transition check failed, skipping notification",
+            experiment_id=experiment.id,
+            metric_uuid=metric_uuid,
+        )

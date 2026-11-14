@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { IconGear, IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
-    LemonColorButton,
     LemonColorGlyph,
     LemonColorPicker,
     LemonInput,
@@ -14,24 +14,24 @@ import {
     LemonSwitch,
     LemonTabs,
     LemonTag,
+    LemonTextArea,
     Popover,
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
+import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { INSIGHT_UNIT_OPTIONS_SHORT } from 'lib/insights/aggregationAxisFormat'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
-import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
+import { BreakdownSeries } from './BreakdownSeries'
 import { drawsOnePartPerSeries, isBreakdownSeries, partOfWholeChartData } from './Charts/sqlPieGraphAdapter'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
-import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
+import { BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
@@ -404,7 +404,12 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
                     icon={<IconGear />}
                     noPadding
                     data-attr="y-series-settings"
-                    onClick={() => setSettingsOpen(true)}
+                    onClick={() => {
+                        posthog.capture('sql column settings opened', {
+                            query_kind: dataVisualizationProps.query.kind,
+                        })
+                        setSettingsOpen(true)
+                    }}
                     disabledReason={!canOpenSettings && 'Select a column first'}
                 />
             </Popover>
@@ -612,6 +617,22 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                     )}
                 </div>
             )}
+            {showTableSettings && (
+                <LemonField name="description" label="Description">
+                    {({ value, onChange }) => (
+                        <LemonTextArea
+                            value={value ?? ''}
+                            placeholder="Explain what this column contains"
+                            onChange={(description) => {
+                                onChange(description)
+                                updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                    display: { description },
+                                })
+                            }}
+                        />
+                    )}
+                </LemonField>
+            )}
             {!showTableSettings && !hideChartSpecificOptions && (
                 <>
                     {!selectedSeriesBreakdownColumn &&
@@ -804,65 +825,5 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
                 ))}
             </div>
         </>
-    )
-}
-
-const BreakdownSeries = ({
-    series,
-    index,
-}: {
-    series: AxisBreakdownSeries<number | null>
-    index: number
-}): JSX.Element => {
-    const { chartSettings } = useValues(dataVisualizationLogic)
-    const { updateChartSettings } = useActions(dataVisualizationLogic)
-    const { getTheme } = useValues(dataThemeLogic)
-
-    const theme = getTheme(undefined)
-    const themeTokens = theme ? (Object.keys(theme) as DataColorToken[]) : []
-    const customization = chartSettings.resultCustomizations?.[series.breakdownValue]
-    const selectedToken = customization?.customColor ? null : (customization?.color ?? null)
-    const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
-
-    return (
-        <div className="flex gap-1 mb-2 items-center">
-            <LemonColorPicker
-                colorTokens={themeTokens}
-                selectedColorToken={selectedToken}
-                customButton={<LemonColorButton type="tertiary" color={seriesColor} className="mr-2" />}
-                showCustomColor
-                customColorValue={chartSettings.resultCustomizations?.[series.breakdownValue]?.customColor}
-                onSelectCustomColor={(customColor) =>
-                    updateChartSettings({
-                        resultCustomizations: {
-                            ...chartSettings.resultCustomizations,
-                            [series.breakdownValue]: {
-                                ...chartSettings.resultCustomizations?.[series.breakdownValue],
-                                assignmentBy: ResultCustomizationBy.Value,
-                                customColor,
-                            },
-                        },
-                    })
-                }
-                onSelectColorToken={(token) => {
-                    updateChartSettings({
-                        resultCustomizations: {
-                            ...chartSettings.resultCustomizations,
-                            [series.breakdownValue]: {
-                                ...chartSettings.resultCustomizations?.[series.breakdownValue],
-                                assignmentBy: ResultCustomizationBy.Value,
-                                color: token,
-                                customColor: undefined,
-                            },
-                        },
-                    })
-                }}
-                onClearColorToken={() => {
-                    const { [series.breakdownValue]: _removed, ...rest } = chartSettings.resultCustomizations ?? {}
-                    updateChartSettings({ resultCustomizations: rest })
-                }}
-            />
-            <span>{series.name ? series.name : '[No value]'}</span>
-        </div>
     )
 }

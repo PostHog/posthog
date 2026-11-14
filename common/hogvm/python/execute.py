@@ -70,6 +70,7 @@ def execute_bytecode(
     debug=False,
     disallowed_functions: Optional[frozenset[str]] = None,
     memory_limit: int = MAX_MEMORY,
+    stdout: Optional[list[str]] = None,
 ) -> BytecodeResult:
     bytecodes: dict[str, Any] = input if isinstance(input, dict) else {"root": {"bytecode": input}}
     root_bytecode = bytecodes.get("root", {}).get("bytecode", []) or []
@@ -93,7 +94,8 @@ def execute_bytecode(
     mem_used = 0
     max_mem_used = 0
     ops = 0
-    stdout: list[str] = []
+    # A caller can pass its own list, for example one that stops growing, since printed lines are not in mem_used.
+    stdout = [] if stdout is None else stdout
     debug_bytecode = []
     if isinstance(timeout, int):
         timeout = timedelta(seconds=timeout)

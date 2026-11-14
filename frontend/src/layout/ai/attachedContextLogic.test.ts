@@ -8,6 +8,7 @@ describe('attachedContextLogic', () => {
     let logic: ReturnType<typeof attachedContextLogic.build>
 
     beforeEach(() => {
+        window.localStorage.clear()
         initKeaTests()
         logic = attachedContextLogic()
         logic.mount()
@@ -55,17 +56,62 @@ describe('attachedContextLogic', () => {
 
     // Sent-context keys are scoped per task: a global (unkeyed) store would prune context from the first
     // message of an unrelated task just because the same resource was sent from another one.
-    it('accumulates sent context keys per task without leaking across tasks', async () => {
+    it('records delivered non-text keys per task without leaking across tasks', async () => {
+        const insight = { type: 'insight', key: 'x' }
         await expectLogic(logic, () => {
-            logic.actions.markContextSent('task-a', ['insight:x'])
-            logic.actions.markContextSent('task-a', ['insight:x', 'dashboard:9'])
-            logic.actions.markContextSent('task-b', ['insight:x'])
+            logic.actions.contextDelivered('task-a', [insight, { type: 'text', value: 'note' }])
+            logic.actions.contextDelivered('task-a', [insight, { type: 'dashboard', key: 9 }])
+            logic.actions.contextDelivered('task-b', [insight])
         }).toMatchValues({
             sentContextKeysByTask: {
                 'task-a': ['insight:x', 'dashboard:9'],
                 'task-b': ['insight:x'],
             },
         })
+    })
+
+    it('saves references but no payload as chips, which outlive the provider and are removed per chat', async () => {
+        const responses = 'private survey answer'
+        const items = [
+            { type: 'experiment', key: 17, label: 'Checkout' },
+            { type: 'survey_open_ended_responses', value: responses, label: 'Open-ended responses' },
+            { type: 'text', value: responses },
+            { type: 'tool_context', value: responses, hidden: true },
+            { type: 'email_template', key: 't1', label: 'Welcome', previewHtml: '<p>Hi</p>' },
+            { type: 'text', key: 'note', value: responses },
+        ]
+        logic.actions.registerContext('scene', items)
+        logic.actions.contextDelivered('task-a', items)
+        logic.actions.contextDelivered('task-b', [items[0]])
+        logic.actions.deregisterContext('scene')
+
+        const chips = logic.values.chatChipsByTask['task-a']
+        expect(chips.map((chip) => chip.label)).toEqual([
+            'Checkout',
+            'Open-ended responses',
+            'Text',
+            'Welcome',
+            'text note',
+        ])
+        expect(JSON.stringify(chips)).not.toContain(responses)
+        expect(JSON.stringify(chips)).not.toContain('<p>Hi</p>')
+
+        logic.actions.removeChatChip('task-a', 'experiment:17')
+
+        expect(logic.values.chatChipsByTask['task-a']).toHaveLength(4)
+        expect(logic.values.chatChipsByTask['task-b']).toHaveLength(1)
+    })
+
+    it('evicts the chat with the oldest delivery once the persisted store is full', async () => {
+        for (let chat = 0; chat <= 49; chat++) {
+            logic.actions.contextDelivered(`bounded-${chat}`, [{ type: 'insight', key: 'x' }])
+        }
+        logic.actions.contextDelivered('bounded-0', [{ type: 'dashboard', key: 'y' }])
+        logic.actions.contextDelivered('bounded-50', [{ type: 'insight', key: 'x' }])
+
+        expect(logic.values.chatChipsByTask['bounded-0']).toHaveLength(2)
+        expect(logic.values.chatChipsByTask['bounded-1']).toBeUndefined()
+        expect(Object.keys(logic.values.chatChipsByTask)).toHaveLength(50)
     })
 
     it('dismissal hides an item, survives provider re-registration, and undismiss restores it', async () => {

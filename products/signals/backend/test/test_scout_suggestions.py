@@ -24,9 +24,11 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.suggestions import (
     ACTIVITY_READ_MAX_ROWS,
     ACTIVITY_READ_MAX_ROWS_READ,
@@ -53,7 +55,10 @@ from products.signals.backend.scout_harness.suggestions import (
 )
 from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions, validate_suggestion_items
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.models import Task
+
+SCOUT_SUGGESTIONS_PROFILE = get_task_profile("signals.scout_suggestions")
 
 CANONICAL = {"signals-scout-general", "signals-scout-error-tracking"}
 
@@ -361,10 +366,20 @@ class TestPlanSuggestionRuns(BaseTest):
                 [("signals-scout-apm", False), ("signals-scout-inbox-validation", False)],
                 True,
             ),
+            ("team_skill_under_operational_name", [("signals-scout-inbox-validation", False)], True, False),
         ]
     )
-    def test_set_up_ignores_background_and_operational_scouts(self, _name, scouts, expected_set_up):
+    def test_set_up_ignores_background_and_operational_scouts(
+        self, _name, scouts, expected_set_up, operational_seeded=True
+    ):
         team = self._team("candidate")
+        LLMSkill.objects.create(
+            team=team,
+            name="signals-scout-inbox-validation",
+            description="d",
+            body="b",
+            metadata={"seeded_by": HARNESS_SEEDED_BY} if operational_seeded else {},
+        )
         for skill_name, background in scouts:
             SignalScoutConfig.objects.create(
                 team=team,
@@ -844,8 +859,8 @@ async def asuggestion_team():
     )
     with team_scope(team.id, canonical=True):
         yield team
-    await sync_to_async(team.delete)()
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 def _fake_session() -> MagicMock:
@@ -1319,11 +1334,11 @@ class TestScoutSuggestionsResourceLevelAccess(APIBaseTest):
 class TestSuggestionScanGitHubPosture(BaseTest):
     @parameterized.expand(
         [
-            ("suggestion_scan", Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, None),
-            ("scout_run", Task.OriginProduct.SIGNALS_SCOUT, "posthog/posthog"),
+            ("suggestion_scan", "signals.scout_suggestions", None),
+            ("scout_run", "signals.scout", "posthog/posthog"),
         ]
     )
-    def test_only_a_repo_less_suggestion_scan_gets_no_github_integration(self, _name, origin_product, expected_repo):
+    def test_only_a_repo_less_suggestion_scan_gets_no_github_integration(self, _name, profile_key, expected_repo):
         # `github_read_access=False` downscopes nothing on its own: it selects the read-only branch
         # in credential refresh, so leaving the integration attached hands the scan the ordinary
         # write-capable token. The scan must carry no integration at all.
@@ -1333,7 +1348,7 @@ class TestSuggestionScanGitHubPosture(BaseTest):
             team=self.team,
             title="t",
             description="d",
-            origin_product=origin_product,
+            profile=get_task_profile(profile_key),
             user_id=self.user.id,
             repository=expected_repo,
         )
@@ -1351,7 +1366,7 @@ class TestSuggestionScanGitHubPosture(BaseTest):
                 team=self.team,
                 title="t",
                 description="d",
-                origin_product=Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                profile=SCOUT_SUGGESTIONS_PROFILE,
                 user_id=self.user.id,
                 repository=None,
             )

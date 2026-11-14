@@ -2,7 +2,9 @@ from datetime import timedelta
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.traces.clusters import ClusterMemberships
+from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
+
+from products.ai_observability.backend.logic.traces.clusters import ClusterMemberships, TraceCluster
 
 from .rows import T0, cluster_json, make_cluster, make_cluster_run_row
 
@@ -146,3 +148,25 @@ def test_an_empty_title_reads_as_none() -> None:
     [membership] = ClusterMemberships.of("trace-1", [row]).clusters
 
     assert (membership.title, membership.description) == (None, None)
+
+
+@parameterized.expand(
+    [
+        ("a titled cluster", 3, "Billing questions", "Billing questions"),
+        ("an untitled cluster", 3, None, "Cluster 3"),
+        ("untitled outliers", NOISE_CLUSTER_ID, None, "Outliers"),
+        ("titled outliers", NOISE_CLUSTER_ID, "Odd ones", "Odd ones"),
+    ]
+)
+def test_label(_name: str, cluster_id: int, title: str | None, expected: str) -> None:
+    cluster = TraceCluster(
+        run_id="run-1",
+        run_at=T0,
+        job_id=None,
+        job_name=None,
+        cluster_id=cluster_id,
+        title=title,
+        description=None,
+    )
+
+    assert cluster.label == expected
