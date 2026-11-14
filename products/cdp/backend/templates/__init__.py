@@ -86,6 +86,7 @@ from ._siteapps.template_hogdesk import template as hogdesk
 from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from .knock.template_knock import template as knock
+from .knock2.template_knock2 import template as knock2
 from .zapier.template_zapier import template as zapier
 
 HOG_FUNCTION_TEMPLATES = [
@@ -113,6 +114,7 @@ HOG_FUNCTION_TEMPLATES = [
     klaviyo_event,
     klaviyo_user,
     knock,
+    knock2,
     kudosity,
     loops,
     loops_send_event,
