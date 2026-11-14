@@ -3548,6 +3548,7 @@ export const RunStatusEnumApi = {
  * * `upstream_connection_error` - upstream_connection_error
  * * `upstream_timeout` - upstream_timeout
  * * `upstream_provider_failure` - upstream_provider_failure
+ * * `upstream_rate_limited` - upstream_rate_limited
  * * `upstream_request_rejected` - upstream_request_rejected
  * * `content_block_rejection` - content_block_rejection
  * * `turn_ended_without_response` - turn_ended_without_response
@@ -3569,6 +3570,7 @@ export const ErrorTypeEnumApi = {
     UpstreamConnectionError: 'upstream_connection_error',
     UpstreamTimeout: 'upstream_timeout',
     UpstreamProviderFailure: 'upstream_provider_failure',
+    UpstreamRateLimited: 'upstream_rate_limited',
     UpstreamRequestRejected: 'upstream_request_rejected',
     ContentBlockRejection: 'content_block_rejection',
     TurnEndedWithoutResponse: 'turn_ended_without_response',
@@ -3623,6 +3625,7 @@ export interface PatchedTaskRunUpdateApi {
      * * `upstream_connection_error` - upstream_connection_error
      * * `upstream_timeout` - upstream_timeout
      * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_rate_limited` - upstream_rate_limited
      * * `upstream_request_rejected` - upstream_request_rejected
      * * `content_block_rejection` - content_block_rejection
      * * `turn_ended_without_response` - turn_ended_without_response
