@@ -36,7 +36,7 @@ class RunPodSource(ResumableSource[RunPodSourceConfig, RunPodResumeConfig]):
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://docs.runpod.io/api-reference/overview"
+    api_docs_url = "https://docs.runpod.io/api-reference-v2/overview"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -77,8 +77,8 @@ Create an API key in your [RunPod console settings](https://console.runpod.io/us
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://rest.runpod.io": "Your RunPod API key is invalid or has been revoked. Create a new API key in your RunPod console settings, then reconnect.",
-            "403 Client Error: Forbidden for url: https://rest.runpod.io": "Your RunPod API key does not have read access to this data. Update the key's permissions in your RunPod console settings, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.runpod.io": "Your RunPod API key is invalid or has been revoked. Create a new API key in your RunPod console settings, then reconnect.",
+            "403 Client Error: Forbidden for url: https://api.runpod.io": "Your RunPod API key does not have read access to this data. Update the key's permissions in your RunPod console settings, then reconnect.",
         }
 
     def get_schemas(

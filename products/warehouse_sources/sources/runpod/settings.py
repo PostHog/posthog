@@ -3,7 +3,9 @@ from typing import Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
-RUNPOD_BASE_URL = "https://rest.runpod.io/v1"
+RUNPOD_BASE_URL = "https://api.runpod.io/v2"
+
+INVENTORY_PAGE_SIZE = 1000
 
 # Billing history is aggregated into time buckets; a fixed size keeps the bucket `time` values (and
 # the surrogate ids derived from them) stable across syncs. `day` matches the API default and keeps
@@ -29,13 +31,10 @@ _TIME_INCREMENTAL_FIELD: list[IncrementalField] = [
 class RunPodEndpointConfig:
     name: str
     path: str
+    response_key: str
     primary_keys: list[str]
-    # Billing endpoints return time-bucketed usage records windowed by startTime/endTime; resource
-    # list endpoints return the full account inventory in one unpaginated response.
+    # Billing endpoints return one record per resource per time bucket, windowed by startTime/endTime.
     is_billing: bool = False
-    # Billing only: the `grouping` dimension requested so each bucket splits per resource. None keeps
-    # the endpoint's aggregate shape (network volume billing has no grouping parameter).
-    group_by: Optional[str] = None
     # Stable partition key — the bucket start never changes once emitted. Inventory tables are small
     # full-refresh snapshots, so they are not partitioned.
     partition_key: Optional[str] = None
@@ -44,8 +43,8 @@ class RunPodEndpointConfig:
     # startTime). Inventory lists have no updated-since filter, so they are full-refresh only.
     supports_incremental: bool = False
     # Response keys holding user-configured secrets — RunPod Pods, endpoints, and templates carry an
-    # `env` map and `dockerStartCmd`/`dockerEntrypoint` command arrays that can contain cloud access
-    # keys and other credentials. These are stripped recursively before yielding, and HTTP sample
+    # `env` map and `args`/`cmd`/`entrypoint` container commands that can contain cloud access keys
+    # and other credentials. These are stripped recursively before yielding, and HTTP sample
     # capture is disabled for the endpoint (the values are arbitrary user-chosen strings the sample
     # scrubbers can't recognise) so raw bodies with the secrets never land in captured samples.
     sensitive_keys: tuple[str, ...] = ()
@@ -55,60 +54,66 @@ class RunPodEndpointConfig:
     should_sync_default: bool = True
 
 
+_CONTAINER_SECRET_KEYS = ("env", "args", "cmd", "entrypoint")
+
 RUNPOD_ENDPOINTS: dict[str, RunPodEndpointConfig] = {
     "pods": RunPodEndpointConfig(
         name="pods",
         path="/pods",
+        response_key="pods",
         primary_keys=["id"],
-        sensitive_keys=("env", "dockerStartCmd", "dockerEntrypoint"),
+        sensitive_keys=_CONTAINER_SECRET_KEYS,
     ),
     "endpoints": RunPodEndpointConfig(
         name="endpoints",
-        path="/endpoints",
+        path="/serverless",
+        response_key="endpoints",
         primary_keys=["id"],
-        sensitive_keys=("env", "dockerStartCmd", "dockerEntrypoint"),
+        sensitive_keys=_CONTAINER_SECRET_KEYS,
     ),
     "templates": RunPodEndpointConfig(
         name="templates",
         path="/templates",
+        response_key="templates",
         primary_keys=["id"],
-        sensitive_keys=("env", "dockerStartCmd", "dockerEntrypoint"),
+        sensitive_keys=_CONTAINER_SECRET_KEYS,
     ),
     "network_volumes": RunPodEndpointConfig(
         name="network_volumes",
-        path="/networkvolumes",
+        path="/network-volumes",
+        response_key="networkVolumes",
         primary_keys=["id"],
     ),
-    # `id` on the billing tables is synthesized from the bucket start plus every grouping dimension
+    # `id` on the billing tables is synthesized from the bucket start plus the billed resource id
     # (see runpod.py) — a non-null, stable key so merge updates a bucket in place as its amounts get
     # restated.
     "billing_pods": RunPodEndpointConfig(
         name="billing_pods",
         path="/billing/pods",
+        response_key="records",
         primary_keys=["id"],
         is_billing=True,
-        group_by="podId",
         partition_key="time",
         incremental_fields=_TIME_INCREMENTAL_FIELD,
         supports_incremental=True,
         default_incremental_lookback_seconds=_BILLING_LOOKBACK_SECONDS,
     ),
+    # Serverless billing. In v2, `/billing/endpoints` is Public Endpoint billing, a different product.
     "billing_endpoints": RunPodEndpointConfig(
         name="billing_endpoints",
-        path="/billing/endpoints",
+        path="/billing/serverless",
+        response_key="records",
         primary_keys=["id"],
         is_billing=True,
-        group_by="endpointId",
         partition_key="time",
         incremental_fields=_TIME_INCREMENTAL_FIELD,
         supports_incremental=True,
         default_incremental_lookback_seconds=_BILLING_LOOKBACK_SECONDS,
     ),
-    # Network volume billing has no grouping parameter — records are account-wide aggregates per
-    # bucket, so the surrogate id reduces to the bucket start.
     "billing_network_volumes": RunPodEndpointConfig(
         name="billing_network_volumes",
-        path="/billing/networkvolumes",
+        path="/billing/network-volumes",
+        response_key="records",
         primary_keys=["id"],
         is_billing=True,
         partition_key="time",
