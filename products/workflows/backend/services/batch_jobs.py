@@ -18,7 +18,10 @@ from products.workflows.backend.facade.contracts import WorkflowBatchJob, Workfl
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import batch_job_audience_filters
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
+    batch_job_audience_filters,
+    dispatch_queued_no_resolver,
+)
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.batch_audience_cohorts import realtime_cohort_is_ready, sole_audience_cohort_id
 from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
@@ -60,6 +63,14 @@ def create_batch_job(
         **({} if status is None else {"status": status}),
     )
     return to_batch_job(job)
+
+
+def batch_run_may_send_after_failed_dispatch(
+    *, team_id: int, hog_flow_id: UUID, batch_job_id: UUID, dispatch_error: BaseException
+) -> bool:
+    """Whether a run whose save raised may still send: its job was saved, and the dispatch may have queued it."""
+    saved = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id, hog_flow_id=hog_flow_id).exists()
+    return saved and not dispatch_queued_no_resolver(dispatch_error)
 
 
 def rate_limit_change_unpaces_batch(*, team_id: int, hog_flow_id: UUID, current: object, new: object) -> bool:

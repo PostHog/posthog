@@ -167,8 +167,6 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         assert response.json()["status"] == terminal_status
         mock_cancel.assert_not_called()
 
-    # The resolver's terminal write, or a concurrent stop, can land between the flag sweep and
-    # the status flip; the other writer's status wins, and this request logs no stop.
     @parameterized.expand([("a_completion", "completed"), ("a_concurrent_stop", "cancelled")])
     def test_cancel_leaves_a_status_written_mid_request_to_the_other_writer(self, _name, other_status):
         batch_job = self._create_batch_job("active")

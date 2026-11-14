@@ -187,6 +187,14 @@ def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
     }
 
 
+def _fail_run_then_time_out(flow_id: str):
+    def side_effect():
+        HogFlowBatchJob.objects.filter(hog_flow_id=flow_id).update(status="failed")
+        raise requests.ReadTimeout("read timed out")
+
+    return side_effect
+
+
 class TestHogFlowAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -6244,23 +6252,22 @@ class TestHogFlowAPI(APIBaseTest):
             "filters": response.json()["filters"],
         }
 
-    # A dispatch that may have queued the run leaves it sending, so its start is logged; a rejected or
-    # unconnected dispatch fails the job, which sent nothing.
     @parameterized.expand(
         [
-            ("no_response", requests.ReadTimeout("read timed out"), True),
-            ("rejected", requests.HTTPError("400 Client Error", response=MagicMock(status_code=400)), False),
-            ("never_connected", requests.ConnectTimeout("connect timed out"), False),
+            ("no_response", lambda _flow_id: requests.ReadTimeout("read timed out"), True),
+            ("no_response_after_the_worker_failed_the_run", lambda flow_id: _fail_run_then_time_out(flow_id), True),
+            ("rejected", lambda _flow_id: requests.HTTPError("400", response=MagicMock(status_code=400)), False),
+            ("never_connected", lambda _flow_id: requests.ConnectTimeout("connect timed out"), False),
         ]
     )
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_post_hog_flow_batch_jobs_logs_the_start_only_when_a_failed_dispatch_may_still_send(
-        self, _name, error, start_logged, mock_create_invocation
+        self, _name, dispatch_error, start_logged, mock_create_invocation
     ):
         flow_id = self._create_active_hog_flow()
-        mock_create_invocation.return_value.raise_for_status.side_effect = error
+        mock_create_invocation.return_value.raise_for_status.side_effect = dispatch_error(flow_id)
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {"variables": []})
 

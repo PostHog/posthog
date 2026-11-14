@@ -5,6 +5,7 @@ from products.workflows.backend.services.batch_audience_snapshot import (
     request_audience_snapshot,
 )
 from products.workflows.backend.services.batch_jobs import (
+    batch_run_may_send_after_failed_dispatch,
     create_batch_job,
     delete_batch_jobs_for_teams,
     get_batch_job,
@@ -15,6 +16,7 @@ from products.workflows.backend.services.batch_jobs import (
 )
 
 __all__ = [
+    "batch_run_may_send_after_failed_dispatch",
     "create_batch_job",
     "delete_batch_jobs_for_teams",
     "get_audience_snapshot_page",

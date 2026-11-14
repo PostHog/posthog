@@ -170,6 +170,7 @@ from products.workflows.backend.facade.api import (
     seed_new_email_steps_with_utm_defaults,
 )
 from products.workflows.backend.facade.batch_jobs import (
+    batch_run_may_send_after_failed_dispatch,
     create_batch_job,
     get_audience_snapshot_page,
     get_batch_job,
@@ -6114,13 +6115,6 @@ class HogFlowViewSet(
             actor=self._activity_actor(), workflow_id=hog_flow.id, name=hog_flow.name, before=before, after=after
         )
 
-    def _batch_job_may_send(self, hog_flow_id: uuid_mod.UUID, batch_job_id: uuid_mod.UUID) -> bool:
-        try:
-            batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow_id, batch_job_id=str(batch_job_id))
-        except WorkflowBatchJobNotFound:
-            return False
-        return batch_job.status != HogFlowBatchJobState.FAILED
-
     def _activity_actor(self) -> WorkflowActor:
         return WorkflowActor(
             organization_id=self.organization.id,
@@ -7925,6 +7919,17 @@ class HogFlowViewSet(
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
             batch_job_id = UUIDT()
+
+            def log_start() -> None:
+                log_workflow_batch_run_activity(
+                    actor=self._activity_actor(),
+                    workflow_id=hog_flow.id,
+                    name=hog_flow.name,
+                    activity="batch_run_started",
+                    batch_job_id=batch_job_id,
+                    filters=hog_flow.trigger_filters,
+                )
+
             try:
                 batch_job = create_batch_job(
                     batch_job_id=batch_job_id,
@@ -7937,18 +7942,15 @@ class HogFlowViewSet(
                     # caller-supplied filters are never what actually runs.
                     filters=hog_flow.trigger_filters,
                 )
-            finally:
+            except Exception as error:
                 # Saving dispatches the run, and a dispatch that times out after the plugin server queued it
-                # raises here while the run still sends. Only a job the dispatch marked failed sent nothing.
-                if self._batch_job_may_send(hog_flow.id, batch_job_id):
-                    log_workflow_batch_run_activity(
-                        actor=self._activity_actor(),
-                        workflow_id=hog_flow.id,
-                        name=hog_flow.name,
-                        activity="batch_run_started",
-                        batch_job_id=batch_job_id,
-                        filters=hog_flow.trigger_filters,
-                    )
+                # raises here while the run still sends.
+                if batch_run_may_send_after_failed_dispatch(
+                    team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=batch_job_id, dispatch_error=error
+                ):
+                    log_start()
+                raise
+            log_start()
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
@@ -8016,8 +8018,7 @@ class HogFlowViewSet(
                 break
 
         # Conditional so a completion that landed mid-cancel wins over the flip; the
-        # resolver's own terminal write absorbs the reverse race. Only the request whose
-        # flip landed logs the stop, so concurrent stops leave one entry.
+        # resolver's own terminal write absorbs the reverse race.
         if data["done"] and set_batch_job_status(
             team_id=self.team_id,
             batch_job_id=batch_job.id,
