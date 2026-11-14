@@ -6,6 +6,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { IntegrationSetupPurpose } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -57,6 +58,20 @@ describe('AwsS3SetupModal', () => {
         )
 
         expect(screen.getByText(expectedText, { exact: false })).toBeInTheDocument()
+    })
+
+    it.each<[string, IntegrationSetupPurpose | undefined, RegExp, RegExp]>([
+        ['batch exports', undefined, /s3:PutObject/, /read permissions listed in the source/],
+        ['warehouse sources', 'import', /read permissions listed in the source/, /s3:PutObject/],
+    ])('asks for the permissions %s need on the role tab', (_label, purpose, expected, unexpected) => {
+        render(
+            <Provider>
+                <AwsS3SetupModal isOpen purpose={purpose} onComplete={jest.fn()} />
+            </Provider>
+        )
+
+        expect(screen.getByText(expected)).toBeInTheDocument()
+        expect(screen.queryByText(unexpected)).not.toBeInTheDocument()
     })
 
     it('shows credential fields and the long-lived credentials warning on the access keys tab', async () => {
