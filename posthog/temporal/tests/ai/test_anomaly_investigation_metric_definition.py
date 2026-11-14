@@ -231,3 +231,20 @@ def test_anomaly_context_carries_the_metric_definition() -> None:
 
     assert '"$pageview"' in context
     assert "unique users (DAU)" in context
+
+
+def test_anomaly_context_names_the_breakdown_value_that_fired() -> None:
+    context = build_anomaly_context(
+        alert_name="Generation latency by model",
+        metric_description="Median latency",
+        detector_type="zscore",
+        triggered_dates=["2026-08-10"],
+        triggered_metadata={"detector_type": "zscore", "series_index": 3, "breakdown_label": "gpt"},
+        calculated_value=4.5,
+        interval="day",
+        metric_definition="Metric definition — ...",
+    )
+
+    assert 'Breakdown value that fired: "gpt".' in context
+    # The position would read to the agent as the fourth query series.
+    assert "series_index" not in context

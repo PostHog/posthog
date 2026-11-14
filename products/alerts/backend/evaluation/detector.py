@@ -475,8 +475,11 @@ def evaluate_with_detector(
                     triggered_points=scored.detection.triggered_indices or None,
                     triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
                     interval=interval_value,
+                    # The alert chart reads series_index on a breakdown check as the breakdown
+                    # position. The label is what an investigation finds the fired value by.
                     triggered_metadata={
                         **_check_provenance(insight, bd_index, detector_type_str),
+                        "breakdown_label": s.label,
                         **scored.persisted_metadata,
                     },
                 )

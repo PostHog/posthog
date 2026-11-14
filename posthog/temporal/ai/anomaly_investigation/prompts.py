@@ -1,3 +1,5 @@
+import json
+
 SYSTEM_PROMPT = """\
 You are PostHog's anomaly investigation agent. An anomaly detection alert has just
 transitioned to FIRING. Your job is to quickly validate the anomaly and explain it.
@@ -195,6 +197,16 @@ def build_anomaly_context(
     # The prompt frames it as a prior to check rather than as a conclusion.
     rationale = str(md.pop("rationale", "") or "").strip()
     rationale_line = f"The detector's own read of this fire: {rationale}\n" if rationale else ""
+    # On a breakdown insight series_index is the fired value's position, which reads as a query
+    # series to the agent. The label is what tells it which value fired.
+    breakdown_label = md.pop("breakdown_label", None)
+    breakdown_line = ""
+    if isinstance(breakdown_label, str):
+        md.pop("series_index", None)
+        breakdown_line = (
+            f"Breakdown value that fired: {json.dumps(breakdown_label, ensure_ascii=False)}. "
+            "The calculated value, the chart and the metric series tools cover this value only.\n"
+        )
     metadata_line = ""
     if md:
         parts = [f"{k}={v}" for k, v in md.items() if v is not None]
@@ -210,6 +222,7 @@ def build_anomaly_context(
         f"Interval: {interval or 'unknown'}\n"
         f"Calculated value at fire: {calculated_value}\n"
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"
+        f"{breakdown_line}"
         f"{rationale_line}"
         f"{metadata_line}\n\n"
         f"{metric_definition}\n\n"
