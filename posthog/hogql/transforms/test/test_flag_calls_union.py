@@ -1,4 +1,5 @@
 import re
+import sys
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -36,11 +37,13 @@ from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoi
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
+from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.test_prompt_jev import gateway_response
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsOnlyNames, swaps_flag_calls
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -221,6 +224,19 @@ def _long_with() -> ast.SelectQuery:
         f"c{n}": ast.CTE(name=f"c{n}", expr=ast.Constant(value=name), cte_type="column") for n, name in enumerate(names)
     }
     return select
+
+
+def _scan_of_events_in(events: list[str] | tuple[str, ...]) -> ast.SelectQuery:
+    events_match = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=events)
+    )
+    return cast(
+        ast.SelectQuery,
+        parse_select(
+            "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 1 DAY AND {events_match}",
+            placeholders={"events_match": events_match},
+        ),
+    )
 
 
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
@@ -1057,6 +1073,83 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert sql == self._sql(query, mode=ONLY, union=False)
         assert "UNION ALL" not in sql
         assert "flag_evaluations AS " in sql
+
+    @parameterized.expand(
+        [
+            ("mixed_list", ["$feature_flag_called", "$experiment_exposure"], True, "UNION ALL"),
+            ("mixed_tuple", ("$pageview", "$feature_flag_called"), True, "UNION ALL"),
+            ("flag_call_list", ["$feature_flag_called"], False, "FROM flag_evaluations AS events"),
+        ]
+    )
+    def test_mode_2_reads_flag_calls_that_a_query_builder_names_in_one_list_constant(
+        self, _name: str, events: list[str] | tuple[str, ...], union: bool, expected: str
+    ):
+        sql = self._sql(_scan_of_events_in(events), mode=ONLY, union=union)
+
+        assert expected in sql
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_mode_2_reads_events_only_names_without_the_union_or_the_swap(self, _name: str, native: bool):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        plain = self._sql(_scan_of_events_in(names), mode=ONLY, new_events_schema=native)
+        events_only = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=ONLY, new_events_schema=native)
+
+        assert "UNION ALL" in plain
+        assert "UNION ALL" not in events_only
+        assert "flag_evaluations" not in events_only
+
+    @parameterized.expand(
+        [
+            ("mode_0", EVENTS, False),
+            ("mode_0_native", EVENTS, True),
+            ("mode_1", READ, False),
+            ("mode_1_native", READ, True),
+        ]
+    )
+    def test_events_only_names_print_what_a_query_without_the_swap_prints_on_modes_0_and_1(
+        self, _name: str, mode: FlagEvaluationsMode, native: bool
+    ):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        sql = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=mode, new_events_schema=native)
+
+        assert sql == self._sql(
+            _scan_of_events_in(names), mode=mode, new_events_schema=native, rewrite_flag_calls=False
+        )
+
+    def test_swaps_flag_calls_when_a_list_constant_names_them(self):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            assert swaps_flag_calls(_scan_of_events_in(["$pageview", "$feature_flag_called"]), context)
+            assert not swaps_flag_calls(_scan_of_events_in(["$pageview"]), context)
+
+    def test_a_list_constant_nested_deeper_than_the_stack_allows_does_not_raise(self):
+        nested: list = ["$pageview"]
+        for _ in range(sys.getrecursionlimit() * 2):
+            nested = [nested]
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            events_match = ast.CompareOperation(
+                op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=nested)
+            )
+
+            assert not swaps_flag_calls(events_match, context)
+
+    @parameterized.expand([("list", ["$pageview", "$feature_flag_called"]), ("tuple", ("$feature_flag_called",))])
+    def test_counts_a_flag_call_read_from_events_that_a_list_constant_names(
+        self, _name: str, events: list[str] | tuple[str, ...]
+    ):
+        _set_mode(self.organization, FlagEvaluationsMode.EVENTS)
+        executor = HogQLQueryExecutor(query=_scan_of_events_in(events), team=self.team)
+        executor.generate_clickhouse_sql()
+
+        assert executor.clickhouse_prepared_ast is not None
+        assert count_flag_calls_read_from_events(executor.clickhouse_prepared_ast) == 1
 
     def test_mode_2_self_join_reads_its_mixed_side_from_the_union_and_its_flag_call_side_from_flag_evaluations(
         self,

@@ -53,7 +53,6 @@ from products.replay_vision.backend.temporal.constants import (
     PRIMING_MAX_EXECUTION_SECONDS,
     PRIMING_SCAN_SESSIONS,
 )
-from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import (
     record_candidate_page_full,
     record_deep_candidates,
@@ -177,12 +176,6 @@ def _turn_off_unrunnable_scanner(scanner: ReplayScanner, reason: ScannerDisabled
     record_sweep_outcome(reason)
     activity.logger.info("replay_vision.sweep.disabled_unrunnable_scanner scanner_id=%s reason=%s", scanner.id, reason)
     return FindScannerCandidatesOutput(candidates=[], saturated=False)
-
-
-@activity.defn
-@track_activity()
-def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:
-    return find_scanner_candidates(inputs)
 
 
 def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:

@@ -1,4 +1,5 @@
 import { defineCommand } from '@/core/command'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { findEndpoints } from '@/endpoints/api'
 import { readEndpointFiles } from '@/endpoints/files'
 import type { Endpoint } from '@/endpoints/model'
@@ -54,7 +55,7 @@ export default defineCommand({
         out.json(result)
     },
 
-    exitCode: (result) => (result.problems.length > 0 || !result.plan.every(inSync) ? 1 : 0),
+    exitCode: (result) => (result.problems.length > 0 || !result.plan.every(inSync) ? EXIT_FAILURE : EXIT_SUCCESS),
 
     telemetry: ({ result }) => ({
         file_count: result.plan.length,
