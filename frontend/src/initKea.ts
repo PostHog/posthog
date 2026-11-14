@@ -122,6 +122,9 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
     loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
+    // The import window shows the refusal, and the run list keeps polling with its own retry
+    startImport: 'products.workflows.providerImportLogic',
+    loadImportRuns: 'products.workflows.providerImportLogic',
     fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
@@ -227,6 +230,7 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
+    startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
 }
 
 /*
