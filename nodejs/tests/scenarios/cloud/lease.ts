@@ -134,13 +134,28 @@ export async function lease(
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
-    await bucket.put(keyOf(runId, 'manifest.json'), body)
-    await bucket.put(keyOf(runId, 'input/manifest.json'), body)
-    for (const input of inputs) {
-        await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)
+    try {
+        await bucket.put(keyOf(runId, 'manifest.json'), body)
+        await bucket.put(keyOf(runId, 'input/manifest.json'), body)
+        for (const input of inputs) {
+            await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)
+        }
+        await register(controller, profile.baseline.schedulerRole, manifest)
+        return manifest
+    } catch (error) {
+        const left = await deleteSchedules(controller, manifest).then(
+            () => [],
+            (deleteError: Error) => [`its schedules ${manifest.schedules.join(', ')}: ${deleteError.message}`]
+        )
+        controller.warn(
+            [
+                `Run ${runId} was not leased: ${(error as Error).message}`,
+                `Left behind: its uploads under s3://${bucket.name}/${keyOf(runId, '')}`,
+                ...left,
+            ].join('\n')
+        )
+        throw error
     }
-    await register(controller, profile.baseline.schedulerRole, manifest)
-    return manifest
 }
 
 export async function release(controller: Controller, manifest: Manifest): Promise<void> {
