@@ -5682,8 +5682,8 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "server does not support SSL, but SSL was required",
-                "SSL/TLS connection is required but your database does not support it. "
-                "Please enable SSL/TLS on your PostgreSQL server.",
+                "Your database doesn't support encrypted connections, but your certificate settings need one. "
+                "Enable SSL/TLS on your database, or clear this source's certificate settings.",
             ),
             (
                 "consuming input failed: SSL connection has been closed unexpectedly",

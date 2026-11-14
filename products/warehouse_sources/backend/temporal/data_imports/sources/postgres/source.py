@@ -196,6 +196,22 @@ _DATABASE_NOT_FOUND_VALIDATION_ERROR = (
     "correct and try again."
 )
 
+# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
+# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
+# `require_tls` off is the supported way to reach such a server.
+_SSL_UNSUPPORTED_ERROR = (
+    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
+    "your database server, or connect through an SSH tunnel instead."
+)
+
+# libpq reports "server does not support SSL, but SSL was required" without `SSLRequiredError` only
+# when the SSL requirement is off, so the sslmode that demanded SSL came from the source's own
+# certificate settings (verification or a client certificate). An SSH tunnel doesn't relax those.
+_SSL_UNSUPPORTED_BY_CERTIFICATE_SETTINGS_ERROR = (
+    "Your database doesn't support encrypted connections, but your certificate settings need one. "
+    "Enable SSL/TLS on your database, or clear this source's certificate settings."
+)
+
 # The source type the managed-warehouse host exemption is keyed on. It names the listener
 # set the exemption applies to, and both the validation and the connect path pass it.
 POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
@@ -341,8 +357,8 @@ PostgresErrors = {
     'database "': _DATABASE_NOT_FOUND_VALIDATION_ERROR,
     "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
-    "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
-    "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "SSL/TLS connection is required": _SSL_UNSUPPORTED_ERROR,
+    "server does not support SSL, but SSL was required": _SSL_UNSUPPORTED_BY_CERTIFICATE_SETTINGS_ERROR,
     # The plaintext half of the SNI rejection mapped above: with sslmode=prefer libpq retries
     # without SSL after a failed encrypted attempt, and a provider that requires TLS refuses that
     # too with "FATAL: SSL/TLS connection required. Connect with sslmode=require or higher." The
@@ -453,14 +469,6 @@ _SSH_FORWARD_FAILED_MESSAGE = f"{_SSH_FORWARD_FAILED_GUIDANCE}."
 _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE = (
     f"{_SSH_FORWARD_FAILED_GUIDANCE}, and this kept happening on every retry. This sync is still "
     "enabled and will run again on its next schedule."
-)
-
-# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
-# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
-# `require_tls` off is the supported way to reach such a server.
-_SSL_UNSUPPORTED_ERROR = (
-    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
-    "your database server, or connect through an SSH tunnel instead."
 )
 
 # Terminal messages for the transient classes in `get_retryable_errors`. Those stay retryable, but
