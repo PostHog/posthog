@@ -42,14 +42,17 @@ describe('server', () => {
     })
 
     // Running all capabilities together takes too long in tests, so they are split up
-    it('should not error on startup - cdp', async () => {
+    it('should not error on startup - cdp, without an MMDB on hosted cloud', async () => {
         pluginsServer = new PluginServer({
             LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.cdp_processed_events,
             PERSONHOG_ENABLED: true,
             PERSONHOG_ADDR: 'localhost:50052',
+            CLOUD_DEPLOYMENT: 'US',
+            MMDB_FILE_LOCATION: 'non-existent-file.mmdb',
         })
         await pluginsServer.start()
+        expect(process.exit).not.toHaveBeenCalledWith(1)
     })
 
     it('keeps batch resolver healthy for the configured audience budget plus processing headroom', async () => {

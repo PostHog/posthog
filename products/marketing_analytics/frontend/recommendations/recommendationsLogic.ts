@@ -49,6 +49,7 @@ import {
     recommendationsSource,
     sectionRecommendations,
     sumImpact,
+    summarizeImpact,
     unresolved,
     withResolutionOverrides,
 } from './recommendations'
@@ -345,7 +346,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         totals: [
             (s) => [s.activeRecommendations],
             (activeRecommendations: MarketingAnalyticsRecommendation[]): RecommendationTotal[] =>
-                sumImpact(activeRecommendations),
+                summarizeImpact(activeRecommendations),
         ],
         activeGroups: [
             (s) => [s.recommendations],

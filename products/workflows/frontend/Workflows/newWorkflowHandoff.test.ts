@@ -56,7 +56,9 @@ describe('findCreatedWorkflowId', () => {
 })
 
 describe('AI workflow folder handoff', () => {
-    const MOVE_WARNING = "Your workflow was created, but it couldn't be moved into 007. It's in Unfiled / Workflows."
+    // The toast text is captured as an analytics event, so it names no folder.
+    const MOVE_WARNING =
+        "Your workflow was created, but it couldn't be moved into the folder you picked. It's in Unfiled / Workflows."
     const WITH_ID = {
         content: [{ type: 'text', text: 'Created' }],
         _meta: { 'com.posthog.mcp/app_data': { id: WORKFLOW_ID } },
@@ -219,5 +221,20 @@ describe('AI workflow folder handoff', () => {
         await flush()
         expect(moves).toEqual([])
         expect(screen.queryByText(MOVE_WARNING)).toBeNull()
+    })
+
+    // Past the deadline someone may file the workflow, so a lookup that answers late must not move it.
+    it('does not move a workflow when the lookup answers after the deadline', async () => {
+        let answerLookup = (_path: string): void => {}
+        useMocks(handoffMocks({ lookup: () => new Promise((resolve) => (answerLookup = resolve)) }))
+        startHandoff()
+
+        await expectLogic(logic!, () => completeCreate(WITH_ID)).toFinishAllListeners()
+        expect(openedWorkflow()).toBe(true)
+
+        answerLookup('Unfiled/Workflows/Welcome')
+        await flush()
+        expect(moves).toEqual([])
+        await waitFor(() => expect(screen.queryByText(MOVE_WARNING)).not.toBeNull())
     })
 })

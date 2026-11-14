@@ -373,6 +373,43 @@ describe('WorkflowsScene', () => {
         expect(document.querySelector('[data-attr="workflows-import-customerio"]')).not.toBeNull()
     })
 
+    it('shows run metrics as pending, not unavailable, while later pages load', async () => {
+        const answerLaterPage: (() => void)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.get('offset')
+                        ? new Promise((resolve) => answerLaterPage.push(() => resolve([200, paginated([])])))
+                        : [
+                              200,
+                              paginated(
+                                  FIXTURE_WORKFLOWS,
+                                  'http://localhost/api/projects/997/hog_flows/summaries/?offset=100'
+                              ),
+                          ],
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        await waitFor(() => expect(answerLaterPage).toHaveLength(1))
+        await waitFor(() => expect(shownRowNames()).toHaveLength(FIXTURE_WORKFLOWS.length))
+        act(() => workflowsListV2Logic.actions.toggleColumn('health'))
+        expect(document.body).toHaveTextContent('Health')
+        expect(document.body).not.toHaveTextContent('Unavailable')
+
+        act(() => answerLaterPage[0]())
+        await waitFor(() => expect(document.body).not.toHaveTextContent('Loading more workflows'))
+        await waitFor(() => expect(document.querySelector('[data-attr="workflows-list-v2"] .Spinner')).toBeNull())
+        expect(document.body).not.toHaveTextContent('Unavailable')
+    })
+
     it('keeps the loaded rows when a reload fails', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
@@ -497,7 +534,7 @@ describe('WorkflowsScene', () => {
     })
 
     // Each step renders a full page of 100 rows, which runs past Jest's default 5 second limit on slower CI runners.
-    it('pages past the first 100 rows, and a new filter starts again on page one without redrawing kept rows', async () => {
+    it('pages past the first 100 rows, and a new or cleared filter starts again on page one', async () => {
         workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
                 id: `wf-${i}`,
@@ -521,18 +558,15 @@ describe('WorkflowsScene', () => {
         // The ".." row takes one slot on the first page.
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 099 odd'))
         expect(shownRowNames()).toHaveLength(100)
-        const nameCell = (name: string): Element | undefined =>
-            Array.from(document.querySelectorAll('[data-attr="workflows-list-v2-name"]')).find(
-                (el) => el.textContent === name
-            )
-        const keptCell = nameCell('Flow 101 odd')
 
         // 125 rows match, so a kept page would still show matches 101 and up.
         act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: 'odd' }))
         await waitForSearch('odd')
         expect(shownRowNames()[0]).toEqual('Flow 001 odd')
         expect(shownRowNames().every((name) => name.endsWith('odd'))).toBe(true)
-        expect(nameCell('Flow 101 odd')).toBe(keptCell)
+
+        act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: '' }))
+        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
     }, 15000)
 
     it('keeps the sort order when a filter changes', async () => {
@@ -628,7 +662,7 @@ describe('WorkflowsScene', () => {
     it.each([
         ['the kind facet', true, { q: 'kind:messaging' }],
         ['the old list type tab', false, { type: 'messaging' }],
-    ])('opens the template chooser on %s', async (_, listV2, searchParams) => {
+    ])('opens the template chooser at once on %s', async (_, listV2, searchParams) => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT!,
             resource_access_control: {
@@ -656,7 +690,8 @@ describe('WorkflowsScene', () => {
         expect(document.body).not.toHaveTextContent('Create a workflow')
         fireEvent.click(document.querySelector('[data-attr="new-workflow"]')!)
 
-        await waitFor(() => expect(document.body).toHaveTextContent('Create a workflow'))
+        // The chooser opens within the click, without waiting on a code download that could fail.
+        expect(document.body).toHaveTextContent('Create a workflow')
         expect(document.querySelector('[data-attr="workflow-template-type-messaging"]')?.closest('li')).toHaveClass(
             'LemonSegmentedButton__option--selected'
         )

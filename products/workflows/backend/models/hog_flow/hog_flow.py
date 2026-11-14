@@ -326,7 +326,7 @@ class HogFlow(FileSystemSyncMixin, Taggable, UUIDTModel):
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
-    file_system_fields = frozenset(
+    fields_the_file_row_reads = frozenset(
         {"name", "origin_product", "created_at", "created_by", "created_by_id", "team", "team_id"}
     )
 

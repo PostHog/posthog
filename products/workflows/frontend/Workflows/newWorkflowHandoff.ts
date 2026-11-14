@@ -45,7 +45,7 @@ export const NEW_WORKFLOW_HANDOFF: AiFirstHandoffLogicProps = {
 
 const FILING_DEADLINE_MS = 10_000
 
-async function fileWorkflow(id: string, folder: string): Promise<void> {
+async function fileWorkflow(id: string, folder: string, deadline: AbortSignal): Promise<void> {
     // Filing is a follow-up step, so a failed move still opens the workflow the person just made.
     try {
         const { results } = await api.fileSystem.list({ type: 'hog_flow', ref: id })
@@ -57,14 +57,19 @@ async function fileWorkflow(id: string, folder: string): Promise<void> {
         if (!isPathUnder(entry.path, 'Unfiled')) {
             return
         }
+        // A lookup that answers after the deadline can predate a later placement, so it must not move the file.
+        if (deadline.aborted) {
+            throw new Error('Filing deadline passed')
+        }
         const { newPath, isValidMove } = calculateMovePath(entry, folder)
         if (isValidMove) {
             await api.fileSystem.move(entry.id, newPath)
             projectTreeDataLogic.findMounted()?.actions.movedItem(entry, entry.path, newPath)
         }
     } catch {
+        // The toast text is captured as an analytics event, so it must not carry the folder path.
         lemonToast.warning(
-            `Your workflow was created, but it couldn't be moved into ${folder}. It's in Unfiled / Workflows.`
+            "Your workflow was created, but it couldn't be moved into the folder you picked. It's in Unfiled / Workflows."
         )
     }
 }
@@ -80,13 +85,15 @@ export function workflowHandoffInFolder(
         ...NEW_WORKFLOW_HANDOFF,
         prepareCreated: async (id) => {
             // File requests have no timeout, so a stalled one would keep the new workflow from opening. Past the
-            // deadline the workflow opens, and filing goes on: it still moves the file or warns when it fails.
+            // deadline the workflow opens. A move already sent still finishes; a lookup still out moves nothing.
+            const deadline = new AbortController()
             try {
-                await withTimeout(fileWorkflow(id, folder), filingDeadlineMs)
+                await withTimeout(fileWorkflow(id, folder, deadline.signal), filingDeadlineMs)
             } catch (error) {
                 if (!(error instanceof PromiseTimeoutError)) {
                     throw error
                 }
+                deadline.abort()
             }
         },
     }

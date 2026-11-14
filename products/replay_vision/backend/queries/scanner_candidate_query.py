@@ -43,7 +43,7 @@ _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
 # How far behind the watermark the frequent sweep's events subqueries scan. Covers the events of any
 # session up to ~3h long plus skew; sessions whose matching events are older surface via the periodic
-# deep sweep instead (see `find_scanner_candidates_activity`), which scans the full lookback.
+# deep sweep instead (see `find_scanner_candidates`), which scans the full lookback.
 SWEEP_EVENTS_LOOKBACK = dt.timedelta(hours=4)
 
 # ClickHouse query-log tags. The read meter matches on these to attribute spend per pass, so a tag

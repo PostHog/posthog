@@ -18,7 +18,8 @@ interface FeatureFlagEvaluationContextsProps {
     tags: string[]
     evaluationContexts: string[]
     className?: string
-    flagId?: number | string | null
+    /** Keeps editor state separate per flag. Accepts undefined for new flags. */
+    flagId: number | string | null | undefined
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
