@@ -185,6 +185,7 @@ LOGGING: dict[str, Any] = {
         "posthog.security.url_validation": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.dns_hosts": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.domain_connect": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.inbox_providers": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.models.organization_domain": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.temporal.proxy_service.create": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.temporal.proxy_service.monitor": {"level": "INFO", "handlers": ["console"], "propagate": False},
