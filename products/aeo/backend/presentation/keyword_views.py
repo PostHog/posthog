@@ -34,6 +34,7 @@ from products.aeo.backend.facade.contracts import (
     MAX_KEYWORDS_PER_TEAM,
     MAX_MODIFIER_EXAMPLES,
     MAX_SUGGESTED_KEYWORDS,
+    BrandedSegment,
     Keyword,
     KeywordCreateResult,
     KeywordLimitError,
@@ -48,10 +49,15 @@ from products.aeo.backend.facade.contracts import (
     KeywordSuggestionRequest,
     ModifierEngineCount,
 )
-from products.aeo.backend.presentation.views import ENGINE_HELP, _AEOFlagGateMixin
+from products.aeo.backend.presentation.views import (
+    BRANDED_PROMPT_HELP,
+    ENGINE_HELP,
+    AEOCheckScopeQuerySerializer,
+    _AEOFlagGateMixin,
+)
 
 KEYWORD_REPORT_DAYS = 7
-MAX_KEYWORD_REPORT_DAYS = 30
+MAX_KEYWORD_REPORT_DAYS = 90
 # Bounds the request body. An entry longer than a keyword can be after whitespace is collapsed is skipped.
 MAX_KEYWORD_INPUT_CHARS = 2 * KEYWORD_MAX_LENGTH
 ANSWERED_HELP = "Answered checks are checks in the window where the engine answered; failed checks are left out."
@@ -105,13 +111,22 @@ class AEOKeywordCreateResultSerializer(DataclassSerializer):
         }
 
 
-class AEOKeywordWindowQuerySerializer(serializers.Serializer):
+class AEOKeywordWindowQuerySerializer(AEOCheckScopeQuerySerializer):
     days = serializers.IntegerField(
         required=False,
         default=KEYWORD_REPORT_DAYS,
         min_value=1,
         max_value=MAX_KEYWORD_REPORT_DAYS,
         help_text=f"Length of the window in days, ending today in the project's timezone. Default {KEYWORD_REPORT_DAYS}, at most {MAX_KEYWORD_REPORT_DAYS}.",
+    )
+    branded = serializers.ChoiceField(
+        choices=BrandedSegment.choices,
+        required=False,
+        default=BrandedSegment.ALL.value,
+        help_text=(
+            "Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) "
+            "or 'non_branded'. " + BRANDED_PROMPT_HELP
+        ),
     )
 
 
@@ -368,7 +383,8 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             "timezone: how many prompts contain it and how those answers mention and cite the project, how often the "
             "engines searched for it and the citation rate in those answers, and how often answers use it, with the "
             "brand-mention rate, citation position and how early the brand is named in those answers. All rates are "
-            "over answered checks. A keyword matches as a phrase, case ignored."
+            "over answered checks. A keyword matches as a phrase, case ignored. Pass 'branded', 'engine' or 'topic' to "
+            "count only the answers to branded or non-branded prompts, of one answer engine, or of one topic."
         ),
         responses={200: OpenApiResponse(response=AEOKeywordReportSerializer)},
         tags=["web_analytics"],
@@ -380,7 +396,12 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     def report(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         report = get_keyword_report(
-            self.team_id, timezone_name=self.team.timezone, days=request.validated_query_data["days"]
+            self.team_id,
+            timezone_name=self.team.timezone,
+            days=request.validated_query_data["days"],
+            branded=BrandedSegment(request.validated_query_data["branded"]),
+            engine=request.validated_query_data["engine"],
+            topic=request.validated_query_data["topic"],
         )
         return Response(AEOKeywordReportSerializer(report).data)
 
@@ -393,7 +414,8 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             f"last 'days' days (default {KEYWORD_REPORT_DAYS}), such as years, 'pricing', 'vs' or 'site:'. They show "
             "the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate "
             "in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to "
-            "only count answers whose searches contain it."
+            "only count answers whose searches contain it, and 'branded', 'engine' or 'topic' to count only the "
+            "answers to branded or non-branded prompts, of one answer engine, or of one topic."
         ),
         responses={200: OpenApiResponse(response=AEOKeywordModifierReportSerializer)},
         tags=["web_analytics"],
@@ -409,6 +431,9 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             timezone_name=self.team.timezone,
             days=request.validated_query_data["days"],
             keyword=request.validated_query_data.get("keyword"),
+            branded=BrandedSegment(request.validated_query_data["branded"]),
+            engine=request.validated_query_data["engine"],
+            topic=request.validated_query_data["topic"],
         )
         return Response(AEOKeywordModifierReportSerializer(report).data)
 

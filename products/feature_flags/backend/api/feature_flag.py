@@ -1036,6 +1036,58 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
+def _iter_raw_condition_properties(properties: object) -> Iterator[object]:
+    # Classifies each node the way parse_property_group_data does at that position, but yields each property
+    # as sent. The parser drops a property it can't build, so a check over its output never sees an unknown or
+    # missing type. A node that this walk reads as a group but the parser builds as a property skips the check.
+    if isinstance(properties, dict) and "type" in properties and "values" in properties:
+        yield from _iter_raw_group_values(properties["values"])
+    elif isinstance(properties, list):
+        # The parser builds every item of a top-level list as a property, even an item with a "values" key.
+        yield from properties
+    elif isinstance(properties, dict):
+        # The parser reads any other dict as legacy {key: value} filters and builds each key as an event property.
+        yield from ({"key": key, "type": "event"} for key in properties)
+    elif properties:
+        yield properties
+
+
+def _iter_raw_group_values(values: object) -> Iterator[object]:
+    if not isinstance(values, list):
+        if values:
+            yield values
+        return
+    for item in values:
+        # Inside a group, the parser reads an item with "type" and "values" as a nested group, and it rejects
+        # a group type other than AND or OR.
+        if isinstance(item, dict) and "type" in item and "values" in item:
+            yield from _iter_raw_group_values(item["values"])
+        else:
+            yield item
+
+
+def _validate_blast_radius_property_types(condition: object) -> None:
+    # Sizing runs the caller's condition as a query, so it accepts only the property types a saved flag accepts.
+    # The check sits here and not in user_blast_radius.py, because workflows size event and hogql filters
+    # through those helpers.
+    if not isinstance(condition, dict):
+        raise exceptions.ValidationError({"condition": "The condition must be an object."})
+    supported = ", ".join(sorted(_RUST_PROPERTY_TYPES))
+    for prop in _iter_raw_condition_properties(condition.get("properties")):
+        prop_type = prop.get("type") if isinstance(prop, dict) else None
+        if not isinstance(prop_type, str):
+            raise exceptions.ValidationError(
+                {"filters": f"Each release condition property needs a type. Use one of: {supported}."}
+            )
+        if prop_type not in _RUST_PROPERTY_TYPES:
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Property type '{prop_type}' isn't supported in release conditions. "
+                    f"Use one of: {supported}."
+                }
+            )
+
+
 def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
     multivariate = filters.get("multivariate")
     if not isinstance(multivariate, dict):
@@ -6009,6 +6061,10 @@ class FeatureFlagViewSet(
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
         condition = request.data.get("condition") or {}
+        _validate_blast_radius_property_types(condition)
+        # The query also reads filter_test_accounts, which adds the team's test account filters,
+        # and the check above doesn't see those.
+        condition = {"properties": condition.get("properties")}
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):

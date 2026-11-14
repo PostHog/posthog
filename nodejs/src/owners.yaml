@@ -44,6 +44,8 @@ rules:
           - '/common/persons/repositories/*.test.*'
           - '/common/tracing/*.test.*'
           - '/common/utils/db/*.test.*'
+          - '/common/utils/env-utils.test.*'
+          - '/common/utils/geoip.test.*'
           - '/common/utils/event-ingestion-restrictions/*.test.*'
       owners: team-ingestion
     - match:

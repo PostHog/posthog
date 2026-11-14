@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { configSchema } from '@/core/config'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { readJson, runHog } from '@/testing'
 
 const VALID = JSON.stringify({ errorTracking: { sources: [{ path: 'dist', kind: 'js' }] } })
@@ -17,14 +18,19 @@ describe('hog config', () => {
         [
             'a valid file in the working folder',
             { '/work/posthog.json': VALID },
-            0,
+            EXIT_SUCCESS,
             { status: 'valid', path: '/work/posthog.json' },
         ],
-        ['a file in a parent folder', { '/posthog.json': VALID }, 0, { status: 'valid', path: '/posthog.json' }],
+        [
+            'a file in a parent folder',
+            { '/posthog.json': VALID },
+            EXIT_SUCCESS,
+            { status: 'valid', path: '/posthog.json' },
+        ],
         [
             'no file up to the git root',
             { '/work/.git/HEAD': 'ref: refs/heads/main', '/posthog.json': VALID },
-            1,
+            EXIT_FAILURE,
             { status: 'missing' },
         ],
         [
@@ -35,7 +41,7 @@ describe('hog config', () => {
                     errorTracking: { sources: [{ path: 'x', kind: 'java' }] },
                 }),
             },
-            1,
+            EXIT_FAILURE,
             {
                 status: 'invalid',
                 problems: [
