@@ -67,7 +67,7 @@ fn non_retryable_rejection(message: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
 }
 
-#[instrument(skip(state, body), fields(span_count, body_size))]
+#[instrument(skip_all, fields(span_count, body_size))]
 pub async fn otel_handler(
     State(state): State<AppState>,
     ip: Option<InsecureClientIp>,

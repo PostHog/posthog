@@ -17,6 +17,7 @@ use crate::{
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
     ingestion_warnings::replay::attribution_from_event,
+    log_util::LoggableHeaders,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -57,7 +58,7 @@ pub async fn handle_recording_payload(
 ) -> Result<(ProcessingContext, Vec<RawRecording>), CaptureError> {
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
 
-    debug_or_info!(chatty_debug_enabled, headers=?headers, "entering handle_recording_payload");
+    debug_or_info!(chatty_debug_enabled, headers=?LoggableHeaders(headers), "entering handle_recording_payload");
 
     // Extract body with optional chunk timeout
     // Wire limit governs the streamed body; event_payload_size_limit is the
@@ -74,7 +75,7 @@ pub async fn handle_recording_payload(
     )
     .await?;
 
-    debug_or_info!(chatty_debug_enabled, headers=?headers, "streamed payload body");
+    debug_or_info!(chatty_debug_enabled, headers=?LoggableHeaders(headers), "streamed payload body");
 
     // Extract request metadata using shared helper
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
