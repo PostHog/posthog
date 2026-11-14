@@ -24,9 +24,9 @@ from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
-from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
 from products.product_analytics.backend.facade.api import (
     get_or_create_saved_insight,
     insight_variables_for_team,

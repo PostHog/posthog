@@ -1,16 +1,15 @@
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from posthog.redis import get_client
 
 from products.error_tracking.backend.logic import issue_summaries, team_flags
 from products.error_tracking.backend.models import ErrorTrackingIssueSummary
-from products.error_tracking.backend.tasks import tasks
 
 GENERATED_AT = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
 STORED_CONTENT = {
@@ -34,8 +33,7 @@ SUMMARY_STATES: list[tuple[str, bool, bool, bool, bool, str, str | None]] = [
 @contextmanager
 def summary_state(
     test: APIBaseTest, issue_id: UUID | str, *, flag: bool, readable: bool, approved: bool, stored: bool
-) -> Iterator[MagicMock]:
-    """Arrange the state, and yield the task publish mock so the test can assert a read queued nothing."""
+) -> Iterator[None]:
     test.organization.is_ai_data_processing_approved = approved
     test.organization.save()
     if stored:
@@ -48,10 +46,11 @@ def summary_state(
             generated_at=GENERATED_AT,
             checked_at=GENERATED_AT,
         )
-    with ExitStack() as stack:
-        stack.enter_context(patch.object(team_flags, "feature_enabled_or_false", return_value=flag))
-        stack.enter_context(patch.object(issue_summaries, "summary_sources_readable", return_value=readable))
-        yield stack.enter_context(patch.object(tasks.generate_error_tracking_issue_summary, "apply_async"))
+    with (
+        patch.object(team_flags, "feature_enabled_or_false", return_value=flag),
+        patch.object(issue_summaries, "summary_sources_readable", return_value=readable),
+    ):
+        yield
 
 
 def lock_held(team_id: int, issue_id: UUID | str) -> bool:

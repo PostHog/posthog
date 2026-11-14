@@ -11,6 +11,7 @@ import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
 import { trackCliToolCall } from './tool-call-properties'
 import { getCliTools } from './tools'
+import { failureText, isRunningInCI } from './utils'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
 tools
@@ -271,8 +272,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`Error: ${message}\n`)
+    process.stderr.write(`Error: ${failureText(error, isRunningInCI(process.env))}\n`)
     // process.exit() kills in-flight requests, which silently dropped every
     // errored $mcp_tool_call event; flush analytics before exiting non-zero.
     await flushAnalytics()

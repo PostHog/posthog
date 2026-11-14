@@ -22,7 +22,7 @@ from products.approvals.backend.models import (
     ChangeRequestState,
     ValidationStatus,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -1059,7 +1059,7 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
         self.flag.active = active
         self.flag.save()
         if owned_by_experiment:
-            Experiment.objects.create(team=self.team, name="Earlier", feature_flag=self.flag)
+            create_experiment(team_id=self.team.id, name="Earlier", feature_flag_id=self.flag.id)
 
         with self._scoped_by_owner(True):
             if refused:

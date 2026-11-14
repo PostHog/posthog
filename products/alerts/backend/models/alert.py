@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
     from collections.abc import Collection
-    from uuid import UUID
 
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
@@ -447,6 +447,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             native_only=True,
             enabled_only=active_real_time,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+            # An alert with no insight row carries its platform alert's id.
+            exclude_id=UUID(exclude_id) if exclude_id else None,
         )
         return rows.count() + native
 

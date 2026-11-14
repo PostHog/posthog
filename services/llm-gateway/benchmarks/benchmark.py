@@ -8,7 +8,7 @@ Usage:
     python benchmark.py                          # all defaults
     python benchmark.py --iterations 10          # more iterations
     python benchmark.py --concurrency 5          # concurrent requests
-    python benchmark.py --models gpt-4.1-mini claude-haiku-4-5-20251001
+    python benchmark.py --models gpt-6-luna claude-haiku-4-5-20251001
     python benchmark.py --streaming-only         # skip non-streaming
     python benchmark.py --report results/benchmark_YYYYMMDD.json
 """
@@ -34,7 +34,7 @@ from openai import AsyncOpenAI
 load_dotenv()
 
 DEFAULT_MODELS = [
-    {"name": "gpt-4.1-mini", "provider": "openai"},
+    {"name": "gpt-6-luna", "provider": "openai"},
     {"name": "gpt-4.1-nano", "provider": "openai"},
     {"name": "claude-sonnet-4-5-20250514", "provider": "anthropic"},
     {"name": "claude-haiku-4-5-20251001", "provider": "anthropic"},
@@ -97,8 +97,7 @@ async def bench_openai_stream(
     stream = await client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": unique_prompt(prompt)}],
-        max_tokens=max_tokens,
-        temperature=0,
+        max_completion_tokens=max_tokens,
         stream=True,
         stream_options={"include_usage": True},
     )
@@ -109,7 +108,9 @@ async def bench_openai_stream(
                 ttft = (time.perf_counter() - start) * 1000
             chunk_count += 1
         if chunk.usage and chunk.usage.completion_tokens:
-            token_count = chunk.usage.completion_tokens
+            details = chunk.usage.completion_tokens_details
+            reasoning_tokens = (details.reasoning_tokens or 0) if details else 0
+            token_count = chunk.usage.completion_tokens - reasoning_tokens
 
     if token_count == 0:
         token_count = chunk_count
@@ -180,8 +181,7 @@ async def bench_openai_non_stream(
     response = await client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": unique_prompt(prompt)}],
-        max_tokens=max_tokens,
-        temperature=0,
+        max_completion_tokens=max_tokens,
         stream=False,
     )
 

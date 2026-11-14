@@ -22,7 +22,6 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import ExperimentHoldout
 
 
 def _experiment_like_resource(**overrides):
@@ -1195,7 +1194,7 @@ class TestFeatureFlagVisitorDynamicEdges(SimpleTestCase):
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
         assert (Cohort, 7) in by_model_pk
         assert (registered_model("Action"), 11) in by_model_pk
-        assert (ExperimentHoldout, 3) in by_model_pk
+        assert (registered_model("ExperimentHoldout"), 3) in by_model_pk
 
         names = {e.name for e in edges}
         assert "cohort:7" in names

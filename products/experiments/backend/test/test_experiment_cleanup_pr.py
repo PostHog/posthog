@@ -59,7 +59,7 @@ class TestExperimentCleanupPr(APIBaseTest):
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_cleanup_pr_fires_only_when_opted_in(
         self,
         _name,
@@ -67,13 +67,11 @@ class TestExperimentCleanupPr(APIBaseTest):
         conclusion,
         expect_task_created,
         expected_skip_reason,
-        mock_resolve_github,
+        mock_repository_names,
         mock_create_task,
         mock_report,
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "posthog/posthog"}]
-        )
+        mock_repository_names.return_value = {"posthog/posthog": "posthog/posthog"}
         task_id = uuid4()
         mock_create_task.return_value = SimpleNamespace(task_id=task_id)
         experiment = self._running_experiment(repository="posthog/posthog")
@@ -125,55 +123,55 @@ class TestExperimentCleanupPr(APIBaseTest):
                 "explicit_field_wins",
                 "acme/monorepo",
                 None,
-                [{"full_name": "acme/monorepo"}, {"full_name": "acme/web"}],
+                {"acme/monorepo": "acme/monorepo", "acme/web": "acme/web"},
                 "acme/monorepo",
             ),
-            ("explicit_case_insensitive", "acme/monorepo", None, [{"full_name": "Acme/Monorepo"}], "Acme/Monorepo"),
-            ("explicit_not_in_installation_skips", "evil/other", None, [{"full_name": "acme/web"}], None),
-            ("single_cached_repo", None, None, [{"full_name": "acme/web"}], "acme/web"),
-            ("multiple_repos_skips", None, None, [{"full_name": "acme/web"}, {"full_name": "acme/api"}], None),
+            ("explicit_case_insensitive", "acme/monorepo", None, {"acme/monorepo": "Acme/Monorepo"}, "Acme/Monorepo"),
+            ("explicit_not_in_installation_skips", "evil/other", None, {"acme/web": "acme/web"}, None),
+            ("single_cached_repo", None, None, {"acme/web": "acme/web"}, "acme/web"),
+            ("multiple_repos_skips", None, None, {"acme/web": "acme/web", "acme/api": "acme/api"}, None),
             ("no_github_integration", None, None, None, None),
             ("explicit_but_no_integration_skips", "acme/monorepo", None, None, None),
             (
                 "team_default_resolves_multi_repo",
                 None,
                 "acme/api",
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 "acme/api",
             ),
             (
                 "explicit_beats_team_default",
                 "acme/web",
                 "acme/api",
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 "acme/web",
             ),
             (
                 "stale_explicit_does_not_fall_to_team_default",
                 "gone/repo",
                 "acme/api",
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 None,
             ),
             (
                 "stale_team_default_falls_through_to_single_repo",
                 None,
                 "gone/repo",
-                [{"full_name": "acme/web"}],
+                {"acme/web": "acme/web"},
                 "acme/web",
             ),
             (
                 "stale_team_default_multi_repo_skips",
                 None,
                 "gone/repo",
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 None,
             ),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_cleanup_repository_resolution(
         self,
         _name,
@@ -181,16 +179,11 @@ class TestExperimentCleanupPr(APIBaseTest):
         team_default,
         cached_repos,
         expected_repository,
-        mock_resolve_github,
+        mock_repository_names,
         mock_create_task,
         _mock_report,
     ):
-        if cached_repos is None:
-            mock_resolve_github.return_value = None
-        else:
-            mock_resolve_github.return_value = SimpleNamespace(
-                list_all_cached_repositories=lambda max_repos: cached_repos
-            )
+        mock_repository_names.return_value = cached_repos
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         if team_default:
             config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
@@ -216,18 +209,16 @@ class TestExperimentCleanupPr(APIBaseTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_repository_picked_at_end_time_targets_the_task(
         self,
-        mock_resolve_github,
+        mock_repository_names,
         mock_create_task,
         _mock_report,
     ):
         # Several cached repos would otherwise be ambiguous and skip the cleanup — the
         # repository picked in the end request must resolve it.
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "acme/web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         experiment = self._running_experiment()
 
@@ -246,16 +237,14 @@ class TestExperimentCleanupPr(APIBaseTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_repository_outside_the_installation_skips_and_is_not_persisted(
         self,
-        mock_resolve_github,
+        mock_repository_names,
         mock_create_task,
         _mock_report,
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "acme/web", "acme/api": "acme/api"}
         experiment = self._running_experiment()
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -280,19 +269,17 @@ class TestExperimentCleanupPr(APIBaseTest):
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_set_repository_as_team_default(
         self,
         _name,
         picked_repository,
         expect_default_saved,
-        mock_resolve_github,
+        mock_repository_names,
         mock_create_task,
         _mock_report,
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "acme/web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         experiment = self._running_experiment()
         service = ExperimentService(team=self.team, user=self.user)
@@ -324,16 +311,14 @@ class TestExperimentCleanupPr(APIBaseTest):
         "products.experiments.backend.experiment_service.tasks_facade.create_and_run_task",
         side_effect=Exception("sandbox unavailable"),
     )
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_team_default_not_saved_when_task_creation_fails(
         self,
-        mock_resolve_github,
+        mock_repository_names,
         _mock_create_task,
         _mock_report,
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "acme/web", "acme/api": "acme/api"}
         experiment = self._running_experiment()
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -381,13 +366,11 @@ class TestExperimentsConfigFlagCleanupRepository(APIBaseTest):
             ("empty_string_clears", "", 200, None),
         ]
     )
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_flag_cleanup_repository_validation(
-        self, _name, submitted, expected_status, expected_stored, mock_resolve_github
+        self, _name, submitted, expected_status, expected_stored, mock_repository_names
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "PostHog/posthog"}]
-        )
+        mock_repository_names.return_value = {"posthog/posthog": "PostHog/posthog"}
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)

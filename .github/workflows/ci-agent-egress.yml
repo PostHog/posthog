@@ -1,0 +1,56 @@
+name: Agent Egress
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - '.github/workflows/ci-agent-egress.yml'
+            - 'products/tasks/services/egress-proxy/**'
+    pull_request:
+        paths:
+            - '.github/workflows/ci-agent-egress.yml'
+            - 'products/tasks/services/egress-proxy/**'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        defaults:
+            run:
+                shell: bash
+                working-directory: products/tasks/services/egress-proxy
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  sparse-checkout: products/tasks/services/egress-proxy
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Go
+              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+              with:
+                  go-version-file: products/tasks/services/egress-proxy/go.mod
+                  cache: false
+
+            - name: Check formatting
+              run: |
+                  unformatted=$(gofmt -l .)
+                  if [[ -n "$unformatted" ]]; then
+                      printf '%s\n' "$unformatted"
+                      exit 1
+                  fi
+
+            - name: Vet
+              run: go vet ./...
+
+            - name: Test
+              run: go test -race -count=1 ./...

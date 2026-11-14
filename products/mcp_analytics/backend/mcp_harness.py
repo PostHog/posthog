@@ -20,13 +20,12 @@ Read the token, never a raw property: `$mcp_client_name` is absent on every call
 isn't the session's `initialize`, so anything grouping on it alone leaves the bulk of
 traffic unattributed.
 
-This module is the single source of truth for harness classification. The frontend no
-longer classifies — `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts` keeps
-only a label-to-logo/colour map (`HARNESS_BY_LABEL`), keyed by the labels this module
-emits, and a cross-language test pins those keys to `HARNESS_LABELS`. Two documented
-copies must move in lockstep: the query in the `querying-posthog-data` skill's
-`models-mcp.md`, and the vocabulary table in `.agents/skills/debugging-mcp-analytics/`
-skill.
+This module is the single source of truth for harness classification. HogQL exposes its
+result as the `$virt_mcp_harness` event property, so SQL, docs and skills select that
+property instead of copying the logic. `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`
+keeps only a label-to-logo/colour map (`HARNESS_BY_LABEL`) keyed by the labels this module
+emits. A label with no entry there gets the generic "Other harnesses" mark, so give each
+new label an entry.
 
 Because the token appears many times in the bucketing `multiIf`, callers compute
 it once as a column (`{HARNESS_TOKEN_SQL} AS h`, or `argMax(..., timestamp)` for a
@@ -69,6 +68,7 @@ _RAW_TOKEN = f"""coalesce(
         {_VENDOR} IN ('claudeai', 'claude-ai'), 'claude-ai',
         {_VENDOR} = 'cowork', 'cowork',
         {_VENDOR} IN ('claudedesign', 'claude-design'), 'claude-design',
+        {_VENDOR} IN ('claudeartifacts', 'claude-artifacts'), 'claude-artifacts',
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
@@ -174,6 +174,7 @@ def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[Cu
         {token_col} = 'anthropic/api', 'Anthropic API',
         {token_col} = 'cowork', 'Cowork',
         {token_col} = 'claude-design', 'Claude Design',
+        {token_col} = 'claude-artifacts', 'Claude Artifacts',
         {token_col} = 'openai-mcp chatgpt', 'ChatGPT',
         {token_col} = 'openai-mcp agent builder', 'OpenAI Agent Builder',
         {token_col} = 'openai-mcp responses api', 'OpenAI Responses API',
@@ -224,6 +225,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Anthropic API",
     "Cowork",
     "Claude Design",
+    "Claude Artifacts",
     "ChatGPT",
     "OpenAI Agent Builder",
     "OpenAI Responses API",

@@ -32,3 +32,30 @@ export const metricsTableWidgetSampleResult: MetricsTableWidgetResult = {
     totalCount: 24,
     hasMore: true,
 }
+
+const METHOD_VIEWS: [string, string, number, number][] = [
+    ['GET', 'detail', 31.4, 0.12],
+    ['GET', 'list', 22.8, 0.41],
+    ['PATCH', 'detail', 6.1, 0.27],
+    ['POST', 'list', 4.9, 0.63],
+    ['DELETE', 'detail', 1.2, 0.09],
+    ['POST', 'upload', 0.4, 2.35],
+]
+
+/** Grouped by two labels, so each row is one combination of an HTTP method and a view. */
+export const metricsTableWidgetGroupedSampleResult: MetricsTableWidgetResult = {
+    needsConfiguration: false,
+    groupBy: ['method', 'view'],
+    columns: [
+        { label: 'Requests/s', aggregation: 'rate', unit: '1/s' },
+        { label: 'p95 latency', aggregation: 'histogram_quantile', unit: 's' },
+    ],
+    rows: METHOD_VIEWS.map(([method, view, requests, latency], index) => ({
+        key: JSON.stringify([method, view]),
+        labels: [method, view],
+        values: [requests, latency],
+        sparklines: [wave(requests, index + 1), wave(latency, index + 5)],
+    })),
+    totalCount: 6,
+    hasMore: false,
+}

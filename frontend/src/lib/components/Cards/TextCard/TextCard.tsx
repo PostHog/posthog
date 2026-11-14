@@ -5,7 +5,9 @@ import React from 'react'
 
 import 'lib/components/Cards/CardMeta.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
+import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
 import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 
@@ -16,6 +18,8 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     placement: DashboardPlacement
     children?: JSX.Element
     moreButtonOverlay?: MoreProps['overlay']
+    /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
+    quillMenuItems?: JSX.Element
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
 }
@@ -27,6 +31,7 @@ function TextCardInternal(
         children,
         className,
         moreButtonOverlay,
+        quillMenuItems,
         placement,
         showEditingControls,
         ...divProps
@@ -43,30 +48,30 @@ function TextCardInternal(
 
     const isTransparent = textTile.transparent_background
     return (
-        <div
-            className={clsx(
-                'DashboardTileCard TextCard rounded flex flex-col',
-                !isTransparent && 'bg-surface-primary border',
-                isTransparent && showResizeHandles && 'border border-dashed border-border',
-                className
-            )}
+        <DashboardTileShell
+            transparent={isTransparent}
+            className={clsx('DashboardTileCard TextCard flex flex-col', className)}
             data-attr="text-card"
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && (
+            {(quillMenuItems || moreButtonOverlay) && !shouldHideMoreButton && (
                 <div className="absolute right-4 top-4">
-                    <More overlay={moreButtonOverlay} />
+                    {quillMenuItems ? (
+                        <QuillCardMoreMenu items={quillMenuItems} />
+                    ) : (
+                        <More overlay={moreButtonOverlay} />
+                    )}
                 </div>
             )}
 
-            <div className="DashboardTileCard__body TextCard__body w-full">
+            <div className="DashboardTileCard__body TextCard__body w-full" data-not-quill>
                 <LazyTextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
             </div>
 
             {showResizeHandles && <DashboardResizeHandles />}
             {children /* Extras, such as resize handles */}
-        </div>
+        </DashboardTileShell>
     )
 }
 

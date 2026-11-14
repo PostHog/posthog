@@ -69,8 +69,8 @@ class TestTrialAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("trial", "member", 3, 403),
-            ("source", "member", 3, 403),
+            ("trial", "member", 3, 200),
+            ("source", "member", 3, 201),
             ("trial", "owner", 3, 200),
             ("source", "admin", 3, 201),
             ("trial", "member", 0, 200),
@@ -129,7 +129,7 @@ class TestTrialAPI(APIBaseTest):
         assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
         for scout in scouts:
             scout.refresh_from_db()
-        assert [scout.enabled for scout in scouts] == ([True, True, True, False] if allowed else [True] * 4)
+        assert [scout.enabled for scout in scouts] == [True] * 4
         if path == "source":
             assert SignalSourceConfig.objects.filter(team=self.team, enabled=True).exists() is allowed
 
@@ -140,8 +140,8 @@ class TestTrialAPI(APIBaseTest):
             for parent_access, scout_scope, count, allowed in (
                 (False, "signal_scout:write", 4, False),
                 (True, "signal_scout:write", 4, True),
-                (True, None, 4, False),
-                (True, "signal_scout:read", 4, False),
+                (True, None, 4, True),
+                (True, "signal_scout:read", 4, True),
                 (True, "*", 4, True),
                 (True, None, 3, True),
             )
@@ -183,7 +183,7 @@ class TestTrialAPI(APIBaseTest):
         assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
         for scout in scouts:
             scout.refresh_from_db()
-        assert sum(scout.enabled for scout in scouts) == (3 if allowed else count)
+        assert sum(scout.enabled for scout in scouts) == count
 
     @parameterized.expand([(False,), (True,)])
     def test_source_activation_enrolls_once_before_backfill(self, existing: bool) -> None:

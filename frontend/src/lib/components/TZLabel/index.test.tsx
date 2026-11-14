@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render } from '@testing-library/react'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { TZLabel } from './index'
 
 describe('TZLabel', () => {
@@ -40,6 +42,12 @@ describe('TZLabel', () => {
             cleanup()
         })
         it('mounted labels share a single interval and text still advances', () => {
+            // Labels read a feature flag. Mounting the flag logic first and flushing its one-shot timer
+            // leaves only the ticker's interval to count.
+            featureFlagLogic.mount()
+            act(() => {
+                jest.runOnlyPendingTimers()
+            })
             const first = render(<TZLabel time="2026-03-16T10:11:12Z" showPopover={false} />)
             const second = render(<TZLabel time="2026-03-16T10:10:15Z" showPopover={false} />)
 

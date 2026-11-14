@@ -11,14 +11,23 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.split_changes import format_change_time
 
 SECONDS_PER_DAY = 24 * 60 * 60
+# Every finding that recommends a reset follows it with this, because the word doesn't say that a reset returns the
+# experiment to draft.
+RESET_EFFECT = (
+    "A reset returns the experiment to draft, and once you launch it again, the results count only exposures from "
+    "then on."
+)
 
 
-def suggested_start(changed_at: datetime, team_timezone: str) -> str:
+def suggested_start_at(changed_at: datetime) -> datetime:
     # The start date picker saves whole minutes, so a start inside the minute of the change keeps exposures
     # from before it.
     minute = changed_at.replace(second=0, microsecond=0)
-    start = minute if minute == changed_at else minute + timedelta(minutes=1)
-    return format_change_time(start, team_timezone)
+    return minute if minute == changed_at else minute + timedelta(minutes=1)
+
+
+def suggested_start(changed_at: datetime, team_timezone: str) -> str:
+    return format_change_time(suggested_start_at(changed_at), team_timezone)
 
 
 def delay(

@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
     increment_history_rows_dropped,
     increment_instances_reaped,
+    record_check_completion_lag,
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import (
@@ -613,6 +614,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
+        # Captured before the write advances the schedule; the lag itself is measured at commit.
+        due_times = [
+            (configuration.source_kind, configuration.next_check_at)
+            for configuration in configurations
+            if configuration.next_check_at is not None
+        ]
         for configuration in configurations:
             by_id[str(configuration.id)] = _without_stale_groups(configuration, by_id[str(configuration.id)])
         # In outcome order, because the source put the groups it most wants kept first.
@@ -732,8 +739,20 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
+        # The lag goes first, because callbacks run in order and a slow history insert is not
+        # part of the check's completion.
+        transaction.on_commit(lambda: _record_completion_lags(due_times))
         transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
+
+
+def _record_completion_lags(due_times: Sequence[tuple[str, datetime]]) -> None:
+    # Wall time at commit rather than the tick's cutoff, so a slow write or an enclosing
+    # transaction that holds the commit counts towards the lag.
+    committed_at = django_timezone.now()
+    for source_kind, due_at in due_times:
+        lag_ms = max(0, int((committed_at - due_at).total_seconds() * 1000))
+        safe_record(record_check_completion_lag, source_kind, lag_ms)
 
 
 _CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
@@ -742,6 +761,30 @@ _ADMISSION_LOCK_SQL: Final = {
     True: "SELECT pg_advisory_xact_lock(hashtext(%s))",
     False: "SELECT pg_advisory_xact_lock_shared(hashtext(%s))",
 }
+
+
+def stored_settings_of(upsert: PlatformAlertUpsert) -> dict[str, Any]:
+    """The settings columns a copy of `upsert` stores. Raises `ValueError` on a cadence the platform
+    refuses, because an unparseable unit or anchor raised where the schedule advances would fail a
+    whole batch of unrelated checks."""
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    return {
+        "name": upsert.name,
+        "enabled": upsert.enabled,
+        "source_config": upsert.source_config,
+        "check_interval_minutes": upsert.check_interval_minutes,
+        "recurrence_unit": upsert.recurrence_unit,
+        "anchor_time": validate_and_normalize_schedule_start_time(upsert.anchor_time),
+        "evaluation_periods": upsert.evaluation_periods,
+        "datapoints_to_alarm": upsert.datapoints_to_alarm,
+        "cooldown_minutes": upsert.cooldown_minutes,
+        "schedule_restriction": upsert.schedule_restriction,
+        # A source's snooze mutes the whole alert. State is left alone because a muted alert
+        # keeps tracking reality.
+        "snooze_until": upsert.snooze_until,
+        "created_by_id": upsert.created_by_id,
+    }
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
@@ -757,15 +800,10 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     check, for example at the end of quiet hours, and copying that would skip checks the platform
     still runs.
 
-    The recurrence is checked here rather than where the schedule advances, because an
-    unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
-
     `revive` says the source alert was just created or turned back on, which resets the copy
     even when it stayed enabled, for example a BROKEN copy that discovery skips.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
 
     with transaction.atomic():
         existing = (
@@ -779,24 +817,13 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             return False
         defaults = {
             "team_id": upsert.team_id,
-            "name": upsert.name,
-            "enabled": upsert.enabled,
             "source_kind": upsert.source_kind.value,
-            "source_config": upsert.source_config,
-            "check_interval_minutes": upsert.check_interval_minutes,
-            "recurrence_unit": upsert.recurrence_unit,
-            "anchor_time": anchor_time,
-            "evaluation_periods": upsert.evaluation_periods,
-            "datapoints_to_alarm": upsert.datapoints_to_alarm,
-            "cooldown_minutes": upsert.cooldown_minutes,
-            "schedule_restriction": upsert.schedule_restriction,
+            **stored,
             # Reached by a backfill run, which re-admits a copy an operator switched off.
             "switched_off_at": None,
-            # A source's snooze mutes the whole alert. State is left alone because a muted alert
-            # keeps tracking reality.
-            "snooze_until": upsert.snooze_until,
-            "created_by_id": upsert.created_by_id,
         }
+        if upsert.first_enabled_at is not None:
+            defaults["first_enabled_at"] = upsert.first_enabled_at
         if (
             existing is None
             or not existing["enabled"]
@@ -820,6 +847,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             defaults=defaults,
             create_defaults={**defaults, "grouping": upsert.grouping.to_stored()},
         )
+        # `update()`, because `auto_now_add` replaces any value a create passes.
+        if upsert.created_at is not None and configuration.created_at != upsert.created_at:
+            PlatformAlertConfiguration.objects.unscoped().filter(pk=configuration.pk).update(
+                created_at=upsert.created_at
+            )
         if revived:
             PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
@@ -894,15 +926,19 @@ def create_native_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
+    recurrence_unit: str | None,
     destinations_owner: PlatformAlertOwner,
     created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
     configuration = PlatformAlertConfiguration(
         team_id=team_id,
         source_kind=source_kind.value,
         check_interval_minutes=check_interval_minutes,
+        recurrence_unit=recurrence_unit,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
         destinations_owner=destinations_owner,
@@ -1026,20 +1062,10 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     Raises `ValueError` on a cadence `upsert_configuration` would refuse, because a stored one that
     cannot advance fails every outcome of the batch it is recorded in.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
+    del stored["enabled"], stored["snooze_until"]
     PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
-        name=upsert.name,
-        source_config=upsert.source_config,
-        check_interval_minutes=upsert.check_interval_minutes,
-        recurrence_unit=upsert.recurrence_unit,
-        anchor_time=anchor_time,
-        evaluation_periods=upsert.evaluation_periods,
-        datapoints_to_alarm=upsert.datapoints_to_alarm,
-        cooldown_minutes=upsert.cooldown_minutes,
-        schedule_restriction=upsert.schedule_restriction,
-        created_by_id=upsert.created_by_id,
+        **stored,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )

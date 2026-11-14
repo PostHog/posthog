@@ -12,6 +12,14 @@ SCOPE_DOCS = (
         docs_url="https://posthog.com/docs/customer-analytics/start-here",
     ),
     ScopeDoc(
+        object="account_note",
+        name="Account note",
+        plural="account notes",
+        description="Notes on Customer analytics accounts and their tags, without access to the rest of the account.",
+        group="Customers & support",
+        docs_url="https://posthog.com/docs/customer-analytics/start-here",
+    ),
+    ScopeDoc(
         object="customer_analytics",
         name="Customer analytics",
         plural="customer analytics",

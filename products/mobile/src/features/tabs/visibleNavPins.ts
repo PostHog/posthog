@@ -1,4 +1,4 @@
-import { isNavPin, MAX_NAV_PINS, type NavPin } from './navPinStore'
+import { isNavPin, type NavPin, newestNavPins } from './navPinStore'
 import type { TabKey } from './tabHeaderStore'
 
 /** Errors and Sessions follow their release flags. A pin without a flag here is always on. */
@@ -9,6 +9,6 @@ export function navPinEnabled(pin: NavPin, flags: NavPinFlags): boolean {
 }
 
 export function visibleNavPins(pins: readonly NavPin[], tab: TabKey, flags: NavPinFlags): readonly NavPin[] {
-    const visible = isNavPin(tab) && !pins.includes(tab) ? [...pins, tab].slice(-MAX_NAV_PINS) : pins
+    const visible = newestNavPins(isNavPin(tab) && !pins.includes(tab) ? [...pins, tab] : pins)
     return visible.filter((pin) => navPinEnabled(pin, flags))
 }

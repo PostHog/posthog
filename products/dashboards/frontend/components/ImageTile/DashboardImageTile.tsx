@@ -2,7 +2,9 @@ import clsx from 'clsx'
 import React from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
+import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -17,6 +19,8 @@ interface DashboardImageTileProps extends React.HTMLAttributes<HTMLDivElement>, 
     placement: DashboardPlacement
     children?: JSX.Element
     moreButtonOverlay?: MoreProps['overlay']
+    /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
+    quillMenuItems?: JSX.Element
     showEditingControls?: boolean
     isDraggingRef?: React.RefObject<boolean>
 }
@@ -29,6 +33,7 @@ function DashboardImageTileInternal(
         children,
         className,
         moreButtonOverlay,
+        quillMenuItems,
         placement,
         showEditingControls,
         isDraggingRef,
@@ -51,20 +56,21 @@ function DashboardImageTileInternal(
 
     return (
         <>
-            <div
-                className={clsx(
-                    'DashboardTileCard DashboardImageTile rounded flex flex-col',
-                    !isTransparent && 'bg-surface-primary border',
-                    isTransparent && showResizeHandles && 'border border-dashed border-border',
-                    className
-                )}
+            <DashboardTileShell
+                transparent={isTransparent}
+                showResizeHandles={showResizeHandles}
+                className={clsx('DashboardTileCard DashboardImageTile flex flex-col', className)}
                 data-attr="image-tile"
                 {...divProps}
                 ref={ref}
             >
-                {moreButtonOverlay && !shouldHideMoreButton && (
+                {(quillMenuItems || moreButtonOverlay) && !shouldHideMoreButton && (
                     <div className="absolute right-4 top-4">
-                        <More overlay={moreButtonOverlay} />
+                        {quillMenuItems ? (
+                            <QuillCardMoreMenu items={quillMenuItems} />
+                        ) : (
+                            <More overlay={moreButtonOverlay} />
+                        )}
                     </div>
                 )}
                 <div className="DashboardTileCard__body ImageTile__body flex flex-1 min-h-0 w-full overflow-hidden p-4">
@@ -101,7 +107,7 @@ function DashboardImageTileInternal(
                 </div>
                 {showResizeHandles && <DashboardResizeHandles />}
                 {children}
-            </div>
+            </DashboardTileShell>
             <LemonModal
                 isOpen={isImagePreviewOpen}
                 onClose={() => setIsImagePreviewOpen(false)}

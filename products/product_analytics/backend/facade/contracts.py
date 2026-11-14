@@ -30,6 +30,18 @@ from products.product_analytics.backend.facade.enums import (
 
 
 @dataclass(frozen=True)
+class InsightSummary:
+    """The name and dates of a saved insight, for products that link to one."""
+
+    id: int
+    short_id: str
+    name: str
+    created_at: datetime | None
+    last_modified_at: datetime | None
+    deleted: bool
+
+
+@dataclass(frozen=True)
 class InsightVariableDefinition:
     """A saved query variable, as callers outside product analytics read it.
 
@@ -153,11 +165,29 @@ class SavedTrendsInsight:
 
 
 @dataclass(frozen=True)
+class AgentInsightRead:
+    short_id: str
+    read_days: tuple[date, ...]
+
+
+@dataclass(frozen=True)
 class ViewableInsight:
     id: int
     short_id: str
     # The saved name, else the generated one. None when the insight has neither.
     name: str | None
+
+
+@dataclass(frozen=True)
+class InsightActionReference:
+    """A live saved insight whose query or filters reference an action."""
+
+    id: int
+    short_id: str
+    name: str | None
+    derived_name: str | None
+    created_at: datetime | None
+    created_by_id: int | None
 
 
 @dataclass(frozen=True)

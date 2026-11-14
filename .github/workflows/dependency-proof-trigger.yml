@@ -1,0 +1,29 @@
+name: Dependency proof trigger
+
+# dependency-proof.yml runs on `workflow_run` after this workflow, from its default-branch copy,
+# because it holds the dependency proof App key, which a `pull_request` job must never see.
+# The paths are every file a proof can attest. stamphog waits for the check on a pull request
+# that changes one of them, so each such head gets a result and no other pull request starts a run.
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened]
+        paths:
+            - '**/package.json'
+            - '**/pnpm-lock.yaml'
+            - '**/pnpm-workspace.yaml'
+
+concurrency:
+    # A branch name is not unique across forks, so the pull request number keys the group.
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+    trigger:
+        name: Request a dependency proof
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        steps:
+            - run: 'true'

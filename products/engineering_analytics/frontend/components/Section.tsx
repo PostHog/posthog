@@ -1,5 +1,3 @@
-// Anchored page sections with a compact title row.
-
 import { ReactNode } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -20,12 +18,8 @@ export function Section({
 }: {
     id: string
     title: string
-    /** Muted caveat after the title. Only for load-bearing context the data can't show (scope, inclusion
-     *  criteria, a legend) — never a restatement of the title or an interaction hint. */
     note?: ReactNode
     right?: ReactNode
-    /** Reloading with data already on screen (e.g. the window changed): a spinner by the title and dimmed
-     *  content, so the stale data reads as "updating" instead of silently swapping. */
     busy?: boolean
     children: ReactNode
 }): JSX.Element {
