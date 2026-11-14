@@ -600,7 +600,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
 
         v2_query_types, v2 = run(LEGACY, None)
-        dimensional_query_types, dimensional = run(LEGACY, OPT_IN)
+        dimensional_query_types, dimensional = run(None, OPT_IN)
 
         assert v2_query_types == ["web_overview_preaggregated_query"]
         assert dimensional_query_types == ["web_overview_dimensional_query"]
