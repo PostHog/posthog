@@ -76,13 +76,14 @@ export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.
 
 export async function withPostgres<T>(
     run: (client: Client) => Promise<T>,
-    connectionString = STACK.postgresUrl
+    connectionString = STACK.postgresUrl,
+    statementTimeoutMs = PROBE_TIMEOUT_MS
 ): Promise<T> {
     const client = new Client({
         connectionString,
         connectionTimeoutMillis: PROBE_TIMEOUT_MS,
-        query_timeout: PROBE_TIMEOUT_MS,
-        statement_timeout: PROBE_TIMEOUT_MS,
+        query_timeout: statementTimeoutMs,
+        statement_timeout: statementTimeoutMs,
     })
     try {
         await client.connect()

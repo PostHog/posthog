@@ -54,6 +54,7 @@ describe('seed-backlog', () => {
         jest.spyOn(process.stdout, 'write').mockReturnValue(true)
         stderr = jest.spyOn(process.stderr, 'write').mockReturnValue(true)
         await query('DROP TRIGGER IF EXISTS loses_rows ON cyclotron_jobs')
+        await query('DROP TRIGGER IF EXISTS slow_delete ON cyclotron_jobs')
         await query('DELETE FROM cyclotron_jobs')
     })
 
@@ -122,8 +123,23 @@ describe('seed-backlog', () => {
         expect(Object.values(manifest.bytes).every((bytes) => bytes > 0)).toBe(true)
     })
 
-    it('replaces the residents of an earlier seed', async () => {
+    it.each([
+        ['', false],
+        [', even when deleting them outlasts a probe read', true],
+    ])('replaces the residents of an earlier seed%s', async (_story, slowDelete) => {
         await seed()
+        if (slowDelete) {
+            await query(
+                `CREATE OR REPLACE FUNCTION slow_delete() RETURNS trigger AS $$
+                 BEGIN
+                     PERFORM pg_sleep(2.5);
+                     RETURN NULL;
+                 END $$ LANGUAGE plpgsql`
+            )
+            await query(
+                'CREATE TRIGGER slow_delete BEFORE DELETE ON cyclotron_jobs FOR EACH STATEMENT EXECUTE FUNCTION slow_delete()'
+            )
+        }
 
         expect(await seed({ ...BACKLOG, jobs: { email: 30 } })).toBe(EXIT_CODE.passed)
         expect(await query('SELECT queue_name, count(*)::int AS rows FROM cyclotron_jobs GROUP BY queue_name')).toEqual(
