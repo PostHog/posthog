@@ -163,7 +163,6 @@ const useStyles = createStyles(({ colors }) => ({
     },
     mono: {
         fontFamily: fonts.mono,
-        fontSize: 13,
     },
     direct: {
         fontStyle: 'italic',
@@ -174,7 +173,8 @@ const useStyles = createStyles(({ colors }) => ({
         fontWeight: '600',
     },
     views: {
-        ...type.bodySmallStrong,
+        ...type.metaSmall,
+        fontWeight: '600',
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },
