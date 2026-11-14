@@ -1,6 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { Badge, Button, Card, DataTable, Text } from '@posthog/quill'
@@ -23,6 +24,7 @@ import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleasesGate } from './ReleasesGate'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
+import { useInfiniteRows } from './useInfiniteRows'
 
 export const scene: SceneExport = {
     component: ReleaseList,
@@ -124,6 +126,8 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 function ReleaseListContent(): JSX.Element {
     const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
+    const { visible, sentinel } = useInfiniteRows(filteredRows.length)
+    const shownRows = useMemo(() => filteredRows.slice(0, visible), [filteredRows, visible])
 
     return (
         <SceneContent>
@@ -151,8 +155,7 @@ function ReleaseListContent(): JSX.Element {
                     <Card size="sm" flush className="pt-0" data-attr="release-table">
                         <DataTable
                             columns={COLUMNS}
-                            pageSize={50}
-                            data={filteredRows}
+                            data={shownRows}
                             fullWidth
                             size="sm"
                             onRowClick={(row) => router.actions.push(urls.release(row.id))}
@@ -164,6 +167,7 @@ function ReleaseListContent(): JSX.Element {
                                 </Text>
                             }
                         />
+                        {visible < filteredRows.length && <div ref={sentinel} />}
                     </Card>
                 )}
                 <NewReleaseDialog />
