@@ -4,7 +4,7 @@ import path from 'path'
 import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
-import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { getDefaultConfig } from '~/common/config/config'
 
 import { durationMs } from '../duration'
 import { TRAFFIC } from '../generator/traffic'
@@ -13,14 +13,12 @@ import { Card, Named, Profile } from './schema'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
-const JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
-const STALLING_VALVES = ['role.kill', 'role.freeze', 'pg.drop_connections']
 const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
 export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
-export type LoadOptions = { profilePath?: string; definitions?: Definitions }
+export type LoadOptions = { profilePath?: string }
 
 export class CardError extends Error {
     constructor(
@@ -101,40 +99,6 @@ function checkSchedules(card: Card): string[] {
 
 type Settings = Record<string, unknown>
 
-function checkStallBound(card: Card, config: Settings): string[] {
-    if (!card.valves.some(({ valve }) => STALLING_VALVES.includes(valve))) {
-        return []
-    }
-    const milliseconds = (name: string): number => Number(config[name])
-    const names = ['CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS', 'CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS']
-    const unreadable = names.filter((name) => !(milliseconds(name) >= 0))
-    if (unreadable.length > 0) {
-        return unreadable.map((name) => `profile.settings.${name}: not a number of milliseconds at or above zero`)
-    }
-    const connectionDrops = card.valves.filter(({ valve }) => valve === 'pg.drop_connections').length
-    const perRole = new Map<string, number>()
-    card.valves
-        .filter(({ valve }) => valve === 'role.kill' || valve === 'role.freeze')
-        .forEach(({ target }) => perRole.set(target, (perRole.get(target) ?? 0) + 1))
-    const stalls = Math.max(0, ...perRole.values()) + connectionDrops
-    const baseMs = Math.max(milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS'), 0) || 0
-    const maxMs =
-        milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS') > 0
-            ? milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS')
-            : 600000
-    const boundMs =
-        names.reduce((total, name) => total + milliseconds(name), 0) +
-        JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS +
-        Math.min(baseMs * (2 ** (stalls - 1) - 1), maxMs) +
-        ROLE_RESTART_BACKOFF_MS
-    if (durationMs(card.convergeWithin) > boundMs) {
-        return []
-    }
-    return [
-        `convergeWithin: ${card.convergeWithin} must exceed ${boundMs / 1000}s, the janitor's stall timeout, sweep interval, first-retry spread and repeated-stall backoff plus the role restart backoff`,
-    ]
-}
-
 function checkSuppression(card: Card): string[] {
     const bounceEntries = card.valves.filter(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
     const bouncesEverySend = bounceEntries.some(
@@ -211,7 +175,7 @@ export function readProfile(file: string): { profile: Profile } | { problems: st
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    const definitions = options.definitions ?? DEFINITIONS
+    const definitions = DEFINITIONS
     const read = readYaml(cardPath, 'card')
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
@@ -223,12 +187,10 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
     const card = parsed.data
     const loaded = loadProfile(card, options.profilePath)
     const defaults = getDefaultConfig() as unknown as Settings
-    const config = overrideConfigWithEnv(defaults, 'profile' in loaded ? loaded.profile.settings : {})
 
     const problems = [
         ...checkNames(card, definitions),
         ...checkSchedules(card),
-        ...checkStallBound(card, config),
         ...checkSuppression(card),
         ...checkIntakeVerdict(card),
         ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
