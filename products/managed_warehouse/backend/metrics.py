@@ -126,3 +126,11 @@ def record_duckling_backfill_workload(
         attributes,
         unit="partition",
     )
+
+
+def record_duckling_backfill_skipped(*, team_id: int, dataset: str, reason: str) -> None:
+    record_counter(
+        "warehouse.duckling.backfill.skipped",
+        1,
+        {"team_id": str(team_id), "dataset": dataset, "reason": reason},
+    )

@@ -15,6 +15,7 @@ from uuid import UUID
 from products.managed_warehouse.backend import common, storage
 from products.managed_warehouse.backend.common import DUCKGRES_BUCKET_REGION, EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.contracts import (
+    ControlPlaneStorage,
     DuckgresQueryServerConfig,
     DuckgresStoredBucketConfig,
     DuckgresStoredServerConfig,
@@ -43,6 +44,7 @@ __all__ = [
     "get_catalog_connection_config",
     "get_control_plane_bucket",
     "get_control_plane_data_path",
+    "get_control_plane_storage",
     "get_duckgres_query_server_config",
     "get_managed_warehouse_trino_password",
     "get_org_id_for_team",
@@ -247,6 +249,12 @@ def get_control_plane_data_path(organization_id: str | UUID) -> str | None:
     from products.managed_warehouse.backend.presentation.views import cp_data_path_for  # noqa: PLC0415
 
     return cp_data_path_for(organization_id)
+
+
+def get_control_plane_storage(organization_id: str | UUID) -> ControlPlaneStorage | None:
+    from products.managed_warehouse.backend.presentation.views import cp_storage_for  # noqa: PLC0415
+
+    return cp_storage_for(organization_id)
 
 
 def update_team_earliest_event_date(

@@ -20,7 +20,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
 )
 
-from products.managed_warehouse.backend.facade.contracts import DuckgresStoredBucketConfig
+from products.managed_warehouse.backend.facade.contracts import ControlPlaneStorage, DuckgresStoredBucketConfig
 
 pytestmark = pytest.mark.django_db
 
@@ -46,8 +46,10 @@ class TestResolveDucklingTarget:
             patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1"),
             patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=stored_bucket),
             patch(
-                "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-                return_value=cp_bucket,
+                "posthog.dags.events_backfill_to_duckling.get_control_plane_storage",
+                return_value=ControlPlaneStorage(bucket=cp_bucket, data_path=f"s3://{cp_bucket}/")
+                if cp_bucket
+                else None,
             ) as mock_cp,
             # The per-environment table-name lookup hits the DB; this suite stays DB-free.
             patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons")),
@@ -72,11 +74,11 @@ class TestResolveDucklingTarget:
         assert target.organization_id == "org-1"
 
     def test_falls_back_to_stored_server_when_control_plane_unavailable(self) -> None:
-        # CP returns nothing (unreachable/unconfigured) — use the known-good stored row.
-        target, mock_cp = self._resolve(server=_FakeRow("server-bucket", "eu-west-1"), cp_bucket=None)
+        # CP returns nothing (unreachable/unconfigured) — use the known-good stored per-org row.
+        target, mock_cp = self._resolve(server=_FakeRow("posthog-duckling-org-1", "eu-west-1"), cp_bucket=None)
 
         mock_cp.assert_called_once_with("org-1")
-        assert target.bucket == "server-bucket"
+        assert target.bucket == "posthog-duckling-org-1"
         assert target.bucket_region == "eu-west-1"
 
     @parameterized.expand(

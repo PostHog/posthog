@@ -1,6 +1,7 @@
 import functools
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
@@ -36,9 +37,11 @@ from posthog.dags.events_backfill_to_duckling import (
     TRINO_EXPORT_SETTINGS,
     DucklingBackfillConfig,
     DucklingTarget,
+    HoglakeExport,
     TrinoExport,
     _compute_fanout,
     _execute_export_with_retry,
+    _export_result,
     _failed_run_retry_due,
     _get_cluster,
     _glob_run_files,
@@ -46,10 +49,17 @@ from posthog.dags.events_backfill_to_duckling import (
     _open_ducklake_registration,
     _repair_stale_running_statuses,
     _resolve_duckling_target,
+    _written_or_raise,
     backfill_through_trino,
+    export_glob,
     get_s3_url_for_clickhouse,
+    hoglake_days_with_rows,
+    hoglake_export_directory,
+    hoglake_range_conditions,
     is_full_export_partition,
     parse_partition_key_dates,
+    plan_hoglake_full_export,
+    schedulable_backfill_team_memberships,
 )
 
 from products.data_warehouse.backend.facade.backfill_status import record_backfill_finished, record_backfill_started
@@ -95,14 +105,16 @@ GROUPS_TRINO_COLUMN_TYPES = {
 }
 
 
-def groups_snapshot_select_sql(team_id: int, date: datetime | None = None, *, for_trino: bool = False) -> str:
+def groups_snapshot_select_sql(
+    team_id: int, date: datetime | None = None, *, for_trino: bool = False, conditions: Sequence[str] = ()
+) -> str:
     if team_id <= 0:
         raise ValueError("Groups backfill requires a positive team ID")
-    date_filter = ""
+    date_filter = "".join(f" AND {condition}" for condition in conditions)
     if date is not None:
         start = escape_clickhouse_string(date.strftime("%Y-%m-%d"))
         end = escape_clickhouse_string((date + timedelta(days=1)).strftime("%Y-%m-%d"))
-        date_filter = f"AND _timestamp >= toDateTime({start}, 'UTC') AND _timestamp < toDateTime({end}, 'UTC')"
+        date_filter += f" AND _timestamp >= toDateTime({start}, 'UTC') AND _timestamp < toDateTime({end}, 'UTC')"
     group_type_index = "toInt16(group_type_index) AS group_type_index" if for_trino else "group_type_index"
     created_at = "toDateTime64(created_at, 6, 'UTC') AS created_at" if for_trino else "created_at"
     return f"""
@@ -115,6 +127,43 @@ def groups_snapshot_select_sql(team_id: int, date: datetime | None = None, *, fo
     """
 
 
+def _export_groups_full_in_day_ranges(
+    context: AssetExecutionContext,
+    client: "Client",
+    config: DucklingBackfillConfig,
+    target: DucklingTarget,
+    run_id: str,
+    settings: dict[str, Any],
+) -> HoglakeExport:
+    """Export all groups of a hoglake team into the same `full` directory, one query per range of days.
+
+    The groups table is partitioned by UTC day of `_timestamp`, and `add_files` refuses a file that spans two days.
+    The partition id joins the UTC day and the bucket in one string, because a tuple would put brackets and quotes in
+    the file name.
+    """
+    directory = hoglake_export_directory(target, "groups", None)
+    days = hoglake_days_with_rows(client, "groups", "_timestamp", f"team_id = {int(target.team_id)}", settings)
+    plan = plan_hoglake_full_export(config, days)
+    written_total = 0
+    for query in plan.queries:
+        s3_url = get_s3_url_for_clickhouse(
+            target.bucket, target.bucket_region, f"{directory}/{run_id}_{query.index:04d}_{{_partition_id}}.parquet"
+        )
+        select = groups_snapshot_select_sql(
+            target.team_id, for_trino=True, conditions=hoglake_range_conditions("_timestamp", query)
+        )
+        export_sql = f"""
+            INSERT INTO FUNCTION s3({escape_clickhouse_string(s3_url)}, 'Parquet')
+            PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(group_type_index, group_key) % {plan.files_per_day}))
+            {select}
+            SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
+        """
+        info = f"team_id={target.team_id}, date=full, days from {query.start or 'the start'} to {query.end or 'now'}"
+        context.log.info(f"Exporting groups for {info} ({query.rows} rows, {plan.files_per_day} file(s) per day)")
+        written_total += _written_or_raise(_execute_export_with_retry(client, export_sql, settings, info), info)
+    return HoglakeExport(s3_glob=f"s3://{target.bucket}/{directory}/{run_id}_*.parquet", rows=written_total)
+
+
 def export_groups_to_duckling_s3(
     context: AssetExecutionContext,
     client: "Client",
@@ -124,9 +173,12 @@ def export_groups_to_duckling_s3(
     *,
     run_id: str | None = None,
     for_trino: bool = False,
-) -> str | None:
-    period = f"/{date.strftime('%Y-%m-%d')}" if date is not None else ""
-    path = f"backfill/groups/{target.team_id}{period}/{run_id or context.run.run_id}/{{_partition_id}}.parquet"
+) -> str | HoglakeExport | None:
+    if target.backend == "hoglake":
+        path = f"{hoglake_export_directory(target, 'groups', date)}/{run_id or context.run.run_id}_{{_partition_id}}.parquet"
+    else:
+        period = f"/{date.strftime('%Y-%m-%d')}" if date is not None else ""
+        path = f"backfill/groups/{target.team_id}{period}/{run_id or context.run.run_id}/{{_partition_id}}.parquet"
     s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, path)
     s3_glob = f"s3://{target.bucket}/{path.replace('{_partition_id}', '*')}"
     if config.dry_run:
@@ -142,6 +194,10 @@ def export_groups_to_duckling_s3(
     settings.update(PARQUET_WRITER_SETTINGS)
     if for_trino:
         settings.update(TRINO_EXPORT_SETTINGS)
+    if target.backend == "hoglake" and date is None:
+        return _export_groups_full_in_day_ranges(
+            context, client, config, target, run_id or context.run.run_id, settings
+        )
     count_sql = "SELECT count() FROM groups WHERE team_id = %(team_id)s"
     count_params: dict[str, int | str] = {"team_id": target.team_id}
     if date is not None:
@@ -157,8 +213,8 @@ def export_groups_to_duckling_s3(
     """
     # A failed export can leave partial S3 objects; only register files after the whole query succeeds.
     info = f"team_id={target.team_id}, date={date.strftime('%Y-%m-%d') if date is not None else 'full'}"
-    _execute_export_with_retry(client, export_sql, settings, info)
-    return s3_glob
+    written_rows = _execute_export_with_retry(client, export_sql, settings, info)
+    return _export_result(target, s3_glob, written_rows)
 
 
 def ensure_groups_table(
@@ -262,9 +318,9 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
     groups_snapshot_select_sql(team_id)
     mode = "full" if is_full else "daily"
     target = _resolve_duckling_target(team_id)
-    table_name = resolve_groups_table(team_id)
+    table_name = "groups" if target.backend == "hoglake" else resolve_groups_table(team_id)
     tags = dagster_tags(context)
-    registration = _open_ducklake_registration(context, config, target)
+    registration = _open_ducklake_registration(context, config, target, dataset=GROUPS_DATASET)
     if registration.through_trino:
         result = backfill_through_trino(
             context,
@@ -322,7 +378,7 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
 
             def export(client: "Client", date: datetime | None = partition_date) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
-                    return export_groups_to_duckling_s3(context, client, config, target, date)
+                    return export_glob(export_groups_to_duckling_s3(context, client, config, target, date))
 
             s3_glob = (
                 _get_cluster()
@@ -439,7 +495,12 @@ def _groups_snapshot_run_request(
 
 def _groups_snapshot_sensor_result(context: SensorEvaluationContext, *, refresh_daily: bool) -> SensorResult:
     call_site = "groups_daily_backfill_sensor" if refresh_daily else "groups_full_backfill_sensor"
-    backfills = sorted(list_enabled_backfill_team_memberships(call_site), key=lambda row: row.team_id)
+    backfills = sorted(
+        schedulable_backfill_team_memberships(
+            list_enabled_backfill_team_memberships(call_site), dataset=GROUPS_DATASET
+        ),
+        key=lambda row: row.team_id,
+    )
     if not backfills:
         return SensorResult(run_requests=[])
     _repair_stale_running_statuses(context, GROUPS_DATASET)
