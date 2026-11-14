@@ -31,9 +31,11 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
     PRECHECK_MAX_ROWS,
     evaluate_scout_precheck,
+    make_never_run_scout_due,
     precheck_interval_minutes,
     resolve_effective_precheck,
 )
+from products.signals.backend.temporal.agentic.scout_coordinator import _overdue_seconds
 from products.skills.backend.models.skills import LLMSkill
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
@@ -99,7 +101,11 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         assert (result.outcome, result.reason, result.row_count) == (outcome, reason, row_count)
         properties = capture.call_args.kwargs["properties"]
         assert capture.call_args.kwargs["event"] == "scout_precheck_evaluated"
-        assert (properties["outcome"], properties["row_count"]) == (outcome, row_count)
+        assert (properties["outcome"], properties["row_count"], properties["seconds_since_config_created"]) == (
+            outcome,
+            row_count,
+            None,
+        )
         stored = SignalScoutConfig.all_teams.get(team=self.team, skill_name=SKILL)
         assert (stored.last_precheck_at, stored.last_precheck_outcome, stored.last_precheck_row_count) == (
             NOW,
@@ -392,6 +398,7 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
             (
                 "flagged_episode_start",
                 [*QUIET_SERIES, (1, 400.0, 1)],
+                None,
                 30,
                 TEAM,
                 "run",
@@ -401,40 +408,93 @@ class TestAnomalyDetectionDefaultPrecheck(ClickhouseTestMixin, BaseTest):
             (
                 "flagged_episode_continues",
                 [*QUIET_SERIES[:-1], (2, 400.0, 1), (1, 400.0, 1)],
+                None,
                 30,
                 TEAM,
                 "skip",
                 None,
             ),
             # Flagged, but within 30% of its baselines.
-            ("flagged_small_move", [*QUIET_SERIES, (1, 110.0, 1)], 30, TEAM, "skip", None),
-            ("flagged_drop_below_floor", [*QUIET_SERIES, (1, 5.0, 1)], 30, TEAM, "run", "scored"),
-            ("scored_quiet", [*QUIET_SERIES, (1, 100.0, 0)], 30, TEAM, "skip", None),
-            ("no_scores_team_due", [], 30, TEAM, "run", "legacy"),
-            ("few_scored_days_team_due", QUIET_SERIES[-5:], 30, TEAM, "run", "legacy"),
-            ("no_scores_team_ran_recently", [], 2, TEAM, "skip", None),
-            ("no_scores_background", [], 30, BACKGROUND, "skip", None),
+            ("flagged_small_move", [*QUIET_SERIES, (1, 110.0, 1)], None, 30, TEAM, "skip", None),
+            ("flagged_drop_below_floor", [*QUIET_SERIES, (1, 5.0, 1)], None, 30, TEAM, "run", "scored"),
+            ("scored_quiet", [*QUIET_SERIES, (1, 100.0, 0)], None, 30, TEAM, "skip", None),
+            ("no_scores_team_due", [], 10, 30, TEAM, "run", "legacy"),
+            ("few_scored_days_team_due", QUIET_SERIES[-5:], 10, 30, TEAM, "run", "legacy"),
+            ("no_scores_no_history", [], 1, 30, TEAM, "skip", None),
+            ("no_scores_team_ran_recently", [], 10, 2, TEAM, "skip", None),
+            ("no_scores_background", [], 10, 30, BACKGROUND, "skip", None),
         ]
     )
-    def test_default_picks_the_mode(self, _name, scores, quiet_hours, managed_by, outcome, mode) -> None:
+    def test_default_picks_the_mode(
+        self, _name, scores, event_days_ago, quiet_hours, managed_by, outcome, mode
+    ) -> None:
         SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
             managed_by=managed_by, created_at=NOW - timedelta(hours=quiet_hours)
         )
         for days_ago, value, flag in scores:
             self._score(days_ago, value, flag)
+        if event_days_ago is not None:
+            _create_event(
+                team=self.team, event="$pageview", distinct_id="d1", timestamp=NOW - timedelta(days=event_days_ago)
+            )
         flush_persons_and_events()
 
         with (
             patch(ROLLOUT_PERCENT, return_value=100),
-            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture") as capture,
         ):
             result = evaluate_scout_precheck(self.team.pk, ANOMALY_SKILL)
 
         assert result is not None
-        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+        assert (result.outcome, result.query_source, result.mode) == (outcome, "skill_default", mode)
         if mode is not None:
             assert result.row_count == 1
             assert f'"mode": "{mode}"' in (result.rows_text or "")
+        properties = capture.call_args.kwargs["properties"]
+        assert (properties["mode"], properties["seconds_since_config_created"]) == (mode, quiet_hours * 3600)
+
+
+@time_machine.travel(NOW, tick=False)
+class TestMakeNeverRunScoutDue(BaseTest):
+    @parameterized.expand(
+        [
+            ("skipped_first_precheck", 1.0, None, False, True),
+            ("has_a_run_row", 1.0, None, True, False),
+            ("cron_schedule", 1.0, "0 9 * * *", False, False),
+            # Already due before the settle time ends, so a later anchor would delay it.
+            ("already_due_sooner", 25.0, None, False, False),
+        ]
+    )
+    def test_moves_only_the_anchor_of_a_never_run_scout(
+        self, _name, anchor_hours_ago, cron, has_run, expect_moved
+    ) -> None:
+        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=SKILL, run_cron_schedule=cron)
+        anchor = NOW - timedelta(hours=anchor_hours_ago)
+        SignalScoutConfig.all_teams.filter(pk=config.pk).update(last_run_at=anchor)
+        if has_run:
+            Task = apps.get_model("tasks", "Task")
+            TaskRun = apps.get_model("tasks", "TaskRun")
+            task = Task.objects.create(
+                team=self.team, title="scout run", description="", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+            )
+            SignalScoutRun.all_teams.create(
+                team=self.team,
+                task_run=TaskRun.objects.create(task=task, team=self.team),
+                skill_name=SKILL,
+                skill_version=1,
+            )
+        due_at = NOW + timedelta(minutes=10)
+
+        moved = make_never_run_scout_due(self.team.pk, SKILL, at=due_at)
+
+        config.refresh_from_db()
+        assert moved is expect_moved
+        if not expect_moved:
+            assert config.last_run_at == anchor
+            return
+        timezone_info = self.team.timezone_info
+        assert _overdue_seconds(config, due_at - timedelta(minutes=1), timezone_info) is None
+        assert _overdue_seconds(config, due_at, timezone_info) is not None
 
 
 # Non-atomic: ClickHouse reads `system.*` tables over its own Postgres connection, so rows must be committed.
