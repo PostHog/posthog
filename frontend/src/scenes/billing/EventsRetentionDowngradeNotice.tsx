@@ -4,11 +4,11 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { longestEventsRetentionMonths } from 'lib/logic/billing/eventsRetentionMonths'
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
 
 import { BillingPlanType } from '~/types'
 
 import { EventsRetentionDowngradeDeletionCount } from 'products/product_analytics/frontend/settings/EventsRetentionDowngradeDeletionCount'
-import { retentionPeriodLabel } from 'products/product_analytics/frontend/settings/retentionPeriodLabel'
 
 export function EventsRetentionDowngradeNotice({
     plansAfterChange,

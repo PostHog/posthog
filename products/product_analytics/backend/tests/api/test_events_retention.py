@@ -587,8 +587,29 @@ class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.json() == {"retention_months": 12, "events_deleted": 2}
 
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    @time_machine.travel("2100-09-22T20:00:00Z", tick=False)
+    def test_members_count_the_events_the_scheduled_deletion_removes(self) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(
+            available_product_features=[{"key": "product_analytics_data_retention", "limit": 2, "unit": "years"}]
+        )
+        self.team.event_retention_months = 24
+        self.team.save()
+        self.client.force_login(self.user)
+        url = f"/api/projects/{self.team.id}/events_retention/scheduled_deletion_count/"
+
+        nothing_scheduled = self.client.get(url)
+        TeamEventsPlanDeletion.objects.create(team=self.team, months=24, next_deletion_on=date(2100, 11, 3))
+        for timestamp in ["2098-10-31T23:59:59Z", "2098-11-01T00:00:00Z"]:
+            _create_event(team=self.team, event="$pageview", distinct_id="user", timestamp=timestamp)
+        scheduled = self.client.get(url)
+
+        assert nothing_scheduled.json() == {"deletes_on": None, "deletes_before": None, "events_deleted": 0}
+        assert scheduled.json() == {"deletes_on": "2100-11-03", "deletes_before": "2098-11-01", "events_deleted": 1}
+
     @parameterized.expand(
         [
+            ("project", "scheduled_deletion_count", ["project:read"], status.HTTP_403_FORBIDDEN),
             ("project", "deletion_count", ["project:read"], status.HTTP_403_FORBIDDEN),
             ("project", "deletion_count", ["project:read", "query:read"], status.HTTP_200_OK),
             ("organization", "deletion_count", ["organization:read"], status.HTTP_403_FORBIDDEN),

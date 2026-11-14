@@ -1,0 +1,7 @@
+version: 1
+owners: []
+rules:
+    - match:
+          - '/eventsRetentionDeletionWarningLogic.*'
+          - '/panel-layout/navbar/EventsRetentionDeletionWarning.*'
+      owners: team-product-analytics

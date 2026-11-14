@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
 
 import { eventsDeletedSentence } from './eventsDeletedSentence'
 import {
     EventsRetentionDeletionCountLogicProps,
     eventsRetentionDeletionCountLogic,
 } from './eventsRetentionDeletionCountLogic'
-import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export function EventsRetentionDeletionCount(props: EventsRetentionDeletionCountLogicProps): JSX.Element | null {
     const { eventsDeleted, eventsDeletedLoading } = useValues(eventsRetentionDeletionCountLogic(props))

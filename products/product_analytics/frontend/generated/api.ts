@@ -66,6 +66,7 @@ import type {
     PatchedInsightApi,
     PathsV2SegmentToFunnelRequestApi,
     PathsV2SegmentToFunnelResponseApi,
+    ScheduledEventsDeletedApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -531,6 +532,24 @@ export const eventsRetentionDeletionCount = async (
     options?: RequestInit
 ): Promise<EventsDeletedApi> => {
     return apiMutator<EventsDeletedApi>(getEventsRetentionDeletionCountUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEventsRetentionScheduledDeletionCountUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_retention/scheduled_deletion_count/`
+}
+
+/**
+ * Returns the project's next scheduled deletion and how many of its events that deletion removes. Project members can read it.
+ * @summary Count the events the project's next scheduled deletion removes
+ */
+export const eventsRetentionScheduledDeletionCount = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScheduledEventsDeletedApi> => {
+    return apiMutator<ScheduledEventsDeletedApi>(getEventsRetentionScheduledDeletionCountUrl(projectId), {
         ...options,
         method: 'GET',
     })

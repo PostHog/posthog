@@ -14,6 +14,11 @@ import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
 import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    eventsRetentionDeletionWarningLogic,
+    eventsRetentionSettingsUrl,
+} from '~/layout/eventsRetentionDeletionWarningLogic'
+
 import { todayMenuLinkItem } from './todayMenuLinkItem'
 import { TodayMoreMenuSupportItem } from './TodayMoreMenuSupportItem'
 import { TodayNavSwitchMenuItem } from './TodayNavSwitchMenuItem'
@@ -34,6 +39,7 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
     const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
         useValues(todayRailStatusLogic)
     const { switchAvailable } = useValues(navSwitchLogic)
+    const { warning } = useValues(eventsRetentionDeletionWarningLogic)
     const { tourActive } = useValues(todayTourLogic)
     const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
 
@@ -84,6 +90,15 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
                 >
                     Health
                 </DropdownMenuItem>
+                {warning && (
+                    <DropdownMenuItem
+                        render={todayMenuLinkItem(eventsRetentionSettingsUrl())}
+                        description={<span className={SEVERITY_TEXT_CLASS.warning}>{warning.title}</span>}
+                        data-attr="more-menu-events-retention-button"
+                    >
+                        Retention settings
+                    </DropdownMenuItem>
+                )}
                 {switchAvailable && <TodayNavSwitchMenuItem />}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

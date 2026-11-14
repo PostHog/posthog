@@ -2,10 +2,11 @@ import { useState } from 'react'
 
 import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
+
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
 import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
 import { RetentionPeriods, retentionChangeDeletion } from './retentionChangeDeletion'
-import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export interface EventsRetentionSupportPeriodModalProps {
     periods: RetentionPeriods
