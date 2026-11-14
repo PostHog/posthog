@@ -182,14 +182,17 @@ class LogsSigningSecret(UUIDModel):
     Read it with `objects.for_team(team.id)` and the environment's own id.
     """
 
+    PREVIOUS_SECRET_GRACE = timedelta(hours=48)
+
     objects = EnvironmentScopedManager()
 
     # db_constraint=False so that CreateModel takes no lock on posthog_team.
     team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # The ciphertext is different on each write. Never filter by this value: fetch by team and compare.
     secret = EncryptedTextField()
-    # The secret that `secret` replaced. It stays valid for a grace period after a rotation,
-    # because customers need a deploy window to move their servers to the new value.
+    # The secret that `secret` replaced. It stays valid for PREVIOUS_SECRET_GRACE after
+    # previous_secret_rotated_at, because customers need a deploy window to move their
+    # servers to the new value. Readers judge the expiry at read time.
     previous_secret = EncryptedTextField(null=True)
     previous_secret_rotated_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -200,6 +203,17 @@ class LogsSigningSecret(UUIDModel):
 
     def __str__(self) -> str:
         return f"LogsSigningSecret(team={self.team_id})"
+
+    @property
+    def previous_secret_valid_until(self) -> datetime | None:
+        if not self.previous_secret or not self.previous_secret_rotated_at:
+            return None
+        return self.previous_secret_rotated_at + self.PREVIOUS_SECRET_GRACE
+
+    @property
+    def previous_secret_active(self) -> bool:
+        valid_until = self.previous_secret_valid_until
+        return valid_until is not None and datetime.now(UTC) < valid_until
 
 
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
