@@ -39,6 +39,8 @@ declare global {
         JS_CAPTURE_TIME_TO_SEE_DATA?: boolean
         posthog?: posthog
         ESBUILD_LOAD_SCRIPT: (name) => void
+        /** Set by the HTML loader script: true on a page that reloaded on the hashed build after a stable chunk failed. */
+        POSTHOG_STABLE_CHUNKS_FALLBACK?: boolean
         ESBUILD_LOAD_CHUNKS: (name) => void
         ESBUILD_LOADED_CHUNKS: Set<string>
         /** Set by the HTML loader script: resolves when the boot stylesheet has loaded (true) or failed (false). */

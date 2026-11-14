@@ -25,6 +25,8 @@ from prometheus_client import Counter
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+
 logger = structlog.get_logger(__name__)
 
 STABLE_CHUNKS_PARAM = "stable_chunks"
@@ -33,9 +35,11 @@ STABLE_CHUNKS_UNMAPPED_PARAM = "stable_chunks_unmapped"
 STABLE_CHUNKS_FALLBACK_COUNTER = Counter(
     "posthog_stable_chunks_fallback",
     "App shell requests that reload on the hashed build because the stable entry failed to load.",
-    labelnames=["authenticated", "reason"],
+    labelnames=["authenticated", "reason", "bot"],
 )
 _STABLE_CHUNK_SPECIFIER = re.compile(r"@c/[A-Za-z0-9]+")
+# The bot patterns can backtrack, so the match must not run on an unbounded header.
+_BOT_MATCH_MAX_USER_AGENT_LENGTH = 1024
 
 
 @frozen
@@ -121,6 +125,16 @@ def _resolve_stable_chunks() -> Optional[StableChunks]:
     )
 
 
+@lru_cache(maxsize=1)
+def _bot_user_agent() -> re.Pattern[str]:
+    return re.compile("|".join(f"(?:{pattern})" for pattern in BOT_DEFINITIONS))
+
+
+def _is_bot(request: HttpRequest) -> bool:
+    user_agent = request.headers.get("user-agent", "")[:_BOT_MATCH_MAX_USER_AGENT_LENGTH]
+    return not user_agent or _bot_user_agent().search(user_agent) is not None
+
+
 def _count_fallback(request: HttpRequest) -> None:
     unmapped = request.GET.get(STABLE_CHUNKS_UNMAPPED_PARAM, "")
     is_unmapped = _STABLE_CHUNK_SPECIFIER.fullmatch(unmapped) is not None
@@ -130,6 +144,8 @@ def _count_fallback(request: HttpRequest) -> None:
     STABLE_CHUNKS_FALLBACK_COUNTER.labels(
         authenticated=str(request.user.is_authenticated).lower(),
         reason="unmapped_specifier" if is_unmapped else "load_failed",
+        # A crawler requests the fallback URL that it indexed, so its request is not a failed load.
+        bot=str(_is_bot(request)).lower(),
     ).inc()
 
 

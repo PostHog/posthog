@@ -140,19 +140,25 @@ describe('bootTiming', () => {
     })
 
     it.each([
-        { distinctId: IN_SAMPLE_ID, sampled: true },
-        { distinctId: OUT_OF_SAMPLE_ID, sampled: false },
+        { distinctId: IN_SAMPLE_ID, fellBack: false, sent: { sample_rate: 0.05, chunk_build: 'hashed' } },
+        { distinctId: OUT_OF_SAMPLE_ID, fellBack: false, sent: null },
+        { distinctId: OUT_OF_SAMPLE_ID, fellBack: true, sent: { sample_rate: 1, chunk_build: 'fallback' } },
         // An empty ID hashes to bucket 0, so without a guard every such page load would land in the sample.
-        { distinctId: '', sampled: false },
-        { distinctId: undefined, sampled: false },
-    ])('samples on distinct ID $distinctId (sampled: $sampled)', async ({ distinctId, sampled }) => {
+        { distinctId: '', fellBack: false, sent: null },
+        { distinctId: undefined, fellBack: false, sent: null },
+    ])('samples on distinct ID $distinctId (fell back: $fellBack)', async ({ distinctId, fellBack, sent }) => {
         getDistinctId.mockReturnValue(distinctId)
-        markAt(50, 'entry')
-        markAt(900, 'scene_rendered')
-        await flushSend()
+        window.POSTHOG_STABLE_CHUNKS_FALLBACK = fellBack
+        try {
+            markAt(50, 'entry')
+            markAt(900, 'scene_rendered')
+            await flushSend()
+        } finally {
+            delete window.POSTHOG_STABLE_CHUNKS_FALLBACK
+        }
 
-        if (sampled) {
-            expect(capture).toHaveBeenCalledWith('app boot timing', expect.objectContaining({ sample_rate: 0.05 }))
+        if (sent) {
+            expect(capture).toHaveBeenCalledWith('app boot timing', expect.objectContaining(sent))
         } else {
             expect(capture).not.toHaveBeenCalled()
         }
