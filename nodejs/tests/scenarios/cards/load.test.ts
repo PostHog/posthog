@@ -316,6 +316,38 @@ describe('load', () => {
             'profile.replicas.cdp-api: cdp-api runs once, since every intake offer goes to replica 0',
         ],
         [
+            'a backlog whose state sizes shrink toward p99',
+            card,
+            {
+                ...profile,
+                backlog: {
+                    teams: 1,
+                    jobs: { hogflow: 10 },
+                    stateBytes: { p50: 4000, p90: 1000, p99: 8000 },
+                    compressibility: 0.5,
+                    parkFor: '10080m',
+                    tolerance: 0.01,
+                },
+            },
+            'profile.backlog.stateBytes: p50, p90 and p99 must not decrease',
+        ],
+        [
+            'a backlog without a queue',
+            card,
+            {
+                ...profile,
+                backlog: {
+                    teams: 1,
+                    jobs: {},
+                    stateBytes: { p50: 1000, p90: 4000, p99: 8000 },
+                    compressibility: 0.5,
+                    parkFor: '10080m',
+                    tolerance: 0.01,
+                },
+            },
+            'profile.backlog.jobs: name at least one queue',
+        ],
+        [
             'a profile that uses a YAML alias',
             card,
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',

@@ -19,6 +19,7 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
+import { residentBacklogOf } from '../backlog/backlog'
 import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
@@ -281,6 +282,7 @@ export function createRunner(
             const judge = createJudge({
                 edgeUrl,
                 probe,
+                residentBacklog: () => residentBacklogOf(profile, stateDir, cyclotronUrlOf(specs[0])),
                 fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
             })
             const valves = createValves()

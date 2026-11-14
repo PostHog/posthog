@@ -51,10 +51,11 @@ import { _fetch, fetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
-import { CdpRole, LoadedCard, Profile, ValveEntry, load } from '../cards'
+import { seedBacklog } from '../backlog/backlog'
+import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
-import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
+import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
@@ -658,7 +659,12 @@ describe('runner through seed, drive and judge', () => {
     const shortSmoke = (
         valves: ValveEntry[] = [],
         traffic = 'event_email',
-        { replicas = {}, parks = 0 }: { replicas?: Profile['replicas']; parks?: number } = {}
+        {
+            replicas = {},
+            parks = 0,
+            invariants = SMOKE.card.invariants,
+            backlog,
+        }: { replicas?: Profile['replicas']; parks?: number; invariants?: Named[]; backlog?: Backlog } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
@@ -667,6 +673,7 @@ describe('runner through seed, drive and judge', () => {
             stringify({
                 ...SMOKE.card,
                 drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
+                invariants,
                 valves,
                 convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
@@ -677,6 +684,7 @@ describe('runner through seed, drive and judge', () => {
                 name: SMOKE.profile.name,
                 traffic: { [traffic]: { ratePerSecond: 2, parks } },
                 replicas,
+                ...(backlog ? { backlog } : {}),
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -933,6 +941,85 @@ describe('runner through seed, drive and judge', () => {
             ].sort(),
         }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
     }, 30_000)
+
+    it.each<[string, Parameters<typeof environmentOf>[0], string, string | undefined, string, object]>([
+        [
+            'passes when the roles finish every job of the run beside the resident backlog',
+            'all',
+            SMOKE.profile.name,
+            undefined,
+            'passed',
+            { passed: true, observed: 0 },
+        ],
+        [
+            'fails when a resident job seeded before the run is gone after it',
+            'all',
+            SMOKE.profile.name,
+            'DELETE FROM cyclotron_jobs WHERE id = (SELECT id FROM cyclotron_jobs WHERE team_id = $1 LIMIT 1)',
+            'failed',
+            {
+                passed: false,
+                violation: `team ${RESIDENT_TEAMS_FROM + 1} hogflow available: expected 2 rows, found 1`,
+            },
+        ],
+        [
+            "fails when a resident job's state was cut short after the seed",
+            'all',
+            SMOKE.profile.name,
+            `UPDATE cyclotron_jobs SET state = substring(state FROM 1 FOR 10)
+             WHERE id = (SELECT id FROM cyclotron_jobs WHERE team_id = $1 LIMIT 1)`,
+            'failed',
+            {
+                passed: false,
+                violation: expect.stringMatching(
+                    new RegExp(`^team ${RESIDENT_TEAMS_FROM + 1} hogflow available: the rows changed in place`)
+                ),
+            },
+        ],
+        [
+            'fails when the backlog was seeded for another profile',
+            'all',
+            'another',
+            undefined,
+            'failed',
+            {
+                passed: false,
+                violation: `the resident backlog was seeded for profile another; run seed-backlog with profile ${SMOKE.profile.name} first`,
+            },
+        ],
+    ])(
+        'resident_backlog_intact %s',
+        async (_story, delivering, seededFor, tamper, status, expected) => {
+            const backlog: Backlog = {
+                teams: 2,
+                jobs: { hogflow: 4 },
+                stateBytes: { p50: 100, p90: 200, p99: 300 },
+                compressibility: 0.5,
+                parkFor: '10080m',
+                tolerance: 0,
+            }
+            const seeded = await seedBacklog(seededFor, backlog, cyclotronUrl, defaultStateDir(env))
+            expect(seeded.manifest).toBeDefined()
+            if (tamper !== undefined) {
+                await withPostgres((client) => client.query(tamper, [RESIDENT_TEAMS_FROM + 1]), cyclotronUrl)
+            }
+
+            const result = await createRunner(environmentOf(delivering), env).run(
+                shortSmoke([], 'event_email', {
+                    invariants: [{ name: 'resident_backlog_intact', params: {} }],
+                    backlog,
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            expect(result).toMatchObject({
+                status,
+                invariants: [expect.objectContaining({ name: 'resident_backlog_intact', ...expected })],
+            })
+        },
+        30_000
+    )
 
     const KILL_EMAIL_WORKER: ValveEntry = {
         valve: 'role.kill',

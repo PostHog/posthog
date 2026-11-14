@@ -44,6 +44,7 @@ import {
 } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
 import {
+    RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
     downServices,
@@ -1865,7 +1866,7 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
+        it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog, keeping the resident backlog", async () => {
             const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
             environment = environmentOf()
@@ -1873,8 +1874,11 @@ describe('scenario environment', () => {
             await withPostgres(
                 (client) =>
                     client.query(
-                        "INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition) SELECT gen_random_uuid(), 9999001, 'hog', status::public.cyclotronjobstatus, 0, now(), now(), now() FROM unnest($1::text[]) AS status",
-                        [['available', 'running', 'completed']]
+                        "INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition) SELECT gen_random_uuid(), team, 'hog', status::public.cyclotronjobstatus, 0, now(), now(), now() FROM unnest($1::int[], $2::text[]) AS job(team, status)",
+                        [
+                            [9999001, 9999001, 9999001, RESIDENT_TEAMS_FROM],
+                            ['available', 'running', 'completed', 'running'],
+                        ]
                     ),
                 cyclotronUrl
             )
@@ -1895,7 +1899,7 @@ describe('scenario environment', () => {
                     offsets: offsetsOf(),
                     sends: [fault.status, sendBefore, await sendThrough(environment.edgeUrl())],
                 }).toEqual({
-                    jobs: ['completed'],
+                    jobs: ['completed', 'running'],
                     tokens: 5,
                     offsets: everyGroupAtEnd(),
                     sends: [201, 'MessageRejected', 'sent'],

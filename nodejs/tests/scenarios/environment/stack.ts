@@ -8,6 +8,7 @@ import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
+import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
 
 import { ConsumerGroup, ROLE_PORTS, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
@@ -75,13 +76,14 @@ export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.
 
 export async function withPostgres<T>(
     run: (client: Client) => Promise<T>,
-    connectionString = STACK.postgresUrl
+    connectionString = STACK.postgresUrl,
+    statementTimeoutMs = PROBE_TIMEOUT_MS
 ): Promise<T> {
     const client = new Client({
         connectionString,
         connectionTimeoutMillis: PROBE_TIMEOUT_MS,
-        query_timeout: PROBE_TIMEOUT_MS,
-        statement_timeout: PROBE_TIMEOUT_MS,
+        query_timeout: statementTimeoutMs,
+        statement_timeout: statementTimeoutMs,
     })
     try {
         await client.connect()
@@ -107,6 +109,16 @@ export function scratchSchema(connectionString: string, schema: string, tables: 
                 await client.query(`CREATE SCHEMA ${schema}`)
                 for (const table of tables) {
                     await client.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
+                }
+                const { rows } = await client.query<{ type: string }>(
+                    `SELECT DISTINCT t.typname AS type
+                     FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid
+                     WHERE a.attrelid = ANY($1::regclass[]) AND t.typtype = 'e'
+                       AND t.typnamespace = 'public'::regnamespace`,
+                    [tables.map((table) => `public.${table}`)]
+                )
+                for (const { type } of rows) {
+                    await client.query(`CREATE DOMAIN ${schema}.${type} AS public.${type}`)
                 }
             }, connectionString),
         drop: async () => {
@@ -230,9 +242,14 @@ export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[]
     return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
+export const RESIDENT_TEAMS_FROM = TEST_IDS_BELOW
+
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
     await withPostgres(
-        (client) => client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running')"),
+        (client) =>
+            client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running') AND team_id < $1", [
+                RESIDENT_TEAMS_FROM,
+            ]),
         cyclotronUrl
     )
 }
