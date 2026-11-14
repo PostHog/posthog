@@ -1,0 +1,130 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "campaigns": {
+            "description": "The automations to import, at most 50. People are never read from these objects.",
+            "items": {
+                "properties": {
+                    "actions": {
+                        "description": "The top-level `actions` array from the same response, every step of the automation.",
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "campaign": {
+                        "additionalProperties": {},
+                        "description": "The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields.",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "templates": {
+                        "description": "The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content."
+                    }
+                },
+                "required": ["campaign", "actions"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "dry_run": {
+            "default": false,
+            "description": "When true, translate and check the automations but save nothing, to preview the import.",
+            "type": "boolean"
+        },
+        "layouts": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "segment_cohorts": {
+            "additionalProperties": {
+                "type": "number"
+            },
+            "description": "Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "segments": {
+            "description": "Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort.",
+            "items": {
+                "properties": {
+                    "conditions": {
+                        "description": "The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort."
+                    },
+                    "id": {
+                        "description": "The segment's id.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "The segment's name.",
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "The segment's type: `dynamic`, or `static` for a hand-made list.",
+                        "type": "string"
+                    }
+                },
+                "required": ["id", "name", "type"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "sender_identities": {
+            "description": "Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address.",
+            "items": {
+                "properties": {
+                    "email": {
+                        "description": "The address the sender sends from.",
+                        "format": "email",
+                        "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "The sender identity's id, which templates name in `from_identity_id`.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "default": "",
+                        "description": "The sender's display name.",
+                        "type": "string"
+                    }
+                },
+                "required": ["id", "email"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "snippets": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "source": {
+            "description": "The tool the automations come from.\n\n* `customerio` - Customer.io",
+            "enum": ["customerio"],
+            "type": "string"
+        }
+    },
+    "required": ["source", "campaigns"],
+    "type": "object"
+}

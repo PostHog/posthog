@@ -15,7 +15,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPService, GeoIPServiceComponent, MmdbMode, resolveCdpMmdbMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -86,6 +86,7 @@ export class PluginServer implements NodeServer {
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
     private pubsub?: PubSub
+    private stopGeoIPService?: () => Promise<void>
 
     constructor(config: Partial<PluginsServerConfig> = {}) {
         this.config = { ...defaultConfig, ...config }
@@ -142,7 +143,14 @@ export class PluginServer implements NodeServer {
             this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         }
         if (needsCdp) {
-            cdpServices = await this.createCdpSharedServices()
+            // Only cdp-api looks up GeoIP: its test invocations run transformations, such as the GeoIP
+            // transformation. Destinations get no `geoipLookup`, and no destination plugin reads `meta.geoip`.
+            // Some cdp-api deployments have no MMDB, so the deployments that mount one set CDP_MMDB_ENABLED=true.
+            const geoipMode = resolveCdpMmdbMode(
+                this.config.CDP_MMDB_ENABLED,
+                capabilities.cdpApi ? 'optional' : 'disabled'
+            )
+            cdpServices = await this.createCdpSharedServices({ geoipMode })
         }
 
         // 3. CDP services (posthog redis, quota limiting)
@@ -550,6 +558,7 @@ export class PluginServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
+                await this.stopGeoIPService?.()
                 await this.cdpProducerRegistry?.disconnectAll()
             },
         }
@@ -583,7 +592,7 @@ export class PluginServer implements NodeServer {
         return { teamManager }
     }
 
-    private async createCdpSharedServices(): Promise<{
+    private async createCdpSharedServices({ geoipMode }: { geoipMode: MmdbMode }): Promise<{
         geoipService: GeoIPService
         personRepository: PersonReadRepository
         groupRepository: GroupReadRepository
@@ -591,8 +600,11 @@ export class PluginServer implements NodeServer {
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
     }> {
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
-        await geoipService.get()
+        const { value: geoipService, stop: stopGeoIPService } = await new GeoIPServiceComponent(
+            this.config.MMDB_FILE_LOCATION,
+            geoipMode
+        ).start()
+        this.stopGeoIPService = stopGeoIPService
 
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'

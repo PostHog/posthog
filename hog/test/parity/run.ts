@@ -5,6 +5,7 @@ import { join, relative } from 'node:path'
 import { z } from 'zod'
 
 import { run } from '@/cli'
+import { EXIT_SUCCESS } from '@/core/errors'
 import { processRuntime } from '@/core/runtime'
 import { readJson } from '@/testing'
 
@@ -109,7 +110,7 @@ function changedFiles(
         return changed
     }
     if (options.randomIds) {
-        changed = withoutRandomIds({ exitCode: 0, requests: [], files: changed }).files!
+        changed = withoutRandomIds({ exitCode: EXIT_SUCCESS, requests: [], files: changed }).files!
     }
     return Object.fromEntries(
         Object.entries(changed).map(([path, text]) => [
@@ -200,7 +201,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
         for (const step of scenario.before ?? []) {
             await invoke(cli === 'hog' ? step.hog : step.rust, cli, folder, env)
         }
-        let exitCode = 0
+        let exitCode = EXIT_SUCCESS
         for (let index = 0; index < (scenario.runs ?? 1); index++) {
             server.requests.length = 0
             exitCode = await invoke(cli === 'hog' ? scenario.hog : scenario.rust, cli, folder, env)

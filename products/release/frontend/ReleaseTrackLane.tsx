@@ -2,9 +2,9 @@ import { cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ReleaseRolloutChart } from './ReleaseRolloutChart'
+import { ReleaseRolloutBar } from './ReleaseRolloutBar'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { FLAG_LANE, Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
+import { Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 
 export function ReleaseTrackLane({
@@ -12,27 +12,33 @@ export function ReleaseTrackLane({
     color,
     scale,
     detailed,
+    stickyOffset,
 }: {
     lane: Lane
     color: string
     scale: Scale
     detailed?: boolean
+    stickyOffset?: number
 }): JSX.Element {
     const height = laneHeight(lane, detailed)
     return (
         <div className={cn('relative', !detailed && 'border-t border-border/60')} style={{ height }}>
             {lane.kind === 'flag' && !lane.steps.length ? (
-                <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
+                <ReleaseTrackSpan
+                    span={lane.span}
+                    scale={scale}
+                    top={(height - 18) / 2}
+                    height={18}
+                    stickyOffset={stickyOffset}
+                />
             ) : lane.kind === 'flag' ? (
-                <ReleaseRolloutChart
-                    color={color}
+                <ReleaseRolloutBar
                     steps={lane.steps}
-                    start={scale.start}
-                    days={scale.days}
-                    dayWidth={scale.day}
-                    height={FLAG_LANE}
-                    labelRoom={18}
-                    className="!absolute left-0 top-0"
+                    scale={scale}
+                    color={color}
+                    top={(height - 18) / 2}
+                    height={18}
+                    stickyOffset={stickyOffset}
                 />
             ) : null}
             {lane.kind === 'flag' && (
@@ -44,7 +50,7 @@ export function ReleaseTrackLane({
                             )
                     )}
                     scale={scale}
-                    top={2}
+                    top={(height - 16) / 2}
                 />
             )}
             {lane.kind === 'flag' ? null : lane.kind === 'broadcast' ? (
@@ -53,8 +59,14 @@ export function ReleaseTrackLane({
                     scale={scale}
                     top={(height - 16) / 2}
                 />
-            ) : lane.span ? (
-                <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
+            ) : 'span' in lane && lane.span ? (
+                <ReleaseTrackSpan
+                    span={lane.span}
+                    scale={scale}
+                    top={(height - 18) / 2}
+                    height={18}
+                    stickyOffset={stickyOffset}
+                />
             ) : null}
         </div>
     )

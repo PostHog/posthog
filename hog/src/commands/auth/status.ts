@@ -1,4 +1,5 @@
 import { defineCommand } from '@/core/command'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { checkAuthStatus } from '@/posthog/auth-status'
 import type { StoreChoice } from '@/posthog/credential-store/types'
@@ -67,5 +68,5 @@ export default defineCommand({
         }
     },
 
-    exitCode: (result) => (result.authenticated ? 0 : 1),
+    exitCode: (result) => (result.authenticated ? EXIT_SUCCESS : EXIT_FAILURE),
 })
