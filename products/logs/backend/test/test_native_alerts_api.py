@@ -206,6 +206,25 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
 
         assert pages == [created[3:1:-1], created[1::-1]]
 
+    def test_the_list_sorts_an_alert_moved_after_its_creation_by_its_creation(self, *_: object) -> None:
+        with time_machine.travel(_NOW - timedelta(hours=2), tick=False):
+            moved = LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name="High error rate",
+                filters=_FILTERS,
+                threshold_count=10,
+                enabled=True,
+                next_check_at=_NOW + timedelta(minutes=3),
+            )
+        with time_machine.travel(_NOW - timedelta(hours=1), tick=False):
+            native = self._create_without_logs_row()
+        [cutover] = cut_over_team(self.team.id, now=_NOW)
+        assert cutover.skipped is None
+
+        listed = [alert["id"] for alert in self.client.get(self.base_url).json()["results"]]
+
+        assert listed == [native, str(moved.id)]
+
     def test_the_creator_filter_matches_both_kinds_of_alert_by_their_creator(self, *_: object) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", None)
         with_row, without_row = self._create_with_logs_row(), self._create_without_logs_row()

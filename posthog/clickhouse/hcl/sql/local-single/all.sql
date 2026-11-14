@@ -2202,7 +2202,10 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   exposure_session_id String,
   breakdown_value Array(String),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+  uuid UUID ALIAS exposure_event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, entity_id, breakdown_value) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   team_id Int64,
@@ -2216,7 +2219,9 @@ CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   numeric_value Float64 DEFAULT 0,
   steps Array(UInt8) DEFAULT [],
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  uuid UUID ALIAS event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at) ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_flag_evaluations (
   uuid UUID,
@@ -6490,7 +6495,10 @@ CREATE VIEW posthog.metrics4_view AS SELECT
   instrumentation_scope
 FROM
   posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
-WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
+WHERE
+  (time_bucket >= toDateTime('2026-09-14 00:00:00'))
+AND
+  (reinterpretAsUInt64(point_value) != 9218868437227405314);
 CREATE VIEW posthog.persons_batch_export AS WITH
   new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING (_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64})),
   new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING (argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64})),
@@ -6961,7 +6969,10 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   exposure_session_id String,
   breakdown_value Array(String),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+  uuid UUID ALIAS exposure_event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id));
 CREATE TABLE posthog.experiment_metric_events_preaggregated (
   team_id Int64,
@@ -6975,7 +6986,9 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   numeric_value Float64 DEFAULT 0,
   steps Array(UInt8) DEFAULT [],
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  uuid UUID ALIAS event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_experiment_metric_events_preaggregated', cityHash64(entity_id));
 CREATE TABLE posthog.flag_evaluations (
   uuid UUID,

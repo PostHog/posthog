@@ -11,7 +11,6 @@ import {
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
 
 import {
-    AssigneeFilter,
     DEFAULT_SECTION_FILTERS,
     KindFilter,
     SubjectFilter,
@@ -24,12 +23,6 @@ const KIND_OPTIONS: { value: KindFilter; label: string }[] = [
     { value: 'unmaterialize', label: 'Stop materializing' },
     { value: 'certify', label: 'Certify' },
     { value: 'deprecate', label: 'Mark deprecated' },
-]
-
-const ASSIGNEE_OPTIONS: { value: AssigneeFilter; label: string }[] = [
-    { value: 'anyone', label: 'Anyone' },
-    { value: 'me', label: 'Assigned to me' },
-    { value: 'unassigned', label: 'Unassigned' },
 ]
 
 const SUBJECT_OPTIONS: { value: SubjectFilter; label: string }[] = [
@@ -53,14 +46,6 @@ export function CatalogSuggestionsFilterMenu(): JSX.Element {
                     defaultValue={DEFAULT_SECTION_FILTERS.kind}
                     onChange={(kind) => setFilters({ kind })}
                     dataAttr="data-catalog-suggestions-filter-kind"
-                />
-                <TodayRecentRadioSubmenu
-                    label="Assignee"
-                    options={ASSIGNEE_OPTIONS}
-                    value={filters.assignee}
-                    defaultValue={DEFAULT_SECTION_FILTERS.assignee}
-                    onChange={(assignee) => setFilters({ assignee })}
-                    dataAttr="data-catalog-suggestions-filter-assignee"
                 />
                 <TodayRecentRadioSubmenu
                     label="Type"
