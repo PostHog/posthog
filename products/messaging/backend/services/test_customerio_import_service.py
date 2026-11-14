@@ -1,6 +1,7 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 from io import StringIO
 from queue import Queue
+from threading import Event
 from time import monotonic
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
@@ -520,27 +521,31 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
         row = self.rows.get(identifier="known@example.com")
         assert (row.suppressed, row.hard_bounced_at is not None, row.transient_bounce_count) == (True, True, 1)
 
-    def test_import_page_fails_at_once_and_saves_nothing_while_a_bounce_write_holds_one_of_its_rows(self):
+    def test_import_page_retries_without_waiting_while_a_bounce_write_holds_one_of_its_rows(self):
         self.rows.create(
             team=self.team, identifier="known@example.com", source=SuppressionSource.MANUAL, suppressed=True
         )
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        retrying, released = Event(), Event()
+
+        def pause(seconds: float) -> None:
+            if seconds:
+                retrying.set()
+                released.wait(timeout=10)
+
+        with (
+            patch("products.messaging.backend.services.customerio_import_service.time.sleep", side_effect=pause),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
             with transaction.atomic():
                 self.rows.filter(identifier="known@example.com").update(
                     transient_bounce_count=F("transient_bounce_count") + 1
                 )
-                first = self._start_import(executor).result(timeout=10)
-        assert (first["status"], "could not obtain lock" in first["errors"][-1]) == ("failed", True)
-        assert not self.rows.filter(identifier="new@example.com").exists()
+                result = self._start_import(executor)
+                assert retrying.wait(timeout=10)
+            released.set()
+            assert result.result(timeout=10)["status"] == "completed"
 
-        assert (
-            CustomerIOImportService(self.team.id, "test-api-key", self.user.id).import_api_data()["status"]
-            == "completed"
-        )
         assert [
             (row.identifier, row.transient_bounce_count, row.hard_bounced_at is None)
             for row in self.rows.order_by("identifier")
-        ] == [
-            ("known@example.com", 1, False),
-            ("new@example.com", 0, False),
-        ]
+        ] == [("known@example.com", 1, False), ("new@example.com", 0, False)]

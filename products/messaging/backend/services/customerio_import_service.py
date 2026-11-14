@@ -7,8 +7,10 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
+
+from psycopg.errors import LockNotAvailable
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -37,6 +39,8 @@ CUSTOMERIO_SUPPRESSION_TYPES: dict[str, tuple[SuppressionSource, str]] = {
 SUPPRESSION_PAGE_SIZE = 1000
 # Customer.io allows 10 App API requests per second.
 SUPPRESSION_PAGE_DELAY_SECONDS = 0.2
+PAGE_LOCK_ATTEMPTS = 3
+PAGE_LOCK_RETRY_SECONDS = 0.5
 
 
 @frozen
@@ -544,11 +548,12 @@ class CustomerIOImportService:
         transactional email, see `block_transactional_for_hard_bounces`. A row an earlier import of this list created
         without Customer.io's date and diagnostic gets them filled in.
 
-        Once its inserts are in, the page locks its rows without waiting. When a bounce write holds one of them, the
-        page fails before it changes any row, and its retry saves it, so the two writes cannot deadlock.
+        Once its inserts are in, the page locks its rows without waiting, so it never waits on a bounce write while it
+        holds rows that write needs. Only its inserts wait on another write's insert, as before. When a bounce write
+        holds one of the rows, the page undoes its writes and tries again after a short pause, a few times, then fails.
         """
         suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
-        existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(imported))}
+        existing = set(suppressions.filter(identifier__in=list(imported)).values_list("identifier", flat=True))
         now = timezone.now()
         is_bounce = source == SuppressionSource.BOUNCE
         new_rows = [
@@ -569,26 +574,48 @@ class CustomerIOImportService:
             for email, details in sorted(imported.items())
             if email not in existing
         ]
-        # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
-        with transaction.atomic():
-            suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
-            list(suppressions.filter(identifier__in=list(imported)).select_for_update(nowait=True).values_list("id"))
-            if is_bounce:
-                block_transactional_for_hard_bounces(team_id, list(imported), reason)
-
-            backfilled = []
-            for email, row in existing.items():
-                details = imported[email]
-                if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
-                    continue
-                row.suppressed_at = details.suppressed_at
-                row.last_bounce_at = details.suppressed_at if is_bounce else row.last_bounce_at
-                row.last_bounce_diagnostic = details.diagnostic
-                backfilled.append(row)
-            suppressions.bulk_update(
-                backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
-            )
+        for attempt in range(1, PAGE_LOCK_ATTEMPTS + 1):
+            try:
+                with transaction.atomic():
+                    self._write_page(team_id, imported, new_rows, existing, source, reason)
+                break
+            except OperationalError as error:
+                if not isinstance(error.__cause__, LockNotAvailable) or attempt == PAGE_LOCK_ATTEMPTS:
+                    raise
+                time.sleep(PAGE_LOCK_RETRY_SECONDS)
         return len(new_rows)
+
+    def _write_page(
+        self,
+        team_id: int,
+        imported: dict[str, _ImportedSuppression],
+        new_rows: list[MessageSuppression],
+        existing: set[str],
+        source: SuppressionSource,
+        reason: str,
+    ) -> None:
+        suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
+        suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
+        locked = {
+            row.identifier: row
+            for row in suppressions.filter(identifier__in=list(imported)).select_for_update(nowait=True)
+        }
+        is_bounce = source == SuppressionSource.BOUNCE
+        if is_bounce:
+            block_transactional_for_hard_bounces(team_id, list(imported), reason)
+
+        backfilled = []
+        for email in existing:
+            row, details = locked[email], imported[email]
+            if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
+                continue
+            row.suppressed_at = details.suppressed_at
+            row.last_bounce_at = details.suppressed_at if is_bounce else row.last_bounce_at
+            row.last_bounce_diagnostic = details.diagnostic
+            backfilled.append(row)
+        suppressions.bulk_update(
+            backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
+        )
 
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:
         """Bulk update preferences to opt out users from ALL categories"""
