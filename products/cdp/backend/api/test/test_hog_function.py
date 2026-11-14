@@ -3814,19 +3814,41 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.json()["execution_order"] == MAX_EXECUTION_ORDER
 
-    def test_rearrange_rejects_execution_order_above_column_max(self):
+    @parameterized.expand(
+        [
+            ("order_above_column_max", lambda id: {id: MAX_EXECUTION_ORDER + 1}, "less than or equal to"),
+            ("key_not_a_uuid", lambda id: {id: 5, "not-a-uuid": 2}, "'not-a-uuid' is not a valid hog function UUID"),
+            ("same_id_in_two_cases", lambda id: {id.upper(): 2, id: 3}, "'{id}' is listed more than once"),
+        ]
+    )
+    def test_rearrange_rejects_invalid_orders_without_writing(self, _name, build_orders, expected_detail):
         function = HogFunction.objects.create(
             team=self.team, name="Transform", type="transformation", hog="return event", execution_order=1
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/rearrange/",
-            data={"orders": {str(function.id): MAX_EXECUTION_ORDER + 1}},
+            data={"orders": build_orders(str(function.id))},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_detail.format(id=function.id) in response.json()["detail"]
         function.refresh_from_db()
         assert function.execution_order == 1
+
+    def test_rearrange_updates_function_named_by_uppercase_id(self):
+        function = HogFunction.objects.create(
+            team=self.team, name="Transform", type="transformation", hog="return event", execution_order=1
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {str(function.id).upper(): 5}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        function.refresh_from_db()
+        assert function.execution_order == 5
 
     def test_create_in_folder(self):
         response = self.client.post(
