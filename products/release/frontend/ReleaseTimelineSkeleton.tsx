@@ -1,4 +1,5 @@
 import { ColumnDef } from '@tanstack/react-table'
+import { useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Skeleton } from '@posthog/quill'
@@ -7,23 +8,22 @@ import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
 import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { CALENDAR_SCALE } from './releaseTracks'
 import { CALENDAR_DAYS_BEFORE } from './releaseUtils'
+import { useScrollToToday } from './useScrollToToday'
 
 interface PlaceholderRow {
     id: string
     name: number
     status: number
     from: number
-    to: number
-    rise: number
 }
 
 const ROWS: PlaceholderRow[] = [
-    { id: 'a', name: 52, status: 70, from: 0, to: 0.55, rise: 12 },
-    { id: 'b', name: 40, status: 55, from: 0.35, to: 0.7, rise: 6 },
-    { id: 'c', name: 64, status: 48, from: 0.15, to: 0.4, rise: 16 },
-    { id: 'd', name: 46, status: 62, from: 0.45, to: 0.8, rise: 4 },
-    { id: 'e', name: 58, status: 44, from: 0.05, to: 0.3, rise: 10 },
-    { id: 'f', name: 36, status: 58, from: 0.25, to: 0.6, rise: 14 },
+    { id: 'a', name: 52, status: 70, from: 0 },
+    { id: 'b', name: 40, status: 55, from: 0.35 },
+    { id: 'c', name: 64, status: 48, from: 0.15 },
+    { id: 'd', name: 46, status: 62, from: 0.45 },
+    { id: 'e', name: 58, status: 44, from: 0.05 },
+    { id: 'f', name: 36, status: 58, from: 0.25 },
 ]
 
 const ROW_HEIGHT = 60
@@ -44,16 +44,11 @@ function NameCell({ row }: { row: { original: PlaceholderRow } }): JSX.Element {
 function TimelineCell({ row }: { row: { original: PlaceholderRow } }): JSX.Element {
     const scale = CALENDAR_SCALE()
     const today = (CALENDAR_DAYS_BEFORE + 0.5) * scale.day
-    const { from, to, rise } = row.original
-    const start = from * today
-    const step = to * today
+    const start = row.original.from * today
     return (
         <div className="relative" style={{ width: scale.days * scale.day, height: ROW_HEIGHT }}>
             <ReleaseTrackGrid scale={scale} />
-            <Skeleton className="absolute h-0.5" style={{ left: start, width: step - start, top: 46 }} />
-            <Skeleton className="absolute w-0.5" style={{ left: step, height: rise, top: 46 - rise }} />
-            <Skeleton className="absolute h-0.5" style={{ left: step, width: today - step, top: 46 - rise }} />
-            <Skeleton className="absolute h-2.5 w-8" style={{ left: step + 4, top: 32 - rise }} />
+            <Skeleton className="absolute h-5 rounded-full" style={{ left: start, width: today - start, top: 26 }} />
         </div>
     )
 }
@@ -69,8 +64,10 @@ const COLUMNS: ColumnDef<PlaceholderRow>[] = [
 ]
 
 export function ReleaseTimelineSkeleton(): JSX.Element {
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
+    useScrollToToday(container, CALENDAR_SCALE(), true)
     return (
-        <div aria-busy aria-label="Loading releases">
+        <div ref={setContainer} aria-busy aria-label="Loading releases">
             <DataTable columns={COLUMNS} data={ROWS} size="sm" getRowId={(row) => row.id} />
         </div>
     )

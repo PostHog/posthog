@@ -44,7 +44,7 @@ function sectionKeyUnderPointer(event: Event, dashboardRoot: Element): string | 
     for (const element of elements) {
         const section = element.closest('[data-dashboard-section]')
         if (section) {
-            // A page can show several dashboards, and their bands share keys like `tiles-start`.
+            // A page can show several dashboards, and their bands share keys like `tiles-0`.
             return dashboardRoot.contains(section) ? section.getAttribute('data-dashboard-section') : null
         }
     }

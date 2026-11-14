@@ -28,6 +28,7 @@ from products.alerts_platform.backend.facade.contracts import (
     HeldDeliveryAddress,
     NativeConfigurationMatch,
     NewAlertDestination,
+    OwnedCopyKey,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
@@ -256,12 +257,11 @@ def native_configuration_keys(
     )
 
 
-def owned_copy_ids(*, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
-    """The source row id of every copy of a kind the platform owns, for a source that lists those
-    alerts from the platform. With `created_by_uuid`, only the ones that user created."""
-    return platform_reads.owned_copy_ids(
-        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
-    )
+def owned_copy_keys(*, team_id: int, source_kind: SourceKind) -> tuple[OwnedCopyKey, ...]:
+    """Every copy of a kind the platform owns, newest first, for a source that lists those alerts
+    from the platform. A copy carries its source row's `created_at` and creator. A caller that needs
+    a subset filters this one read, so a handover between two reads cannot drop an alert."""
+    return platform_reads.owned_copy_keys(team_id=team_id, source_kind=source_kind.value)
 
 
 def owned_copies(
@@ -275,12 +275,28 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: SourceKind, search: str | None = None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    search: str | None = None,
+    owned_copies: bool = False,
+    source_config_contains: Mapping[str, Any] | None = None,
+    created_by_id: int | None = None,
 ) -> tuple[NativeConfigurationMatch, ...]:
     """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
-    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
-    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
-    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+    them on beside its own rows. With `owned_copies`, also the copies the platform owns, so a source
+    lists such an alert from its copy's settings. With `search`, only the ones whose name matches it,
+    exact and similar alike: the source keeps only the exact tier when any row of either kind is exact.
+    With `source_config_contains` or `created_by_id`, only the ones whose `source_config` holds that
+    object or that user created, filtered in the database before anything is read."""
+    return platform_reads.native_configuration_matches(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        search=search,
+        owned_copies=owned_copies,
+        source_config_contains=source_config_contains,
+        created_by_id=created_by_id,
+    )
 
 
 def enabled_native_configurations(
@@ -725,6 +741,20 @@ def match_first_enabled_at(
     was first turned on."""
     return platform_writes.match_first_enabled_at(
         source_kind=source_kind, team_id=team_id, first_enabled_of=first_enabled_of, dry_run=dry_run
+    )
+
+
+def match_created_at(
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    created_at_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+) -> int:
+    """Sets `created_at` on the team's copies of `source_kind` to their source rows', where the two
+    differ, and returns the count. `created_at_of` maps the given source row ids to when each was created."""
+    return platform_writes.match_created_at(
+        source_kind=source_kind, team_id=team_id, created_at_of=created_at_of, dry_run=dry_run
     )
 
 

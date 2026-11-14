@@ -620,40 +620,65 @@ def _chunked[T](ids: list[T]) -> Iterator[list[T]]:
         yield ids[offset : offset + _ORM_ID_CHUNK]
 
 
-def _artefact_judgments(
-    report_ids: list[str], snapshot_end: datetime.datetime
-) -> dict[str, dict[str, str | bool | None]]:
-    """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
-    the artefact content JSON. `already_addressed` comes from the same actionability artefact, so
-    it follows the same cutoff rules rather than the current `SignalReport.latest_already_addressed`.
+@frozen
+class JudgmentArtefact:
+    report_id: str
+    team_id: int
+    artefact_type: str
+    content: str | None
+    # When the artefact got the content it holds: its last edit, else its creation.
+    written_at: datetime.datetime
+
+
+def judgment_artefacts_as_of(report_ids: list[str], cutoff: datetime.datetime) -> Iterator[JudgmentArtefact]:
+    """The latest priority and actionability artefact of each report created before the cutoff,
+    left out when it was edited at or after the cutoff.
 
     Artefacts are appended in normal operation but the API permits editing one in place
     (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so a row's
     current content is not necessarily what it held at the cutoff. The latest pre-cutoff row is
-    therefore chosen first and then nulled if it was edited afterwards: skipping edited rows during
+    therefore chosen first and then dropped if it was edited afterwards: skipping edited rows during
     selection instead would hand back the judgment they superseded, which was already stale at the
-    cutoff — silently wrong where null is merely unknown. The genuinely immutable classification is
-    status_event_priority/actionability, snapshotted onto each transition in the label stream."""
-    judgments: dict[str, dict[str, str | bool | None]] = {}
+    cutoff — silently wrong where a missing judgment is merely unknown. The genuinely immutable
+    classification is status_event_priority/actionability, snapshotted onto each transition in the
+    label stream."""
     for chunk in _chunked(report_ids):
         artefacts = (
             SignalReportArtefact.objects.filter(
                 report_id__in=chunk,
                 type__in=JUDGMENT_TYPES,
-                created_at__lt=snapshot_end,
+                created_at__lt=cutoff,
             )
             .order_by("report_id", "type", "-created_at")
             .distinct("report_id", "type")
-            .values_list("report_id", "type", "content", "updated_at")
+            .values_list("report_id", "team_id", "type", "content", "created_at", "updated_at")
         )
-        for report_id, artefact_type, content, updated_at in artefacts.iterator(chunk_size=2000):
+        for report_id, team_id, artefact_type, content, created_at, updated_at in artefacts.iterator(chunk_size=2000):
             # A null updated_at is a row predating the field, never an edit.
-            if updated_at is not None and updated_at >= snapshot_end:
+            if updated_at is not None and updated_at >= cutoff:
                 continue
-            facts = judgment_facts(artefact_type, content)
-            if facts is None:
-                continue
-            judgments.setdefault(str(report_id), no_judgment_facts()).update(facts)
+            yield JudgmentArtefact(
+                report_id=str(report_id),
+                team_id=team_id,
+                artefact_type=artefact_type,
+                content=content,
+                written_at=_as_utc(updated_at or created_at),
+            )
+
+
+def _artefact_judgments(
+    report_ids: list[str], snapshot_end: datetime.datetime
+) -> dict[str, dict[str, str | bool | None]]:
+    """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
+    the artefact content JSON, under the cutoff rules of `judgment_artefacts_as_of`.
+    `already_addressed` comes from the same actionability artefact, so it follows the same cutoff
+    rules rather than the current `SignalReport.latest_already_addressed`."""
+    judgments: dict[str, dict[str, str | bool | None]] = {}
+    for artefact in judgment_artefacts_as_of(report_ids, snapshot_end):
+        facts = judgment_facts(artefact.artefact_type, artefact.content)
+        if facts is None:
+            continue
+        judgments.setdefault(artefact.report_id, no_judgment_facts()).update(facts)
     return judgments
 
 

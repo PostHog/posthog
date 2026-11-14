@@ -201,10 +201,10 @@ export const moveToLogic = kea<moveToLogicType>([
                 folder: typeof folder !== 'string' ? 'You need to specify a folder.' : null,
             }),
             submit: (formValues) => {
-                // A folder can move while the dialog is open, so each item moves from where it is now.
-                const movingItems = values.movingItems.map(
-                    (item) => values.savedItems.find((saved) => saved.id === item.id) ?? item
-                )
+                // A folder can move while the dialog is open, so each item moves from where it is now. The index keeps
+                // a large selection from scanning every saved item once per selected item.
+                const savedById = new Map(values.savedItems.map((saved) => [saved.id, saved]))
+                const movingItems = values.movingItems.map((item) => savedById.get(item.id) ?? item)
                 const refusal = values.refusal?.(movingItems, formValues.folder || '')
                 if (refusal) {
                     lemonToast.error(refusal)

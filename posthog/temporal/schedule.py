@@ -159,6 +159,7 @@ from products.signals.backend.facade.temporal import (
     create_inbox_ranking_scoring_schedule,
     create_personal_inbox_ranking_tick_schedule,
     create_scout_suggestions_coordinator_schedule,
+    create_signal_grouping_record_cleanup_schedule,
     create_signals_scout_coordinator_schedule,
 )
 from products.slack_app.backend.temporal.schedule import create_slack_app_daily_focus_sweep_schedule
@@ -1009,6 +1010,7 @@ schedules = [
     create_autoresearch_daily_schedule,
     delete_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
+    create_signal_grouping_record_cleanup_schedule,
     create_inbox_ranking_scoring_schedule,
     create_activity_summary_tick_schedule,
     create_personal_inbox_ranking_tick_schedule,
