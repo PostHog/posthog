@@ -322,6 +322,8 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - timedelta(seconds=30)).timestamp())
         assert self.snuffle.call_args.kwargs["ch_user"] == ClickHouseUser.ALERTS_PLATFORM_METRICS
+        # The step sizes an implicit MetricsQL rollup window, so it matches the range query's step.
+        assert self.snuffle.call_args.kwargs["data"]["step"] == "60s"
         assert self.snuffle.call_args.kwargs["workload"] == Workload.METRICS
 
         self._next_check(first)
@@ -394,6 +396,42 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         # A value with no number reaches no verdict, so the firing group must not resolve on it.
         self.snuffle.return_value = _response(
             200, _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, ({"group": "held"}, ["2000", "2000", "NaN"]))
+        )
+
+        assert self._kinds(self._evaluate()) == {}
+
+    def test_a_group_missing_now_keeps_its_earlier_breaches(self) -> None:
+        self.checkpoint.return_value = self.due_at
+        with team_scope(self.team.id):
+            platform_testing.set_evaluation_window(self.configuration_id, periods=3, datapoints=2)
+        self.snuffle.return_value = _response(
+            200, _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, ({"group": "a"}, ["2000", "2000", "2000"]))
+        )
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING}
+
+        self._next_check(first)
+        self.checkpoint.return_value = self.due_at
+        read_at = self.due_at - CHECKPOINT_EVAL_DELAY
+        # Two of the last three checks breached, so the group stays firing though it is missing now.
+        self.snuffle.return_value = _response(
+            200,
+            {
+                "status": "success",
+                "data": {
+                    "resultType": "matrix",
+                    "result": [
+                        {
+                            "metric": {"group": "a"},
+                            "values": [
+                                [(read_at - timedelta(minutes=2)).timestamp(), "2000"],
+                                [(read_at - timedelta(minutes=1)).timestamp(), "2000"],
+                            ],
+                        }
+                    ],
+                },
+            },
         )
 
         assert self._kinds(self._evaluate()) == {}
