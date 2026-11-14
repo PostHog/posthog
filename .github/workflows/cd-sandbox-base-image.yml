@@ -295,13 +295,21 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-24.04
+        # `Run migrations` builds the schema from scratch on ubuntu-24.04 with no schema cache and
+        # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
+        # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
         timeout-minutes: 45
         permissions:
             contents: read
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Free disk space
+              run: |
+                  sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+                  df -h /
 
             - name: Fetch history without file contents
               if: github.event_name == 'pull_request'
