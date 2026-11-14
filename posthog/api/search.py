@@ -2,7 +2,7 @@ import re
 import operator
 from collections import defaultdict
 from collections.abc import Mapping
-from functools import reduce
+from functools import partial, reduce
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 from django.db.backends.base.base import BaseDatabaseWrapper
@@ -20,9 +20,13 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.oauth_provenance import is_sandbox_oauth_request
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.actions.backend.facade.api import search_actions
+from products.canvas.backend.facade.contracts import CanvasViewer
+from products.canvas.backend.facade.search import search_canvases
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.facade.api import search_dashboards
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
@@ -171,10 +175,12 @@ def _search_workflows(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
 ACTION_ENTITY = "action"
 DASHBOARD_ENTITY = "dashboard"
 WORKFLOW_ENTITY = "hog_flow"
+CANVAS_ENTITY = "canvas"
 FACADE_SEARCHES: dict[str, FacadeSearch] = {
     DASHBOARD_ENTITY: search_dashboards,
     ACTION_ENTITY: _search_actions,
     WORKFLOW_ENTITY: _search_workflows,
+    CANVAS_ENTITY: search_canvases,
 }
 # Actions keep their place between notebooks and cohorts in the entity choices and the counts.
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
@@ -187,7 +193,7 @@ _COUNTED_ENTITIES = [
     ACTION_ENTITY,
     *_UNION_ENTITY_NAMES[_ACTION_SLOT:],
 ]
-SEARCHABLE_ENTITIES = [*_COUNTED_ENTITIES, WORKFLOW_ENTITY]
+SEARCHABLE_ENTITIES = [*_COUNTED_ENTITIES, WORKFLOW_ENTITY, CANVAS_ENTITY]
 """
 Map of entity names to their class, search_fields and extra_fields.
 
@@ -232,12 +238,22 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query = params["q"]
         include_counts = params["include_counts"]
 
+        user = request.user
+        # A sandbox token with no task binding reaches no canvas, so agents never search the user's spaces.
+        canvas_viewer = CanvasViewer(
+            team_id=self.team_id,
+            user_id=user.id if isinstance(user, User) else None,
+            sandboxed=is_sandbox_oauth_request(request),
+            sandbox_task_id=None,
+        )
+
         results, counts, _ = search_entities(
             entities,
             query,
             self.project_id,
             self,
             ENTITY_MAP,
+            facade_searches={**FACADE_SEARCHES, CANVAS_ENTITY: partial(search_canvases, viewer=canvas_viewer)},
             include_counts=include_counts,
             annotate_access_levels=self.user_access_control,
             counted_entities=_COUNTED_ENTITIES,
@@ -246,6 +262,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         response_data: dict[str, Any] = {"results": results}
         if counts is not None:
             counts.setdefault(WORKFLOW_ENTITY, None)
+            counts.setdefault(CANVAS_ENTITY, None)
             response_data["counts"] = counts
         return Response(response_data)
 

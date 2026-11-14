@@ -59,6 +59,7 @@ export const getItemTypeDisplayName = (type: string | null | undefined): string 
         alert: 'Alert',
         folder: 'Folder',
         hog_flow: 'Workflow',
+        canvas: 'Canvas',
         'hog_function/internal_destination': 'Alert destination',
     }
     const subtype = type.includes('/') ? type.split('/').pop()?.replace(/_/g, ' ') : null

@@ -169,6 +169,10 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
             name = safeString(result.extra_fields.name) || result.result_id
             href = `/early_access_features/${result.result_id}`
             break
+        case 'canvas':
+            name = safeString(result.extra_fields.name) || 'Untitled'
+            href = urls.canvasDetail(result.result_id)
+            break
         case 'hog_flow':
             name = safeString(result.extra_fields.name) || result.result_id
             href = `/workflows/${result.result_id}/workflow`

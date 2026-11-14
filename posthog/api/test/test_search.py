@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
@@ -10,8 +12,11 @@ from parameterized import parameterized
 from posthog.api.search import ENTITY_MAP, SEARCHABLE_ENTITIES, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.canvas.backend.facade import testing as canvas_testing
+from products.canvas.backend.facade.enums import CanvasKind
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -20,6 +25,7 @@ from products.event_definitions.backend.models import EventDefinition, PropertyD
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.tasks.backend.models import Channel
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
@@ -299,6 +305,43 @@ class TestSearch(APIBaseTest):
         self.assertEqual(results[0]["type"], "hog_flow")
         self.assertEqual(results[0]["extra_fields"]["name"], "second workflow")
 
+    def test_canvases(self):
+        other_user = User.objects.create_and_join(self.organization, "other-canvas@posthog.com", None)
+        with team_scope(self.team.id):
+            shared = Channel.objects.create(team=self.team, name="shared", created_by=self.user)
+            mine = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+            )
+            theirs = Channel.objects.create(
+                team=self.team, name="them", channel_type=Channel.ChannelType.PERSONAL, created_by=other_user
+            )
+        visible_id = canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=shared.id, name="Revenue board", created_by_id=other_user.id
+        )
+        own_private_id = canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=mine.id, name="Revenue scratchpad", created_by_id=self.user.id
+        )
+        excluded: list[tuple[str, dict[str, Any]]] = [
+            ("Revenue component", {"channel_id": shared.id, "kind": CanvasKind.COMPONENT}),
+            ("Revenue grid", {"channel_id": shared.id, "kind": CanvasKind.GRID}),
+            ("Revenue widget", {"channel_id": shared.id, "source_policy": "notebook_widget"}),
+            ("Revenue deleted", {"channel_id": shared.id, "deleted": True}),
+            ("Revenue secret", {"channel_id": theirs.id}),
+        ]
+        for name, kwargs in excluded:
+            canvas_testing.create_canvas(team_id=self.team.id, name=name, created_by_id=other_user.id, **kwargs)
+
+        response = self.client.get("/api/projects/@current/search?q=revenue&entities=canvas")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"]["canvas"], 2)
+        results = response.json()["results"]
+        self.assertEqual({result["result_id"] for result in results}, {str(visible_id), str(own_private_id)})
+        self.assertEqual({result["type"] for result in results}, {"canvas"})
+        self.assertEqual(
+            {result["extra_fields"]["name"] for result in results}, {"Revenue board", "Revenue scratchpad"}
+        )
+
     def test_build_search_vector_requires_search_fields(self):
         with pytest.raises(ValueError, match="search_fields cannot be empty"):
             build_search_vector({})
@@ -367,6 +410,7 @@ class TestSearch(APIBaseTest):
     def test_search_query_count_with_and_without_counts(self):
         mock_view = Mock()
         mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+        mock_view.user_access_control.user = self.user
 
         with CaptureQueriesContext(connection) as ctx_with:
             search_entities(
@@ -389,8 +433,9 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        # One query for the unioned entities, and one per facade search: actions, dashboards and workflows.
-        assert len(ctx_without) == 4
+        # One query for the unioned entities, and one each for the actions, dashboards, workflows and canvases merged in through their facades.
+        # The canvas search also resolves the project's canonical team when no request viewer is passed.
+        assert len(ctx_without) == 6
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):
