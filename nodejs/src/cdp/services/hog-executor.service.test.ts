@@ -37,6 +37,7 @@ import {
     createHogFunction,
     insertIntegration,
 } from '../_tests/fixtures'
+import { signAwsRequest } from '../utils/aws-sigv4'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { signIntegrationRef } from '../utils/integration-input-refs'
@@ -1862,6 +1863,59 @@ describe('Hog Executor', () => {
                 expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
             })
 
+            it.each([
+                ['GET', {}, ''],
+                ['HEAD', {}, ''],
+                ['POST', { hmac_sha256: { secret_input: 'signing_secret', webhook_id: 'delivery-id' } }, '{"a":1}'],
+            ])('signs the %s request exactly as it is sent, with signers %j', async (method, signers, sentBody) => {
+                let received: { headers: Record<string, string>; body: string } | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received = { headers: req.headers, body }
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method,
+                    body: '{"a":1}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Hub-Signature-256': 'sha256=stale' },
+                    aws_sigv4: sigv4Refs,
+                    ...signers,
+                })
+                invocation.hogFunction.encrypted_inputs = {
+                    signing_secret: { value: 'test-hmac-secret-0123456789abcdef' },
+                } as any
+                seedAwsCredentialInputs(invocation)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(received!.body).toBe(sentBody)
+                const authorization = received!.headers.authorization
+                const signedHeaderNames = /SignedHeaders=([^,]+)/
+                    .exec(authorization)![1]
+                    .split(';')
+                    .filter((name) => !['host', 'x-amz-date'].includes(name))
+                const resigned = signAwsRequest({
+                    method,
+                    url: `${baseUrl}/`,
+                    body: received!.body,
+                    headers: Object.fromEntries(signedHeaderNames.map((name) => [name, received!.headers[name]])),
+                    credentials: {
+                        service: sigv4Refs.service,
+                        region: sigv4Refs.region,
+                        access_key_id: 'AKIDEXAMPLE',
+                        secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+                    },
+                })
+                expect(authorization).toBe(resigned.Authorization)
+            })
+
             // If the input referenced by `*_input` is missing or non-string we must
             // NOT fall through and ship an unsigned request to AWS — that'd 403 and
             // potentially leak the request body in error logs.
@@ -1909,38 +1963,52 @@ describe('Hog Executor', () => {
                 } as any
             }
 
-            const expectedSignature = (webhookId: string, timestamp: string): string =>
-                `v1,${createHmac('sha256', KEY).update(`${webhookId}.${timestamp}.${BODY}`).digest('base64')}`
+            const expectedSignature = (webhookId: string, timestamp: string, body: string = BODY): string =>
+                `v1,${createHmac('sha256', KEY).update(`${webhookId}.${timestamp}.${body}`).digest('base64')}`
 
-            it('signs the request so the reference verification succeeds upstream', async () => {
-                let receivedId: string | undefined
-                let receivedTimestamp: string | undefined
-                let receivedSignature: string | undefined
-                mockRequest.mockImplementation((req: any, res: any) => {
-                    receivedId = req.headers['webhook-id']
-                    receivedTimestamp = req.headers['webhook-timestamp']
-                    receivedSignature = req.headers['webhook-signature']
-                    res.writeHead(200, { 'Content-Type': 'text/plain' })
-                    res.end('ok')
-                })
+            it.each([
+                ['POST', BODY],
+                ['GET', ''],
+                ['HEAD', ''],
+            ])(
+                'signs the bytes a %s request sends so the reference verification succeeds upstream',
+                async (method, sentBody) => {
+                    let receivedId: string | undefined
+                    let receivedTimestamp: string | undefined
+                    let receivedSignature: string | undefined
+                    let receivedBody: string | undefined
+                    mockRequest.mockImplementation((req: any, res: any) => {
+                        let body = ''
+                        req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                        req.on('end', () => {
+                            receivedId = req.headers['webhook-id']
+                            receivedTimestamp = req.headers['webhook-timestamp']
+                            receivedSignature = req.headers['webhook-signature']
+                            receivedBody = body
+                            res.writeHead(200, { 'Content-Type': 'text/plain' })
+                            res.end('ok')
+                        })
+                    })
 
-                const invocation = await createFetchInvocation({
-                    url: `${baseUrl}/`,
-                    method: 'POST',
-                    body: BODY,
-                    headers: { 'Content-Type': 'application/json' },
-                    standard_webhooks: SIGNING_REFS,
-                })
-                seedSigningSecretInput(invocation)
+                    const invocation = await createFetchInvocation({
+                        url: `${baseUrl}/`,
+                        method,
+                        body: BODY,
+                        headers: { 'Content-Type': 'application/json' },
+                        standard_webhooks: SIGNING_REFS,
+                    })
+                    seedSigningSecretInput(invocation)
 
-                const result = await executor.executeFetch(invocation)
+                    const result = await executor.executeFetch(invocation)
 
-                expect(result.error).toBeUndefined()
-                expect(receivedId).toBe(SIGNING_REFS.webhook_id)
-                // Date.now is mocked to 2025-01-01T00:00:00Z in beforeEach
-                expect(receivedTimestamp).toBe('1735689600')
-                expect(receivedSignature).toBe(expectedSignature(receivedId!, receivedTimestamp!))
-            })
+                    expect(result.error).toBeUndefined()
+                    expect(receivedBody).toBe(sentBody)
+                    expect(receivedId).toBe(SIGNING_REFS.webhook_id)
+                    // Date.now is mocked to 2025-01-01T00:00:00Z in beforeEach
+                    expect(receivedTimestamp).toBe('1735689600')
+                    expect(receivedSignature).toBe(expectedSignature(receivedId!, receivedTimestamp!, receivedBody!))
+                }
+            )
 
             // The spec wants webhook-id constant across retries (the receiver's
             // idempotency key) while the timestamp must be fresh so the retry
@@ -2012,6 +2080,162 @@ describe('Hog Executor', () => {
                 expect(result.error.message).toContain('Standard Webhooks signing failed')
                 expect(result.error.message).toContain('signing_secret')
             })
+        })
+
+        describe('hmac_sha256', () => {
+            const SECRET = 'test-hmac-secret-0123456789abcdef'
+            const BODY = '{"test": 2432232314}'
+            const SIGNING_REFS = {
+                secret_input: 'signing_secret',
+                webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
+            }
+
+            const BODY_SIGNATURE = 'sha256=406a8ef03a0e13a9b1bac8ac4c32597904520eeb30aa89f154676c085ccf3d3c'
+
+            type ReceivedRequest = { id: unknown; signature: unknown; body: string }
+
+            const receiveRequests = (): ReceivedRequest[] => {
+                const received: ReceivedRequest[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received.push({
+                            id: req.headers['webhook-id'],
+                            signature: req.headers['x-hub-signature-256'],
+                            body,
+                        })
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+                return received
+            }
+
+            const createSignedInvocation = async (
+                method = 'POST',
+                body = BODY
+            ): Promise<CyclotronJobInvocationHogFunction> => {
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method,
+                    body,
+                    headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=stale' },
+                    hmac_sha256: SIGNING_REFS,
+                })
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                return invocation
+            }
+
+            it.each([
+                ['the configured secret', SECRET, BODY_SIGNATURE],
+                [
+                    'a secret of exactly 24 bytes in 12 characters',
+                    'é'.repeat(12),
+                    'sha256=08faf5c284367a94cb95273a9fb68873b5b46460b0f7de89af5f45214667aded',
+                ],
+            ])('signs the bytes the request sends with %s', async (_case, secret, signature) => {
+                const received = receiveRequests()
+                const invocation = await createSignedInvocation()
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: secret } } as any
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: BODY }])
+            })
+
+            it.each([
+                ['the secret input is missing', 'POST', BODY, undefined, 'signing_secret'],
+                ['the secret is shorter than 24 bytes', 'POST', BODY, 'x'.repeat(23), 'at least 24'],
+                ['a GET request sends no body', 'GET', BODY, SECRET, 'sends none'],
+                ['a POST request has an empty body', 'POST', '', SECRET, 'sends none'],
+            ])('refuses to send when %s', async (_case, method, body, secret, reason) => {
+                const invocation = await createSignedInvocation(method, body)
+                invocation.hogFunction.encrypted_inputs = (
+                    secret === undefined ? {} : { signing_secret: { value: secret } }
+                ) as any
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error.message).toContain('HMAC-SHA256 signing failed')
+                expect(result.error.message).toContain(reason)
+            })
+        })
+
+        describe('signers requested from hog', () => {
+            const SECRET = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'
+            const STANDARD_WEBHOOKS_KEY = Buffer.from('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'base64')
+
+            type ReceivedRequest = { headers: Record<string, any>; body: string }
+
+            const receiveRequests = (): ReceivedRequest[] => {
+                const received: ReceivedRequest[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received.push({ headers: req.headers, body })
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+                return received
+            }
+
+            const runHog = async (code: string) => {
+                const hogFunction = createHogFunction({ bytecode: await compileHog(code) })
+                hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                return executor.executeWithAsyncFunctions(
+                    createExampleInvocation(hogFunction, { inputs: { url: baseUrl } }),
+                    {
+                        maxAsyncFunctions: 2,
+                    }
+                )
+            }
+
+            it('sends one delivery id that both signers of a fetch call sign', async () => {
+                const received = receiveRequests()
+
+                const result = await runHog(`
+                    fetch(inputs.url, {
+                        'body': {'a': 1},
+                        'standard_webhooks': {'secret_input': 'signing_secret'},
+                        'hmac_sha256': {'secret_input': 'signing_secret'}
+                    })
+                `)
+
+                expect(result.error).toBeUndefined()
+                expect(received).toHaveLength(1)
+                const [{ headers, body }] = received
+                const signedContent = `${headers['webhook-id']}.${headers['webhook-timestamp']}.${body}`
+                expect(headers['webhook-signature']).toBe(
+                    `v1,${createHmac('sha256', STANDARD_WEBHOOKS_KEY).update(signedContent).digest('base64')}`
+                )
+                expect(headers['x-hub-signature-256']).toBe(
+                    `sha256=${createHmac('sha256', SECRET).update(body).digest('hex')}`
+                )
+            })
+
+            it.each(['standard_webhooks', 'hmac_sha256'])(
+                'gives each %s signed fetch call of one run its own delivery id',
+                async (signer) => {
+                    const received = receiveRequests()
+                    const options = `{'body': 'x', '${signer}': {'secret_input': 'signing_secret'}}`
+
+                    const result = await runHog(`
+                        fetch(inputs.url, ${options})
+                        fetch(inputs.url, ${options})
+                    `)
+
+                    expect(result.error).toBeUndefined()
+                    const [first, second] = received.map(({ headers }) => headers['webhook-id'])
+                    expect(received).toHaveLength(2)
+                    expect(first).toEqual(expect.any(String))
+                    expect(second).not.toBe(first)
+                }
+            )
         })
 
         describe('secret_headers_input', () => {

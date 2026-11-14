@@ -29,20 +29,3 @@ export function resolveSecretHeaders(
 
     return { ok: true, headers }
 }
-
-// Some receivers read the first of two same-name headers, so a plaintext header a secret header also sets is dropped.
-export function mergeSecretHeaders(
-    headers: Record<string, string>,
-    secretHeaders: Record<string, string>
-): Record<string, string> {
-    const secretNames = new Set(Object.keys(secretHeaders).map((name) => name.toLowerCase()))
-
-    const merged: Record<string, string> = {}
-    for (const [name, value] of Object.entries(headers)) {
-        if (!secretNames.has(name.toLowerCase())) {
-            merged[name] = value
-        }
-    }
-
-    return { ...merged, ...secretHeaders }
-}

@@ -23,10 +23,12 @@ import {
     fetchErrorDetail,
     isFetchResponseRetriable,
 } from '../utils/cdp-fetch'
+import { resolveHmacSha256Secret, signHmacSha256Request } from '../utils/hmac-sha256-signature'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
+import { overrideHeaders } from '../utils/override-headers'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
-import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
+import { resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -462,6 +464,7 @@ export class HogExecutorAsyncService {
             return result
         }
 
+        const sentBody = ['GET', 'HEAD'].includes(method) ? '' : (params.body ?? '')
         let signedHeaders = headers
 
         // Secret headers are merged before signing so that the signatures cover them, and they are never written
@@ -471,26 +474,12 @@ export class HogExecutorAsyncService {
             if (!resolved.ok) {
                 return failSigning(resolved.error)
             }
-            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
-        }
-
-        if (params.aws_sigv4) {
-            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
-            if (!resolved.ok) {
-                return failSigning(resolved.error)
-            }
-            signedHeaders = signAwsRequest({
-                method,
-                url: params.url,
-                body: params.body ?? '',
-                headers: signedHeaders,
-                credentials: resolved.credentials,
-            })
+            signedHeaders = overrideHeaders(signedHeaders, resolved.headers)
         }
 
         // Standard Webhooks signatures embed a timestamp the receiver checks
-        // against a tolerance window (5 minutes in the reference libraries), so
-        // like AWS SigV4 above they are computed immediately before each attempt
+        // against a tolerance window (5 minutes in the reference libraries), so they
+        // are computed immediately before each attempt
         // and never persisted back to queueParameters. The `webhook-id` the
         // receiver dedupes on is the exception: it comes from the queue payload,
         // which the retry path preserves, so it stays constant across attempts.
@@ -501,16 +490,48 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signStandardWebhooksRequest({
                 webhookId: params.standard_webhooks.webhook_id,
-                body: params.body ?? '',
+                body: sentBody,
                 headers: signedHeaders,
                 key: resolved.key,
             })
         }
 
+        if (params.hmac_sha256) {
+            if (!sentBody) {
+                return failSigning(
+                    'HMAC-SHA256 signing failed: this format signs only the request body, and this request sends none, so every request would carry the same signature. Send a body with POST or PUT, or use Standard Webhooks, which also signs a delivery id and a timestamp.'
+                )
+            }
+            const resolved = resolveHmacSha256Secret(params.hmac_sha256, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signHmacSha256Request({
+                webhookId: params.hmac_sha256.webhook_id,
+                body: sentBody,
+                headers: signedHeaders,
+                secret: resolved.secret,
+            })
+        }
+
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: sentBody,
+                headers: signedHeaders,
+                credentials: resolved.credentials,
+            })
+        }
+
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+        if (sentBody) {
+            fetchParams.body = sentBody
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
