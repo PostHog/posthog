@@ -515,6 +515,17 @@ function JSONExtractFn(args: any[]): any {
     return getNestedValue(obj, path, true) ?? null
 }
 
+// Array.prototype.sort() with no comparator orders by string value ([10, 9, 1] -> [1, 10, 9]).
+// Order numbers numerically, like the Python VM and ClickHouse.
+function compareForSort(a: unknown, b: unknown): number {
+    if (typeof a === 'number' && typeof b === 'number') {
+        return a - b
+    }
+    const left = String(a)
+    const right = String(b)
+    return left < right ? -1 : left > right ? 1 : 0
+}
+
 export const STL: Record<string, STLFunction> = {
     concat: {
         fn: (args) => {
@@ -1352,7 +1363,7 @@ export const STL: Record<string, STLFunction> = {
             if (!Array.isArray(arr)) {
                 return []
             }
-            return [...arr].sort()
+            return [...arr].sort(compareForSort)
         },
         description: 'Sorts array in ascending order',
         example: 'arraySort($1)',
@@ -1375,7 +1386,7 @@ export const STL: Record<string, STLFunction> = {
             if (!Array.isArray(arr)) {
                 return []
             }
-            return [...arr].sort().reverse()
+            return [...arr].sort(compareForSort).reverse()
         },
         description: 'Sorts array in descending order',
         example: 'arrayReverseSort($1)',
