@@ -297,6 +297,15 @@ describe('logsSceneLogic', () => {
             expect(logic.values.todayRecent).toBeNull()
         })
 
+        it('ignores a savedView param that is not a saved view id', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { savedView: '../../../../api/users/@me' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.todayRecent).toBeNull()
+            expect(logic.values.filters.searchTerm).toEqual('')
+        })
+
         it('keeps the filters a link carries over the saved view', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/logs', { savedView: 'abc123', searchTerm: 'edited' })

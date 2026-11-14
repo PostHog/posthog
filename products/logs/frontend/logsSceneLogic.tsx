@@ -129,6 +129,8 @@ export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 // pinned: URL search param. Pins and recents of saved views link with it.
 export const SAVED_VIEW_PARAM = 'savedView'
 
+const SAVED_VIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+
 /** The saved view a link opens, or the one the person loaded, so the shell can list it in Monitor. */
 export type LogsOpenSavedView = Pick<LogsViewApi, 'short_id' | 'name'>
 
@@ -388,7 +390,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
         const applySavedViewParam = (params: Params): void => {
             const raw = params[SAVED_VIEW_PARAM]
-            const savedView = typeof raw === 'string' ? raw : null
+            // The id goes into the API path, so anything but a short id is ignored rather than requested.
+            const savedView = typeof raw === 'string' && SAVED_VIEW_ID_PATTERN.test(raw) ? raw : null
             if (savedView && savedView !== values.openSavedView?.short_id) {
                 // A link edited after the view opened carries its own filters, which win over the view's.
                 const keepFilters = ['dateRange', 'filterGroup', 'searchTerm'].some((key) => params[key])
