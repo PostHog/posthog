@@ -863,6 +863,11 @@ def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
     alert_destinations.lock_source_configuration(team_id=team_id, public_id=public_id)
 
 
+def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
+    """Whether any instance of the alert is inside a firing, even when its last check errored."""
+    return alert_destinations.has_firing_instance(team_id=team_id, public_id=public_id)
+
+
 def take_source_destination_row(
     *, team_id: int, public_id: UUID, destination_id: UUID
 ) -> StoredAlertDestination | None:

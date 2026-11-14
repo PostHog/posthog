@@ -26,8 +26,8 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDestination,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
 INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
@@ -419,6 +419,16 @@ def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
     takes this lock before the HogFunctions', in the same order as a delete of the alert, so the two
     cannot deadlock."""
     list(_configurations_by_public_id(team_id, public_id).select_for_update().values_list("id", flat=True))
+
+
+def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
+    """Whether any instance of the alert is inside a firing, whatever its last check said. An errored or
+    broken check leaves the firing, and the incident it opened, in place."""
+    return (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id), state=PlatformAlertState.FIRING)
+        .exists()
+    )
 
 
 def take_source_destination_row(
