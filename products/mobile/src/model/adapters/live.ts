@@ -71,6 +71,12 @@ export function liveActivity(response: unknown, now: number): LiveActivity {
     return { minutes, uniqueVisitors, pageviews, screenviews }
 }
 
+export function livePathTotal(response: unknown): number | null {
+    const value = rowsOf(response)[0]?.[2]
+    const total = typeof value === 'string' ? Number(value) : value
+    return typeof total === 'number' && Number.isFinite(total) && total >= 0 ? total : null
+}
+
 export function livePathCounts(response: unknown): Map<string, number> {
     const counts = new Map<string, number>()
     const hogqlRows = rowsOf(response)

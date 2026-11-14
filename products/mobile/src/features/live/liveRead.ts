@@ -7,6 +7,7 @@ import {
     liveEvents,
     livePathCounts,
     livePathsMode,
+    livePathTotal,
     liveRankedRows,
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
@@ -174,7 +175,8 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
                           (answer) =>
                               liveRankedRows(
                                   livePathCounts(answer),
-                                  [...livePathCounts(answer).values()].reduce((a, b) => a + b, 0),
+                                  livePathTotal(answer) ??
+                                      [...livePathCounts(answer).values()].reduce((a, b) => a + b, 0),
                                   previous.topScreens ?? null
                               ),
                           previous.topScreens ?? null

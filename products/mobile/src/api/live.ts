@@ -242,7 +242,7 @@ export function liveQuery(
             // are written for URL paths, so they do not apply to screen names.
             return mobileOnly
                 ? hogql(
-                      `SELECT properties.$screen_name, count() FROM events WHERE ${visibleWhere} AND event = '$screen' GROUP BY properties.$screen_name ORDER BY count() DESC LIMIT 10`,
+                      `SELECT properties.$screen_name, count(), sum(count()) OVER () AS total_views FROM events WHERE ${visibleWhere} AND event = '$screen' GROUP BY properties.$screen_name ORDER BY count() DESC LIMIT 10`,
                       'live_screens',
                       window
                   )
@@ -283,6 +283,7 @@ export function liveQuery(
                 window
             )
         case 'usersOnline':
+            // Keep parity with the live events stats service, which counts the whole project without audience filters.
             // The web header badge's fallback count. It reads its own window, so it carries no values.
             return {
                 kind: 'HogQLQuery',

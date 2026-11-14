@@ -43,13 +43,17 @@ describe('Live reads', () => {
                     key === 'paths'
                         ? [{ breakdown_value: '/home', data: [4] }]
                         : key === 'screens'
-                          ? [{ breakdown_value: 'Home', data: [8] }]
+                          ? [
+                                ['Home', 10, 200],
+                                ['Settings', 90, 200],
+                            ]
                           : [],
             }),
         })
         expect(result.data.topPagesMode).toBe('pages')
         expect(result.data.topPages?.[0]).toMatchObject({ label: '/home', views: 4 })
-        expect(result.data.topScreens?.[0]).toMatchObject({ label: 'Home', views: 8 })
+        expect(result.data.topScreens?.find((row) => row.label === 'Home')).toMatchObject({ views: 10, percent: 5 })
+        expect(result.data.topScreens?.reduce((total, row) => total + row.percent, 0)).toBe(50)
     })
 
     it('clears stale active-user counts on a successful empty period and retains the original cache timestamp', () => {
@@ -70,7 +74,7 @@ describe('Live reads', () => {
         expect(() => liveMobileMetrics({ results: [] }, now)).toThrow('did not finish')
     })
 
-    it('scopes Web activity and its country drilldown while Both keeps project activity', async () => {
+    it('scopes Web activity and its country drilldown while All keeps project activity', async () => {
         const queries: Record<string, Record<string, unknown>> = {}
         const input = {
             previous: EMPTY_LIVE_SNAPSHOT,
