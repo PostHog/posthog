@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { catalogTablesLogic } from './catalogTablesLogic'
-import { dataCatalogSceneLogic } from './dataCatalogSceneLogic'
+import { SECTION_VIEWED_EVENT, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 
 describe('dataCatalogSceneLogic', () => {
     let logic: ReturnType<typeof dataCatalogSceneLogic.build>
@@ -31,6 +32,8 @@ describe('dataCatalogSceneLogic', () => {
                 '/api/projects/:team_id/query/:query_kind/': { tables: {}, joins: [] },
             },
         })
+        // Feature flags persist in local storage, so clear it to start each test with no flags.
+        window.localStorage.clear()
         initKeaTests()
         tablesLogic = undefined
     })
@@ -38,6 +41,7 @@ describe('dataCatalogSceneLogic', () => {
     afterEach(() => {
         tablesLogic?.unmount()
         logic?.unmount()
+        jest.restoreAllMocks()
     })
 
     it('keeps the certifications tab when the catalog restructure is off', async () => {
@@ -92,4 +96,52 @@ describe('dataCatalogSceneLogic', () => {
             expect(logic.values.activeTab).toBe(expectedTab)
         }
     )
+
+    const RESTRUCTURE = [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]
+
+    it.each([
+        [
+            'classic layout',
+            false,
+            [],
+            ['/data-catalog', '/data-catalog?tab=relationships', '/data-catalog?tab=relationships&page=2'],
+            [
+                ['metrics', 'classic'],
+                ['relationships', 'classic'],
+            ],
+        ],
+        [
+            'restructured layout',
+            false,
+            RESTRUCTURE,
+            ['/data-catalog', '/data-catalog?tab=tables', '/data-catalog?tab=tables&filter=proposed'],
+            [
+                ['overview', 'restructured'],
+                ['tables', 'restructured'],
+            ],
+        ],
+        ['flags that arrive after the URL', true, RESTRUCTURE, ['/data-catalog'], [['overview', 'restructured']]],
+    ])('reports each section view once, with its layout (%s)', async (_, flagsAfterMount, flags, paths, expected) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const setFlags = (): void =>
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+        if (!flagsAfterMount) {
+            setFlags()
+        }
+        router.actions.push(paths[0])
+        logic = dataCatalogSceneLogic()
+        logic.mount()
+        if (flagsAfterMount) {
+            setFlags()
+        }
+        for (const path of paths.slice(1)) {
+            router.actions.push(path)
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        const views = capture.mock.calls
+            .filter(([event]) => event === SECTION_VIEWED_EVENT)
+            .map(([, properties]) => [properties?.section, properties?.layout])
+        expect(views).toEqual(expected)
+    })
 })
