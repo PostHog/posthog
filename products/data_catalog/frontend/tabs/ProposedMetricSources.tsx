@@ -5,21 +5,7 @@ import { urls } from 'scenes/urls'
 import { InsightShortId } from '~/types'
 
 import type { ProposedMetricApi } from '../generated/api.schemas'
-
-const SURFACE_LABELS: Record<string, string> = {
-    product_analytics: 'product analytics',
-    sql_editor: 'the SQL editor',
-    notebooks: 'notebooks',
-    canvas: 'canvases',
-    warehouse: 'the data warehouse',
-    today: 'the Today page',
-}
-
-const WRITTEN_SURFACES = new Set(['sql_editor', 'warehouse'])
-
-function usage(people: number, runs: number): string {
-    return `${pluralize(people, 'person', 'people')}, ${pluralize(runs, 'run')}`
-}
+import { surfaceSourceLabel, surfaceSourceUsage } from '../proposedSources'
 
 export function ProposedMetricSources({
     metric,
@@ -46,9 +32,8 @@ export function ProposedMetricSources({
             )}
             {metric.surfaces.map((surface) => (
                 <li key={surface.product}>
-                    {WRITTEN_SURFACES.has(surface.product) ? 'Written in ' : 'Viewed in '}
-                    {SURFACE_LABELS[surface.product] ?? 'the web app'}
-                    <span className="text-secondary"> ({usage(surface.people, surface.runs)})</span>
+                    {surfaceSourceLabel(surface)}
+                    <span className="text-secondary"> ({surfaceSourceUsage(surface)})</span>
                 </li>
             ))}
             {metric.agents && (

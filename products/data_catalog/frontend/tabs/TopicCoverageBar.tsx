@@ -32,7 +32,7 @@ export function TopicCoverageBar({ coverage }: { coverage: TopicCoverageApi }): 
     }
 
     return (
-        <div className="flex h-7 min-w-32 items-center gap-2">
+        <div className="flex min-w-32 items-center gap-2">
             <div className="flex min-w-0 flex-1 flex-col justify-center">
                 <ProportionBar
                     series={series}

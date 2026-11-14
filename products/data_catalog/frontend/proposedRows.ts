@@ -7,6 +7,7 @@ import type {
 } from './generated/api.schemas'
 
 const SHOWN_ROWS = 70
+const COMPLEXITY_LABELS: Record<number, string> = { 0: 'Unknown', 1: 'Low', 2: 'Medium', 3: 'High' }
 
 export interface ProposedRow {
     key: string
@@ -109,4 +110,8 @@ export function proposedRowPrefill(row: ProposedRow): NewMetricPrefill {
         description: row.description,
         sql: row.sql,
     }
+}
+
+export function complexityLabel(complexity: number): string {
+    return COMPLEXITY_LABELS[complexity] ?? COMPLEXITY_LABELS[0]
 }

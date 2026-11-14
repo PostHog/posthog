@@ -21,6 +21,7 @@ export type DataCatalogTab =
     | 'certifications'
     | 'usage'
     | 'suggestions'
+    | 'governance'
 
 const CATALOG_TABS: DataCatalogTab[] = ['metrics', 'relationships', 'certifications']
 const SECTION_TABS: DataCatalogTab[] = ['overview', 'tables', 'lineage', 'metrics', 'relationships', 'data-quality']
@@ -105,6 +106,7 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
                     ...SECTION_TABS,
                     ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_USAGE] ? (['usage'] as const) : []),
                     ...(featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] ? (['suggestions'] as const) : []),
+                    ...(featureFlags[FEATURE_FLAGS.DATA_CATALOG_USAGE] ? (['governance'] as const) : []),
                 ]
             },
         ],

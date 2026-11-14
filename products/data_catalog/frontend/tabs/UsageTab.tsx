@@ -13,7 +13,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { newMetricUrl } from '../common'
 import type { TopicClusterApi, UsageSnapshotApi } from '../generated/api.schemas'
-import { ProposedRow, proposedRowPrefill } from '../proposedRows'
+import { ProposedRow, complexityLabel, proposedRowPrefill } from '../proposedRows'
 import { usageLogic } from '../usageLogic'
 import { SourceRow, agentSurfaceLabel } from '../usageRows'
 import { ProposedMetricSources } from './ProposedMetricSources'
@@ -23,7 +23,6 @@ import { TopicCoverageBar } from './TopicCoverageBar'
 // LemonTable keeps its page in the URL under its id, so tables on one page need their own ids to page apart.
 const TOPICS_TABLE_ID = 'usage-topics'
 const SOURCES_TABLE_ID = 'usage-sources'
-const COMPLEXITY_LABELS: Record<number, string> = { 0: 'Unknown', 1: 'Low', 2: 'Medium', 3: 'High' }
 const PROPOSED_TABLE_ID = 'usage-proposed'
 const HALF_TABLE_PAGE_SIZE = 6
 const PROPOSED_PAGE_SIZE = 10
@@ -99,7 +98,11 @@ const TOPIC_COLUMNS: LemonTableColumns<TopicClusterApi> = [
         width: '40%',
         tooltip:
             'The number is how many sessions looked for a metric in the catalog. Each bar splits those sessions by what they found: a metric that fits, a table but no metric, or nothing. Hover a part of the bar to see its sessions. Each session counts once, and a metric comes first.',
-        render: (_, topic) => <TopicCoverageBar coverage={topic.coverage} />,
+        render: (_, topic) => (
+            <div className={SINGLE_LINE_ROW}>
+                <TopicCoverageBar coverage={topic.coverage} />
+            </div>
+        ),
     },
 ]
 
@@ -145,7 +148,7 @@ const PROPOSED_COLUMNS: LemonTableColumns<ProposedRow> = [
         key: 'complexity',
         tooltip:
             'How hard the query is to write by hand. Joins, subqueries, window functions, conditional aggregates and calculations raise it. Complex queries come first, because they most need one shared definition.',
-        render: (_, row) => COMPLEXITY_LABELS[row.complexity] ?? COMPLEXITY_LABELS[0],
+        render: (_, row) => complexityLabel(row.complexity),
     },
     {
         title: 'People',
