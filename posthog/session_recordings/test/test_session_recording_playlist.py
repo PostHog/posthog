@@ -461,10 +461,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert update_response.status_code == status.HTTP_400_BAD_REQUEST
         assert "experiment you don't have access to" in update_response.json()["detail"]
 
-    def test_rejects_saving_filters_with_an_unsupported_sort_order(self) -> None:
+    @parameterized.expand([("retired_order", "surfacing_score"), ("non_string_order", ["start_time"])])
+    def test_rejects_saving_filters_with_an_unsupported_sort_order(self, _name: str, order: object) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists",
-            data={"name": "relevance", "type": "filters", "filters": {"date_from": "-3d", "order": "surfacing_score"}},
+            data={"name": "relevance", "type": "filters", "filters": {"date_from": "-3d", "order": order}},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
