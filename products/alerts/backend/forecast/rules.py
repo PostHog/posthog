@@ -1,6 +1,7 @@
 """How an actual value compares with its forecast. Pure functions, so that every side rule is testable
 without the gateway."""
 
+import math
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
@@ -75,7 +76,14 @@ def _number(side: Side, field: str, value: Any) -> float | None:
         return None
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{side}.{field} must be a number.")
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        # JSON accepts an integer of any size, and one too large for a float would otherwise escape as a 500.
+        number = math.inf
+    if not math.isfinite(number):
+        raise ValueError(f"{side}.{field} must be a number.")
+    return number
 
 
 def _side_rule(side: Side, raw: Any) -> SideRule | None:

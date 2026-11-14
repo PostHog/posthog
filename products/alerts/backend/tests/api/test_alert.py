@@ -3397,6 +3397,11 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
                 {"type": "forecast", "below": {"min_relative_change": -0.2}},
                 "below.min_relative_change must be above 0",
             ),
+            (
+                "forecast_threshold_too_large_for_a_float",
+                {"type": "forecast", "above": {"min_absolute_change": 10**400}},
+                "above.min_absolute_change must be a number",
+            ),
             ("forecast_removed_mode", {"type": "forecast", "mode": "band"}, "Unknown field in the forecast detector"),
             ("forecast_removed_direction", {"type": "forecast", "direction": "above"}, "Unknown field"),
             ("forecast_side_unknown_field", {"type": "forecast", "above": {"band": 0.9}}, "Unknown field in above"),
