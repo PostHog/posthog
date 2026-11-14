@@ -35,6 +35,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     DimensionalJobIds,
     dimensional_insert_modifiers,
     dimensional_job_ids,
+    dimensional_team_ids,
     sessions_coverage_floor,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
@@ -49,6 +50,9 @@ logger = structlog.get_logger(__name__)
 
 # The same flag gates the frontend toggle, so a request that sets the modifier without the flag is ignored.
 WEB_ANALYTICS_QUERY_MODIFIERS_FLAG = "web-analytics-query-modifiers"
+# Turns dimensional reads off for every team without a deploy. The writer keeps filling the tables, so turning
+# reads back on serves at once.
+WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG = "web-analytics-dimensional-reads-disabled"
 
 # The tables have no column for these keys, or store a session-level value that differs from what the
 # live filter matches. Gclid, fbclid and gad_source are stored as booleans, so a value filter cannot match them.
@@ -69,12 +73,9 @@ def ready_dimensional_job_ids(
     runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"],
     tables: Collection[str],
 ) -> DimensionalJobIds | None:
-    """The job ids to read when the query opted in and `tables` cover its whole range,
+    """The job ids to read when the query or its team opted in and `tables` cover its whole range,
     including the compare period. None means the caller uses its next path."""
-    web_query_modifiers = runner.query.webQueryModifiers
-    if not (web_query_modifiers and web_query_modifiers.useDimensionalTables):
-        return None
-    if not _query_modifiers_flag_enabled(runner):
+    if not reads_dimensional(runner):
         return None
     if _has_inexact_property_filter(runner):
         return None
@@ -145,6 +146,39 @@ def dimensional_precomputed_at(job_ids: DimensionalJobIds | None) -> str | None:
     if job_ids is None or job_ids.computed_at is None:
         return None
     return job_ids.computed_at.astimezone(UTC).isoformat()
+
+
+def reads_dimensional(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+    """Whether the query tries the dimensional tables first. Runners put this in their cache key, so flipping
+    the kill switch or the enrollment stops serving results cached under the other choice."""
+    web_query_modifiers = runner.query.webQueryModifiers
+    requested = web_query_modifiers.useDimensionalTables if web_query_modifiers else None
+    if requested is False:
+        return False
+    # The modifiers flag shows the browser toggle, which reads as on until the browser opts out, so for its users
+    # an unset request tries the tables on any team. A team without tables falls back.
+    wanted = _team_enrolled(runner) or _query_modifiers_flag_enabled(runner)
+    return wanted and not _dimensional_reads_disabled(runner)
+
+
+def _team_enrolled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+    # The writer fills the same teams, so an enrolled team has its tables.
+    return runner.team.pk in dimensional_team_ids()
+
+
+def _dimensional_reads_disabled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+    team = runner.team
+    return feature_enabled_or_false(
+        WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 def _query_modifiers_flag_enabled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:

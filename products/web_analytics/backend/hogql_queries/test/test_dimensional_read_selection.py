@@ -36,6 +36,8 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG,
+    WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
     DimensionalStatsTableQueryBuilder,
     ready_dimensional_job_ids,
 )
@@ -129,7 +131,10 @@ class TestDimensionalReadSelection(SimpleTestCase):
         insert_modifiers_patcher = patch(f"{_READ}.dimensional_insert_modifiers", return_value=HogQLQueryModifiers())
         insert_modifiers_patcher.start()
         self.addCleanup(insert_modifiers_patcher.stop)
-        flag_patcher = patch(f"{_READ}.feature_enabled_or_false", return_value=True)
+        self.flags = {WEB_ANALYTICS_QUERY_MODIFIERS_FLAG: True, WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG: False}
+        flag_patcher = patch(
+            f"{_READ}.feature_enabled_or_false", side_effect=lambda key, *args, **kwargs: self.flags[key]
+        )
         self.flag_enabled = flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
 
@@ -158,7 +163,6 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_modifiers", _runner(None), False, _JOB_IDS),
             ("opted_out", _runner(False), False, _JOB_IDS),
             ("property_access_rules", _runner(True), True, _JOB_IDS),
             ("test_account_filters", _runner(True, test_account_filters=_TEST_ACCOUNT_FILTERS), False, _JOB_IDS),
@@ -258,16 +262,33 @@ class TestDimensionalReadSelection(SimpleTestCase):
         ):
             assert ready_dimensional_job_ids(runner, _BOTH_TABLES) is None
 
-    def test_request_modifier_is_ignored_when_the_flag_is_off(self):
-        self.flag_enabled.return_value = False
+    @parameterized.expand(
+        [
+            ("team_on_and_request_unset", None, True, True, False, True),
+            ("team_off_and_request_unset_with_the_modifiers_flag", None, False, True, False, True),
+            ("team_off_and_request_unset_without_the_modifiers_flag", None, False, False, False, False),
+            ("team_on_and_request_opts_out", False, True, True, False, False),
+            ("team_off_and_request_opts_in_with_the_modifiers_flag", True, False, True, False, True),
+            ("team_off_and_request_opts_in_without_the_modifiers_flag", True, False, False, False, False),
+            ("team_on_and_request_opts_in_without_the_modifiers_flag", True, True, False, False, True),
+            ("team_on_and_reads_disabled", None, True, True, True, False),
+            ("request_opts_in_and_reads_disabled", True, False, True, True, False),
+        ]
+    )
+    def test_opt_in_follows_the_request_then_the_writer_team_list(
+        self, _name, requested, enrolled, modifiers_flag, reads_disabled, serves
+    ):
+        self.flags[WEB_ANALYTICS_QUERY_MODIFIERS_FLAG] = modifiers_flag
+        self.flags[WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG] = reads_disabled
+        runner = _runner(requested)
         with (
+            patch(f"{_READ}.dimensional_team_ids", return_value=[runner.team.pk] if enrolled else []),
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
         ):
-            assert ready_dimensional_job_ids(_runner(True), _BOTH_TABLES) is None
+            assert ready_dimensional_job_ids(runner, _BOTH_TABLES) == (_JOB_IDS if serves else None)
 
-        assert self.flag_enabled.call_args.args[0] == "web-analytics-query-modifiers"
-        mock_job_ids.assert_not_called()
+        assert mock_job_ids.called == serves
 
     @parameterized.expand(
         [

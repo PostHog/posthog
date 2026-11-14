@@ -47,7 +47,10 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
-from products.web_analytics.backend.hogql_queries.web_dimensional_read import ready_dimensional_job_ids
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+    ready_dimensional_job_ids,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 DIMENSIONAL_READ_TABLES = (WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
@@ -62,6 +65,8 @@ WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
 
 LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
 OPT_IN = WebAnalyticsQueryModifiers(useDimensionalTables=True)
+# The modifiers flag is on in these tests, which makes an unset request try the dimensional tables.
+OPT_OUT = WebAnalyticsQueryModifiers(useDimensionalTables=False)
 UNTAGGED_CHANNEL = HogQLQueryModifiers(
     customChannelTypeRules=[
         CustomChannelRule(
@@ -98,7 +103,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
         flag_patcher = patch(
             "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
@@ -214,6 +219,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 breakdownBy=breakdown,
                 limit=100,
                 includeBounceRate=include_bounce_rate,
+                webQueryModifiers=OPT_OUT,
             ),
             team=self.team,
         )
@@ -267,7 +273,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     ):
         include_bounce_rate = expected_bounce_rates is not None
         v2_strategy, v2, v2_response = self._run(
-            breakdown, LEGACY, None, properties=properties, include_bounce_rate=include_bounce_rate
+            breakdown, LEGACY, OPT_OUT, properties=properties, include_bounce_rate=include_bounce_rate
         )
         # Only the request opt-in: the legacy modifier must not be needed to reach this path.
         dimensional_strategy, dimensional, dimensional_response = self._run(
@@ -477,7 +483,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             self.team.save()
         with override_settings(EVENTS_DATA_RETENTION_ENFORCED=retention_months is not None):
             opted_in_runner, opted_in = run(OPT_IN)
-            _live_runner, live = run(None)
+            _live_runner, live = run(OPT_OUT)
             assert ready_dimensional_job_ids(opted_in_runner, DIMENSIONAL_READ_TABLES) is None
 
         assert not opted_in_runner.used_preaggregated_tables
@@ -551,7 +557,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             )
             return [(item.key, item.value) for item in overview_runner.calculate().results]
 
-        live = run(None)
+        live = run(OPT_OUT)
         with patch(
             f"products.web_analytics.backend.hogql_queries.web_dimensional_read.{builder_name}.get_query",
             side_effect=error,
@@ -599,7 +605,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 response = runner.calculate()
             return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
 
-        v2_query_types, v2 = run(LEGACY, None)
+        v2_query_types, v2 = run(LEGACY, OPT_OUT)
         dimensional_query_types, dimensional = run(LEGACY, OPT_IN)
 
         assert v2_query_types == ["web_overview_preaggregated_query"]
