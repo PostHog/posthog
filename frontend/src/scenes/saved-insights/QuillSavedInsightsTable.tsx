@@ -71,7 +71,7 @@ export function QuillSavedInsightsTable({
                     const insight = row.original
                     const displayName = insight.name || summarizeInsight(insight.query)
                     return (
-                        <div className="flex min-w-0 max-w-120 flex-col gap-0.5">
+                        <div className="flex w-0 min-w-full flex-col gap-0.5">
                             <Text size="xs" className="truncate font-medium" title={displayName}>
                                 {insight.name || <i>{displayName}</i>}
                             </Text>
