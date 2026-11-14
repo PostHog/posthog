@@ -14,6 +14,7 @@ const MAX_DEPARTED_VISITORS = 100
 export const LIVE_DEMO_READ_MS = 350
 
 type Weights = Record<string, number>
+export type LiveDemoState = LiveProjectState | 'mixed'
 
 const PAGE_WEIGHTS: Weights = {
     '/': 118,
@@ -115,6 +116,7 @@ interface DemoPerson {
     country: string
     referrer: string
     sessionId: string | null
+    os: 'iOS' | 'Android'
 }
 
 interface DemoEvent {
@@ -140,7 +142,7 @@ function minuteIso(at: number): string {
 
 export class LiveDemo {
     private seed: number
-    private readonly state: LiveProjectState
+    private readonly state: LiveDemoState
     private events: DemoEvent[] = []
     private active: DemoPerson[] = []
     private left: DemoPerson[] = []
@@ -149,7 +151,7 @@ export class LiveDemo {
     private driftMinute: number
 
     /** `state` picks the traffic: web visits, app events only, or none for the quiet and not set up states. */
-    constructor(seed: number, start: number, state: LiveProjectState = 'web') {
+    constructor(seed: number, start: number, state: LiveDemoState = 'web') {
         this.seed = seed
         this.state = state
         this.nextAt = start - WINDOW_MINUTES * MINUTE
@@ -165,7 +167,25 @@ export class LiveDemo {
         const from = Math.floor(now / MINUTE) * MINUTE - (WINDOW_MINUTES - 1) * MINUTE
         const inWindow = this.events.filter((event) => event.at >= from && event.at <= now)
         const pageviews = inWindow.filter((event) => event.event === '$pageview')
+        const mobile = inWindow.filter((event) => event.url === null && event.screen !== null)
         switch (key) {
+            case 'platforms':
+                return this.breakdown(
+                    mobile,
+                    (person) => person.os,
+                    (person) => person.distinctId
+                )
+            case 'mobileMetrics':
+                return { results: [[342, 1846, 27, 193, 5241]] }
+            case 'mobileSessions':
+                return {
+                    results: [
+                        [
+                            new Set(mobile.map((event) => event.person.sessionId).filter(Boolean)).size,
+                            mobile.filter((event) => event.person.sessionId).length,
+                        ],
+                    ],
+                }
             case 'usersPageviews':
                 return { results: this.activityRows(inWindow) }
             case 'device':
@@ -282,6 +302,7 @@ export class LiveDemo {
                 ids.size,
                 seen.size - before,
                 group.filter((event) => event.event === '$pageview').length,
+                group.filter((event) => event.event === '$screen').length,
             ]
         })
     }
@@ -314,6 +335,8 @@ export class LiveDemo {
                 this.events.push(this.makeEvent(this.nextAt))
             } else if (this.state === 'app_only') {
                 this.events.push(this.makeAppEvent(this.nextAt))
+            } else if (this.state === 'mixed') {
+                this.events.push(this.random() < 0.55 ? this.makeAppEvent(this.nextAt) : this.makeEvent(this.nextAt))
             }
             this.nextAt += 1200 + this.random() * 2400
         }
@@ -393,6 +416,7 @@ export class LiveDemo {
             country: this.weighted(COUNTRY_WEIGHTS),
             referrer: this.weighted(REFERRER_WEIGHTS),
             sessionId: this.random() < 0.82 ? this.uuid() : null,
+            os: this.random() < 0.64 ? 'iOS' : 'Android',
         }
     }
 
@@ -434,10 +458,10 @@ export class LiveDemo {
 }
 
 const DEMO_SEED = 1105
-const shared = new Map<LiveProjectState, LiveDemo>()
+const shared = new Map<LiveDemoState, LiveDemo>()
 
 /** One simulator per state for the app session, so leaving and reopening Live continues the same traffic. */
-export function liveDemo(now: number = Date.now(), state: LiveProjectState = 'web'): LiveDemo {
+export function liveDemo(now: number = Date.now(), state: LiveDemoState = 'web'): LiveDemo {
     let demo = shared.get(state)
     if (!demo) {
         demo = new LiveDemo(DEMO_SEED, now, state)
@@ -450,7 +474,7 @@ export function liveDemo(now: number = Date.now(), state: LiveProjectState = 'we
  * A dev aid for screenshots: `EXPO_PUBLIC_DEMO_LIVE_STATE=app_only|quiet|not_set_up` shows that Live state in demo
  * mode. Release builds ignore it, so the store demo always shows web traffic.
  */
-export function liveDemoState(): LiveProjectState {
+export function liveDemoState(): LiveDemoState {
     const value = __DEV__ ? process.env.EXPO_PUBLIC_DEMO_LIVE_STATE : undefined
-    return value === 'app_only' || value === 'quiet' || value === 'not_set_up' ? value : 'web'
+    return value === 'app_only' || value === 'mixed' || value === 'quiet' || value === 'not_set_up' ? value : 'web'
 }

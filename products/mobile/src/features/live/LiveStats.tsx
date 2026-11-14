@@ -23,23 +23,39 @@ interface LiveStatsProps {
     uniqueVisitors: number | null
     pageviews: number | null
     onAbout: (text: string) => void
+    audience?: 'web' | 'mobile' | 'mixed'
+    metrics?: Stat[]
+    compact?: boolean
 }
 
-/** The web's three live numbers in columns with dividers. A changed number counts to its new value and flashes blue. */
-export function LiveStats({ usersOnline, uniqueVisitors, pageviews, onAbout }: LiveStatsProps): ReactElement {
+export function LiveStats({
+    usersOnline,
+    uniqueVisitors,
+    pageviews,
+    onAbout,
+    audience = 'web',
+    metrics,
+    compact = false,
+}: LiveStatsProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const stats: Stat[] = [
+    const stats: Stat[] = metrics ?? [
         {
             key: 'users-online',
             label: 'Users online',
-            about: 'People active on your site right now.',
+            about:
+                audience === 'web'
+                    ? 'People active on your website right now.'
+                    : 'People active across this project right now.',
             value: usersOnline,
         },
         {
             key: 'unique-visitors',
-            label: 'Unique visitors',
-            about: 'Distinct visitors in the last 30 minutes.',
+            label: audience === 'web' ? 'Unique visitors' : 'Active users',
+            about:
+                audience === 'web'
+                    ? 'Distinct visitors in the last 30 minutes.'
+                    : 'Distinct user IDs across this project in the last 30 minutes. The same ID is counted once across web and mobile.',
             value: uniqueVisitors,
         },
         { key: 'pageviews', label: 'Pageviews', about: 'Total pages viewed in the last 30 minutes.', value: pageviews },
@@ -49,21 +65,21 @@ export function LiveStats({ usersOnline, uniqueVisitors, pageviews, onAbout }: L
             {stats.map((stat, index) => (
                 <Fragment key={stat.key}>
                     {index > 0 ? <View style={styles.divider} /> : null}
-                    <View style={styles.stat}>
-                        <Pressable44
-                            onPress={() => onAbout(stat.about)}
-                            accessibilityLabel={`${stat.label}. ${stat.about}`}
-                            pressedBackground={colors.pressed}
-                            style={styles.labelButton}
-                            testID={`live-stat-${stat.key}-label`}
-                        >
+                    <Pressable44
+                        style={styles.stat}
+                        onPress={() => onAbout(stat.about)}
+                        accessibilityLabel={`${stat.label}: ${stat.value === null ? 'not loaded' : groupThousands(stat.value)}. ${stat.about}`}
+                        pressedBackground={colors.pressed}
+                        testID={`live-stat-${stat.key}-label`}
+                    >
+                        <View style={[styles.labelButton, compact && styles.compactLabel]}>
                             <Text style={styles.label} numberOfLines={2}>
                                 {stat.label}
                             </Text>
                             <InfoIcon size={12} color={colors.tertiary} />
-                        </Pressable44>
+                        </View>
                         <AnimatedCount value={stat.value} label={stat.label} testID={`live-stat-${stat.key}`} />
-                    </View>
+                    </Pressable44>
                 </Fragment>
             ))}
         </View>
@@ -164,11 +180,11 @@ const useStyles = createStyles(({ colors }) => ({
         color: colors.tertiary,
         flexShrink: 1,
     },
+    compactLabel: {
+        minHeight: 20,
+    },
     value: {
-        fontSize: 28,
-        lineHeight: 34,
-        fontWeight: '700',
-        letterSpacing: -0.4,
+        ...type.screenTitle,
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },
