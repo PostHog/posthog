@@ -247,9 +247,17 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     - AND it has not errored within the last hour. A population task stamps last_error_at when
       it schedules a retry, and reset_stuck_cohorts stamps it when it re-dispatches, so a recent
       error means the run is alive and resetting it would dispatch a duplicate population.
+    - AND its population is not live. last_calculation is when the previous calculation finished, so it says
+      nothing about the current run. An attempt whose history row is still open and started within the soft time
+      limit is running, since the limit ends any attempt that outlasts it. A claim made within the soft time limit
+      plus an hour may still be waiting in the queue.
     A cohort at the error cap is still released, so a query or CSV update can claim it again, but it is not re-run.
     """
-    one_hour_ago = timezone.now() - relativedelta(hours=1)
+    now = timezone.now()
+    one_hour_ago = now - relativedelta(hours=1)
+    attempt_live_since = now - timedelta(seconds=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS)
+    claim_live_since = now - SOURCELESS_STATIC_COHORT_STUCK_AFTER
+    newest_attempt = CohortCalculationHistory.objects.filter(cohort=OuterRef("pk")).order_by("-started_at")
     return (
         Cohort.objects.filter(
             is_static=True,
@@ -262,6 +270,18 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
         )
         .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=one_hour_ago))
         .filter(HAS_STATIC_POPULATION_SOURCE)
+        .alias(
+            newest_attempt_started_at=Subquery(newest_attempt.values("started_at")[:1]),
+            newest_attempt_finished_at=Subquery(newest_attempt.values("finished_at")[:1]),
+        )
+        # Written as filters that keep the stuck cohorts, not as exclude(): a cohort without a history row has NULL
+        # in both columns, and an exclude() over a NULL comparison would drop it too.
+        .filter(
+            Q(newest_attempt_started_at__isnull=True)
+            | Q(newest_attempt_finished_at__isnull=False)
+            | Q(newest_attempt_started_at__lt=attempt_live_since)
+        )
+        .filter(Q(population_claimed_at__isnull=True) | Q(population_claimed_at__lt=claim_live_since))
     )
 
 
@@ -301,9 +321,9 @@ def _record_stuck_resets(event: str, cohort_ids: list[int]) -> None:
 
 
 def _end_pending_population(cohort_id: int) -> None:
-    # A reset that dispatches no population ends the run, so a pending replace can't surface on a
-    # later edit. The is_calculating filter skips a cohort a request claimed again after the reset,
-    # whose fields now belong to that request.
+    # A reset that dispatches no population clears the mode, marker and request time. A population dispatched
+    # without a claim, such as the staff re-sync, then runs as an append instead of the abandoned replace. The
+    # is_calculating filter skips a cohort a request claimed again after the reset, whose fields now belong to it.
     Cohort.objects.filter(pk=cohort_id, is_calculating=False).update(
         pending_population_mode=None, population_marker=None, population_claimed_at=None
     )

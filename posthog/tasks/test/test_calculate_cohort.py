@@ -35,6 +35,7 @@ from posthog.tasks.calculate_cohort import (
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
     STATIC_POPULATION_MAX_RETRIES,
+    _end_pending_population,
     calculate_cohort_ch,
     calculate_cohort_from_list,
     collect_cohort_query_stats,
@@ -2148,6 +2149,82 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
+            # The previous calculation finished two days ago, which says nothing about the current run.
+            ("replace_claimed_just_now", CohortPopulationMode.REPLACE, relativedelta(seconds=30), None, False),
+            ("append_claimed_just_now", CohortPopulationMode.APPEND, relativedelta(seconds=30), None, False),
+            # A claim from before the request time was recorded, whose attempt is running.
+            ("attempt_running_for_90_minutes", CohortPopulationMode.REPLACE, None, relativedelta(minutes=90), False),
+            (
+                "attempt_killed_past_the_soft_limit",
+                CohortPopulationMode.REPLACE,
+                relativedelta(hours=6),
+                relativedelta(hours=5),
+                True,
+            ),
+        ]
+    )
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    def test_reset_stuck_static_cohorts_leaves_a_live_population_alone(
+        self,
+        _name: str,
+        mode: str,
+        claim_age: relativedelta | None,
+        attempt_age: relativedelta | None,
+        expect_reset: bool,
+        mock_insert_cohort_from_query: MagicMock,
+    ) -> None:
+        now = timezone.now()
+        claimed_at = now - claim_age if claim_age else None
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static repopulating",
+            is_calculating=True,
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+            last_calculation=now - relativedelta(days=2),
+            pending_population_mode=mode,
+            population_claimed_at=claimed_at,
+        )
+        if attempt_age is not None:
+            CohortCalculationHistory.objects.create(
+                team=self.team, cohort=cohort, filters={}, started_at=now - attempt_age
+            )
+
+        reset_stuck_cohorts()
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.is_calculating, not expect_reset)
+        self.assertEqual(mock_insert_cohort_from_query.delay.called, expect_reset)
+        # A redispatch serves the same request, so it keeps the mode and the request time.
+        self.assertEqual((cohort.pending_population_mode, cohort.population_claimed_at), (mode, claimed_at))
+
+    @parameterized.expand([("released", False, True), ("claimed_again", True, False)])
+    def test_ending_a_pending_population_leaves_a_cohort_claimed_again(
+        self, _name: str, is_calculating: bool, expect_cleared: bool
+    ) -> None:
+        # A request can claim the cohort between the sweep's reset and this clear. Its fields belong to it, so a
+        # replace it claimed must keep its mode, or it would run as an append.
+        marker = timezone.now().replace(microsecond=0)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            is_calculating=is_calculating,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=marker,
+            population_claimed_at=marker,
+        )
+
+        _end_pending_population(cohort.pk)
+
+        cohort.refresh_from_db()
+        expected = (None, None, None) if expect_cleared else (CohortPopulationMode.REPLACE, marker, marker)
+        self.assertEqual(
+            (cohort.pending_population_mode, cohort.population_marker, cohort.population_claimed_at), expected
+        )
+
+    @parameterized.expand(
+        [
             ("flag_run_killed", None, relativedelta(hours=6), [], None, 0, True),
             ("flag_run_within_soft_limit", None, relativedelta(hours=4), [], None, 0, False),
             (
@@ -2222,6 +2299,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_insert_cohort_from_filters: MagicMock,
     ) -> None:
         now = timezone.now()
+        marker = now.replace(microsecond=0) - relativedelta(days=4)
         cohort = Cohort.objects.create(
             team=self.team,
             name="static without a population source",
@@ -2230,6 +2308,10 @@ class TestCohortCalculationTasks(APIBaseTest):
             filters=filters,
             last_calculation=now - last_calculation_age if last_calculation_age else None,
             errors_calculating=errors_calculating,
+            # Run fields a replace could have left, which only a reset clears.
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=marker,
+            population_claimed_at=marker,
         )
         Cohort.objects.filter(pk=cohort.pk).update(created_at=now - created_age)
         for attempt_age, attempt_finished in attempts:
@@ -2246,6 +2328,10 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.is_calculating, not expect_reset)
         self.assertEqual(cohort.errors_calculating, errors_calculating + (1 if expect_reset else 0))
+        self.assertEqual(
+            (cohort.pending_population_mode, cohort.population_marker, cohort.population_claimed_at),
+            (None, None, None) if expect_reset else (CohortPopulationMode.REPLACE, marker, marker),
+        )
         mock_insert_cohort_from_query.delay.assert_not_called()
         mock_insert_cohort_from_filters.delay.assert_not_called()
         history = [
