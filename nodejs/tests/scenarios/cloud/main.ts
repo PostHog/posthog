@@ -25,7 +25,6 @@ function defaultController(): Controller {
 }
 
 async function run(controller: Controller, loaded: RunInputs): Promise<number> {
-    const bucket = loaded.profile.baseline.evidenceBucket
     const admission = await admit(controller, loaded.profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
@@ -35,14 +34,14 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
     try {
         controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)
     } finally {
-        await release(controller, bucket, manifest)
+        await release(controller, manifest)
     }
     return EXIT_CODE.passed
 }
 
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {
     const bucket = profile.baseline.evidenceBucket
-    await release(controller, bucket, await manifestOf(controller, bucket, target))
+    await release(controller, await manifestOf(controller, bucket, target))
     return EXIT_CODE.passed
 }
 
