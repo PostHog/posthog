@@ -8,6 +8,8 @@ import { cn } from 'lib/utils/css-classes'
 export interface HighlightFeedCardLayoutProps {
     scanner: React.ReactNode
     meta: React.ReactNode
+    /** Short meta, like a pill, stays on the scanner's line at every width. */
+    metaInline?: boolean
     action?: React.ReactNode
     title: string
     titlePrefix?: React.ReactNode
@@ -27,6 +29,7 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
         {
             scanner,
             meta,
+            metaInline = false,
             action,
             title,
             titlePrefix,
@@ -58,19 +61,42 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
             <article
                 ref={ref}
                 className={cn(
-                    'group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4',
+                    'group @container/highlight-card relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4',
                     titleLink && 'hover:border-accent focus-within:border-accent',
                     className
                 )}
                 data-attr={dataAttr}
             >
-                <header className="flex min-w-0 items-center gap-2">
-                    <div className="flex min-w-0">{scanner}</div>
-                    <span className="text-xs text-muted" aria-hidden>
+                {/*
+                  A narrow card puts the person and age on their own line, so neither they nor the scanner name are cut
+                  short. pl-8 is the chip's size-6 icon plus gap-2, so that line starts under the name. A wide card keeps
+                  one line, and the person and age keep up to 45% of it, so a long email is cut before the scanner name.
+                */}
+                <header
+                    className={cn(
+                        'flex min-w-0 items-center gap-x-2',
+                        !metaInline && 'flex-wrap @[28rem]/highlight-card:flex-nowrap'
+                    )}
+                >
+                    <div className={cn('flex min-w-0', !metaInline && 'flex-1 @[28rem]/highlight-card:flex-initial')}>
+                        {scanner}
+                    </div>
+                    <span
+                        className={cn('text-xs text-muted', !metaInline && 'hidden @[28rem]/highlight-card:inline')}
+                        aria-hidden
+                    >
                         ·
                     </span>
-                    {/* The person and age keep up to 45% of the line, so a long email is cut before the scanner name. */}
-                    <div className="min-w-0 max-w-[45%] shrink-0">{meta}</div>
+                    <div
+                        className={cn(
+                            'flex min-w-0',
+                            metaInline
+                                ? 'max-w-[45%] shrink-0'
+                                : 'order-last basis-full pl-8 @[28rem]/highlight-card:order-none @[28rem]/highlight-card:max-w-[45%] @[28rem]/highlight-card:shrink-0 @[28rem]/highlight-card:basis-auto @[28rem]/highlight-card:pl-0'
+                        )}
+                    >
+                        {meta}
+                    </div>
                     {action && <div className="relative z-10 ml-auto shrink-0">{action}</div>}
                 </header>
                 <div className="flex min-w-0 flex-col gap-1">
