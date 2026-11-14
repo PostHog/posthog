@@ -43,6 +43,9 @@ EMBEDDING_BATCH_SIZE = 32
 EMBEDDING_CONCURRENCY = 8
 EMBEDDING_TIMEOUT_SECONDS = 30.0
 _EMBEDDING_TABLE = next(t for t in EMBEDDING_TABLES if t.model_name == EMBEDDING_MODEL).distributed_table_name()
+_EMBEDDING_INSERT_SQL = f"""INSERT INTO {_EMBEDDING_TABLE}
+(team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, metadata, embedding)
+VALUES"""
 
 
 def write_intent_embeddings(team: Team, intents: Sequence[DistinctIntent]) -> int:
@@ -70,9 +73,7 @@ def write_intent_embeddings(team: Team, intents: Sequence[DistinctIntent]) -> in
     inserted_at = timezone.now()
     with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
         sync_execute(
-            f"""INSERT INTO {_EMBEDDING_TABLE}
-            (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, metadata, embedding)
-            VALUES""",
+            _EMBEDDING_INSERT_SQL,
             [
                 (
                     team.pk,
