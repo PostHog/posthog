@@ -3,7 +3,6 @@ import { isRecord } from '@/lib/records'
 import {
     type LiveActivity,
     type LiveBreakdown,
-    type LiveBreakdownDataKind,
     type LiveBreakdownKind,
     type LiveBreakdownRow,
     type LiveEventKind,
@@ -140,7 +139,7 @@ export function liveRankedRows(
         })
 }
 
-const STAT_LABELS: Record<LiveBreakdownDataKind, string> = {
+const STAT_LABELS: Record<LiveBreakdownKind, string> = {
     devices: 'unique devices',
     browsers: 'unique browsers',
     countries: 'unique visitors',
@@ -173,7 +172,7 @@ function countryRow({ key, count }: Counted, total: number): LiveBreakdownRow {
 }
 
 /** Browsers and countries keep their top six and add the rest up as "Other", which always comes last. */
-export function liveBreakdown(response: unknown, kind: LiveBreakdownDataKind): LiveBreakdown {
+export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveBreakdown {
     const counted = breakdownCounts(response)
     const total = counted.reduce((sum, entry) => sum + entry.count, 0)
     const limited =

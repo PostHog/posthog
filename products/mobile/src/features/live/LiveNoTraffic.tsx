@@ -18,10 +18,11 @@ import { LiveMeanwhile } from './LiveMeanwhile'
 interface LiveNoTrafficProps {
     state: 'quiet' | 'not_set_up'
     scope: ProjectScope | null
+    mobile?: boolean
 }
 
 /** Live without events: why it is empty, and the Meanwhile list in place of the cards. */
-export function LiveNoTraffic({ state, scope }: LiveNoTrafficProps): ReactElement {
+export function LiveNoTraffic({ state, scope, mobile = false }: LiveNoTrafficProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
@@ -39,7 +40,11 @@ export function LiveNoTraffic({ state, scope }: LiveNoTrafficProps): ReactElemen
                     <StateView
                         icon={<LiveIcon size={iconSizes.empty} color={colors.tertiary} />}
                         title="Quiet right now"
-                        message="No events in the last 30 minutes. Live keeps checking."
+                        message={
+                            mobile
+                                ? 'No mobile events in the last 30 minutes. Live keeps checking.'
+                                : 'No events in the last 30 minutes. Live keeps checking.'
+                        }
                         style={styles.state}
                         testID="live-quiet"
                     />
@@ -47,7 +52,7 @@ export function LiveNoTraffic({ state, scope }: LiveNoTrafficProps): ReactElemen
                     <StateView
                         icon={<GlobeIcon size={iconSizes.empty} color={colors.tertiary} />}
                         title="Install PostHog to see live activity"
-                        message="This project has not sent an event yet. Add the web snippet or an SDK and Live fills in within a minute."
+                        message="This project has not sent an event yet. Add PostHog to your website or mobile app to see activity here."
                         actionLabel="Open setup guide"
                         onAction={openSetup}
                         actionDisabledReason={
