@@ -57,6 +57,7 @@ def sync_destination_templates() -> None:
                 {"key": "url", "type": "string"},
                 {"key": "body", "type": "json"},
                 {"key": "headers", "type": "dictionary"},
+                {"key": "secret_headers", "type": "dictionary", "secret": True},
             ],
             "type": "destination",
             "status": "stable",
@@ -346,8 +347,13 @@ class TestInsightPlatformCutover(APIBaseTest):
             team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
         )
         (group,) = [group for group in groups if group.hog_function_ids]
-        assert {key: group.data.get(key) for key in data} == data
+        shown = {key: value for key, value in data.items() if key != "webhook_headers"}
+        assert {key: group.data.get(key) for key in shown} == shown
         rebuilt = HogFunction.objects.filter(id__in=group.hog_function_ids)
+        if "webhook_headers" in data:
+            (function,) = rebuilt
+            assert (function.encrypted_inputs or {})["secret_headers"]["value"] == data["webhook_headers"]
+            assert "secret_headers" not in (function.inputs or {})
         assert sorted(
             event["id"] for function in rebuilt for event in (function.filters or {}).get("events", [])
         ) == sorted(

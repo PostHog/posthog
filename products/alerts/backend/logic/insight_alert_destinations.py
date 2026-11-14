@@ -270,8 +270,9 @@ def build_insight_alert_url_config(
     else:
         label = f"Webhook {url_hostname(url)}"
         inputs = {"url": {"value": url}, "body": {"value": _WEBHOOK_BODY}}
+        # An added header usually holds a credential, which the template's secret input encrypts and masks.
         if headers := data.get("webhook_headers"):
-            inputs["headers"] = {"value": headers}
+            inputs["secret_headers"] = {"value": headers}
     spec = DESTINATION_SPECS[destination_type]
     return AlertDestinationConfig(
         payload={

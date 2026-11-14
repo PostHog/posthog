@@ -95,6 +95,7 @@ def sync_destination_templates() -> None:
                 {"key": "url", "type": "string"},
                 {"key": "body", "type": "json"},
                 {"key": "headers", "type": "dictionary"},
+                {"key": "secret_headers", "type": "dictionary", "secret": True},
             ],
             "type": "destination",
             "status": "stable",
@@ -379,7 +380,8 @@ class TestPlatformCutover(APIBaseTest):
         (group,) = list_alert_destination_groups(
             team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
         )
-        assert {key: group.data.get(key) for key in ("type", *fields)} == {"type": destination_type, **fields}
+        shown = {key: value for key, value in fields.items() if key != "webhook_headers"}
+        assert {key: group.data.get(key) for key in ("type", *shown)} == {"type": destination_type, **shown}
         rebuilt = HogFunction.objects.filter(id__in=group.hog_function_ids)
         assert sorted(
             event["id"] for function in rebuilt for event in (function.filters or {}).get("events", [])
@@ -389,6 +391,12 @@ class TestPlatformCutover(APIBaseTest):
             url_keys = {"url", "webhookUrl"}
             assert all(
                 url_keys & set(function.encrypted_inputs or {}) and not url_keys & set(function.inputs or {})
+                for function in rebuilt
+            )
+        if "webhook_headers" in fields:
+            assert all(
+                (function.encrypted_inputs or {})["secret_headers"]["value"] == fields["webhook_headers"]
+                and "Authorization" not in (function.inputs or {})["headers"]["value"]
                 for function in rebuilt
             )
         assert retired.isdisjoint(group.hog_function_ids)
