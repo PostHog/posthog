@@ -34,6 +34,10 @@ rules:
       owners: team-analytics-platform
     - match: '/rbac/'
       owners: team-platform-features
+    - match:
+          - '/request_log_signal_handlers.py'
+          - '/test/test_request_log_signal_handlers.py'
+      owners: team-apm
     - match: '/slack/'
       owners: team-devex
     - match: '/taxonomy/'

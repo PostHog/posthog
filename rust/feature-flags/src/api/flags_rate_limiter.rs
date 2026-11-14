@@ -13,6 +13,7 @@
 /// The rate limiter is designed to match the behavior of Python's DecideRateThrottle class,
 /// which uses the token-bucket library for the /decide endpoint.
 use crate::api::rate_parser::parse_rate_string;
+use crate::utils::token_log::redact_token;
 use governor::{
     clock, middleware::NoOpMiddleware, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter,
 };
@@ -265,14 +266,6 @@ where
 /// Maximum number of per-token rate limit overrides allowed.
 /// Reuses the config-level constant to keep both checks in sync.
 const MAX_CUSTOM_RATE_OVERRIDES: usize = crate::config::MAX_FLAGS_RATE_LIMIT_OVERRIDES;
-
-/// Redacts a token for safe logging, showing only a prefix and suffix.
-fn redact_token(token: &str) -> String {
-    match (token.get(..4), token.get(token.len().saturating_sub(4)..)) {
-        (Some(prefix), Some(suffix)) if token.len() > 8 => format!("{prefix}…{suffix}"),
-        _ => "***".to_string(),
-    }
-}
 
 /// Token bucket rate limiter for feature flag requests.
 ///
@@ -724,14 +717,6 @@ mod tests {
         let result = FlagsRateLimiter::new(true, 10.0, None, 500, false, custom_rates);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Too many"));
-    }
-
-    #[test]
-    fn test_redact_token() {
-        assert_eq!(redact_token("short"), "***");
-        assert_eq!(redact_token("phc_abcdefghijklmnop"), "phc_…mnop");
-        assert_eq!(redact_token("12345678"), "***");
-        assert_eq!(redact_token("123456789"), "1234…6789");
     }
 }
 
