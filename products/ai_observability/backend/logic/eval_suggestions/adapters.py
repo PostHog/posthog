@@ -25,11 +25,12 @@ DEFAULT_IGNORED_ERROR_PREFIXES: tuple[str, ...] = (
     "GenerationCanceled",
     "GeneratorExit",
     "context canceled",
+    "AbortError",
 )
 # Whole words or a class-name suffix, so a real failure that only mentions one (`Connection aborted.`,
 # `ApprovalServiceError: 503`) still counts.
 PAUSE_ERROR_PATTERN = re.compile(
-    r"(?i:\b(paused|cancell?ed|interrupted|awaiting approval|approval (required|pending))\b)|Interrupt\b|Cancell?edError\b"
+    r"(?i:\b(paused|cancell?ed|interrupted|awaiting approval|approval (required|pending))\b)|Interrupt\b|Cancell?edError\b|AbortError\b"
 )
 POLLING_TOOL_PATTERN = re.compile(r"(^|[_.\-])(poll|wait|sleep|status|heartbeat|progress)([_.\-]|$)", re.IGNORECASE)
 REPEAT_THRESHOLD = 3
@@ -47,6 +48,11 @@ REFUSAL_OPENERS: tuple[str, ...] = (
 REFUSAL_ACTIONS = "help|assist|do that|share|provide|comply|answer|fulfill|complete|give"
 # Placeholder domains that documentation and test data use, so an address on them leaks nothing.
 IGNORED_EMAIL_DOMAINS: tuple[str, ...] = ("example.com", "example.org", "example.net", "test.com", "localhost")
+# A domain that is only a word for "example" and a public suffix, such as `exemplo.com.br`, is a placeholder in any
+# language. Any other label makes it a domain someone can register, so `customer-example.com` still counts.
+PLACEHOLDER_DOMAIN_PATTERN = (
+    "^(example|exemplo|ejemplo|exemple|esempio|beispiel|voorbeeld|przyklad)([.][a-z]{2,3}){1,2}$"
+)
 
 
 @frozen
@@ -341,7 +347,8 @@ let answered := addresses_in(final_text)
 for (let i, address in answered) {{
     let domain := splitByString('@', address)[2]
     let automated := position(address, 'noreply') > 0 or position(address, 'no-reply') > 0
-    if (not has(ignored_domains, domain) and not automated and not has(given, address)) {{
+    let placeholder := match(domain, {hog_string(PLACEHOLDER_DOMAIN_PATTERN)})
+    if (not has(ignored_domains, domain) and not placeholder and not automated and not has(given, address)) {{
         print(concat('Final message contains an email address on ', domain))
         return false
     }}
