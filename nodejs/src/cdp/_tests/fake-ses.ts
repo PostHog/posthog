@@ -13,7 +13,7 @@ export type FakeSesFault =
 export interface FakeSes {
     endpoint: string
     readonly sent: FakeSesMessage[]
-    failWith(fault: FakeSesFault | null): void
+    failWith(fault: FakeSesFault | FakeSesFault[] | null): void
     close(): Promise<void>
 }
 
@@ -62,12 +62,13 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
             return [...edge.sent]
         },
         // A fault answers every later send, because the SDK retries throttles, 5xx responses and dropped
-        // connections on its own before the caller sees an error.
+        // connections on its own before the caller sees an error. In a list, each fault but the last answers once.
         failWith: (fault) => {
             edge.clearFaults()
-            if (fault) {
-                edge.addFault(faultRuleOf(fault))
-            }
+            const faults = fault === null ? [] : Array.isArray(fault) ? fault : [fault]
+            faults.forEach((each, index) =>
+                edge.addFault({ ...faultRuleOf(each), ...(index < faults.length - 1 ? { dose: { count: 1 } } : {}) })
+            )
         },
         close: async () => {
             setVariables(previousCredentials)

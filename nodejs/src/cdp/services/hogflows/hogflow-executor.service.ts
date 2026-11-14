@@ -89,6 +89,7 @@ const PER_SEND_METADATA_KEYS = [
     'suppressionLookupAttempts',
     'attachmentLoadRetries',
     'ownershipCheckRetries',
+    'sesUnavailableRetries',
     'teamBudgetClaimed',
     'workflowRateClaimed',
 ] as const
