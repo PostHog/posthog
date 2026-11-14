@@ -153,7 +153,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     </Link>
                                 </p>
                                 <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
+                                    type={PropertyDefinitionType.Person}
                                     properties={properties}
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
@@ -173,7 +173,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     </Link>
                                 </p>
                                 <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
+                                    type={PropertyDefinitionType.Person}
                                     properties={properties}
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
