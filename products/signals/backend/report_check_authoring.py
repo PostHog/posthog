@@ -26,7 +26,12 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportCheck
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalReport,
+    SignalReportCheck,
+    SignalReportMonitoringAttempt,
+)
 from products.signals.backend.report_check_agent import agent_check_lane_available
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
@@ -55,6 +60,7 @@ from products.signals.backend.report_content_gates import team_report_monitoring
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_monitoring_attempts import complete_implementation, current_monitoring_attempt
+from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt_safely
 
 logger = structlog.get_logger(__name__)
 
@@ -552,8 +558,34 @@ def cancel_check(
     )
     if cancelled:
         write_check_cancelled(check, reason=reason, attribution=attribution)
+        # Completion cancels leftover checks after it has already decided the outcome.
+        if reason != "monitoring_completed":
+            _reaggregate_monitoring_after_cancel(check)
     check.refresh_from_db()
     return bool(cancelled)
+
+
+def _reaggregate_monitoring_after_cancel(check: SignalReportCheck) -> None:
+    attempt_id = (
+        SignalReportMonitoringAttempt.objects.for_team(check.team_id)
+        .filter(
+            report_id=check.report_id,
+            report__status=SignalReport.Status.MONITORING,
+            monitoring_started_at=F("report__monitoring_started_at"),
+            check_versions__has_key=str(check.id),
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
+    if attempt_id is not None:
+        transaction.on_commit(
+            partial(
+                aggregate_monitoring_attempt_safely,
+                team_id=check.team_id,
+                report_id=check.report_id,
+                attempt_id=attempt_id,
+            )
+        )
 
 
 def _arm_pending_checks(

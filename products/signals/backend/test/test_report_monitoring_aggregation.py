@@ -32,6 +32,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
     SignalReportTrackerIssue,
 )
+from products.signals.backend.report_check_authoring import cancel_check
 from products.signals.backend.report_monitoring_aggregation import (
     MonitoringAggregation,
     MonitoringMemberState,
@@ -136,6 +137,10 @@ class TestMonitoringAggregation(SimpleTestCase):
             ("assessment_waits_for_other_checks", ("inconclusive", "waiting"), "waiting"),
             ("insufficient_evidence_needs_assessment", ("passed", "inconclusive"), "assessment_required"),
             ("exhausted_errors_are_not_failure", ("passed", "exhausted"), "assessment_required"),
+            ("cancelled_member_is_dropped", ("passed", "cancelled"), "passed"),
+            ("cancelled_member_does_not_hide_pending_member", ("waiting", "cancelled"), "waiting"),
+            ("cancelled_member_does_not_hide_failure", ("failed", "cancelled"), "failed"),
+            ("every_member_cancelled_resolves", ("cancelled", "cancelled"), "passed"),
         ]
     )
     def test_outcome_priority(self, _name: str, members: tuple[str, ...], expected: str) -> None:
@@ -408,7 +413,6 @@ class TestReportMonitoringAggregation(BaseTest):
             ("reopened",),
             ("disabled",),
             ("changed_definition",),
-            ("cancelled",),
             ("missing_member",),
         ]
     )
@@ -424,8 +428,6 @@ class TestReportMonitoringAggregation(BaseTest):
             SignalReportCheck.objects.for_team(self.team.id).filter(id=self.checks[1].id).update(
                 title="A different expectation"
             )
-        elif change == "cancelled":
-            SignalReportCheck.objects.for_team(self.team.id).filter(id=self.checks[1].id).update(status="cancelled")
         else:
             self.checks[1].delete()
         prior_status = self.report.status
@@ -435,6 +437,36 @@ class TestReportMonitoringAggregation(BaseTest):
         assert self.attempt is not None
         self.attempt.refresh_from_db()
         assert self.attempt.assessment_requested_at is None and self.attempt.research_requested_at is None
+
+    @parameterized.expand(
+        [
+            ("other_check_passed", False, False),
+            ("every_check_cancelled", True, False),
+            ("lost_callback", True, True),
+        ]
+    )
+    def test_cancelled_check_leaves_verification(self, _name: str, cancel_all: bool, lost_callback: bool) -> None:
+        if not cancel_all:
+            with self.captureOnCommitCallbacks(execute=True):
+                save_monitoring_result(self._evaluation(0))
+        for check in self.checks if cancel_all else self.checks[1:]:
+            with self.captureOnCommitCallbacks(execute=not lost_callback):
+                assert cancel_check(check, reason="stopped_by_person", attribution=ArtefactAttribution.system())
+        if lost_callback:
+            self.report.refresh_from_db()
+            assert self.report.status == SignalReport.Status.MONITORING
+            aggregate_due_monitoring_attempts(deadline=time.monotonic() + 30, limit=10)
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert self.attempt is not None
+        self.attempt.refresh_from_db()
+        assert self.attempt.tracker_issue_close_requested_at == self.now
+        assert self.attempt.research_requested_at is None and self.attempt.assessment_requested_at is None
+        assert self.attempt.aggregation_reason == (
+            "All follow-up checks were canceled, so the report was resolved without verification."
+            if cancel_all
+            else "All follow-up checks passed with sufficient evidence."
+        )
 
     def test_lost_callback_is_recovered_and_other_teams_cannot_complete_it(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
