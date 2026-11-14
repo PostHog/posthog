@@ -302,6 +302,7 @@ export type MinimalAppMetric = {
     // `parentRunId` for batch-triggered runs, so per-run views group by the run. A per-version rollup
     // has to key on the flow itself, or a broadcast's metrics never aggregate across its runs.
     app_source_version?: { id: string; version: number }
+    prometheus_metric_name?: 'email_sender_unverified'
 }
 
 export type AppMetricType = MinimalAppMetric & {

@@ -166,7 +166,9 @@ export class HogFunctionMonitoringService {
     }
 
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
-        counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(metric.count)
+        counterHogFunctionMetric
+            .labels(metric.metric_kind, metric.prometheus_metric_name ?? metric.metric_name)
+            .inc(metric.count)
 
         this.appMetricsAggregator.queue({
             team_id: metric.team_id,
