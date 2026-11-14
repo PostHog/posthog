@@ -104,6 +104,15 @@ export function WorkflowDetail({ attributes }: NotebookNodeProps<WorkflowNoteboo
 }
 
 function WorkflowEditor({ attributes }: NotebookNodeProps<WorkflowNotebookWidgetAttributes>): JSX.Element {
+    const { originalWorkflow, originalWorkflowLoading } = useValues(workflowLogic({ id: attributes.id }))
+
+    if (!originalWorkflow && originalWorkflowLoading) {
+        return <WorkflowLoading />
+    }
+    if (!originalWorkflow) {
+        return <NotFound object="workflow" />
+    }
+
     return (
         <BindLogic logic={workflowLogic} props={{ id: attributes.id }}>
             <WorkflowMetadata attributes={attributes} updateAttributes={() => {}} />

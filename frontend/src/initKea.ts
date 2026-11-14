@@ -200,7 +200,7 @@ const NOT_FOUND_SELF_HANDLED = new Set([
 
 // The same as NOT_FOUND_SELF_HANDLED, for an action name that other logics also use and do not handle.
 const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic', // The workflow scene and notebook node render NotFound
+    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic', // The workflow scene and the notebook node views that show the workflow render NotFound
 }
 
 /*
