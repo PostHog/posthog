@@ -31454,6 +31454,10 @@
                     },
                     "type": "array"
                 },
+                "team_id": {
+                    "description": "The environment the object belongs to. A project lists every environment's files.",
+                    "type": "number"
+                },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
@@ -31710,6 +31714,10 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "team_id": {
+                    "description": "The environment the object belongs to. A project lists every environment's files.",
+                    "type": "number"
                 },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",

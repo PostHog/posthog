@@ -175,6 +175,14 @@ class TestFileSystemAPI(APIBaseTest):
             set(results),
             {f"Reports/{name}" for name, _, _, _ in entries} | {"Reports/Other notebook", "Reports/Other insight"},
         )
+        self.assertEqual(
+            {path: item["team_id"] for path, item in results.items()},
+            {
+                **{f"Reports/{name}": self.team.id for name, _, _, _ in entries},
+                "Reports/Other notebook": sibling_team.id,
+                "Reports/Other insight": sibling_team.id,
+            },
+        )
         for name, entry_type, _, content_type in entries:
             expected_meta = {"label": "example"}
             if entry_type == "insight":

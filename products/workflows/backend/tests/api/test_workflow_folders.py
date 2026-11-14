@@ -1136,20 +1136,24 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("workflow_too_deep", "hog_flows", "/".join(["Level"] * 51)),
-            ("workflow_too_long", "hog_flows", "a" * 4001),
-            ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
-            ("template_too_long", "messaging_templates", "a" * 4001),
-            ("workflow_name_past_the_depth", "hog_flows", "/".join(["Level"] * 50)),
-            ("workflow_name_past_the_length", "hog_flows", "a" * 4000),
-            ("template_name_past_the_depth", "messaging_templates", "/".join(["Level"] * 50)),
-            ("template_name_past_the_length", "messaging_templates", "a" * 4000),
-            ("unnamed_workflow_past_the_depth", "hog_flows", "/".join(["Level"] * 50), None),
-            ("unnamed_workflow_past_the_length", "hog_flows", "a" * 3999, ""),
+            ("workflow_too_deep", "hog_flows", "_create_in_folder", "/".join(["Level"] * 51)),
+            ("workflow_too_long", "hog_flows", "_create_in_folder", "a" * 4001),
+            ("workflow_folder_alias_too_deep", "hog_flows", "folder", "/".join(["Level"] * 51)),
+            ("workflow_folder_alias_too_long", "hog_flows", "folder", "a" * 4001),
+            ("template_too_deep", "messaging_templates", "_create_in_folder", "/".join(["Level"] * 51)),
+            ("template_too_long", "messaging_templates", "_create_in_folder", "a" * 4001),
+            ("workflow_name_past_the_depth", "hog_flows", "_create_in_folder", "/".join(["Level"] * 50)),
+            ("workflow_name_past_the_length", "hog_flows", "_create_in_folder", "a" * 4000),
+            ("template_name_past_the_depth", "messaging_templates", "_create_in_folder", "/".join(["Level"] * 50)),
+            ("template_name_past_the_length", "messaging_templates", "_create_in_folder", "a" * 4000),
+            ("unnamed_workflow_past_the_depth", "hog_flows", "_create_in_folder", "/".join(["Level"] * 50), None),
+            ("unnamed_workflow_past_the_length", "hog_flows", "_create_in_folder", "a" * 3999, ""),
+            ("workflow_folder_alias_name_past_the_depth", "hog_flows", "folder", "/".join(["Level"] * 50)),
+            ("unnamed_workflow_folder_alias_past_the_length", "hog_flows", "folder", "a" * 3999, ""),
         ]
     )
     def test_create_in_folder_rejects_paths_past_the_tree_limits(
-        self, _name: str, resource: str, folder: str, name: str | None = "Bounded"
+        self, _name: str, resource: str, field: str, folder: str, name: str | None = "Bounded"
     ) -> None:
         payloads: dict[str, dict[str, Any]] = {
             "hog_flows": {
@@ -1162,11 +1166,11 @@ class TestWorkflowFolders(APIBaseTest):
         payload = payloads[resource]
 
         created = self.client.post(
-            f"/api/projects/{self.team.id}/{resource}/", {**payload, "_create_in_folder": folder}, format="json"
+            f"/api/projects/{self.team.id}/{resource}/", {**payload, field: folder}, format="json"
         )
 
         self.assertEqual(created.status_code, 400, created.content)
-        self.assertEqual(created.json()["attr"], "_create_in_folder")
+        self.assertEqual(created.json()["attr"], field)
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
 
     @parameterized.expand(
@@ -1983,14 +1987,36 @@ class TestWorkflowFolders(APIBaseTest):
         reloaded = self.client.get(f"{files_url}{entry['id']}/")
         self.assertEqual(reloaded.json()["path"], "Campaigns/Retention/Welcome email")
 
-    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
-    def test_new_workflow_is_created_in_the_requested_project_folder(self, _name: str, local: bool | None) -> None:
+    @parameterized.expand(
+        [
+            ("create_in_folder", {"_create_in_folder": "Campaigns/Retention"}, True, "Campaigns/Retention/Renewal"),
+            (
+                "create_in_folder_local_evaluation_inconclusive",
+                {"_create_in_folder": "Campaigns/Retention"},
+                None,
+                "Campaigns/Retention/Renewal",
+            ),
+            ("folder", {"folder": "Campaigns/Retention"}, True, "Campaigns/Retention/Renewal"),
+            (
+                "folder_local_evaluation_inconclusive",
+                {"folder": "Campaigns/Retention"},
+                None,
+                "Campaigns/Retention/Renewal",
+            ),
+            ("create_in_folder_at_root", {"_create_in_folder": ""}, True, "/Renewal"),
+            ("folder_at_root", {"folder": ""}, True, "/Renewal"),
+            ("no_folder", {}, True, "Unfiled/Workflows/Renewal"),
+        ]
+    )
+    def test_new_workflow_is_created_in_the_requested_project_folder(
+        self, _name: str, placement: dict[str, str], local: bool | None, path: str
+    ) -> None:
         self._local_flag_answer(local)
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
                 "name": "Renewal",
-                "_create_in_folder": "Campaigns/Retention",
+                **placement,
                 "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                 "edges": [],
             },
@@ -2001,7 +2027,23 @@ class TestWorkflowFolders(APIBaseTest):
         files = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
         ).json()["results"]
-        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+        self.assertEqual([file["path"] for file in files], [path])
+
+    def test_folder_files_nothing_while_list_v2_is_off(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/",
+                {
+                    "name": "Renewal",
+                    "folder": "Campaigns/Retention",
+                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                    "edges": [],
+                },
+                format="json",
+            )
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="hog_flow", ref=created.json()["id"]).exists())
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Campaigns").exists())
 
     @parameterized.expand(
         [

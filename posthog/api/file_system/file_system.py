@@ -274,6 +274,9 @@ def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface:
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
+    team_id = serializers.IntegerField(
+        read_only=True, help_text="The environment the object belongs to. A project lists every environment's files."
+    )
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
@@ -288,6 +291,7 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
             "href",
             "meta",
             "shortcut",
+            "team_id",
             "created_at",
             "created_by",
             "last_viewed_at",
