@@ -25,6 +25,9 @@ export type VisibleDurationRange = DurationRange
 
 const BUCKET_MANTISSAS = [1, 2, 5]
 
+/** Smallest duration_nano that can only come from a UInt64 wrap (a span ending before it starts). */
+const WRAPPED_DURATION_NS = 2 ** 63
+
 /**
  * Snap a duration (ns) down onto the 1-2-5 log series the histogram buckets use (1ms, 2ms, 5ms, ...).
  *
@@ -33,7 +36,7 @@ const BUCKET_MANTISSAS = [1, 2, 5]
  * client-side) onto the rendered axis. Change the series in BOTH places or the highlight drifts.
  */
 export function snapDurationToBucket(ns: number): number {
-    const clamped = Math.max(ns, 1)
+    const clamped = ns >= WRAPPED_DURATION_NS ? 1 : Math.max(ns, 1)
     const decade = Math.pow(10, Math.floor(Math.log10(clamped)))
     const mantissa = clamped / decade
     return Math.round(decade * (mantissa < 2 ? 1 : mantissa < 5 ? 2 : 5))
