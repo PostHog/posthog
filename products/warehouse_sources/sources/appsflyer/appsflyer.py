@@ -26,6 +26,10 @@ from products.warehouse_sources.sources.sdk import (
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
 QUOTA_EXHAUSTED_MARKER = "limit reached"
+# AppsFlyer answers a raw-data pull with 400 and "Your current subscription package doesn't include
+# raw data reports" when the account's plan has no raw data.
+RAW_DATA_NOT_IN_PLAN_MARKER = "include raw data reports"
+RAW_DATA_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include raw data reports"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -106,6 +110,10 @@ class _ResponseByteStream(io.RawIOBase):
 
 
 class AppsFlyerRetryableError(Exception):
+    pass
+
+
+class AppsFlyerRawDataNotInPlanError(Exception):
     pass
 
 
@@ -296,8 +304,11 @@ def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogg
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        body = response.text[:500]
+        logger.error(f"AppsFlyer API error: status={response.status_code}, body={body}, url={url}")
         response.close()
+        if response.status_code == 400 and RAW_DATA_NOT_IN_PLAN_MARKER in body.lower():
+            raise AppsFlyerRawDataNotInPlanError(f"{RAW_DATA_NOT_IN_PLAN_ERROR}: status=400")
         response.raise_for_status()
 
     return response
