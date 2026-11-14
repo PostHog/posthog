@@ -5,6 +5,8 @@ AWS_CLI_VERSION=2.22.0
 AWS_CLI_SHA256=f315aa564190a12ae05a05bd8ab7b0645dd4a1ad71ce9e47dae4ff3dfeee8ceb
 RUSTUP_VERSION=1.29.3
 RUSTUP_INIT_SHA256=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
+PNPM_VERSION=11.28.5
+PNPM_SHA256=358f7c59f6e25559547afdba47390591514e7a0886d00d8b1a80f33607a4e136
 RUST_TOOLCHAIN=1.91.1
 SQLX_CLI_VERSION=0.8.0
 
@@ -43,14 +45,16 @@ verify_inputs() {
 }
 
 install_node_and_pnpm() {
-    local version pnpm_version
+    local version
     version=$(cat "$repo/.nvmrc")
     curl -fsSL "https://nodejs.org/dist/${version}/node-${version}-linux-x64.tar.xz" -o "/tmp/node-${version}-linux-x64.tar.xz"
     curl -fsSL "https://nodejs.org/dist/${version}/SHASUMS256.txt" | grep " node-${version}-linux-x64.tar.xz\$" >/tmp/node.sha256
     (cd /tmp && sha256sum --check --strict node.sha256)
     tar -xJf "/tmp/node-${version}-linux-x64.tar.xz" -C /usr/local --strip-components 1
-    pnpm_version=$(jq -r '.packageManager | sub("^pnpm@"; "")' "$repo/package.json")
-    npm install --global "pnpm@${pnpm_version}"
+    [ "$(jq -r .packageManager "$repo/package.json")" = "pnpm@${PNPM_VERSION}" ]
+    curl -fsSL "https://registry.npmjs.org/@pnpm/linux-x64/-/linux-x64-${PNPM_VERSION}.tgz" -o /tmp/pnpm.tgz
+    echo "${PNPM_SHA256}  /tmp/pnpm.tgz" | sha256sum --check --strict
+    tar -xzf /tmp/pnpm.tgz -C /usr/local/bin --strip-components 1 package/pnpm
 }
 
 install_sqlx_cli() {
