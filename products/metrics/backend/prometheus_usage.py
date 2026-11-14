@@ -8,6 +8,7 @@ their metrics from outside PostHog, not how many requests they send.
 from django.core.cache import cache
 
 from posthog.event_usage import AnalyticsProps, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 # pinned: analytics event name and properties, renaming breaks the metrics usage dashboards
@@ -18,13 +19,17 @@ USAGE_REPORT_WINDOW_SECONDS = 60 * 60
 def report_prometheus_api_usage(
     *, team: Team, user: User, auth_method: str, client: str, analytics_props: AnalyticsProps
 ) -> None:
-    window_key = f"metrics_prometheus_api_used:{team.pk}:{user.pk}:{auth_method}:{client}"
-    if not cache.add(window_key, True, timeout=USAGE_REPORT_WINDOW_SECONDS):
-        return
-    report_user_action(
-        user,
-        PROMETHEUS_API_USED_EVENT,
-        {"auth_method": auth_method, "client": client},
-        team=team,
-        analytics_props=analytics_props,
-    )
+    # Runs after the query succeeded, so a cache or analytics failure must not turn it into an error.
+    try:
+        window_key = f"metrics_prometheus_api_used:{team.pk}:{user.pk}:{auth_method}:{client}"
+        if not cache.add(window_key, True, timeout=USAGE_REPORT_WINDOW_SECONDS):
+            return
+        report_user_action(
+            user,
+            PROMETHEUS_API_USED_EVENT,
+            {"auth_method": auth_method, "client": client},
+            team=team,
+            analytics_props=analytics_props,
+        )
+    except Exception as e:
+        capture_exception(e, {"team_id": team.pk, "auth_method": auth_method, "client": client})

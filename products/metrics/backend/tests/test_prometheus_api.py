@@ -218,6 +218,21 @@ class TestPrometheusQueryApi(APIBaseTest):
         assert usage_calls[0].kwargs["properties"]["auth_method"] == auth_method
         assert usage_calls[0].kwargs["properties"]["client"] == client
 
+    def test_usage_tracking_failure_keeps_the_query_response(self):
+        with (
+            patch(
+                "products.metrics.backend.prometheus_usage.cache.add", side_effect=ConnectionError("redis down")
+            ) as add_mock,
+            patch("products.metrics.backend.prometheus_usage.capture_exception") as capture_exception_mock,
+        ):
+            response = self.client.get(f"{self.base}/query", {"query": "up"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "success"
+        add_mock.assert_called_once()
+        capture_exception_mock.assert_called_once()
+        assert isinstance(capture_exception_mock.call_args.args[0], ConnectionError)
+
     def test_repeated_dashboard_queries_report_usage_once_per_window(self):
         headers = {
             "authorization": f"Bearer {self._personal_api_key(['metrics:read'])}",
