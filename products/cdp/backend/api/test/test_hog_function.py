@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import time_machine
@@ -23,7 +24,19 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
+    HogFunctionSerializer,
     comparable_content,
+)
+from products.cdp.backend.api.test.secret_sender import (
+    MOVED_SENDER_HOG,
+    MOVED_URL,
+    SECRET_SENDER,
+    SENDER_HOG,
+    SENDER_SCHEMA,
+    SENDER_URL,
+    counted_reentries,
+    secret_reentry_flag,
+    sender_inputs,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
@@ -1407,6 +1420,267 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         obj = HogFunction.objects.get(id=function_id)
         assert (obj.inputs or {})["token"]["value"] == "I AM PUBLIC NOW"
         assert (obj.encrypted_inputs or {}) == {}
+
+    @parameterized.expand(
+        [
+            ("rename", "patch", {"name": "Renamed"}, True, status.HTTP_200_OK, {}),
+            ("disable", "patch", {"enabled": False}, True, status.HTTP_200_OK, {}),
+            ("filter_edit", "patch", {"filters": {"source": "events"}}, True, status.HTTP_200_OK, {}),
+            ("unchanged_resave", "put", {"inputs": sender_inputs(SENDER_URL)}, True, status.HTTP_200_OK, {}),
+            ("code_change", "patch", {"hog": MOVED_SENDER_HOG}, True, status.HTTP_400_BAD_REQUEST, {"refused": 1}),
+            (
+                "code_change_by_put",
+                "put",
+                {"hog": MOVED_SENDER_HOG, "inputs": sender_inputs(SENDER_URL)},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                {"refused": 1},
+            ),
+            (
+                "input_change",
+                "patch",
+                {"inputs": sender_inputs(MOVED_URL)},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                {"refused": 1},
+            ),
+            (
+                "templating_change",
+                "patch",
+                {"inputs": {"url": {"value": SENDER_URL, "templating": "liquid"}, "token": {"secret": True}}},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                {"refused": 1},
+            ),
+            (
+                "mapping_added",
+                "patch",
+                {
+                    "mappings": [
+                        {"inputs_schema": [{"key": "path", "type": "string"}], "inputs": {"path": {"value": "/x"}}}
+                    ]
+                },
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                {"refused": 1},
+            ),
+            (
+                "secret_dropped_from_the_schema",
+                "patch",
+                {"inputs_schema": SENDER_SCHEMA[:1], "inputs": {"url": {"value": SENDER_URL}}},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                {"refused": 1},
+            ),
+            (
+                "secret_made_public_without_a_value",
+                "patch",
+                {"inputs_schema": [SENDER_SCHEMA[0], {"key": "token", "type": "string", "label": "Token"}]},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                {"refused": 1},
+            ),
+            (
+                "secret_made_public_with_its_value",
+                "patch",
+                {
+                    "inputs_schema": [SENDER_SCHEMA[0], {**SENDER_SCHEMA[1], "secret": False}],
+                    "inputs": {"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}},
+                },
+                True,
+                status.HTTP_200_OK,
+                {"reentered": 1},
+            ),
+            (
+                "code_change_with_the_flag_off",
+                "patch",
+                {"hog": MOVED_SENDER_HOG},
+                False,
+                status.HTTP_200_OK,
+                {"would_refuse": 1},
+            ),
+            (
+                "code_change_with_the_secret_entered",
+                "patch",
+                {"hog": MOVED_SENDER_HOG, "inputs": sender_inputs(SENDER_URL, {"value": "I AM NEW"})},
+                True,
+                status.HTTP_200_OK,
+                {"reentered": 1},
+            ),
+        ]
+    )
+    def test_stored_secret_must_be_entered_again_to_change_code_inputs_or_mappings(
+        self,
+        _name: str,
+        method: str,
+        change: dict,
+        flag_on: bool,
+        expected_status: int,
+        expected_counts: dict,
+    ) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function_id = res.json()["id"]
+
+        surface = "update" if method == "put" else "partial_update"
+        with secret_reentry_flag(flag_on), counted_reentries(surface) as counted:
+            res = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+                data={**SECRET_SENDER, **change} if method == "put" else change,
+            )
+
+        assert res.status_code == expected_status, res.json()
+        assert counted == expected_counts
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert (res.json()["attr"], res.json()["code"]) == ("inputs__token", "secret_reentry_required")
+            assert HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"] == "I AM SECRET"
+
+    @parameterized.expand(
+        [
+            ("encrypted_rename", "encrypted", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("encrypted_code_change", "encrypted", {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
+            ("plaintext_rename", "plaintext", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("plaintext_code_change", "plaintext", {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
+            (
+                "plaintext_made_public",
+                "plaintext",
+                {"inputs_schema": [SENDER_SCHEMA[0], {**SENDER_SCHEMA[1], "secret": False}]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("mapping_rename", "mapping", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("unnormalized_rename", "unnormalized", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("rename_that_copies_liquid_templating", "liquid_schema", {"name": "Renamed"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "site_destination_made_public",
+                "site_destination",
+                {"inputs_schema": [SENDER_SCHEMA[0], {**SENDER_SCHEMA[1], "secret": False}]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("mapping_code_change", "mapping", {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
+            (
+                "mapping_secret_removed_with_a_code_change",
+                "mapping",
+                {"hog": MOVED_SENDER_HOG, "mappings": [{"inputs_schema": [], "inputs": {}}]},
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_secret_stored_encrypted_in_plaintext_or_in_a_mapping_must_be_entered_again(
+        self, _name: str, stored_in: str, change: dict, expected_status: int
+    ) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Stored secret",
+            type="destination",
+            hog=SENDER_HOG,
+            inputs_schema=SENDER_SCHEMA,
+            inputs={"url": {"value": SENDER_URL}},
+            encrypted_inputs={"token": {"value": "I AM SECRET"}},
+        )
+        if stored_in == "plaintext":
+            HogFunction.objects.filter(id=function.id).update(
+                inputs={"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}}, encrypted_inputs=None
+            )
+        elif stored_in == "unnormalized":
+            HogFunction.objects.filter(id=function.id).update(
+                inputs_schema=[*SENDER_SCHEMA, {"key": "note", "type": "string", "label": "Note", "required": False}],
+                inputs={"url": {"value": SENDER_URL}, "note": None},
+            )
+        elif stored_in == "site_destination":
+            HogFunction.objects.filter(id=function.id).update(type="site_destination")
+        elif stored_in == "liquid_schema":
+            HogFunction.objects.filter(id=function.id).update(
+                inputs_schema=[{**SENDER_SCHEMA[0], "templating": "liquid"}, SENDER_SCHEMA[1]],
+                inputs={"url": {"value": SENDER_URL}},
+            )
+        elif stored_in == "mapping":
+            HogFunction.objects.filter(id=function.id).update(
+                inputs_schema=SENDER_SCHEMA[:1],
+                encrypted_inputs=None,
+                mappings=[{"inputs_schema": [SENDER_SCHEMA[1]], "inputs": {"token": {"value": "I AM SECRET"}}}],
+            )
+
+        with secret_reentry_flag(True):
+            res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)
+
+        assert res.status_code == expected_status, res.json()
+
+    def test_copy_of_a_destination_as_the_api_returns_it_carries_no_secret(self) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        original = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}").json()
+        assert original["inputs"]["token"] == {"secret": True}
+
+        copy = {key: original[key] for key in ("type", "name", "hog", "inputs_schema", "inputs", "filters")}
+        with secret_reentry_flag(True):
+            res = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/", data={**copy, "hog": MOVED_SENDER_HOG}
+            )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["attr"] == "inputs__token"
+        assert HogFunction.objects.filter(team=self.team).count() == 1
+
+    def test_test_invocation_runs_a_dictionary_input_in_the_order_a_saved_function_keeps(self) -> None:
+        schema = [{"key": "headers", "type": "dictionary", "label": "Headers"}]
+        sent_headers = {"bb": "1", "aa": "2", "c": "3"}
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**SECRET_SENDER, "inputs_schema": schema, "inputs": {"headers": {"value": sent_headers}}},
+        )
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function = HogFunction.objects.get(id=res.json()["id"])
+
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            res = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}/invocations/",
+                data={
+                    "configuration": {
+                        "hog": function.hog,
+                        "inputs_schema": schema,
+                        "inputs": {"headers": {"value": sent_headers}},
+                    }
+                },
+            )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        tested = mock_invocation.call_args.kwargs["payload"]["configuration"]["inputs"]["headers"]["value"]
+        assert function.inputs is not None
+        assert list(tested) == list(function.inputs["headers"]["value"]) != list(sent_headers)
+
+    def test_test_invocation_sends_the_code_its_secrets_were_checked_against(self) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function = HogFunction.objects.get(id=res.json()["id"])
+
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            res = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}/invocations/",
+                data={"configuration": {"filters": {}}},
+            )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        tested = mock_invocation.call_args.kwargs["payload"]["configuration"]
+        assert (tested["hog"], tested["bytecode"], tested["mappings"]) == (SENDER_HOG, function.bytecode, None)
+
+    def test_internal_save_that_changes_code_is_counted_but_not_refused(self) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function = HogFunction.objects.get(id=res.json()["id"])
+        # Provisioning code saves through the serializer with no view and no person to enter a secret.
+        serializer = HogFunctionSerializer(
+            function,
+            data={"hog": MOVED_SENDER_HOG},
+            partial=True,
+            context={"request": SimpleNamespace(user=self.user), "get_team": lambda: self.team},
+        )
+
+        with secret_reentry_flag(True), counted_reentries("internal") as counted:
+            assert serializer.is_valid(), serializer.errors
+
+        assert counted == {"would_refuse": 1.0}
 
     @parameterized.expand(
         [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]

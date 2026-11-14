@@ -18,6 +18,7 @@ from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
+from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -71,6 +72,15 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
 )
+from products.cdp.backend.secret_reentry import (
+    SecretReentry,
+    carried_mapping_secrets,
+    filled_secret_keys,
+    guarded_content,
+    mapping_secret_values,
+    replaces_stored_value,
+    stored_secrets,
+)
 from products.cdp.backend.services.destination_test_runs import (
     destination_test_run_context,
     record_test_run_request_origins,
@@ -81,6 +91,7 @@ from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
     DUPLICATE_INPUT_KEYS_ERROR,
+    MASKED_SECRET_VALUE,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -137,6 +148,19 @@ ENABLE_WITH_OPEN_DRAFT_MESSAGE = (
 CREATE_ENABLED_MESSAGE = (
     "Create destinations disabled: test with an invocation first, then enable with a separate update "
     "once the config looks right."
+)
+
+SECRET_REENTRY_FLAG = "cdp-secret-host-binding"
+SECRET_REENTRY_MESSAGE = "Enter this secret again to save changes to the code, inputs or mappings."
+MAPPING_SECRET_MESSAGE = (
+    "A mapping still holds a saved secret. Remove it from the mapping to save changes to the code, inputs or mappings."
+)
+# Marks a draft's staged secret that a draft edit entered. Validation drops the field, so it never goes live.
+STAGED_SECRET_ENTERED = "entered"
+SECRET_REENTRY_COUNTER = Counter(
+    "posthog_cdp_secret_reentry_total",
+    "Saves that change the code, inputs or mappings of a function with a stored secret input, by outcome and by the API surface that saved them.",
+    labelnames=["outcome", "surface"],
 )
 
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
@@ -284,17 +308,109 @@ def comparable_content(content: dict) -> dict:
     }
 
 
-def explicit_secret_input_keys(raw_inputs: Any) -> set[str]:
-    """Input keys carrying a real value in the request rather than the `{"secret": true}` marker the
-    API hands back for secrets — the same test `InputsSerializer` uses to decide whether to recover
-    the stored value instead."""
+def supplied_input_keys(raw_inputs: Any) -> set[str]:
+    """Unlike `entered_secret_input_keys`, a dictionary counts when it still holds some masked entries."""
     if not isinstance(raw_inputs, dict):
         return set()
     return {
         key
-        for key, value in raw_inputs.items()
-        if isinstance(value, dict) and "value" in value and not value.get("secret")
+        for key, item in raw_inputs.items()
+        if isinstance(item, dict) and "value" in item and not (item.get("secret") and _only_masked(item["value"]))
     }
+
+
+def _only_masked(value: Any) -> bool:
+    if isinstance(value, dict):
+        return bool(value) and all(entry == MASKED_SECRET_VALUE for entry in value.values())
+    return value == MASKED_SECRET_VALUE
+
+
+def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
+    """Input keys whose request value replaces the stored secret. A dictionary secret sent with some
+    entries still masked keeps those stored entries, so it does not count as entered."""
+    if not isinstance(raw_inputs, dict):
+        return set()
+    return {
+        key
+        for key, item in raw_inputs.items()
+        if isinstance(item, dict)
+        and "value" in item
+        and item["value"] != MASKED_SECRET_VALUE
+        and not (isinstance(item["value"], dict) and MASKED_SECRET_VALUE in item["value"].values())
+    }
+
+
+def secret_reentry_enforced(team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            SECRET_REENTRY_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id), "created_at": team.organization.created_at}
+            },
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def _in_jsonb_key_order(value: Any) -> Any:
+    """Postgres `jsonb` stores object keys shortest first, then bytewise. A test run is not stored, so ordering it the
+    same way runs it as the saved function would run, which the secret re-entry comparison assumes."""
+    if isinstance(value, dict):
+        ordered = sorted(value.items(), key=lambda item: _jsonb_key_rank(str(item[0])))
+        return {key: _in_jsonb_key_order(entry) for key, entry in ordered}
+    if isinstance(value, list):
+        return [_in_jsonb_key_order(entry) for entry in value]
+    return value
+
+
+def _jsonb_key_rank(key: str) -> tuple[int, bytes]:
+    encoded = key.encode("utf-8", "surrogatepass")
+    return len(encoded), encoded
+
+
+class CanonicalConfigSerializer(serializers.Serializer):
+    """Validates a function's inputs, schema and mappings the way a save does, so two configs compare alike."""
+
+    inputs_schema = InputsSchemaSerializer(required=False, unique_keys=False, help_text="The input schema.")
+    inputs = InputsSerializer(required=False, help_text="The inputs, secrets included.")
+    mappings = serializers.ListField(
+        child=MappingsSerializer(), required=False, allow_null=True, help_text="The mappings."
+    )
+
+
+def _with_templating_of(inputs: Any, raw_inputs: Any) -> Any:
+    if not isinstance(inputs, dict) or not isinstance(raw_inputs, dict):
+        return inputs
+    return {
+        key: {**item, "templating": (raw_inputs.get(key) or {}).get("templating")}
+        if isinstance(item, dict) and isinstance(raw_inputs.get(key), dict)
+        else item
+        for key, item in inputs.items()
+    }
+
+
+def _draft_guarded_content(content: dict, secrets: dict) -> str:
+    secret_keys = set(secrets) | {
+        str(schema.get("key"))
+        for schema in content.get("inputs_schema") or []
+        if isinstance(schema, dict) and schema.get("secret")
+    }
+    return guarded_content(
+        content.get("hog"), content.get("inputs"), content.get("inputs_schema"), content.get("mappings"), secret_keys
+    )
+
+
+def _without_entered_mark(entry: Any) -> Any:
+    if not isinstance(entry, dict):
+        return entry
+    return {key: value for key, value in entry.items() if key != STAGED_SECRET_ENTERED}
+
+
+def _secret_json(entry: Any) -> str:
+    # As JSON, because Python equates `True` with `1`, which the worker reads differently.
+    return json.dumps(_without_entered_mark(entry), default=str, sort_keys=True)
 
 
 def draft_changed_fields(hog_function: HogFunction) -> list[str]:
@@ -306,7 +422,9 @@ def draft_changed_fields(hog_function: HogFunction) -> list[str]:
 
     staged_secrets = hog_function.draft_encrypted_inputs or {}
     live_secrets = hog_function.encrypted_inputs or {}
-    if "inputs" not in changed and any(live_secrets.get(key) != value for key, value in staged_secrets.items()):
+    if "inputs" not in changed and any(
+        live_secrets.get(key) != _without_entered_mark(value) for key, value in staged_secrets.items()
+    ):
         changed.append("inputs")
     return sorted(changed)
 
@@ -423,6 +541,10 @@ def _managed_alert_markers(filters: Optional[dict]) -> Optional[_AlertMarkers]:
 
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
+    # The request's inputs before the stored ones fill in what it left out, so a secret counts as
+    # entered or supplied only when the caller sent it.
+    requested_inputs: Any = None
+
     template = HogFunctionTemplateSerializer(read_only=True)
     base_updated_at = serializers.DateTimeField(
         write_only=True,
@@ -593,6 +715,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 }
             )
 
+    def _stored_function(self) -> Optional[HogFunction]:
+        """The saved function this data changes. A test run validates a nested serializer that has no
+        instance of its own, so the view passes the function in the context."""
+        instance = self.context.get("instance", self.instance)
+        return instance if isinstance(instance, HogFunction) else None
+
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
         # Copy before filling in defaults below: `data` is `request.data` itself, and injecting
@@ -600,6 +728,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # a config edit. It also means a form-encoded (immutable QueryDict) payload no longer 500s.
         data = {**data}
         self.initial_data = data
+        self.requested_inputs = data.get("inputs")
         team = self.context["get_team"]()
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
@@ -609,8 +738,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
         data["template_id"] = instance.template_id if instance else data.get("template_id")
-        data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
-        data["inputs"] = data.get("inputs", instance.inputs if instance else {})
+        # A draft edit is validated against the inputs the draft holds, so a secret the draft no longer declares is
+        # not recovered from the live function into the draft's plaintext inputs.
+        staged_draft = (instance.draft or {}) if instance and self.context.get("stages_draft") else {}
+        data["inputs_schema"] = data.get(
+            "inputs_schema", staged_draft.get("inputs_schema", instance.inputs_schema if instance else [])
+        )
+        # Validation writes into the input items it reads, so the stored row gets copies.
+        data["inputs"] = data.get("inputs", deepcopy(staged_draft.get("inputs", instance.inputs if instance else {})))
 
         # Always ensure filters is initialized as an empty object if it's null
         data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
@@ -643,7 +778,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             and not _named_warehouse_tables(data["filters"].get("data_warehouse"))
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
-        self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
+        secret_inputs = deepcopy(instance.encrypted_inputs or {}) if instance else {}
+        if instance and (self.context.get("use_draft") or self.context.get("stages_draft")):
+            # A draft test run and a later draft edit recover masked entries from the staged secret, so they
+            # do not revert to the live one.
+            secret_inputs.update(deepcopy(instance.draft_encrypted_inputs or {}))
+        self.context["encrypted_inputs"] = secret_inputs
 
         template = None
         if data["template_id"]:
@@ -873,7 +1013,154 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
 
+        self._require_secret_reentry(attrs, team)
+
         return attrs
+
+    def _require_secret_reentry(self, attrs: dict, team: Team) -> None:
+        instance = self._stored_function()
+        if instance is None:
+            return
+        live_secrets = self.context.get("live_encrypted_inputs", instance.encrypted_inputs) or {}
+        secrets = stored_secrets(instance.inputs, instance.inputs_schema, live_secrets)
+        filled = filled_secret_keys(secrets)
+        staged = self._staged_secrets(instance, live_secrets)
+        draft_filled = filled_secret_keys(
+            {
+                key: entry
+                for key, entry in (instance.draft_encrypted_inputs or {}).items()
+                if key in staged and isinstance(entry, dict)
+            }
+        )
+        mapping_secrets = mapping_secret_values(instance.mappings)
+        if not filled and not draft_filled and not mapping_secrets:
+            return
+
+        inputs_schema = attrs.get("inputs_schema", instance.inputs_schema) or []
+        declared = {schema["key"] for schema in inputs_schema if schema.get("secret")}
+        was_declared = {schema.get("key") for schema in instance.inputs_schema or [] if schema.get("secret")}
+        skipped = secrets.keys() | declared | was_declared
+        # Validating a mapping compiles its filters, so mappings the request leaves out are compared as stored.
+        sends_mappings = "mappings" in attrs
+        stored = self._canonical_config(
+            instance.inputs_schema, {**(instance.inputs or {}), **secrets}, instance.mappings, sends_mappings
+        )
+        saved = self._canonical_config(
+            attrs.get("inputs_schema", instance.inputs_schema),
+            attrs.get("inputs", stored["inputs"]),
+            attrs.get("mappings", instance.mappings),
+            sends_mappings,
+        )
+        before = guarded_content(instance.hog, stored["inputs"], stored["inputs_schema"], stored["mappings"], skipped)
+        after = guarded_content(
+            attrs.get("hog", instance.hog), saved["inputs"], saved["inputs_schema"], saved["mappings"], skipped
+        )
+        entered = entered_secret_input_keys(self.requested_inputs)
+        requested = self.requested_inputs if isinstance(self.requested_inputs, dict) else {}
+        # A draft can hold a stored secret in plaintext, so at publish and in a draft test run a key made public
+        # passes only with a new value.
+        checks_draft = "live_encrypted_inputs" in self.context or bool(self.context.get("use_draft"))
+        supplied = {
+            key
+            for key in supplied_input_keys(self.requested_inputs)
+            if not checks_draft
+            or key in declared
+            or key not in secrets
+            or requested[key].get("value") != secrets[key].get("value")
+        }
+        # A typed secret is an input change too, because the code can send one secret to an address another
+        # one holds.
+        # A masked dictionary that leaves out stored entries drops them, which the code can see too.
+        reshaped = {
+            key
+            for key, item in requested.items()
+            if isinstance(item, dict)
+            and isinstance(item.get("value"), dict)
+            and isinstance((secrets.get(key) or {}).get("value"), dict)
+            and item["value"].keys() != secrets[key]["value"].keys()
+        }
+        typed = (supplied & (declared | secrets.keys())) | staged.keys() | reshaped
+        if before == after and not typed:
+            return
+
+        # A secret that is no longer declared secret is not encrypted again, so it passes only when the
+        # request replaces the stored value, which `update` then drops.
+        missing = sorted(
+            key
+            for key in filled | draft_filled
+            if not staged.get(key) and key not in (entered if key in declared else supplied)
+        )
+        carried = carried_mapping_secrets(mapping_secrets, attrs.get("mappings", instance.mappings))
+
+        stages_draft = bool(self.context.get("stages_draft"))
+        if not missing and not carried:
+            outcome = SecretReentry.REENTERED
+        elif stages_draft:
+            # Publishing runs this check again, against the draft's own staged secrets.
+            outcome = SecretReentry.STAGED
+        elif self._enforces_secret_reentry(team):
+            outcome = SecretReentry.REFUSED
+        else:
+            outcome = SecretReentry.WOULD_REFUSE
+        surface = "draft" if stages_draft else getattr(self.context.get("view"), "action", None) or "internal"
+        SECRET_REENTRY_COUNTER.labels(outcome=outcome.value, surface=surface).inc()
+        if outcome == SecretReentry.REFUSED:
+            errors: dict[str, Any] = {"inputs": dict.fromkeys(missing, SECRET_REENTRY_MESSAGE)} if missing else {}
+            if carried:
+                errors["mappings"] = MAPPING_SECRET_MESSAGE
+            raise serializers.ValidationError(errors, code="secret_reentry_required")
+
+    def _canonical_config(
+        self, inputs_schema: Any, inputs: Any, mappings: Any, validate_mappings: bool
+    ) -> dict[str, Any]:
+        """Inputs, schema and mappings as one full validation leaves them. The stored row and the request were
+        validated at different times, partial or not, so comparing them raw counts that normalization, such as a
+        dropped empty input or a filled-in default, as a change."""
+        config: dict[str, Any] = {"inputs_schema": inputs_schema, "inputs": inputs, "mappings": mappings}
+        # A part that no longer validates stays raw, so a save that changes nothing still asks for its secrets.
+        parts = [
+            {"inputs_schema": inputs_schema, "inputs": inputs},
+            *([{"mappings": mappings}] if validate_mappings else []),
+        ]
+        for part in parts:
+            # Validation writes into the input items it reads, which can be the stored row's own.
+            validated = CanonicalConfigSerializer(data=deepcopy(part), context={**self.context})
+            if validated.is_valid():
+                config.update({key: validated.validated_data.get(key) for key in part})
+        # The worker evaluates an input with its own templating, not the schema's that validation copies onto it.
+        config["inputs"] = _with_templating_of(config["inputs"], inputs)
+        if validate_mappings and isinstance(config["mappings"], list) and isinstance(mappings, list):
+            config["mappings"] = [
+                {**mapping, "inputs": _with_templating_of(mapping.get("inputs"), raw.get("inputs"))}
+                if isinstance(mapping, dict) and isinstance(raw, dict)
+                else mapping
+                for mapping, raw in zip(config["mappings"], mappings)
+            ]
+        return config
+
+    def _staged_secrets(self, instance: HogFunction, live_secrets: dict) -> dict[str, bool]:
+        """The draft's secrets that a draft edit entered or that differ from the live ones, each with whether a
+        draft test run or a publish counts it as entered again."""
+        if not (self.context.get("use_draft") or "live_encrypted_inputs" in self.context):
+            return {}
+        staged: dict[str, bool] = {}
+        for key, entry in (instance.draft_encrypted_inputs or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            value, live = entry.get("value"), (live_secrets.get(key) or {}).get("value")
+            entered = entry.get(STAGED_SECRET_ENTERED)
+            if entered is True:
+                staged[key] = True
+            elif _secret_json({"value": value}) != _secret_json({"value": live}):
+                staged[key] = False if entered is False else replaces_stored_value(value, live)
+        return staged
+
+    def _enforces_secret_reentry(self, team: Team) -> bool:
+        if self.context.get("view") is None:
+            return False
+        if "enforces_secret_reentry" in self.context:
+            return self.context["enforces_secret_reentry"]
+        return secret_reentry_enforced(team)
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)
@@ -981,11 +1268,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # caller typed from the secret it must not expose, so that value would reach neither column.
         # Drop the superseded entry here, where the request says which keys carry a real value.
         # A staged edit saves only its metadata here, so its inputs must not touch the live secrets.
-        supplied = (
-            explicit_secret_input_keys(getattr(self, "initial_data", {}).get("inputs"))
-            if "inputs" in validated_data
-            else set()
-        )
+        supplied = supplied_input_keys(self.requested_inputs) if "inputs" in validated_data else set()
         schemas = validated_data.get("inputs_schema", instance.inputs_schema) or []
         secret_keys = {schema["key"] for schema in schemas if schema.get("secret")}
         stored_secrets = instance.encrypted_inputs or {}
@@ -1264,6 +1547,10 @@ class HogFunctionViewSet(
     def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
         if self.action == "list" and args and isinstance(args[0], list):
             self._attach_templates_without_fk(args[0])
+        if self.action in ("update", "partial_update") and args and self._should_route_to_draft(args[0]):
+            # A staged edit is checked against the live config here and again, against its staged
+            # secrets, when the draft is published.
+            kwargs["context"] = {**self.get_serializer_context(), "stages_draft": True}
         return super().get_serializer(*args, **kwargs)
 
     @staticmethod
@@ -1419,19 +1706,15 @@ class HogFunctionViewSet(
 
     def _draft_test_configuration(self, hog_function: Optional[HogFunction]) -> dict:
         """The staged draft as a test-invocable configuration: live config with the draft's content
-        fields on top, staged secrets rehydrated in plaintext so the test exercises what publish
-        would ship. Secrets the draft doesn't stage stay as `{"secret": true}` markers, which
-        validation recovers from the live encrypted inputs."""
+        fields on top. Secrets stay as `{"secret": true}` markers, which validation recovers from the
+        staged encrypted inputs first and the live ones second. A marker is not a typed secret, so the
+        re-entry check counts only what a draft edit entered."""
         if hog_function is None or not hog_function.draft:
             raise exceptions.ValidationError({"use_draft": "This function has no staged draft to test."})
 
         serialized = self.get_serializer(hog_function).data
         draft = serialized.get("draft") or {}
-        configuration = {**serialized, **{field: draft[field] for field in DRAFT_CONTENT_FIELDS if field in draft}}
-        inputs = dict(configuration.get("inputs") or {})
-        inputs.update(hog_function.draft_encrypted_inputs or {})
-        configuration["inputs"] = inputs
-        return configuration
+        return {**serialized, **{field: draft[field] for field in DRAFT_CONTENT_FIELDS if field in draft}}
 
     @extend_schema(
         request=HogFunctionInvocationSerializer,
@@ -1451,7 +1734,12 @@ class HogFunctionViewSet(
             raise exceptions.ValidationError({"configuration": "Required unless use_draft is true."})
 
         serializer = HogFunctionInvocationSerializer(
-            data=data, context={**self.get_serializer_context(), "instance": hog_function}
+            data=data,
+            context={
+                **self.get_serializer_context(),
+                "instance": hog_function,
+                "use_draft": bool(data.get("use_draft")),
+            },
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
@@ -1483,6 +1771,19 @@ class HogFunctionViewSet(
                 ),
             )
 
+        if hog_function:
+            # The worker lays this configuration over the function it reads when the test runs, which a save can
+            # change after validation. The code and mappings the secrets were checked against go along with them.
+            for field in ("hog", "bytecode", "transpiled", "mappings"):
+                configuration.setdefault(field, getattr(hog_function, field))
+        # The worker lays the function's stored secrets over the tested inputs. Sending the secrets that
+        # passed validation in their place means a test sends an entered secret, never the stored one.
+        configuration["encrypted_inputs"] = split_content_secrets(dict(configuration))
+        serializer.validated_data["configuration"] = {
+            **_in_jsonb_key_order(configuration),
+            # Secrets are stored as encrypted JSON text, which keeps the order they were written in.
+            "encrypted_inputs": configuration["encrypted_inputs"],
+        }
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",
@@ -1612,7 +1913,7 @@ class HogFunctionViewSet(
         # with the live ones.
         return set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS)
 
-    def _should_route_to_draft(self, serializer: BaseSerializer) -> bool:
+    def _should_route_to_draft(self, instance: Any) -> bool:
         # Guardrail for agent callers (MCP and the surfaces that wrap it; the web builder and raw API
         # keys are unaffected). An agent editing a destination that is running right now stages a
         # draft for a human to publish instead of changing what workers execute on the spot.
@@ -1621,7 +1922,6 @@ class HogFunctionViewSet(
         # rather than by agents.
         if not self._is_agent_request(self.request):
             return False
-        instance = serializer.instance
         if not isinstance(instance, HogFunction) or not instance.enabled:
             return False
         if instance.type != HogFunctionType.DESTINATION:
@@ -1629,13 +1929,19 @@ class HogFunctionViewSet(
         return bool(self._sent_content_fields())
 
     def _write_draft(
-        self, instance: HogFunction, locked: HogFunction, serializer: BaseSerializer, validated_content: dict
+        self,
+        instance: HogFunction,
+        locked: HogFunction,
+        serializer: HogFunctionSerializer,
+        validated_content: dict,
+        validated_against: HogFunction,
     ) -> None:
         # The draft is always a full config snapshot (live config as the base, staged draft on top,
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
         # validated_content is passed in because the caller's metadata save clears validated_data.
         sent = self._sent_content_fields()
-        draft = {**snapshot_hog_function_content(locked), **(locked.draft or {})}
+        previous = {**snapshot_hog_function_content(locked), **(locked.draft or {})}
+        draft = dict(previous)
         for field in sent:
             if field in validated_content:
                 draft[field] = validated_content[field]
@@ -1643,18 +1949,50 @@ class HogFunctionViewSet(
         recovered = split_content_secrets(draft)
         staged = locked.draft_encrypted_inputs or {}
         if "inputs" in sent:
-            # Validation recovers a resent `{"secret": true}` marker from the *live* encrypted inputs,
-            # so a secret already staged in the draft has to win over that recovery — otherwise this
-            # edit would silently revert it to the live value. Keys the draft no longer declares
-            # secret drop out entirely.
-            supplied = explicit_secret_input_keys(getattr(serializer, "initial_data", {}).get("inputs"))
+            # A secret this edit did not send keeps its staged value, so the edit does not revert it to
+            # the live one. Keys the draft no longer declares secret drop out entirely.
+            supplied = supplied_input_keys(serializer.requested_inputs)
+            seen = {**snapshot_hog_function_content(validated_against), **(validated_against.draft or {})}
+            # A secret typed for a draft that another edit changed before this one took the lock was typed
+            # for content its editor never saw.
+            seen_secrets = validated_against.draft_encrypted_inputs or {}
+            stale = _draft_guarded_content(seen, staged) != _draft_guarded_content(previous, staged) or any(
+                _secret_json(seen_secrets.get(key)) != _secret_json(staged.get(key))
+                for key in seen_secrets.keys() | staged.keys()
+            )
+            entered = set() if stale else entered_secret_input_keys(serializer.requested_inputs)
+            # Each secret this edit writes is marked with whether it was typed. A secret typed again unchanged
+            # stores the same value, and a secret recovered from live can differ from live after a rotation, so
+            # the value alone cannot tell publish which secrets someone entered.
             draft_secrets = {
-                key: value if key in supplied or key not in staged else staged[key] for key, value in recovered.items()
+                key: {**value, STAGED_SECRET_ENTERED: key in entered}
+                if isinstance(value, dict) and (key in supplied or key not in staged)
+                else value
+                if key in supplied or key not in staged
+                else staged[key]
+                for key, value in recovered.items()
             }
         else:
             # This edit didn't touch inputs, so whatever is already staged still applies — and with
             # nothing staged, publish recovers the live secrets.
+            entered = set()
             draft_secrets = staged
+
+        live_secrets = locked.encrypted_inputs or {}
+        secret_changed = any(
+            _secret_json(draft_secrets.get(key)) != _secret_json(staged.get(key, live_secrets.get(key)))
+            for key in draft_secrets.keys() | staged.keys()
+        )
+        if secret_changed or _draft_guarded_content(previous, draft_secrets) != _draft_guarded_content(
+            draft, draft_secrets
+        ):
+            # An earlier draft edit's entered secret was entered for the code and secrets that edit saw.
+            draft_secrets = {
+                key: {**value, STAGED_SECRET_ENTERED: False}
+                if isinstance(value, dict) and key not in entered
+                else value
+                for key, value in draft_secrets.items()
+            }
 
         instance.draft = draft
         instance.draft_updated_at = timezone.now()
@@ -1696,8 +2034,8 @@ class HogFunctionViewSet(
 
     def perform_update(self, serializer):
         instance_id = serializer.instance.id
-        # Resolved before the write transaction so the routing decision doesn't extend the row lock.
-        route_to_draft = self._should_route_to_draft(serializer)
+        # Decided once in `get_serializer`, so validation and the write agree on whether this edit stages.
+        route_to_draft = bool(serializer.context.get("stages_draft"))
 
         # Enabling with a draft open would turn on the live config while the reviewed one sits
         # unpublished. Make the caller resolve the draft first rather than picking for them.
@@ -1759,12 +2097,13 @@ class HogFunctionViewSet(
                 # committed in between. Metadata saves first — the full save would otherwise clobber
                 # the draft columns _write_draft is about to fill with the locked row's pre-draft
                 # values.
+                validated_against = serializer.instance
                 serializer.instance = locked
                 if remaining:
                     serializer.validated_data.clear()
                     serializer.validated_data.update({**remaining, "team": self.team})
                     serializer.save()
-                self._write_draft(locked, locked, serializer, validated_content)
+                self._write_draft(locked, locked, serializer, validated_content, validated_against)
             else:
                 before_content = snapshot_hog_function_content(locked) if locked else None
                 serializer.save()
@@ -1803,6 +2142,8 @@ class HogFunctionViewSet(
                 }
             )
 
+        # The flag lookup can make a network call, so it runs before the row lock is taken.
+        enforces_secret_reentry = secret_reentry_enforced(self.team)
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFunction.objects.select_for_update().get(pk=instance.pk)
@@ -1824,13 +2165,20 @@ class HogFunctionViewSet(
             # The draft's own staged secrets outrank the live ones while the draft is revalidated: the
             # serializer recovers secret inputs from `instance.encrypted_inputs`, and save() re-splits
             # whatever it recovered back into that column.
-            locked.encrypted_inputs = {
-                **(locked.encrypted_inputs or {}),
-                **(locked.draft_encrypted_inputs or {}),
-            }
+            live_secrets = locked.encrypted_inputs or {}
+            locked.encrypted_inputs = {**live_secrets, **(locked.draft_encrypted_inputs or {})}
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
-            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data=dict(locked.draft),
+                partial=True,
+                context={
+                    **self.get_serializer_context(),
+                    "live_encrypted_inputs": live_secrets,
+                    "enforces_secret_reentry": enforces_secret_reentry,
+                },
+            )
             serializer.is_valid(raise_exception=True)
             serializer.save()
             self._record_revision(locked, before_update, before_content)
