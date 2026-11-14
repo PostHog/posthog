@@ -34,6 +34,7 @@ from posthog.security.llm_prompt_sanitization import (
     strip_llm_framing_markers,
 )
 
+from products.aeo.backend.brand import names_brand
 from products.aeo.backend.facade.contracts import CheckMode
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
@@ -483,6 +484,7 @@ def build_check_fields(
     "the engine broke" apart from "the citations disappeared".
     """
     target_urls = [url for url in check.cited_urls if is_target_url(url, target_domains)]
+    answer_text = strip_llm_framing_markers(check.answer_text, MAX_ANSWER_TEXT_LENGTH) or None
     return {
         "run_id": run_id,
         "prompt_id": prompt_id,
@@ -500,7 +502,8 @@ def build_check_fields(
         "cited_urls": _safe_values(check.cited_urls),
         "retrieved_urls": _safe_values(check.retrieved_urls),
         "search_queries": _safe_values(check.search_queries, limit=MAX_QUERIES_PER_CHECK),
-        "answer_text": strip_llm_framing_markers(check.answer_text, MAX_ANSWER_TEXT_LENGTH) or None,
+        "answer_text": answer_text,
+        "names_brand": None if check.error is not None else names_brand(answer_text, target_domains),
         "target_urls": _safe_values(target_urls),
         "target_best_position": target_position(check.cited_urls, target_domains),
         "top_cited_domains": _safe_values(top_domains(check.cited_urls)),

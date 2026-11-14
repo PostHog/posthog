@@ -413,6 +413,30 @@ def test_build_check_fields_cited() -> None:
     assert fields["cost_usd"] is None
 
 
+@pytest.mark.parametrize(
+    "answer_text, error, expected",
+    [
+        ("Try Example for funnels.", None, True),
+        ("A counterexample, nothing more.", None, False),
+        (None, None, False),
+        (None, "HTTPError: status=500", None),
+    ],
+)
+def test_build_check_fields_record_whether_the_answer_names_the_brand(
+    answer_text: str | None, error: str | None, expected: bool | None
+) -> None:
+    fields = build_check_fields(
+        check=CitationCheck(engine="exa-answer", model="exa-answer", answer_text=answer_text, error=error),
+        run_id="run-1",
+        prompt_id="prompt-1",
+        prompt_text="q",
+        prompt_source="manual",
+        prompt_hash="abc",
+        target_domains=["example.com"],
+    )
+    assert fields["names_brand"] is expected
+
+
 def test_build_check_fields_failed_check() -> None:
     check = CitationCheck(engine="exa-answer", model="exa-answer", error="HTTPError: status=500 " + "x" * 600)
     fields = build_check_fields(

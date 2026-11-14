@@ -184,13 +184,19 @@ class TestSyncBrandsFromRun(BaseTest):
 
     @parameterized.expand(
         [
-            ("keyed_for_other_own_domains", ["posthog.com"], True),
-            ("recorded_before_the_key", None, False),
-            ("keyed_for_the_current_own_domains", ["example.com"], False),
+            ("keyed_for_other_own_domains", ["posthog.com"], False, True, True),
+            ("recorded_before_the_key", None, None, False, True),
+            ("keyed_for_the_current_own_domains_before_the_brand_flag", ["example.com"], None, False, True),
+            ("keyed_for_the_current_own_domains", ["example.com"], False, False, False),
         ]
     )
     def test_recompute_clears_sentiment_scored_for_other_own_domains_even_when_citations_match(
-        self, _name: str, stored_domains: list[str] | None, expect_cleared: bool
+        self,
+        _name: str,
+        stored_domains: list[str] | None,
+        stored_names_brand: bool | None,
+        expect_cleared: bool,
+        expect_names_brand: bool,
     ) -> None:
         AEOBrand.objects.for_team(self.team.id).create(
             team=self.team,
@@ -213,6 +219,8 @@ class TestSyncBrandsFromRun(BaseTest):
             target_urls=[],
             target_best_position=None,
             own_domains_key=own_domains_key(stored_domains) if stored_domains is not None else None,
+            answer_text="Example is fine.",
+            names_brand=stored_names_brand,
             **sentiment,
         )
 
@@ -227,10 +235,11 @@ class TestSyncBrandsFromRun(BaseTest):
             is expect_cleared
         )
         assert AEOCitationCheck.objects.for_team(self.team.id).filter(id=check.id).values(
-            *sentiment, "own_domains_key"
+            *sentiment, "own_domains_key", "names_brand"
         ).get() == {
             **(cleared if expect_cleared else sentiment),
             "own_domains_key": own_domains_key(["example.com"]),
+            "names_brand": expect_names_brand,
         }
 
     @parameterized.expand(

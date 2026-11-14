@@ -46,12 +46,24 @@ def brand_pattern(target_domains: list[str]) -> re.Pattern[str] | None:
     return re.compile(r"\b(" + "|".join(re.escape(name) for name in names) + r")\b", re.IGNORECASE)
 
 
+def names_brand(answer_text: str | None, target_domains: list[str]) -> bool:
+    """Whether an answer names one of the brands. Stored on each check as `names_brand`, so reads
+    do not have to scan the answer text."""
+    pattern = brand_pattern(target_domains)
+    return bool(answer_text and pattern and pattern.search(answer_text))
+
+
 def mention_filter(target_domains: list[str]) -> Q:
     """Checks whose answer names the brand. A cited answer counts as a mention even when the
-    text only carries the URL, so the mention rate is never below the citation rate."""
-    mention = Q(cited=True)
+    text only carries the URL, so the mention rate is never below the citation rate.
+
+    The stored `names_brand` answers for every check that has it. The regex only runs for a check
+    recorded before the column existed and not yet filled by the reconcile."""
+    mention = Q(cited=True) | Q(names_brand=True)
     if regex := brand_regex(target_domains):
-        mention |= Q(answer_text__iregex=regex)
+        # Two Q objects, because one Q sorts its lookups by name and would put the regex first. The
+        # null test must come first so the database reads the answer text of unfilled checks alone.
+        mention |= Q(names_brand__isnull=True) & Q(answer_text__iregex=regex)
     return mention
 
 
