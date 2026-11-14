@@ -83,3 +83,9 @@ def verified_own_sender_ids(team_id: int) -> frozenset[int]:
     return frozenset(
         sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
     )
+
+
+def own_sender_verification(team_id: int) -> dict[int, bool]:
+    return {
+        sender.id: bool(sender.config.get("verified")) for sender in IntegrationManager.email.credentials.list(team_id)
+    }

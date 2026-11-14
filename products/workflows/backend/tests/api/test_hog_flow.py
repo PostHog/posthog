@@ -1147,6 +1147,105 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
+    def _email_sender(self, *, verified: bool) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": verified},
+        )
+
+    def _email_flow(self, sender_from: dict, step_type: str = "function_email") -> dict:
+        sync_template_to_db(_email_function_template())
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = sender_from
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": "template-email", "inputs": inputs})
+        action["type"] = step_type
+        action["name"] = "Welcome email"
+        return hog_flow
+
+    @parameterized.expand(
+        [
+            ("unverified_sender", "unverified", "function_email", "isn't verified yet"),
+            ("deleted_sender", "deleted", "function_email", "can't be found"),
+            ("unverified_sender_in_rotation", "rotation", "function_email", "isn't verified yet"),
+            ("malformed_sender_id", "malformed", "function_email", "can't be found"),
+            ("non_ascii_digit_sender_id", "non_ascii_digit", "function_email", "can't be found"),
+            ("overlong_digit_sender_id", "overlong_digits", "function_email", "can't be found"),
+            ("generic_step_running_the_email_template", "unverified", "function", "isn't verified yet"),
+        ]
+    )
+    def test_going_live_refuses_an_email_sender_that_cannot_send(self, _name, case, step_type, fragment):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        senders: dict[str, dict[str, Any]] = {
+            "unverified": {"integrationId": unverified.id},
+            "deleted": {"integrationId": unverified.id + 1000},
+            "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
+            "malformed": {"integrationId": {"id": unverified.id}},
+            "non_ascii_digit": {"integrationId": "²"},
+            "overlong_digits": {"integrationId": "9" * 5000},
+        }
+        hog_flow = self._email_flow(senders[case], step_type)
+
+        created_live = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+        assert draft.status_code == 201, draft.json()
+        enabled = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+
+        for response in (created_live, enabled):
+            assert response.status_code == 400, response.json()
+            assert '"Welcome email" step' in response.json()["detail"]
+            assert fragment in response.json()["detail"]
+        assert HogFlow.objects.get(pk=draft.json()["id"]).status == HogFlow.State.DRAFT
+
+    def test_going_live_checks_only_the_rotation_when_one_is_set(self):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        hog_flow = self._email_flow({"integrationId": unverified.id, "integrationIds": [verified.id]})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+
+        assert response.status_code == 201, response.json()
+
+    def test_publishing_a_live_workflow_refuses_a_sender_that_cannot_send(self):
+        sender = self._email_sender(verified=False)
+        hog_flow = self._email_flow({"integrationId": sender.id})
+        live = HogFlow.objects.create(
+            team=self.team, name="Live flow", actions=hog_flow["actions"], status=HogFlow.State.ACTIVE
+        )
+        hog_flow["actions"][1]["config"]["inputs"]["email"]["value"]["subject"] = "New subject"
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"actions": hog_flow["actions"], "stage_draft": True}
+        )
+        assert staged.status_code == 200, staged.json()
+        mcp_staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/graph",
+            {"operations": [{"op": "update_action", "id": live.actions[1]["id"], "patch": {"name": "Welcome"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert mcp_staged.status_code == 200, mcp_staged.json()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {"confirm": True, "confirm_token": token}
+        )
+
+        assert published.status_code == 400, published.json()
+        assert "isn't verified yet" in published.json()["detail"]
+        live.refresh_from_db()
+        assert live.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Hello"
+        assert live.draft is not None
+        paused = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"status": "draft"})
+        assert paused.status_code == 200, paused.json()
+
     def test_fixed_template_id_is_inferred_from_step_type(self):
         # template_id on fixed-template steps is a constant of the step type; omitting the
         # constant used to bounce the create with "Template not found".

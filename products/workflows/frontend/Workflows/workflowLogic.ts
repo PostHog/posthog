@@ -1,8 +1,22 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -19,7 +33,8 @@ import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLog
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
+import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -47,7 +62,7 @@ import {
 } from '../Broadcasts/broadcastLifecycle'
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
-import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import { readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
@@ -458,6 +473,7 @@ export interface workflowLogicValues {
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
+    awaitsSenderFix: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
@@ -3416,6 +3432,7 @@ export interface workflowLogicMeta {
         ) => HogFlowAction[]
         workflowHasActionErrors: (actionsWithErrors: HogFlowAction[]) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
+        awaitsSenderFix: (workflow: HogFlow, integrations: IntegrationType[] | null) => boolean
         keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
@@ -3627,6 +3644,26 @@ function senderErrors(
             : (getTemplatingError(emailValue?.from?.email, templating) ??
               getTemplatingError(emailValue?.from?.name, templating)),
     }
+}
+
+function unusableSenderError(
+    action: HogFlowAction,
+    from: EmailTemplateFrom | undefined,
+    integrations: IntegrationType[] | null
+): string | undefined {
+    if (action.type !== 'function_email' || !integrations) {
+        return undefined
+    }
+    for (const senderId of selectedSenderIds(from ?? {})) {
+        const sender = integrations.find((integration) => integration.id === Number(senderId))
+        if (!sender || sender.kind !== 'email') {
+            return "This sender can't be found. Choose another sender."
+        }
+        if (!isVerifiedEmailSender(sender)) {
+            return "This sender's domain isn't verified yet, so its emails would fail. Verify the domain, or choose a verified sender."
+        }
+    }
+    return undefined
 }
 
 export const workflowLogic = kea<workflowLogicType>([
@@ -4413,6 +4450,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
 
+                            const unusableSender = unusableSenderError(action, emailValue?.from, integrations)
+                            emailErrors.from = unusableSender ?? emailErrors.from
+
                             const hasEmailErrors = Object.values(emailErrors).some((v) => !!v)
 
                             if (hasEmailErrors) {
@@ -4423,6 +4463,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // always lacks a sender) reads as clean.
                                 if (saveAttemptedActionIds?.includes(action.id)) {
                                     result.emailErrors = emailErrors
+                                } else if (unusableSender) {
+                                    // A sender that can't send is no template-start gap, so it shows before any save.
+                                    result.emailErrors = { from: unusableSender }
                                 }
                             }
                         } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {
@@ -4547,6 +4590,14 @@ export const workflowLogic = kea<workflowLogicType>([
         // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
         // them would strand a user's edits unsaved exactly while they iterate.
         autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+        awaitsSenderFix: [
+            (s) => [s.workflow, s.integrations],
+            (workflow: HogFlow, integrations: IntegrationType[] | null): boolean =>
+                workflow.actions.some(
+                    (action) =>
+                        !!unusableSenderError(action, (action.config as any)?.inputs?.email?.value?.from, integrations)
+                ),
+        ],
         keepsLocalEditsOnExternalEdit: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS],
@@ -5384,9 +5435,24 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
     })),
+    // A sender verified or added in another tab then clears its step error on return, without a reload.
+    subscriptions(() => ({
+        awaitsSenderFix: (awaits: boolean, previous: boolean | undefined) => {
+            if (awaits && !previous) {
+                integrationsLogic.actions.startPolling()
+            } else if (!awaits && previous) {
+                integrationsLogic.actions.stopPolling()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
+    }),
+    beforeUnmount(({ values }) => {
+        if (values.awaitsSenderFix) {
+            integrationsLogic.actions.stopPolling()
+        }
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {
