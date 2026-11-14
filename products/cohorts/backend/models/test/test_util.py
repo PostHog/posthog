@@ -51,6 +51,7 @@ from products.cohorts.backend.models.util import (
     STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
     PopulationMarkerClockSkew,
+    PopulationSuperseded,
     StaticCohortReadBackIncomplete,
     _recalculate_cohortpeople_for_team,
     _recalculate_cohortpeople_for_team_hogql,
@@ -1202,8 +1203,10 @@ class TestCohortUtils(BaseTest):
 
     def test_replace_prune_restores_a_member_whose_row_arrives_late(self):
         late = create_person(team=self.team, distinct_ids=["late"], uuid=uuid4())
+        # A stale member whose row never arrives, so the re-check must restore only the late one.
+        gone = create_person(team=self.team, distinct_ids=["gone"], uuid=uuid4())
         cohort = Cohort.objects.create(team=self.team, name="replace", is_static=True)
-        insert_cohort_members(self.team.pk, cohort.pk, [late.id], None)
+        insert_cohort_members(self.team.pk, cohort.pk, [late.id, gone.id], None)
         marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
         Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
 
@@ -1229,7 +1232,7 @@ class TestCohortUtils(BaseTest):
 
         # The re-check has to come after the delete and the wait, or it can't see a row that arrived late.
         self.assertEqual(events, ["check", "delete", "wait", "check"])
-        self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (0, [late.id]))
+        self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (1, [late.id]))
 
     def test_mint_population_marker_loses_to_a_newer_attempt(self):
         cohort = Cohort.objects.create(
@@ -1281,6 +1284,66 @@ class TestCohortUtils(BaseTest):
 
         self.assertIsNone(mint_population_marker(cohort, team_id=self.team.pk))
         self.assertIsNone(Cohort.objects.get(pk=cohort.pk).population_marker)
+
+    def test_mint_population_marker_waits_for_a_second_after_the_newest_row(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        now = datetime(2026, 11, 7, 12, 0, 0, 400_000, tzinfo=UTC)
+        row_second = now.replace(microsecond=0)
+
+        with (
+            time_machine.travel(now, tick=False) as clock,
+            patch("products.cohorts.backend.models.util.time.sleep", side_effect=clock.shift) as mock_sleep,
+        ):
+            # A row stamped in the current second: a marker in that same second wouldn't sort after it.
+            insert_static_cohort([uuid4()], cohort.pk, team_id=self.team.pk)
+            marker = mint_population_marker(cohort, team_id=self.team.pk)
+
+        mock_sleep.assert_called_once_with(1.0)
+        self.assertEqual(marker, row_second + timedelta(seconds=1))
+
+    def test_a_superseded_replace_copies_and_prunes_nothing(self):
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team, name="replace", is_static=True, pending_population_mode=CohortPopulationMode.REPLACE
+        )
+        old_marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        # A newer attempt stored its own marker after this one minted its marker and wrote its rows.
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=old_marker + timedelta(seconds=30))
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                {
+                    "id": str(uuid4()),
+                    "person_id": str(member.uuid),
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "_timestamp": old_marker,
+                    "_offset": 0,
+                }
+            ],
+        )
+
+        with self.assertRaises(PopulationSuperseded):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.pk, replace_marker=old_marker, min_rows=1)
+        self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [])
+
+        # The prune stops before its first delete too, though the member has no row at its marker.
+        stale = create_person(team=self.team, distinct_ids=["stale"], uuid=uuid4())
+        insert_cohort_members(self.team.pk, cohort.pk, [stale.id], None)
+        later_marker = old_marker + timedelta(seconds=10)
+        with (
+            patch("products.cohorts.backend.models.util.delete_cohort_members_by_person_ids") as mock_delete,
+            self.assertRaises(PopulationSuperseded),
+        ):
+            prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=later_marker)
+        mock_delete.assert_not_called()
+        self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [stale.id])
 
     def test_insert_cohort_filter_actors_into_ch_sends_the_native_read_settings_for_a_switched_team(self):
         cohort = Cohort.objects.create(
