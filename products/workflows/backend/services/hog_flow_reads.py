@@ -239,8 +239,10 @@ def list_workflow_summaries(
     page: PageRequest,
 ) -> Page[WorkflowListRow]:
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False, summaries=True)
-    # A summaries search reads every workflow's step graph, so an exact count would run that scan a second time.
-    flows = _select_page_with_access(queryset, page, user_access_control, counted=not query.search)
+    a_count_would_rerun_the_step_graph_search = bool(query.search)
+    flows = _select_page_with_access(
+        queryset, page, user_access_control, counted=not a_count_would_rerun_the_step_graph_search
+    )
     template_cache: TemplateCache = {}
     return flows.map(lambda flow: _to_list_row(flow, user_access_control, template_cache))
 

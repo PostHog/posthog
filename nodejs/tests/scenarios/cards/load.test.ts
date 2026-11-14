@@ -7,15 +7,7 @@ import { z } from 'zod'
 
 const definitions: Definitions = {
     ...DEFINITIONS,
-    valves: [
-        ...DEFINITIONS.valves,
-        {
-            name: 'ses.reject',
-            params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict(),
-            target: z.string(),
-        },
-    ],
-    invariants: [...DEFINITIONS.invariants, { name: 'bounced_suppressed', params: z.object({}).strict() }],
+    valves: [...DEFINITIONS.valves],
     measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
 }
 
@@ -32,6 +24,25 @@ const card = {
 }
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
+
+const bounceCard = {
+    ...card,
+    drive: { for: '30s', traffic: [{ name: 'bounce_followup' }] },
+    valves: [{ valve: 'ses.reject', target: 'ses', dose: { type: 'bounce' }, at: '0s', for: '2m' }],
+    invariants: [
+        { name: 'at_least_once' },
+        { name: 'duplicate_sends' },
+        { name: 'refused_at_intake' },
+        { name: 'bounced_suppressed' },
+    ],
+}
+
+const bounceProfile = { ...profile, traffic: { bounce_followup: { ratePerSecond: 0.5 } } }
+
+const bounceFor = (dose: object, at: string, holdFor: string): object => ({
+    ...bounceCard,
+    valves: [{ valve: 'ses.reject', target: 'ses', dose, at, for: holdFor }],
+})
 
 const emailWorkerKill = {
     valve: 'role.kill',
@@ -233,11 +244,40 @@ describe('load', () => {
             'bounced_suppressed without a bounce',
             {
                 ...card,
-                valves: [{ ...emailWorkerKill, valve: 'ses.reject', dose: { type: 'rejected', share: 0.3 } }],
+                valves: [
+                    { ...emailWorkerKill, valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 0.3 } },
+                ],
                 invariants: [{ name: 'at_least_once' }, { name: 'bounced_suppressed' }],
             },
             undefined,
             'invariants.1.name: bounced_suppressed needs a ses.reject entry with type bounce',
+        ],
+        [
+            'bounced_suppressed with a bounce that bounces only some sends',
+            bounceFor({ type: 'bounce', share: 0.5 }, '0s', '2m'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with a bounce that starts after the drive does',
+            bounceFor({ type: 'bounce' }, '10s', '2m'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with a bounce that ends before the drive does',
+            bounceFor({ type: 'bounce' }, '0s', '10s'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with bounced traffic that sends no follow-up',
+            {
+                ...bounceCard,
+                drive: { ...bounceCard.drive, traffic: [{ name: 'bounce_followup' }, { name: 'event_email' }] },
+            },
+            { ...bounceProfile, traffic: { ...bounceProfile.traffic, event_email: { ratePerSecond: 2 } } },
+            'invariants.3.name: bounced_suppressed needs traffic that follows up every bounce, and event_email does not',
         ],
         [
             'transactional traffic with no verdict on intake refusals',
@@ -269,6 +309,75 @@ describe('load', () => {
             { ...profile, settings: { toString: 'false' } },
             'profile.settings.toString: not a setting the roles or the load producer read',
         ],
+        [
+            'a second cdp-api, which no offer would reach',
+            card,
+            { ...profile, replicas: { 'cdp-api': 2 } },
+            'profile.replicas.cdp-api: cdp-api runs once, since every intake offer goes to replica 0',
+        ],
+        [
+            'a backlog whose state sizes shrink toward p99',
+            card,
+            {
+                ...profile,
+                backlog: {
+                    teams: 1,
+                    jobs: { hogflow: 10 },
+                    stateBytes: { p50: 4000, p90: 1000, p99: 8000 },
+                    compressibility: 0.5,
+                    parkFor: '10080m',
+                    tolerance: 0.01,
+                },
+            },
+            'profile.backlog.stateBytes: p50, p90 and p99 must not decrease',
+        ],
+        [
+            'a backlog without a queue',
+            card,
+            {
+                ...profile,
+                backlog: {
+                    teams: 1,
+                    jobs: {},
+                    stateBytes: { p50: 1000, p90: 4000, p99: 8000 },
+                    compressibility: 0.5,
+                    parkFor: '10080m',
+                    tolerance: 0.01,
+                },
+            },
+            'profile.backlog.jobs: name at least one queue',
+        ],
+        [
+            'a load target that is not a positive rate',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { email: 0 } }, tolerance: 0.1 } },
+            'profile.load.targets.claimsPerSecond.email: ',
+        ],
+        [
+            'a load block without a target',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: {} }, tolerance: 0.1 } },
+            'profile.load.targets: name at least one target',
+        ],
+        [
+            'a load target on a queue Cyclotron does not serve',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { sms: 4 } }, tolerance: 0.1 } },
+            'profile.load.targets.claimsPerSecond.sms: ',
+        ],
+        [
+            'a new jobs target that is not a positive rate',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: -1 }, tolerance: 0.1 } },
+            'profile.load.targets.newJobsPerSecond: ',
+        ],
+        [
+            'a load tolerance over 1',
+            card,
+            { ...profile, load: { ...{ targets: { claimsPerSecond: { email: 4 } }, tolerance: 0.1 }, tolerance: 1.5 } },
+            'profile.load.tolerance: ',
+        ],
+        ['a host CPU ceiling over 1', card, { ...profile, host: { cpuCeiling: 1.2 } }, 'profile.host.cpuCeiling: '],
         [
             'a profile that uses a YAML alias',
             card,

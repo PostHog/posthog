@@ -232,7 +232,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
     const listV2 = useFeatureFlag('WORKFLOWS_LIST_V2')
     const { openImportModal } = useActions(customerioImportLogic)
 
@@ -286,7 +285,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
-                        {showsNewWorkflowButton && customerioImportEnabled && (
+                        {showsNewWorkflowButton && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -337,7 +336,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            {customerioImportEnabled && <CustomerioImportModal />}
+            <CustomerioImportModal />
             <EmailSuspensionBanner />
             <LemonTabs<WorkflowsTopTab>
                 activeKey={topTabFor(currentTab)}

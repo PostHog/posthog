@@ -2,7 +2,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
-from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 
 
 class WizardRunSessionAuthenticationRequired(BasePermission):
@@ -17,11 +17,15 @@ class WizardRunSessionAuthenticationRequired(BasePermission):
 
 class WizardInstallAuthenticationRequired(BasePermission):
     """
-    Setup runs start from the browser or from an agent that holds an OAuth access token.
-    Personal API keys stay out, so every agent caller went through a consent screen.
+    Setup runs start from the browser or from an agent that holds an OAuth or ID-JAG access token.
+    Personal API keys stay out, so every agent caller was authorized for that client, either on a
+    consent screen or by an organization admin who trusted the identity provider.
     """
 
     message = "Sign in, or connect through OAuth, to start a setup run."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
+        return isinstance(
+            request.successful_authenticator,
+            SessionAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
+        )

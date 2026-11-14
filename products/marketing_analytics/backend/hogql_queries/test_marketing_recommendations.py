@@ -8,6 +8,7 @@ from posthog.schema import MarketingAnalyticsRecommendationResolution
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     SEARCH_CONSOLE_PERFORMANCE_URL,
+    SEARCH_CONSOLE_URL,
     CampaignStats,
     KeywordTracking,
     OrganicQueryStats,
@@ -42,12 +43,14 @@ def _campaign(**overrides: object) -> CampaignStats:
     return CampaignStats(**values)
 
 
-def _term(term: str, campaign_id: str, cost: float, conversions: float, clicks: float = 10) -> SearchTermStats:
+def _term(
+    term: str, campaign_id: str, cost: float, conversions: float, clicks: float = 10, impressions: float = 100
+) -> SearchTermStats:
     return SearchTermStats(
         term=term,
         campaign_id=campaign_id,
         clicks=clicks,
-        impressions=100,
+        impressions=impressions,
         cost=cost,
         conversions=conversions,
         status="NONE",
@@ -113,6 +116,9 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert rules[0].impact == 6000
             assert rules[0].cpa is not None
             assert (rules[0].cpa.value, rules[0].cpa.benchmark) == (100, 200)
+            steps = rules[0].steps or []
+            assert [step.copyValue for step in steps if step.copyValue][-1] == "300"
+            assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
 
     @parameterized.expand(
         [
@@ -159,6 +165,36 @@ class TestMarketingRecommendations(SimpleTestCase):
             "worstCampaign": 600.0,
         }
         assert reason_benchmark in rec.reason
+        assert rec.steps
+        assert all(step.linkText and step.linkText in step.text for step in rec.steps if step.url)
+
+    @parameterized.expand(
+        [
+            ("loses_more_to_budget", 0.3, 0.2, None, "Click its budget"),
+            ("loses_more_to_rank", 0.1, 0.4, None, "raise the bids"),
+            ("loses_more_to_rank_on_a_target_cpa", 0.1, 0.4, 100.0, "raise the target CPA"),
+        ]
+    )
+    def test_scale_campaign_step_matches_what_limits_it(
+        self, _name: str, lost_to_budget: float, lost_to_rank: float, target_cpa: float | None, expected: str
+    ) -> None:
+        campaigns = (
+            _campaign(
+                id="a",
+                name="Cheap",
+                cost=1000,
+                conversions=20,
+                lost_to_budget=lost_to_budget,
+                lost_to_rank=lost_to_rank,
+                target_cpa=target_cpa,
+            ),
+            _campaign(id="b", name="Expensive", cost=3000, conversions=5),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+
+        rec = next(rec for rec in recommend(_inputs(campaigns)) if rec.rule == "scale_campaign")
+
+        assert expected in (rec.steps or [])[1].text
 
     @parameterized.expand(
         [
@@ -411,6 +447,60 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
         assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
 
+    @parameterized.expand(
+        [
+            ("misspelling_is_blocked_too", "NONE", '"example"\n"exampel"'),
+            ("misspelling_bought_on_purpose", "ADDED", '"example"'),
+        ]
+    )
+    def test_brand_leak_negates_the_brand_when_the_top_search_is_a_misspelling(
+        self, _name: str, misspelling_status: str, negatives: str
+    ) -> None:
+        campaign = _campaign(id="generic", name="Generic", cost=2000, conversions=20)
+        terms = (
+            replace(_term("exampel", "generic", cost=600, conversions=1), status=misspelling_status),
+            _term("example pricing", "generic", cost=200, conversions=1),
+            _term("analytics tool", "generic", cost=100, conversions=1),
+            _term("product analytics", "generic", cost=1200, conversions=18),
+        )
+        # A generic search the site ranks first for also counts as brand, but it is no misspelling.
+        organic = (
+            OrganicQueryStats(query="exampel", clicks=100, impressions=200, position=1.0),
+            OrganicQueryStats(query="analytics tool", clicks=90, impressions=200, position=1.0),
+        )
+
+        recs = recommend(_inputs((campaign,), terms, organic))
+
+        leak = next(rec for rec in recs if rec.rule == "brand_leak")
+        assert leak.action == 'Add "example" as a negative keyword'
+        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", negatives]
+
+    def test_brand_leaking_in_several_campaigns_gets_one_shared_negative_list(self) -> None:
+        campaigns = (
+            _campaign(id="a", name="Alpha", cost=2000, conversions=20),
+            _campaign(id="b", name="Beta", cost=2000, conversions=20),
+            _campaign(id="pmax", name="PMax", channel_type="PERFORMANCE_MAX", cost=1000, conversions=10),
+        )
+        terms = (
+            _term("example pricing", "a", cost=300, conversions=1),
+            _term("product analytics", "a", cost=1700, conversions=19),
+            _term("example login", "b", cost=500, conversions=1),
+            _term("session replay", "b", cost=1500, conversions=19),
+            _term("example", "pmax", cost=200, conversions=1),
+            _term("project planning software", "pmax", cost=800, conversions=9),
+        )
+
+        leaks = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "brand_leak"]
+
+        assert sorted((rec.level, rec.subject, rec.action) for rec in leaks) == [
+            ("account", "2 non-brand campaigns", 'Add "example" to a shared negative keyword list'),
+            ("campaign", "PMax", 'Add a brand exclusion for "example"'),
+        ]
+        shared = next(rec for rec in leaks if rec.level == "account")
+        assert [step.copyValue for step in shared.steps or [] if step.copyValue] == ['"example"', "Beta\nAlpha"]
+        assert (shared.identity.campaign_id, shared.identity.subject) == ("", "example")
+        validate_identity(shared.identity)
+
     def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
         good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
         costly = _campaign(id="c2", name="Costly", cost=2000, conversions=2)
@@ -445,12 +535,26 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "striking_distance",
                 f"{SEARCH_CONSOLE_PERFORMANCE_URL}?resource_id=sc-domain%3Aexample.com",
             ),
+            (
+                "several_properties_open_the_last_one_viewed",
+                8.0,
+                False,
+                "striking_distance",
+                SEARCH_CONSOLE_URL,
+                ("sc-domain:example.com", "https://example.com/"),
+            ),
             ("ranks_beyond_page_one", 30.0, True, "content_gap", "https://example.com/funnels"),
             ("does_not_rank", None, True, "content_gap", None),
         ]
     )
     def test_organic_steps_start_from_the_page_that_ranks(
-        self, _name: str, position: float | None, has_pages: bool, rule: str, first_url: str | None
+        self,
+        _name: str,
+        position: float | None,
+        has_pages: bool,
+        rule: str,
+        first_url: str | None,
+        site_urls: tuple[str, ...] = ("sc-domain:example.com",),
     ) -> None:
         terms = (
             _term("funnel analysis", "c1", cost=100, conversions=5),
@@ -466,7 +570,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             RankingPage(query="funnel analysis", page="https://example.com/funnels", impressions=1700),
         )
 
-        recs = recommend(_inputs((_campaign(),), terms, organic, ranking_pages=pages if has_pages else ()))
+        inputs = _inputs((_campaign(),), terms, organic, ranking_pages=pages if has_pages else ())
+        recs = recommend(replace(inputs, site_urls=site_urls))
 
         organic_recs = [rec for rec in recs if rec.subject == "funnel analysis" and rec.rule == rule]
         assert len(organic_recs) == 1
@@ -503,6 +608,24 @@ class TestMarketingRecommendations(SimpleTestCase):
         ]
         assert sorted(merged) == sorted(expected)
         assert all(rec.cpa is None for rec in recs if rec.rule == "striking_distance")
+
+    def test_content_gap_impact_is_the_ad_spend_a_top_3_page_replaces(self) -> None:
+        terms = (
+            _term("funnel analysis", "c1", cost=300, conversions=5, clicks=60, impressions=200),
+            _term("cohort analysis", "c1", cost=300, conversions=5, clicks=60, impressions=1000),
+            _term("session replay", "c1", cost=400, conversions=0),
+        )
+
+        gaps = {
+            rec.subject: (rec.impact, rec.impactDirection, rec.impactType)
+            for rec in recommend(_inputs((_campaign(),), terms))
+            if rec.rule == "content_gap"
+        }
+
+        assert gaps == {
+            "funnel analysis": (150, "gain", "estimated"),
+            "cohort analysis": (300, "gain", "estimated"),
+        }
 
     @parameterized.expand(
         [
@@ -581,6 +704,8 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert all(rec.cpa is None for rec in recs)
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
+        scale = next(rec for rec in recs if rec.rule == "scale_campaign")
+        assert "target CPA" in (scale.steps or [])[1].text
 
     @parameterized.expand(
         [
@@ -713,3 +838,4 @@ class TestMarketingRecommendations(SimpleTestCase):
         )
         if expected:
             assert [step.copyValue for step in rows[0].steps or [] if step.copyValue] == ["utm_term={keyword}"]
+            assert [step.linkText for step in rows[0].steps or []] == ["Account settings", None, "Campaigns"]

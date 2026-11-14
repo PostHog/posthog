@@ -2477,13 +2477,28 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "branded",
+                    "key": "branded",
+                    "csv": false
+                },
+                {
                     "param": "days",
                     "key": "days",
                     "csv": false
                 },
                 {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
                     "param": "keyword",
                     "key": "keyword",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
                     "csv": false
                 }
             ],
@@ -2520,8 +2535,23 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "branded",
+                    "key": "branded",
+                    "csv": false
+                },
+                {
                     "param": "days",
                     "key": "days",
+                    "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
                     "csv": false
                 }
             ],
@@ -2856,6 +2886,16 @@
                     "csv": false
                 },
                 {
+                    "param": "days",
+                    "key": "days",
+                    "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
                     "param": "include_archived",
                     "key": "include_archived",
                     "csv": false
@@ -2929,6 +2969,16 @@
                     "param": "days",
                     "key": "days",
                     "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
+                    "csv": false
                 }
             ],
             "body": null,
@@ -2971,6 +3021,16 @@
                 {
                     "param": "days",
                     "key": "days",
+                    "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
+                    "param": "topic",
+                    "key": "topic",
                     "csv": false
                 }
             ],
@@ -17329,6 +17389,79 @@
                 {
                     "param": "fingerprints",
                     "key": "fingerprints"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "error-tracking-issues-tag-definitions-retrieve": {
+        "name": "error-tracking-issues-tag-definitions-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/error_tracking/issues/tag_definitions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "error-tracking-issues-tag-partial-update": {
+        "name": "error-tracking-issues-tag-partial-update",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/error_tracking/issues/{id}/tag/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "key",
+                    "key": "key"
+                },
+                {
+                    "param": "applied",
+                    "key": "applied"
                 }
             ],
             "injectBody": {},
