@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import { IconCheckCircle, IconDocument, IconEllipsis, IconHide } from '@posthog/icons'
-import { Badge, Button, Heading, IconStack, IconStackItem, Text, cn } from '@posthog/quill'
+import { Badge, Button, IconStack, IconStackItem, Text, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -15,12 +15,11 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayEvidenceAge } from './TodayEvidenceAge'
-import { TodayMarkedText } from './TodayMarkedText'
 import { resolveDisabledReason } from './todayNextStep'
 import { priorityTone } from './todayPriority'
 import { todayReportLogic } from './todayReportLogic'
 import { reportStateLabel } from './todayReportState'
+import { TodayReportTitle } from './TodayReportTitle'
 import { reportIcon } from './todayRowIcons'
 import { SAMPLE_REPORT_REASON } from './todaySampleReports'
 import { reportSourceLine, reportTitle } from './todaySignalReports'
@@ -102,9 +101,7 @@ function PhoneActions({
 export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
     const { requestReportVerdict } = useActions(todayVerdictLogic)
     const { phoneLayout } = useValues(todayShellLogic)
-    const { lead, leadMarks, shownKeyClauses, reportState, isSample } = useValues(
-        todayReportLogic({ reportId: report.id })
-    )
+    const { reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
     const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
     const stateLabel = reportStateLabel(reportState)
     const stateBadge = stateLabel ? (
@@ -113,7 +110,6 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
     const sources = reportSourceLine(report)
     const icon = reportIcon(report)
     const updated = dayjs(report.updated_at)
-    const stillInvestigating = !report.summary?.trim()
 
     const giveVerdict = (verdict: TodayReportVerdict): void =>
         requestReportVerdict(
@@ -200,29 +196,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                     </div>
                 )}
             </div>
-            <div className="flex flex-col gap-2">
-                <Heading size="xl" render={<h1 />} className="leading-snug text-balance">
-                    {reportTitle(report)}
-                </Heading>
-                {lead && (
-                    <div data-today-figures>
-                        <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
-                            <TodayMarkedText
-                                markdown={lead}
-                                marked={leadMarks}
-                                keyClauses={shownKeyClauses?.lead ?? []}
-                                reportId={report.id}
-                            />
-                        </Text>
-                    </div>
-                )}
-                {stillInvestigating && (
-                    <Text variant="muted" render={<p />}>
-                        No summary yet. An agent is still investigating.
-                    </Text>
-                )}
-                <TodayEvidenceAge report={report} />
-            </div>
+            <TodayReportTitle report={report} />
         </header>
     )
 }

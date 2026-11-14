@@ -5,6 +5,7 @@ import React, { useEffect, useRef } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,6 +25,7 @@ import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
+import { QuillInboxHeader } from './components/shell/QuillInboxHeader'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
@@ -90,6 +92,7 @@ function InboxListView(): JSX.Element {
     // Self-driving isn't set up and the inbox is empty: the welcome page replaces the whole list
     // view, tab bar included, so the onboarding is the whole story – just run the one command.
     const onboarding = onboardingMode === 'takeover'
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // The takeover verdict is still settling: commit to neither UI. Rendering the tab bar here is
     // what caused the normal inbox to flash in and get replaced by the welcome page.
     const pending = onboardingMode === 'pending'
@@ -112,7 +115,8 @@ function InboxListView(): JSX.Element {
     return (
         <div className="flex flex-col min-h-0 flex-1 min-w-0">
             {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
-            {!onboarding && !pending && (
+            {!onboarding && !pending && todayRailNav && <QuillInboxHeader />}
+            {!onboarding && !pending && !todayRailNav && (
                 <div className="flex items-center gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar />
                     {/* Pairs with the header Triage button, which hides below the same @2xl/inbox width. */}
@@ -204,6 +208,7 @@ function InboxRunsPanel(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         activeTab,
         selectedReportId,
@@ -275,20 +280,23 @@ export function InboxScene(): JSX.Element {
     return (
         <SceneContent className="@container/inbox gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
-                <SceneTitleSection
-                    name="Self-driving inbox"
-                    // The description explains the active tab so new users can orient themselves.
-                    // The welcome takeover leads with its own full-size pitch, so a description here
-                    // would say the same thing twice. While the verdict is pending no description is
-                    // safe to show – it would flash and swap.
-                    description={
-                        onboardingMode === 'pending' || onboardingMode === 'takeover'
-                            ? null
-                            : INBOX_TAB_DESCRIPTION[activeTab]
-                    }
-                    resourceType={{ type: 'inbox' }}
-                    actions={headerActions}
-                />
+                {/* The Quill list header carries the title, so the scene title would say it twice. */}
+                {!(todayRailNav && tabUnlocked) && (
+                    <SceneTitleSection
+                        name="Self-driving inbox"
+                        // The description explains the active tab so new users can orient themselves.
+                        // The welcome takeover leads with its own full-size pitch, so a description here
+                        // would say the same thing twice. While the verdict is pending no description is
+                        // safe to show – it would flash and swap.
+                        description={
+                            onboardingMode === 'pending' || onboardingMode === 'takeover'
+                                ? null
+                                : INBOX_TAB_DESCRIPTION[activeTab]
+                        }
+                        resourceType={{ type: 'inbox' }}
+                        actions={headerActions}
+                    />
+                )}
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
                     {/* The inbox always renders (its own list skeleton covers loading). When self-driving

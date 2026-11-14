@@ -2153,6 +2153,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
+        assert row["suggested_reviewer_count"] == 1
 
     @parameterized.expand(
         [

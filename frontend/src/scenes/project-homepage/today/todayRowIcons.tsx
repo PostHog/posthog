@@ -55,7 +55,7 @@ const SOURCE_ICONS: Record<string, TodayRowIcon> = {
     rage: REPLAY,
 }
 
-function sourceIcon(source: string | null | undefined): TodayRowIcon {
+export function sourceIcon(source: string | null | undefined): TodayRowIcon {
     const style = sourceStyle(source)
     const colored = style.color.startsWith('var(--color-product-')
     return { color: colored ? style.color : undefined, glyph: <TodayIcon icon={style.icon} /> }

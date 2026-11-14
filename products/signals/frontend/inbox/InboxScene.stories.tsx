@@ -9,6 +9,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 
+import type { ReportPageApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
+
 import { expect, userEvent } from 'storybook/test'
 
 import {
@@ -224,6 +226,74 @@ function reportWithEvidenceItems(count: number): Story {
 export const ReportWithManyEvidenceItems: Story = reportWithEvidenceItems(12)
 export const ReportWithTwoEvidenceItems: Story = reportWithEvidenceItems(2)
 export const ReportWithoutEvidence: Story = reportWithEvidenceItems(0)
+
+// The scene mounts outside the app shell, which declares the container that the Quill list breaks on.
+const mainContentContainer: Decorator = (Story) => (
+    <div className="@container/main-content">
+        <Story />
+    </div>
+)
+
+const quillFlags = {
+    ...meta.parameters?.featureFlags,
+    [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+    [FEATURE_FLAGS.INBOX_TIME_WINDOW]: true,
+    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+}
+
+export const QuillInbox: Story = {
+    decorators: [mainContentContainer],
+    parameters: {
+        featureFlags: quillFlags,
+        testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="inbox-report-row"]' },
+    },
+}
+
+const triageEvidence = (index: number, source: string, headline: string): SignalViewApi => ({
+    signal_id: `triage-evidence-${index}`,
+    source_product: source,
+    source_type: 'issue',
+    source_id: `triage-source-${index}`,
+    content: headline,
+    timestamp: `2026-08-${28 - index}T09:00:00Z`,
+    extra: {},
+    headline,
+    lead: headline,
+    meta: '',
+    cited: null,
+    recording: null,
+    link: null,
+    preview: null,
+})
+
+const triagePage: ReportPageApi = {
+    lead: 'The invite form accepts a recipient row without an email address, so the request fails after submit.',
+    proposal: 'Validate each recipient row before submit, and show the error next to the row that fails.',
+    impact_sentence: '',
+    named_pull_request: null,
+    solution_names_pull_request: false,
+    evidence: [
+        triageEvidence(
+            0,
+            'error_tracking',
+            'The invite request returns 500 for a recipient row without an email address'
+        ),
+        triageEvidence(1, 'session_replay', '4 people sent the invite form 3 times and then left the page'),
+        triageEvidence(2, 'logs', 'The invite handler logged a missing email address for 212 requests'),
+    ],
+    source_count: 9,
+    impact_numbers: [],
+    last_seen: null,
+}
+
+export const QuillTriage: Story = {
+    decorators: [
+        routeTo(urls.inboxTriage()),
+        mswDecorator({ get: { '/api/projects/:id/today/reports/:reportId/page/': () => [200, triagePage] } }),
+        mainContentContainer,
+    ],
+    parameters: { featureFlags: quillFlags, testOptions: { snapshotBrowsers: [] } },
+}
 
 // Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
 export const Triage: Story = {

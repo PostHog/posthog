@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { reportSpendLogic } from '../../logics/reportSpendLogic'
 import { DetailSection } from '../detail/DetailSection'
 import { RecordedSpend } from './RecordedSpend'
+import { reportSpendLine } from './reportSpendLine'
 
 export function ReportSpendSection({ reportId }: { reportId: string }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -16,7 +17,14 @@ export function ReportSpendSection({ reportId }: { reportId: string }): JSX.Elem
     const { refreshSpend } = useActions(logic)
 
     return (
-        <DetailSection title="Usage" icon={<IconReceipt />}>
+        <DetailSection
+            title="Usage"
+            icon={<IconReceipt />}
+            line={{
+                name: 'Spend',
+                text: failed ? "Couldn't load usage" : spend ? reportSpendLine(spend) : null,
+            }}
+        >
             {failed ? (
                 <LemonBanner
                     type="error"

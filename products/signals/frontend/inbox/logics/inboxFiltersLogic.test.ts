@@ -353,6 +353,19 @@ describe('inboxFiltersLogic', () => {
                 .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
         })
 
+        it.each([
+            ['starts from the whole project', () => {}, 'entire-project'],
+            ['keeps a For you scope that the person picked', () => logic.actions.setScope('for-you'), 'for-you'],
+        ])('with the Quill list, the scope %s', async (_name, before, expected) => {
+            before()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.scope).toBe(expected)
+        })
+
         it('keeps a monitoring URL selection visible without a browser rollout flag', async () => {
             router.actions.push(urls.inbox('reports'), { state: 'outcome-monitoring' })
             await expectLogic(logic).toFinishAllListeners()

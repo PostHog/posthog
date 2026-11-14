@@ -66,18 +66,26 @@ const STATUS_BADGE_TYPES: Record<SignalReportStatus, LemonTagType> = {
     [SignalReportStatus.DELETED]: 'muted',
 }
 
+type SuppressionSource = SignalReportSuppressionSourceEnumApi | null | undefined
+
+/** A suppressed report nobody dismissed reads as held back, not as dismissed. */
+function isHeldBack(status: SignalReportStatus, suppressionSource: SuppressionSource): boolean {
+    return status === SignalReportStatus.SUPPRESSED && !!suppressionSource && suppressionSource !== 'dismissed'
+}
+
+export function reportStatusLabel(status: SignalReportStatus, suppressionSource?: SuppressionSource): string {
+    return isHeldBack(status, suppressionSource) ? 'Held back' : (STATUS_LABELS[status] ?? status)
+}
+
 export function SignalReportStatusBadge({
     status,
     suppressionSource,
 }: {
     status: SignalReportStatus
-    /** A suppressed report nobody dismissed reads as held back, not as dismissed. */
-    suppressionSource?: SignalReportSuppressionSourceEnumApi | null
+    suppressionSource?: SuppressionSource
 }): JSX.Element {
-    const heldBack =
-        status === SignalReportStatus.SUPPRESSED && !!suppressionSource && suppressionSource !== 'dismissed'
-    const label = heldBack ? 'Held back' : (STATUS_LABELS[status] ?? status)
-    const tooltip = heldBack
+    const label = reportStatusLabel(status, suppressionSource)
+    const tooltip = isHeldBack(status, suppressionSource)
         ? 'A safety or actionability check removed this report before anyone reviewed it.'
         : (STATUS_TOOLTIPS[status] ?? status)
 
