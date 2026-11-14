@@ -145,18 +145,28 @@ class TestClusteringConfigViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
-            (subject, property_type, key, group_index)
+            (subject, property_type, restricted_type, restricted_key, key, group_index)
             for subject in ("member", "role")
-            for property_type, key, group_index in (
-                ("event", "private_property", None),
-                ("event", "private_property.nested", None),
-                ("group", "private_property", 0),
-                ("group", "private_property", "0"),
+            for property_type, restricted_type, restricted_key, key, group_index in (
+                ("event", PropertyDefinition.Type.EVENT, "private_property", "private_property", None),
+                ("event", PropertyDefinition.Type.EVENT, "private_property", "private_property.nested", None),
+                ("event", PropertyDefinition.Type.EVENT, "private_property.nested", "private_property", None),
+                ("event", PropertyDefinition.Type.EVENT, "private_property.nested", "private_property%2Enested", None),
+                (
+                    "person",
+                    PropertyDefinition.Type.PERSON,
+                    "private_property.nested",
+                    "private_property%2Enested",
+                    None,
+                ),
+                ("event", PropertyDefinition.Type.PERSON, "private_property", "$set.private_property", None),
+                ("group", PropertyDefinition.Type.GROUP, "private_property", "private_property", 0),
+                ("group", PropertyDefinition.Type.GROUP, "private_property", "private_property", "0"),
             )
         ]
     )
     def test_restricted_filters_cannot_start_runs_or_expose_existing_progress(
-        self, subject, property_type, key, group_index
+        self, subject, property_type, restricted_type, restricted_key, key, group_index
     ):
         reader = self._create_user("cluster-reader@example.com")
         self.organization.available_product_features = [
@@ -166,8 +176,8 @@ class TestClusteringConfigViewSet(APIBaseTest):
         self.organization.save()
         definition = PropertyDefinition.objects.create(
             team=self.team,
-            name="private_property",
-            type=PropertyDefinition.Type.GROUP if property_type == "group" else PropertyDefinition.Type.EVENT,
+            name=restricted_key,
+            type=restricted_type,
             group_type_index=0 if property_type == "group" else None,
         )
         member = reader.organization_memberships.get(organization=self.organization)
