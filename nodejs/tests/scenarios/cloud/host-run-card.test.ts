@@ -34,7 +34,7 @@ else
 fi
 `
 
-const FAKE_PNPM = `#!/usr/bin/env bash
+const FAKE_RUNNER = `#!/usr/bin/env bash
 state="$XDG_CACHE_HOME/posthog-scenarios"
 run="$state/${RUNNER_RUN_ID}"
 mkdir -p "$run" "$state/edge-ca"
@@ -42,11 +42,18 @@ echo '{"phase":"drive"}' >"$run/result.json"
 echo 'private key' >"$state/edge-ca/ca.key"
 [ -z "\${FAKE_CARD_BLOCKS_COPY:-}" ] || touch "$SCENARIO_HOST_ROOT/evidence/run"
 if [ -n "\${FAKE_CARD_HANGS:-}" ]; then
-    trap 'echo interrupted >"$run/interrupted"; exit 2' TERM
+    trap 'sleep 0.5; echo interrupted >"$run/interrupted"; exit 2' TERM
     touch "$run/running"
     while :; do sleep 0.1; done
 fi
 exit "\${FAKE_CARD_EXIT:-0}"
+`
+
+const FAKE_PNPM = `#!/usr/bin/env bash
+node "$@" &
+child=$!
+trap 'kill -TERM "$child"; exit 143' TERM
+wait "$child"
 `
 
 describe('host-run-card.sh', () => {
@@ -58,6 +65,7 @@ describe('host-run-card.sh', () => {
         const bin = path.join(dir, 'bin')
         mkdirSync(bin)
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
+        writeFileSync(path.join(bin, 'node'), FAKE_RUNNER, { mode: 0o755 })
         writeFileSync(path.join(bin, 'pnpm'), FAKE_PNPM, { mode: 0o755 })
         return spawn('bash', [WRAPPER], {
             env: {
@@ -109,7 +117,7 @@ describe('host-run-card.sh', () => {
         expect(existsSync(path.join(dir, 'host', 'cache', 'posthog-scenarios'))).toBe(false)
     })
 
-    it('stops the card on SIGTERM and still uploads its partial evidence with checksums', async () => {
+    it('stops the card on SIGTERM and uploads its evidence once the runner finished its cleanup', async () => {
         const wrapper = start({ FAKE_CARD_HANGS: '1' })
         const done = exited(wrapper)
         await whenExists(path.join(dir, 'host', 'cache', 'posthog-scenarios', RUNNER_RUN_ID, 'running'))

@@ -638,6 +638,42 @@ describe('cloud controller', () => {
         expect(schedulesFor(other)).toHaveLength(2)
     })
 
+    it('refuses to clean up a run id that is not a UUID', async () => {
+        const { controller } = prepare()
+        const runId = "x'; touch /tmp/scenario-owned; '"
+        const stackName = `scn-${runId}`
+        const manifest = {
+            runId,
+            stackName,
+            schedules: [`${stackName}-expiry`, `${stackName}-expiry-retry`],
+            expiresAt: T.toISOString(),
+        }
+        cloud.objects.set(`runs/${runId}/manifest.json`, JSON.stringify(manifest))
+        cloud.objects.set(`runs/${runId}/host/started`, '{}')
+
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(2)
+
+        expect([...cloud.objects.keys()].filter((key) => key.includes('/receipts/'))).toEqual([])
+    })
+
+    it('gives up within minutes on a host whose SSM agent never takes a command', async () => {
+        const { controller } = prepare({ cloud: { agent: 'offline' } })
+        let sentAt: number | undefined
+        let deletedAt: number | undefined
+        cloud.beforeCall('send-command', () => {
+            sentAt ??= now.getTime()
+        })
+        cloud.beforeCall('delete-stack', () => {
+            deletedAt ??= now.getTime()
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain('TimedOut')
+        expect(deletedAt! - sentAt!).toBeLessThan(HOUR_MS / 12)
+        expect(cloud.billable()).toEqual([])
+    })
+
     it('sweeps expired leases before it admits a run', async () => {
         const { controller } = prepare({ cloud: { expiration: new Date(T.getTime() + 24 * HOUR_MS) } })
         const expired = await leaseAt(T, controller)

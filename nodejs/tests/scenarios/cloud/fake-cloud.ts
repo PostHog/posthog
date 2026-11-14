@@ -59,6 +59,7 @@ const SNAPSHOT = 'AWS::RDS::DBClusterSnapshot'
 const EXIT_INVALID = 2
 const INVOCATION_LAG_MS = 20_000
 const STOP_TIMEOUT_MS = 5 * MINUTE_MS
+const DEFAULT_DELIVERY_TIMEOUT_S = 3600
 const TAKES_MS: Record<string, number> = {
     CREATE_IN_PROGRESS: MINUTE_MS / 4,
     UPDATE_IN_PROGRESS: 10 * MINUTE_MS,
@@ -83,6 +84,7 @@ export type FakeCloudOptions = {
     seed?: { exitCode?: number; takesMs?: number }
     card?: { exitCode?: number; takesMs?: number; ignoresStop?: boolean; uploadFails?: boolean; diesAfterMs?: number }
     probe?: 'lost' | 'timedOut'
+    agent?: 'offline'
 }
 
 const ACTION_OF: Record<string, string> = {
@@ -404,6 +406,11 @@ export class FakeCloud implements Aws {
             settlesAt: now + MINUTE_MS / 4,
             status: 'Success',
             code: 0,
+        }
+        if (this.options.agent === 'offline') {
+            const deliveryS = Number(flags.get('timeout-seconds') ?? DEFAULT_DELIVERY_TIMEOUT_S)
+            this.commands.push({ ...command, settlesAt: now + deliveryS * 1000, status: 'TimedOut', code: -1 })
+            return command.id
         }
         if (script.includes('host-prepare.sh')) {
             const { exitCode = 0, takesMs = 10 * MINUTE_MS } = this.options.seed ?? {}

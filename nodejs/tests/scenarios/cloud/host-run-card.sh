@@ -51,7 +51,7 @@ mkdir -p "$evidence"
 trap stop TERM INT
 trap finish EXIT
 mark started "{\"at\":\"$(now)\"}" || exit
-pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/main.ts run "$CARD" --profile "$input/runner-profile.yaml" >"$evidence/card.log" 2>&1 &
+(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$CARD" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &
 card=$!
 while kill -0 "$card" 2>/dev/null; do
     wait "$card"

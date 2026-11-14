@@ -11,6 +11,7 @@ import { POLL_MS } from './stack'
 const REPO = '/opt/posthog'
 const SCRIPTS = `${REPO}/nodejs/tests/scenarios/cloud`
 const START_TIMEOUT_S = 60
+const DELIVERY_TIMEOUT_S = 60
 const STOP_TIMEOUT_S = 300
 const STOP_WAIT_MS = (STOP_TIMEOUT_S + START_TIMEOUT_S) * 1000
 const LIVENESS_MS = 5 * 60_000
@@ -69,6 +70,8 @@ async function settleOnHost(
         instanceId,
         '--document-name',
         'AWS-RunShellScript',
+        '--timeout-seconds',
+        String(DELIVERY_TIMEOUT_S),
         '--parameters',
         JSON.stringify({ commands, executionTimeout: [String(timeoutSeconds)] }),
     ])) as { Command: { CommandId: string } }
@@ -168,7 +171,7 @@ export async function startCard(
         [
             [
                 'systemd-run',
-                `--unit=${unitOf(manifest)}`,
+                `--unit=${quoted(unitOf(manifest))}`,
                 '--property=KillMode=mixed',
                 `--property=TimeoutStopSec=${STOP_TIMEOUT_S}`,
                 `--working-directory=${REPO}`,
@@ -230,7 +233,7 @@ export async function awaitCard(
             const probe = await settleOnHost(
                 controller,
                 host,
-                [`systemctl is-active --quiet ${unit}`],
+                [`systemctl is-active --quiet ${quoted(unit)}`],
                 START_TIMEOUT_S,
                 Math.min(until, controller.now().getTime() + PROBE_WAIT_MS),
                 signal
@@ -261,7 +264,7 @@ export async function stopCard(controller: Controller, profile: CloudProfile, ma
     const { Status, ResponseCode } = await runOnHost(
         controller,
         host,
-        [`systemctl stop ${unitOf(manifest)}`],
+        [`systemctl stop ${quoted(unitOf(manifest))}`],
         STOP_TIMEOUT_S + START_TIMEOUT_S,
         controller.now().getTime() + STOP_WAIT_MS
     )
