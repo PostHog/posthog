@@ -13,7 +13,6 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { reportNotesFromArtefacts } from '../../utils/reportNotes'
-import { QuillReportAskComposer } from './QuillReportAskComposer'
 import { QuillReportFactLine } from './QuillReportFactLine'
 import { QuillReportNav } from './QuillReportNav'
 import { QuillReportNavActions } from './QuillReportNavActions'
@@ -92,10 +91,8 @@ export function QuillReportDetail({
                             <TodayReportTitle report={liveReport} />
                             {claim.dialog}
                         </header>
-                        <QuillReportAskComposer reportId={report.id} />
                         {banner}
-                        {/* Keyed by report, so the next report opens on its own stage. */}
-                        <QuillReportStages key={report.id} report={liveReport} {...stageSlots} />
+                        <QuillReportStages report={liveReport} {...stageSlots} />
                         <ReportStageActivity
                             entries={activity}
                             notes={notesEnabled ? <ReportNotesSection report={report} /> : null}

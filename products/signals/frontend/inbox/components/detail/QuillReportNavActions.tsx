@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconCopy, IconSparkles } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { IconChevronDown, IconCopy } from '@posthog/icons'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { reportWorkKind, reportWorkPrompt } from 'scenes/project-homepage/today/todayNextStep'
@@ -11,49 +11,66 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'
+import { reportMarkdown } from '../../utils/reportMarkdown'
 
-/** The two ways to take a report to an AI: copy it as a prompt, or ask PostHog AI here. */
+/** The ways to take a report out of PostHog: as a prompt for an AI agent, or as markdown. */
 export function QuillReportNavActions({ report }: { report: SignalReport }): JSX.Element {
-    const logic = todayReportLogic({ reportId: report.id })
-    const { reportUrl, composerOpen } = useValues(logic)
-    const { openComposer } = useActions(logic)
+    const { reportUrl } = useValues(todayReportLogic({ reportId: report.id }))
     const { phoneLayout } = useValues(todayShellLogic)
 
-    const copyPrompt = (): void => {
+    const copy = (format: 'prompt' | 'markdown'): void => {
         captureInboxReportAction({
             report,
             actionType: 'copy_implementation_prompt',
             surface: 'detail_pane',
-            extra: { agent: 'clipboard', work: reportWorkKind(report) },
+            extra: { agent: 'clipboard', work: reportWorkKind(report), format },
         })
-        void copyToClipboard(reportWorkPrompt(report, reportUrl), 'prompt for your agent')
+        if (format === 'prompt') {
+            void copyToClipboard(reportWorkPrompt(report, reportUrl), 'prompt for your agent')
+        } else {
+            void copyToClipboard(reportMarkdown(report, reportUrl), 'report as markdown')
+        }
     }
 
     return (
-        <>
-            <Button
-                variant="link-muted"
-                size={phoneLayout ? 'icon-sm' : 'sm'}
-                onClick={copyPrompt}
-                aria-label="Copy prompt"
-                tooltip="Copy this report as a prompt for your own AI agent"
-                data-attr="inbox-report-copy-prompt"
-            >
-                <IconCopy />
-                {!phoneLayout && 'Copy prompt'}
-            </Button>
-            <Button
-                variant="link-muted"
-                size={phoneLayout ? 'icon-sm' : 'sm'}
-                onClick={() => openComposer()}
-                aria-label="Ask about it"
-                aria-expanded={composerOpen}
-                tooltip="Ask PostHog AI about this report"
-                data-attr="inbox-report-ask"
-            >
-                <IconSparkles />
-                {!phoneLayout && 'Ask about it'}
-            </Button>
-        </>
+        <span className="flex items-center">
+            {!phoneLayout && (
+                <Button
+                    variant="link-muted"
+                    size="sm"
+                    onClick={() => copy('prompt')}
+                    tooltip="Copy this report as a prompt for your own AI agent"
+                    data-attr="inbox-report-copy-prompt"
+                >
+                    <IconCopy />
+                    Copy prompt
+                </Button>
+            )}
+            <DropdownMenu>
+                <DropdownMenuTrigger
+                    render={
+                        <Button
+                            variant="link-muted"
+                            size="icon-sm"
+                            aria-label="Copy options"
+                            tooltip="Copy options"
+                            data-attr="inbox-report-copy-options"
+                        />
+                    }
+                >
+                    {phoneLayout ? <IconCopy /> : <IconChevronDown />}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    {phoneLayout && (
+                        <DropdownMenuItem onClick={() => copy('prompt')} data-attr="inbox-report-copy-prompt">
+                            Copy prompt
+                        </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => copy('markdown')} data-attr="inbox-report-copy-markdown">
+                        Copy as markdown
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </span>
     )
 }
