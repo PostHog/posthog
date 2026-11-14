@@ -15,6 +15,7 @@ import {
     RequestInfo,
     RequestInit,
     Response,
+    buildConnector,
     request,
     errors as undiciErrors,
     fetch as undiciFetch,
@@ -25,6 +26,7 @@ import { getExternalRequestConfig } from '~/common/config'
 import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 
 import { ColdStartGate } from './cold-start-gate'
+import { ConnectionRateLimiter } from './connection-rate-limiter'
 import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
@@ -171,6 +173,15 @@ export class ResolutionError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'ResolutionError'
+    }
+}
+
+export class ConnectionRateLimitError extends Error {
+    constructor(address: string) {
+        super(
+            `PostHog opened too many new connections to ${address} in a short time, so this request did not start. This usually means the destination is timing out or closing connections.`
+        )
+        this.name = 'ConnectionRateLimitError'
     }
 }
 
@@ -349,9 +360,95 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     return validAddrinfo
 }
 
+const connectionRateLimiter =
+    requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND > 0
+        ? new ConnectionRateLimiter({
+              perSecond: requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND,
+              burst: requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST,
+          })
+        : null
+
+const connectionRateLimitedCounter = new Counter({
+    name: 'node_request_connection_rate_limited_total',
+    help: 'New third-party connections over the limit for their destination IP address, by whether the limit rejected them',
+    labelNames: ['enforced'],
+})
+
+// One line per address and minute names the addresses over the limit without flooding the logs.
+const connectionRateLimitLogged = new LRUCache<string, true>({ max: 1_000, ttl: 60_000 })
+
+// The IPv4 address that the NAT gateway translates for this answer. An IPv4-mapped IPv6 address opens an IPv4
+// connection, so it counts as its IPv4 address. A native IPv6 address does not go through the gateway and returns null.
+function natAddress({ address, family }: LookupAddress): string | null {
+    if (family === 4) {
+        return address
+    }
+    if (!ipaddr.IPv6.isValid(address)) {
+        return null
+    }
+    const parsed = ipaddr.IPv6.parse(address)
+    return parsed.isIPv4MappedAddress() ? parsed.toIPv4Address().toString() : null
+}
+
+// A new connection resolves its hostname once and a kept-alive request resolves nothing, so this sees each new
+// connection once. The socket may try every address it gets, so each IPv4 address takes a token. When the limit is
+// enforced, an address with no token left is removed. In count-only mode every address stays.
+function admitNewConnection(hostname: string, addresses: LookupAddress[]): LookupAddress[] {
+    if (!connectionRateLimiter) {
+        return addresses
+    }
+    // The socket dials every entry, so a repeated address would open one connection per copy for one token.
+    const seen = new Set<string>()
+    const unique = addresses.filter((answer) => {
+        const key = natAddress(answer) ?? answer.address
+        if (seen.has(key)) {
+            return false
+        }
+        seen.add(key)
+        return true
+    })
+    const natAddresses = unique.map(natAddress)
+    const limited = natAddresses.filter((address): address is string => address !== null)
+    if (limited.length === 0) {
+        return unique
+    }
+    // Each team has its own budget per address, so one team cannot use up the connections of another.
+    const teamId = fetchAttribution.getStore()?.teamId
+    const admitted = new Set(
+        limited.filter((address) =>
+            connectionRateLimiter.tryTake(teamId === undefined ? address : `${teamId}:${address}`)
+        )
+    )
+    const enforced = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
+    if (admitted.size === 0) {
+        const address = limited[0]
+        connectionRateLimitedCounter.inc({ enforced: String(enforced) })
+        if (!connectionRateLimitLogged.has(address)) {
+            connectionRateLimitLogged.set(address, true)
+            logger.warn('[request] New connections to a destination IP address are over the limit', {
+                hostname,
+                address,
+                enforced,
+                ...fetchAttribution.getStore(),
+            })
+        }
+    }
+    if (!enforced) {
+        return unique
+    }
+    const kept = unique.filter((_, index) => {
+        const address = natAddresses[index]
+        return address === null || admitted.has(address)
+    })
+    if (kept.length === 0) {
+        throw new ConnectionRateLimitError(limited[0])
+    }
+    return kept
+}
+
 export const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
     try {
-        const addrinfo = await staticLookupAsync(hostname)
+        const addrinfo = admitNewConnection(hostname, await staticLookupAsync(hostname))
         cb(null, addrinfo)
     } catch (err) {
         cb(err as Error, '', 4)
@@ -464,11 +561,31 @@ function makeSecureDispatcher({
         keepAliveTimeout: keepAliveTimeoutMs,
         connections,
         allowH2,
-        connect: {
-            lookup: httpStaticLookup,
-            timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-        },
+        connect: admittingConnector(allowH2),
     })
+}
+
+// undici builds this same connector from an options object. A function lets the limit see connections to an IP
+// address in the URL: Node does not call the lookup function for those, so httpStaticLookup never sees them.
+function admittingConnector(allowH2: boolean): buildConnector.connector {
+    const connect = buildConnector({
+        allowH2,
+        lookup: httpStaticLookup,
+        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+    })
+    return (options, callback) => {
+        const literal = options.hostname.replace(/^\[(.*)\]$/, '$1')
+        const family = net.isIP(literal)
+        if (family !== 0) {
+            try {
+                admitNewConnection(literal, [{ address: literal, family }])
+            } catch (error) {
+                callback(error as Error, null)
+                return
+            }
+        }
+        connect(options, callback)
+    }
 }
 
 const sharedSecureAgent = makeSecureDispatcher({ useProxy: false, allowH2: false })

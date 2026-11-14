@@ -63,23 +63,16 @@ afterAll(async () => {
     await new Promise<void>((resolve, reject) => testServer.close((err) => (err ? reject(err) : resolve())))
 })
 
-async function withIsolatedProxy(
-    proxy: net.Server,
+async function withIsolatedRequestModule(
+    overrides: Record<string, string>,
     run: (fresh: typeof import('./request')) => Promise<void>
 ): Promise<void> {
-    const proxySockets = new Set<net.Socket>()
-    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
-    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const overrides: Record<string, string> = {
-        NODE_ENV: 'test',
-        HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
-        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
-    }
-    const originalValues = Object.fromEntries(Object.keys(overrides).map((name) => [name, process.env[name]]))
-    Object.assign(process.env, overrides)
+    const env = { NODE_ENV: 'test', ...overrides }
+    const originalValues = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]))
+    Object.assign(process.env, env)
     try {
         await jest.isolateModulesAsync(async () => {
-            // request.ts reads the proxy URL and the timeouts once, at module load.
+            // request.ts reads its config once, at module load.
             const fresh: typeof import('./request') = require('./request')
             try {
                 await run(fresh)
@@ -95,6 +88,25 @@ async function withIsolatedProxy(
                 process.env[name] = value
             }
         }
+    }
+}
+
+async function withIsolatedProxy(
+    proxy: net.Server,
+    run: (fresh: typeof import('./request')) => Promise<void>
+): Promise<void> {
+    const proxySockets = new Set<net.Socket>()
+    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    try {
+        await withIsolatedRequestModule(
+            {
+                HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
+                EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
+            },
+            run
+        )
+    } finally {
         proxySockets.forEach((socket) => socket.destroy())
         proxy.close()
     }
@@ -459,6 +471,142 @@ describe('fetch', () => {
             // Parallel should be significantly faster than sequential
             const speedup = sequentialTime / parallelTime
             expect(speedup).toBeGreaterThan(3)
+        })
+    })
+
+    describe('new connection limit per IP address', () => {
+        const ipv4 = { address: '127.0.0.1', family: 4 }
+        // Nothing listens on ::1 or 127.0.0.2, so a request reaches the origin only through the fallback to 127.0.0.1.
+        const ipv6First = [{ address: '::1', family: 6 }, ipv4]
+        const deadIpv4First = [{ address: '127.0.0.2', family: 4 }, ipv4]
+        const ipv4Mapped = [{ address: '::ffff:127.0.0.1', family: 6 }]
+
+        test.each<{
+            name: string
+            enforced: string
+            addresses: { address: string; family: number }[]
+            expected: (number | string)[]
+            expectedConnections: number
+            teams?: number[]
+        }>([
+            {
+                name: 'rejects over the limit',
+                enforced: 'true',
+                addresses: [ipv4],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'only counts when not enforced',
+                enforced: 'false',
+                addresses: [ipv4],
+                expected: [200, 200, 200],
+                expectedConnections: 3,
+            },
+            {
+                name: 'keeps IPv6 unlimited and the IPv4 fallback',
+                enforced: 'true',
+                addresses: ipv6First,
+                expected: [200, 200, 'ECONNREFUSED'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'charges each IPv4 fallback it keeps once',
+                enforced: 'true',
+                addresses: [...deadIpv4First, ipv4],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'keeps every IPv4 fallback when not enforced',
+                enforced: 'false',
+                addresses: deadIpv4First,
+                expected: [200, 200, 200],
+                expectedConnections: 3,
+            },
+            {
+                name: 'limits an IPv4-mapped IPv6 address as IPv4',
+                enforced: 'true',
+                addresses: ipv4Mapped,
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'limits an IPv4 address in the URL',
+                enforced: 'true',
+                addresses: [],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'gives each team its own budget',
+                enforced: 'true',
+                addresses: [ipv4],
+                teams: [1, 1, 1, 2],
+                expected: [200, 200, 'ConnectionRateLimitError', 200],
+                expectedConnections: 3,
+            },
+        ])(
+            '$name, for an origin that closes every connection',
+            async ({ enforced, addresses, expected, expectedConnections, teams }) => {
+                let connections = 0
+                const closing = http.createServer((_req, res) => {
+                    res.setHeader('connection', 'close')
+                    res.end('ok')
+                })
+                closing.on('connection', () => connections++)
+                await new Promise<void>((resolve) => closing.listen(0, '127.0.0.1', resolve))
+                const host = addresses.length === 0 ? '127.0.0.1' : 'localhost'
+                const url = `http://${host}:${(closing.address() as AddressInfo).port}/`
+                try {
+                    await withIsolatedRequestModule(
+                        {
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '0.001',
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: '2',
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: enforced,
+                        },
+                        async (fresh) => {
+                            jest.mocked(require('dns/promises').lookup).mockResolvedValue(addresses)
+                            const {
+                                fetchAttribution,
+                            }: typeof import('./fetch-attribution') = require('./fetch-attribution')
+                            const outcomes = []
+                            for (const teamId of teams ?? range(3).map(() => undefined)) {
+                                outcomes.push(
+                                    await fetchAttribution
+                                        .run({ teamId }, () => fresh.fetch(url))
+                                        .then(
+                                            (response) => response.status,
+                                            (error) => error.code ?? error.name
+                                        )
+                                )
+                            }
+
+                            expect(outcomes).toEqual(expected)
+                            expect(connections).toBe(expectedConnections)
+                        }
+                    )
+                } finally {
+                    closing.closeAllConnections()
+                    closing.close()
+                }
+            }
+        )
+
+        test('returns each address in a DNS answer once', async () => {
+            await withIsolatedRequestModule(
+                { EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '1' },
+                async (fresh) => {
+                    jest.mocked(require('dns/promises').lookup).mockResolvedValue([ipv4, ipv4, ...ipv4Mapped])
+                    const result = await new Promise((resolve, reject) =>
+                        fresh.httpStaticLookup('localhost', {}, (error, addresses) =>
+                            error ? reject(error) : resolve(addresses)
+                        )
+                    )
+
+                    expect(result).toEqual([ipv4])
+                }
+            )
         })
     })
 })
