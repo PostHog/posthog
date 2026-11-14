@@ -11,6 +11,7 @@ def _facts(**overrides: object) -> ReviewFacts:
         "strong_familiarity": False,
         "unresolved_substantive_concerns": [],
         "other_refusal_grounds": [],
+        "rejected_bot_concerns": [],
         **overrides,
     }
     return ReviewFacts.from_output(output)

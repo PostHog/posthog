@@ -223,9 +223,14 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     # an empty list, so a local review_pr.py run, which does not pass the key, is unaffected and the
     # prompt renders no inline-comments section.
     review_comments: list[dict] = []
-    for thread in context.get("review_threads") or []:
+    for thread_number, thread in enumerate(context.get("review_threads") or [], start=1):
         if thread.get("is_resolved"):
             continue
+        hides_person = any(
+            not c.get("author_is_bot")
+            and not _prompt_worthy_author(c.get("author"), c.get("author_association"), False)
+            for c in thread.get("comments") or []
+        )
         for index, comment in enumerate(thread.get("comments") or []):
             if not _prompt_worthy_author(
                 comment.get("author"), comment.get("author_association"), bool(comment.get("author_is_bot"))
@@ -242,6 +247,9 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
             review_comments.append(
                 {
                     "user": comment.get("author") or "ghost",
+                    "is_bot": bool(comment.get("author_is_bot")),
+                    "thread": f"T{thread_number}",
+                    "hides_person": hides_person,
                     "body": comment.get("body", ""),
                     "path": thread.get("path", ""),
                     "line": thread.get("line"),

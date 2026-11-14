@@ -1094,6 +1094,7 @@ class Pipeline:
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
                 "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
+                "stamphog_llm_upheld_rejections": len((self.reviewer_output or {}).get("upheld_rejections") or []),
                 "stamphog_reviewer_engine": self.reviewer_engine,
                 **_llm_usage_properties(self.reviewer_output),
             },
@@ -1140,6 +1141,10 @@ class Pipeline:
             for path, governed in self.effective_policy.governed_file_counts():
                 bullets.append(f"{governed} of the {len(self.pr.files)} changed files are governed by `{path}`.")
         bullets.extend(str(issue) for issue in (self.reviewer_output.get("issues") or [])[:3])
+        bullets.extend(
+            f"Resolved without a code change, after checking the author's rejection: {upheld}"
+            for upheld in self.reviewer_output.get("upheld_rejections") or []
+        )
 
         rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
         rows.append(

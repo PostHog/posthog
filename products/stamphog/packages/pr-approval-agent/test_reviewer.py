@@ -239,6 +239,7 @@ _CLEAN_FACTS = {
     "strong_familiarity": False,
     "unresolved_substantive_concerns": [],
     "other_refusal_grounds": [],
+    "rejected_bot_concerns": [],
     "reasoning": "No showstoppers.",
     "change_summary": "Trend charts can now be given a fixed y-axis range.",
 }
