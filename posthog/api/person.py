@@ -92,6 +92,7 @@ from posthog.utils import (
 
 from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
+from products.cdp.backend.facade.api import has_distinct_id_hashing_transformation
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.workflows.backend.facade.api import get_workflow_names
@@ -1548,6 +1549,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if forbidden:
             raise ValidationError(f"You do not have write access to the following properties: {', '.join(forbidden)}.")
 
+        self._refuse_when_distinct_ids_are_hashed()
+
         # distinct_ids can be empty for a person orphaned by a merge, or when a concurrent
         # merge lands between the person fetch and the distinct-id fetch (two separate RPCs).
         if not person.distinct_ids:
@@ -1712,8 +1715,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             property_type=PropertyDefinition.Type.PERSON,
         )
 
+    def _refuse_when_distinct_ids_are_hashed(self) -> None:
+        # The edit is sent as an event under a stored distinct ID, which is already hashed. Ingestion
+        # hashes it again, so the edit would land on a new person and the API would still report success.
+        if has_distinct_id_hashing_transformation(team_id=self.team_id):
+            raise ValidationError(
+                "A transformation in this project hashes distinct IDs, so an edit made here would be saved on "
+                "a different person. To change this person's properties, capture an event with their original, "
+                "unhashed distinct ID."
+            )
+
     def _set_properties(self, properties, user):
         instance = self.get_object()
+        self._refuse_when_distinct_ids_are_hashed()
         distinct_id = instance.distinct_ids[0]
         event_name = "$set"
         timestamp = datetime.now(UTC)

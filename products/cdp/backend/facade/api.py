@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import operator
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from functools import reduce
 from typing import Any
@@ -17,6 +17,11 @@ from uuid import UUID
 
 from django.db import connection
 from django.db.models import Q, QuerySet
+
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_program
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -26,6 +31,7 @@ from products.actions.backend.facade.enums import ACTIONS_ARRAY_JSONPATH
 from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
+from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
 
 _B = "products.cdp.backend."
 
@@ -36,6 +42,7 @@ __all__ = [
     "HogFunctionActionReference",
     "count_hog_functions_referencing_actions",
     "create_hog_functions",
+    "has_distinct_id_hashing_transformation",
     "has_enabled_hog_function_for_warehouse_table",
     "hog_functions_referencing_action",
     "is_hog_function_template_available",
@@ -82,6 +89,92 @@ def create_hog_functions(
         serializer.is_valid(raise_exception=True)
         created_ids.append(serializer.save(team=team, created_by=created_by).id)
     return created_ids
+
+
+def _input_value(inputs: dict[str, Any], key: str) -> Any:
+    entry = inputs.get(key)
+    return entry.get("value") if isinstance(entry, dict) else None
+
+
+def _is_field(node: ast.Expr, *chain: str) -> bool:
+    return isinstance(node, ast.Field) and node.chain == list(chain)
+
+
+def _is_event_field_access(node: ast.Expr, array: str) -> bool:
+    return (
+        isinstance(node, ast.ArrayAccess)
+        and _is_field(node.array, array)
+        and _is_field(node.property, "trimmedFieldName")
+    )
+
+
+# The statement in each template that hashes distinct_id, matched on the parsed source.
+_DISTINCT_ID_HASHING_STATEMENTS: dict[str, Callable[[ast.VariableAssignment], bool]] = {
+    # returnEvent.distinct_id := sha256Hex(...)
+    "template-pii-hashing": lambda node: (
+        _is_field(node.left, "returnEvent", "distinct_id")
+        and isinstance(node.right, ast.Call)
+        and node.right.name == "sha256Hex"
+    ),
+    # anonymizedEvent[trimmedFieldName] := hashValue(event[trimmedFieldName], ...)
+    "template-hash-properties": lambda node: (
+        _is_event_field_access(node.left, "anonymizedEvent")
+        and isinstance(node.right, ast.Call)
+        and node.right.name == "hashValue"
+        and bool(node.right.args)
+        and _is_event_field_access(node.right.args[0], "event")
+    ),
+}
+
+
+class _AssignmentCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.assignments: list[ast.VariableAssignment] = []
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        self.assignments.append(node)
+        super().visit_variable_assignment(node)
+
+
+def _source_has_statement(hog: str | None, is_statement: Callable[[ast.VariableAssignment], bool]) -> bool:
+    # A function keeps its template_id after someone edits its source, so the inputs alone don't prove
+    # it still hashes distinct_id. Parsing ignores comments and string contents, which text matching can't.
+    try:
+        program = parse_program(hog or "")
+    except BaseHogQLError:
+        return False
+    collector = _AssignmentCollector()
+    collector.visit(program)
+    return any(is_statement(node) for node in collector.assignments)
+
+
+def _hashes_distinct_id(template_id: str | None, inputs: dict[str, Any] | None, hog: str | None) -> bool:
+    is_statement = _DISTINCT_ID_HASHING_STATEMENTS.get(template_id or "")
+    if is_statement is None or not _source_has_statement(hog, is_statement):
+        return False
+    inputs = inputs or {}
+    if template_id == "template-pii-hashing":
+        return _input_value(inputs, "hashDistinctId") is True
+    fields = _input_value(inputs, "privateFields")
+    return isinstance(fields, str) and "distinct_id" in {field.strip() for field in fields.split(",")}
+
+
+def has_distinct_id_hashing_transformation(*, team_id: int) -> bool:
+    """Whether an enabled transformation hashes the distinct_id of the team's incoming events.
+
+    Such a team stores persons under hashed distinct IDs, and every event it captures is hashed again,
+    so an event sent with a stored distinct ID lands on a new person. Only the built-in hashing
+    templates with literal input values and their hashing statement intact are recognized; a custom
+    transformation, or an input written as a template expression such as "{true}", is not.
+    """
+    transformations = HogFunction.objects.filter(
+        team_id=team_id,
+        type=HogFunctionType.TRANSFORMATION,
+        enabled=True,
+        deleted=False,
+        template_id__in=list(_DISTINCT_ID_HASHING_STATEMENTS),
+    ).values_list("template_id", "inputs", "hog")
+    return any(_hashes_distinct_id(template_id, inputs, hog) for template_id, inputs, hog in transformations)
 
 
 def _enabled_hog_functions_triggered_by(
