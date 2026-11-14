@@ -36,6 +36,7 @@ from products.alerts_platform.backend.logic.alert_routes import (
     has_enabled_routes,
     routed_receivers_for_label_sets,
     routing_labels,
+    stored_group_labels,
 )
 from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 
@@ -99,8 +100,20 @@ def _routed_transitions(
     transitions: tuple[AnnouncedTransition, ...],
 ) -> list[tuple[RoutedReceiver, tuple[AnnouncedTransition, ...]]]:
     """Each matched receiver with the transitions it hears, in route order of first match."""
+    stored = stored_group_labels(
+        team_id=request.team_id,
+        configuration_id=request.configuration_id,
+        grouping_keys={transition.grouping_key for transition in transitions if not transition.labels},
+    )
     keys = [
-        tuple(sorted(routing_labels(group_labels=transition.labels, rule_labels=rule_labels).items()))
+        tuple(
+            sorted(
+                routing_labels(
+                    group_labels=transition.labels or stored.get(transition.grouping_key, {}),
+                    rule_labels=rule_labels,
+                ).items()
+            )
+        )
         for transition in transitions
     ]
     distinct = list(dict.fromkeys(keys))

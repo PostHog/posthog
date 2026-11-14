@@ -1,6 +1,6 @@
 """Which team-wide receivers an alert's labels route it to."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import cast
 from uuid import UUID
 
@@ -9,7 +9,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind
-from products.alerts_platform.backend.models import AlertReceiver, AlertRoute
+from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +39,21 @@ def routed_receivers(*, team_id: int, labels: Mapping[str, str]) -> tuple[Routed
 
 def has_enabled_routes(team_id: int) -> bool:
     return AlertRoute.objects.for_team(team_id).filter(enabled=True, receiver__enabled=True).exists()
+
+
+def stored_group_labels(
+    *, team_id: int, configuration_id: str, grouping_keys: Collection[str]
+) -> dict[str, dict[str, str]]:
+    """The labels each group's instance last kept. A group a check stopped returning resolves
+    without labels, and its instance still holds the ones its firing had."""
+    if not grouping_keys:
+        return {}
+    rows = (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, grouping_key__in=grouping_keys)
+        .values_list("grouping_key", "labels")
+    )
+    return {grouping_key: dict(labels or {}) for grouping_key, labels in rows}
 
 
 def routing_labels(*, group_labels: Mapping[str, str], rule_labels: Mapping[str, str]) -> dict[str, str]:

@@ -21,7 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import AnnouncementRead, AnnouncementStatus
-from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.tests.test_delivery_evaluation import (
     CONFIGURATION_ID,
     SLACK,
@@ -52,7 +52,9 @@ class TestDeliverRoutes(APIBaseTest):
         self._route("C-billing", [{"label": "team", "op": "=", "value": "billing"}], 1)
         self._route("C-all", [], 2)
 
-    def _route(self, channel: str, matchers: list[dict[str, str]], position: int) -> None:
+    def _route(
+        self, channel: str, matchers: list[dict[str, str]], position: int, event_kinds: tuple[str, ...] = ("firing",)
+    ) -> None:
         receiver = AlertReceiver.objects.for_team(self.team.id).create(
             team=self.team,
             name=channel,
@@ -60,7 +62,7 @@ class TestDeliverRoutes(APIBaseTest):
             config=cast(AlertDestinationData, {**SLACK, "slack_channel_id": channel}),
         )
         AlertRoute.objects.for_team(self.team.id).create(
-            team=self.team, receiver=receiver, matchers=matchers, event_kinds=["firing"], position=position
+            team=self.team, receiver=receiver, matchers=matchers, event_kinds=list(event_kinds), position=position
         )
 
     def _deliver(self, flag: Any = True, transitions: tuple[AnnouncedTransition, ...] | None = None) -> int:
@@ -107,12 +109,17 @@ class TestDeliverRoutes(APIBaseTest):
             )
 
     def test_routes_each_group_on_its_own_labels_under_the_rules(self) -> None:
-        self._route("C-rotation-a", [{"label": "rotation", "op": "=", "value": "a"}], 3)
+        self._route("C-rotation-a", [{"label": "rotation", "op": "=", "value": "a"}], 3, ("firing", "resolved"))
         self._route("C-rotation-b", [{"label": "rotation", "op": "=", "value": "b"}], 4)
+        PlatformAlert.objects.for_team(self.team.id).create(
+            team=self.team, configuration_id=CONFIGURATION_ID, grouping_key="gone", labels={"rotation": "a"}
+        )
         groups = (
             replace(_transition(AlertEventKind.FIRING, "a"), labels={"rotation": "a"}),
             replace(_transition(AlertEventKind.FIRING, "b"), labels={"rotation": "b"}),
             replace(_transition(AlertEventKind.FIRING, "billing"), labels={"team": "billing"}),
+            # A group the check stopped returning resolves without labels, routed on its stored ones.
+            _transition(AlertEventKind.RESOLVED, "gone"),
         )
 
         sent = self._deliver(transitions=groups)
@@ -126,6 +133,7 @@ class TestDeliverRoutes(APIBaseTest):
             ("C-all", "b"),
             ("C-all", "-"),
             ("C-rotation-a", "a"),
+            ("C-rotation-a", "-"),
             ("C-rotation-b", "b"),
         ]
         assert sent == 4
