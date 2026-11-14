@@ -9,8 +9,11 @@
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from time import monotonic
+from typing import Any
+
+from django.conf import settings
 
 import numpy as np
 import structlog
@@ -31,7 +34,7 @@ from products.mcp_analytics.backend.facade.contracts import (
     IntentGenerationUnavailable,
     IntentTopicsRunOutcome as RunOutcome,
 )
-from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist
+from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist, rollups
 from products.mcp_analytics.backend.intent_topics.assignment_sql import build_assignment_insert
 from products.mcp_analytics.backend.intent_topics.constants import (
     FIT_LOOKBACK_DAYS,
@@ -100,7 +103,9 @@ class SyncSlice:
 
 def _sync_slices(window_start: datetime, window_end: datetime) -> Iterator[SyncSlice]:
     # The first slice also takes the replayed overlap, so a run the budget stops after one slice still moves a full hour.
-    cursor = window_start
+    # It starts at the top of window_start's hour, where the hourly rollup read starts: an intent first called
+    # between the two would otherwise never get a vector.
+    cursor = corpus.start_of_hour(window_start)
     slice_end = min(window_start + SYNC_RESUME_OVERLAP + SYNC_SLICE, window_end)
     while cursor < window_end:
         yield SyncSlice(start=cursor, end=slice_end)
@@ -151,6 +156,12 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
                 drained_until = sync_slice.end
                 continue
             break
+        # The row version is the read time, not window_end, so a rerun of the same window replaces the
+        # counts it read before. It is taken before the read so that, of two runs, the later read wins.
+        # Only the hours read whole are rolled up; the next run resumes at the same boundary.
+        read_at = datetime.now(tz=UTC)
+        for hourly in corpus.iter_hourly_call_pages(team, since=window_start, until=drained_until):
+            rollups.insert_hourly_calls(team.pk, hourly, now=read_at)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
@@ -175,6 +186,29 @@ WHERE run_id = {run_id}
 """
 
 
+# Quorum is off on the single-node ClickHouse of tests and local dev, where it would wait for replicas that do
+# not exist; a quorum that cannot be met fails the run after the timeout, and the retry re-assigns the window.
+ASSIGNMENT_INSERT_SETTINGS: dict[str, Any] = {
+    "insert_distributed_sync": 1,
+    "async_insert": 0,
+    "insert_quorum": 0 if settings.TEST or settings.DEBUG else "auto",
+    "insert_quorum_timeout": 60_000,
+}
+
+
+def _rebuild_daily(team: Team, *, window_start: datetime, window_end: datetime) -> None:
+    # A sync run that follows an outage rolls up hours up to MAX_SYNC_CATCH_UP back; their days need totals too.
+    # The extra day covers an hour that starts in the day before window_start's local day.
+    catch_up_start = window_end - MAX_SYNC_CATCH_UP - timedelta(days=1)
+    rollups.rebuild_topic_daily(
+        team_id=team.pk,
+        window_start=min(window_start, catch_up_start),
+        window_end=window_end,
+        now=datetime.now(tz=UTC),
+        timezone=team.timezone,
+    )
+
+
 def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
     run = persist.start_run(
         team,
@@ -187,6 +221,12 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
     pca = persist.latest_pca_basis(team)
     if not topics or pca is None:
         message = "No topics yet; run a refit first"
+        try:
+            # Calls still count as unassigned, so coverage is right before the first refit.
+            _rebuild_daily(team, window_start=window_start, window_end=window_end)
+        except Exception as e:
+            persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
+            raise
         persist.finish_run(run, status=Status.SKIPPED_TOO_FEW, error_message=message)
         return RunOutcome(run.run_id, Kind.ASSIGN, Status.SKIPPED_TOO_FEW, error_message=message)
     try:
@@ -200,7 +240,7 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
                 topics=topics,
                 pca=pca,
             )
-            query.execute(team, settings={"insert_distributed_sync": 1, "async_insert": 0})
+            query.execute(team, settings=ASSIGNMENT_INSERT_SETTINGS)
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
@@ -210,6 +250,7 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         n_intents, n_outliers = (
             (int(response.results[0][0]), int(response.results[0][1])) if response.results else (0, 0)
         )
+        _rebuild_daily(team, window_start=window_start, window_end=window_end)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise

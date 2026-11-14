@@ -2125,6 +2125,12 @@ class MCPDashboardSection(StrEnum):
     RELIABILITY = "reliability"
 
 
+class Band(StrEnum):
+    CONSOLIDATED = "consolidated"
+    MIXED = "mixed"
+    SPREAD = "spread"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
@@ -2632,6 +2638,10 @@ class NodeKind(StrEnum):
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     MCP_DASHBOARD_QUERY = "MCPDashboardQuery"
+    MCP_INTENT_TOPICS_QUERY = "MCPIntentTopicsQuery"
+    MCP_TOOL_INTENT_PROFILE_QUERY = "MCPToolIntentProfileQuery"
+    MCP_SIMILAR_TOOLS_QUERY = "MCPSimilarToolsQuery"
+    MCP_INTENT_MAP_QUERY = "MCPIntentMapQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 

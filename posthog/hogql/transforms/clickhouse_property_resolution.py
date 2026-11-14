@@ -52,6 +52,7 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_key_path,
     restricted_property_keys_for_table_type,
+    wildcard_reads_restricted_mirrored_column,
 )
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
@@ -1325,6 +1326,14 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             )
         if (
             self.context.restricted_properties
+            and isinstance(node.type, ast.AsteriskType)
+            and wildcard_reads_restricted_mirrored_column(node.type.table_type, self.context)
+        ):
+            raise QueryError(
+                "A wildcard can't read this table because some of its columns are hidden from you. List the columns instead."
+            )
+        if (
+            self.context.restricted_properties
             and isinstance(node.type, ast.FieldType)
             and (masked := self._masked_mirrored_column(node.type)) is not None
         ):
@@ -1397,17 +1406,21 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         )
         return ast.Call(name="if", args=[is_restricted_row, masked, super().visit_field(node)])
 
-    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Constant | None:
+    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Expr | None:
         """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.
 
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
+        An array column of hashes copies no single value, so it reads as an empty array that array functions accept.
         """
         resolved_field = field_type.resolve_database_field(self.context)
         if not isinstance(resolved_field, DatabaseField):
             return None
         if not mirrored_column_is_restricted(field_type.table_type, resolved_field.name, self.context):
             return None
+        constant_type = resolved_field.get_constant_type()
+        if isinstance(constant_type, ast.ArrayType):
+            return ast.Array(exprs=[], type=replace(constant_type, nullable=False))
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     # --- comparison / call rewrites ---
