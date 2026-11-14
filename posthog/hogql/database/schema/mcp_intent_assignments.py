@@ -1,6 +1,6 @@
 from posthog.hogql.ast import Constant, LazyTableType, SelectQuery
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -14,6 +14,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.parser import parse_expr
 
 from products.mcp_analytics.backend.facade.clickhouse_schema import (
     MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
@@ -46,6 +47,11 @@ MCP_INTENT_ASSIGNMENTS_FIELDS: dict[str, FieldOrTable] = {
     "calls_in_run": IntegerDatabaseField(
         name="calls_in_run", nullable=False, description="Calls carrying this intent when it was embedded."
     ),
+    "source_min_timestamp": DateTimeDatabaseField(
+        name="source_min_timestamp",
+        nullable=True,
+        description="Earliest event contributing to the assignment payload and call count; NULL when unknown.",
+    ),
     "timestamp": DateTimeDatabaseField(
         name="timestamp", nullable=False, description="When the assignment was made; the newest row per intent wins."
     ),
@@ -55,34 +61,98 @@ MCP_INTENT_ASSIGNMENTS_FIELDS: dict[str, FieldOrTable] = {
 RAW_TABLE_ALIAS = "raw_mcp_intent_assignments"
 
 
-class RawMCPIntentAssignmentsTable(Table):
-    description: str = (
-        "Every intent topic assignment row, one per run. Rows for the same intent are only merged in the "
-        "background; query the deduplicated `posthog.mcp_intent_assignments` table instead."
-    )
+class StoredMCPIntentAssignmentsTable(Table):
+    # Bound only by the lazy query, never registered in the catalog. Its retention check must run after
+    # argMax: pruning an expired or unknown newest version first would resurrect an older assignment.
     fields: dict[str, FieldOrTable] = MCP_INTENT_ASSIGNMENTS_FIELDS
 
-    def to_printed_clickhouse(self, context: HogQLContext):
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
         return MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE
 
-    def to_printed_hogql(self):
-        return "raw_mcp_intent_assignments"
+    def to_printed_hogql(self) -> str:
+        return "stored_mcp_intent_assignments"
 
 
-def select_latest_assignments(requested_fields: dict[str, list[str | int]]) -> SelectQuery:
+class RawMCPIntentAssignmentsTable(StoredMCPIntentAssignmentsTable, EventsRetentionTable):
+    description: str = (
+        "Every retained intent topic assignment row, one per run. Rows for the same intent are only merged in the "
+        "background; query the deduplicated `posthog.mcp_intent_assignments` table instead."
+    )
+    events_retention_field: str = "source_min_timestamp"
+
+    def get_predicates(self, context: HogQLContext | None = None) -> list[Expr]:
+        return [parse_expr("isNotNull(source_min_timestamp)")]
+
+    def to_printed_hogql(self) -> str:
+        return RAW_TABLE_ALIAS
+
+
+def select_latest_assignments(requested_fields: dict[str, list[str | int]], context: HogQLContext) -> SelectQuery:
     # Older rows for an intent can sit in another monthly partition and never merge, so every read
     # keeps only the newest row per intent hash before any filter applies.
     from posthog.hogql import ast
 
     if "intent_hash" not in requested_fields:
         requested_fields = {**requested_fields, "intent_hash": ["intent_hash"]}
-    select = argmax_select(
-        table_name=RAW_TABLE_ALIAS,
-        select_fields=requested_fields,
-        group_fields=["intent_hash"],
-        argmax_field="timestamp",
+    chains = list(
+        dict.fromkeys(
+            [
+                *(tuple(chain) for chain in requested_fields.values() if chain != ["intent_hash"]),
+                ("source_min_timestamp",),
+            ]
+        )
     )
-    select.select_from = ast.JoinExpr(table=ast.Field(chain=["posthog", RAW_TABLE_ALIAS]), alias=RAW_TABLE_ALIAS)
+    # One aggregate tuple keeps payload and provenance together even when assignment timestamps tie.
+    latest = SelectQuery(
+        select=[
+            ast.Alias(alias="intent_hash", expr=ast.Field(chain=[RAW_TABLE_ALIAS, "intent_hash"])),
+            ast.Alias(
+                alias="assignment",
+                expr=ast.Call(
+                    name="argMax",
+                    args=[
+                        ast.Call(name="tuple", args=[ast.Field(chain=[RAW_TABLE_ALIAS, *chain]) for chain in chains]),
+                        ast.Field(chain=[RAW_TABLE_ALIAS, "timestamp"]),
+                    ],
+                ),
+            ),
+        ],
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=["stored_mcp_intent_assignments"]),
+            table_schema=StoredMCPIntentAssignmentsTable(),
+            alias=RAW_TABLE_ALIAS,
+        ),
+        group_by=[ast.Field(chain=[RAW_TABLE_ALIAS, "intent_hash"])],
+    )
+
+    def latest_field(chain: list[str | int]) -> Expr:
+        if chain == ["intent_hash"]:
+            return ast.Field(chain=["latest", "intent_hash"])
+        return ast.Call(
+            name="tupleElement",
+            args=[ast.Field(chain=["latest", "assignment"]), Constant(value=chains.index(tuple(chain)) + 1)],
+        )
+
+    latest_source = latest_field(["source_min_timestamp"])
+    select = SelectQuery(
+        select=[ast.Alias(alias=name, expr=latest_field(chain)) for name, chain in requested_fields.items()],
+        select_from=ast.JoinExpr(table=latest, alias="latest"),
+        where=parse_expr("isNotNull({source})", placeholders={"source": latest_source}),
+    )
+    if context.events_retention_months is not None:
+        assert select.where is not None
+        select.where = ast.And(
+            exprs=[
+                select.where,
+                parse_expr(
+                    "{source} > now() - toIntervalMonth({months})",
+                    placeholders={
+                        "source": latest_source,
+                        "months": Constant(value=context.events_retention_months),
+                    },
+                ),
+            ]
+        )
     return select
 
 
@@ -93,21 +163,21 @@ class MCPIntentAssignmentsTable(LazyTable):
     )
     fields: dict[str, FieldOrTable] = MCP_INTENT_ASSIGNMENTS_FIELDS
 
-    def lazy_select(self, table_to_add: LazyTableToAdd, context: HogQLContext, node: SelectQuery):
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: HogQLContext, node: SelectQuery) -> SelectQuery:
         # Deferred because restricted_properties imports this module.
         from posthog.hogql.restricted_properties import mirrored_column_is_restricted  # noqa: PLC0415
 
-        select = select_latest_assignments(table_to_add.fields_accessed)
+        select = select_latest_assignments(table_to_add.fields_accessed, context)
         # A restricted intent_hash reads as NULL, so the dedupe would merge every intent into one row. Return no rows
         # instead of one misleading row.
         if mirrored_column_is_restricted(LazyTableType(table=self), "intent_hash", context):
             select.where = Constant(value=False)
         return select
 
-    def to_printed_clickhouse(self, context: HogQLContext):
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
         return MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE
 
-    def to_printed_hogql(self):
+    def to_printed_hogql(self) -> str:
         return "mcp_intent_assignments"
 
 

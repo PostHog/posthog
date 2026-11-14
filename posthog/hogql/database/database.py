@@ -634,7 +634,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "raw_mcp_intent_assignments": TableNode(
                         name="raw_mcp_intent_assignments", table=RawMCPIntentAssignmentsTable()
                     ),
-                    # Latest assignment per intent over raw_mcp_intent_assignments.
+                    # Latest assignment per intent, with source retention checked after selecting the version.
                     "mcp_intent_assignments": TableNode(
                         name="mcp_intent_assignments", table=MCPIntentAssignmentsTable()
                     ),
