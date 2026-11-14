@@ -399,6 +399,16 @@ def _is_throttling(error: Exception) -> bool:
     return isinstance(error, ClientError) and error.response["Error"]["Code"] in ("Throttling", "ThrottlingException")
 
 
+# SES answers AccessDenied when the account's permissions block a write to this identity.
+# A retry gets the same answer, so the user needs a next step instead of a server error.
+def _raise_if_domain_setup_denied(error: ClientError, domain: str) -> None:
+    if error.response["Error"]["Code"] in ("AccessDenied", "AccessDeniedException"):
+        logger.warning("SES denied setting up email domain '%s'", domain, exc_info=error)
+        raise exceptions.ValidationError(
+            "Our email provider refused to set up this domain. Contact support for help."
+        ) from error
+
+
 class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
@@ -730,6 +740,7 @@ class SESProvider:
             verify_resp = self.ses_client.verify_domain_identity(Domain=domain)
             verification_token = verify_resp["VerificationToken"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
@@ -740,6 +751,7 @@ class SESProvider:
             dkim_resp = self.ses_client.verify_domain_dkim(Domain=domain)
             dkim_tokens = dkim_resp["DkimTokens"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
 
@@ -757,6 +769,7 @@ class SESProvider:
                     BehaviorOnMXFailure="UseDefaultValue",
                 )
             except ClientError as e:
+                _raise_if_domain_setup_denied(e, domain)
                 if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                     raise
 
@@ -966,6 +979,8 @@ class SESProvider:
             )
             logger.info(f"MAIL FROM domain for {domain} updated to {mail_from_subdomain}.{domain}")
         except (ClientError, BotoCoreError) as e:
+            if isinstance(e, ClientError):
+                _raise_if_domain_setup_denied(e, domain)
             logger.exception(f"SES API error updating MAIL FROM domain: {e}")
             raise
 

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from itertools import product
+from typing import Any
 
 from unittest.mock import ANY, patch
 
@@ -665,6 +666,43 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
 
         self.world.faults.clear()
         assert self.status_body(self.sender, refresh=False)["status"] == "verified"
+
+    @parameterized.expand(
+        [
+            ("verify_identity", "ses.verify_domain_identity", lambda test: test.verify(test.sender)),
+            ("verify_dkim", "ses.verify_domain_dkim", lambda test: test.verify(test.sender)),
+            (
+                "add_sender",
+                "ses.verify_domain_identity",
+                lambda test: test.client.post(
+                    f"/api/projects/{test.team.id}/integrations",
+                    {"kind": "email", "config": {"email": f"other@{DOMAIN}", "name": "Other", "provider": "ses"}},
+                    format="json",
+                ),
+            ),
+            (
+                "change_mail_from",
+                "ses.set_identity_mail_from_domain",
+                lambda test: test.client.patch(
+                    f"/api/projects/{test.team.id}/integrations/{test.sender}/email",
+                    {"config": {**Integration.objects.get(id=test.sender).config, "mail_from_subdomain": "bounce"}},
+                    format="json",
+                ),
+            ),
+        ]
+    )
+    def test_ses_denying_domain_setup_answers_400_with_a_next_step(
+        self, _name: str, operation: str, send: Callable[["TestEmailDomainStatusChaos"], Any]
+    ) -> None:
+        self.world.faults.inject(operation, AwsFault.ACCESS_DENIED)
+
+        response = send(self)
+
+        assert (response.status_code, response.json()["detail"]) == (
+            status.HTTP_400_BAD_REQUEST,
+            "Our email provider refused to set up this domain. Contact support for help.",
+        )
+        assert self.is_verified(self.sender) is False
 
     @parameterized.expand(
         product(
