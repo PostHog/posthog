@@ -15,10 +15,15 @@ import { Link } from '../Link'
 import { remarkLiteralHtml } from './literalHtml'
 import remarkMentions from './mention'
 
-// lemon-ui must not statically import app code, and the mention chip reads members from membersLogic.
+// lemon-ui must not statically import app code, and the mention chips read members and roles from app logics.
 const RichContentMention = lazyWithRetry(() =>
     import('lib/components/RichContentEditor/RichContentMention').then((module) => ({
         default: module.RichContentMention,
+    }))
+)
+const RichContentRoleMention = lazyWithRetry(() =>
+    import('lib/components/RichContentEditor/RichContentRoleMention').then((module) => ({
+        default: module.RichContentRoleMention,
     }))
 )
 
@@ -283,7 +288,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 if (className === 'ph-mention') {
                     return (
                         <Suspense fallback={<span className="bg-fill-highlight-100 px-1 rounded font-medium">@</span>}>
-                            <RichContentMention id={Number(props['data-mention-id'])} />
+                            {props['data-mention-type'] === 'role' ? (
+                                <RichContentRoleMention id={props['data-mention-id']} />
+                            ) : (
+                                <RichContentMention id={Number(props['data-mention-id'])} />
+                            )}
                         </Suspense>
                     )
                 }
