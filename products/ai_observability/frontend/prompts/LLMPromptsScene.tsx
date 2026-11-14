@@ -28,6 +28,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { llmPromptsEmptyState } from '../emptyState/llmPromptsEmptyState'
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
 import { PromptLabelChip } from './PromptLabelChip'
+import { PromptsTabs } from './PromptsTabs'
 import { LLMPrompt } from './types'
 import { openArchivePromptDialog, openDuplicatePromptDialog, stripPromptSceneSearchParams } from './utils'
 
@@ -241,6 +242,7 @@ export function LLMPromptsScene(): JSX.Element {
                     </>
                 }
             />
+            <PromptsTabs activeTab="prompts" />
 
             <div className="space-y-4">
                 <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">

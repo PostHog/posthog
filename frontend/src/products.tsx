@@ -2488,7 +2488,6 @@ export type ProductTreePath =
     | 'Metrics'
     | 'Notebooks'
     | 'Platform alerts'
-    | 'Playground'
     | 'Product analytics'
     | 'Product tours'
     | 'Prompts'
@@ -3189,40 +3188,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['PlatformAlerts', 'PlatformAlert'],
     },
     {
-        path: 'Playground',
-        intents: [ProductKey.AI_OBSERVABILITY],
-        category: ProductItemCategory.AI_ENGINEERING,
-        type: 'llm_playground',
-        iconType: 'llm_playground' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-playground-light)', 'var(--color-product-llm-playground-dark)'],
-        href: urls.aiObservabilityPlayground(),
-        searchKeywords: ['prompt testing', 'model comparison'],
-        sceneKey: 'AIObservabilityPlayground',
-        sceneKeys: [
-            'AIObservability',
-            'AIObservabilityTrace',
-            'AIObservabilitySession',
-            'AIObservabilityUsers',
-            'AIObservabilityPlayground',
-            'AIObservabilityDatasets',
-            'AIObservabilityDataset',
-            'AIObservabilityEvaluations',
-            'AIObservabilityScorers',
-            'AIObservabilityScorer',
-            'AIObservabilityOfflineExperiments',
-            'AIObservabilityOfflineExperiment',
-            'AIObservabilityOfflineScorerHistory',
-            'AIObservabilityEvaluation',
-            'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
-            'AIObservabilityPrompts',
-            'AIObservabilityPrompt',
-            'AIObservabilityClusters',
-            'AIObservabilityCluster',
-        ],
-    },
-    {
         path: 'Product analytics',
         intents: [ProductKey.PRODUCT_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
@@ -3274,7 +3239,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_prompts' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-prompts-light)', 'var(--color-product-llm-prompts-dark)'],
         href: urls.aiObservabilityPrompts(),
-        searchKeywords: ['prompt management', 'prompt templates'],
+        searchKeywords: ['prompt management', 'prompt templates', 'prompt testing', 'model comparison'],
+        searchTabs: [{ name: 'Playground', href: urls.aiObservabilityPlayground() }],
         sceneKey: 'AIObservabilityPrompts',
         sceneKeys: [
             'AIObservability',
