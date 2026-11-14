@@ -197,6 +197,8 @@ Top-level sections:
 | `overrides`       | The keys a folder file may override, and each key's ceiling               |
 | `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
 | `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
+| `attestations`    | Optional CI checks that may lift deny categories for the files they prove |
+| `bot_authors`     | Optional bots whose PRs the hosted server may admit, by login and id      |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
@@ -405,6 +407,11 @@ If a check that could lift every deny hasn't reported yet, `review_local.py` ret
 `review_pr.py` has no such caller and returns `REFUSED` instead.
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.
+
+A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
+The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`.
+That gate refuses the PR unless an attestation that declares `publisher_files` proved every file in it, because a bot carries no author trust for a file no such check covers.
+A pending attestation of that kind makes the gate wait like a deny.
 
 ### Ownership
 

@@ -196,6 +196,7 @@ def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
 _SELF_DRIVING = Q(output__has_key="inbox_review")
 # Same shape for a manual request: request_manual_review writes a populated dict or no key at all.
 _MANUAL = Q(output__has_key="manual_review")
+_BOT_ADMISSION = Q(output__has_key="bot_admission")
 # A silent run has no provenance dict. Its stamped trigger is the only record. Containment, not key
 # equality: equality is NULL for a run without the key, and an exclude() would then drop that run.
 _SILENT = Q(output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value})
@@ -205,7 +206,12 @@ _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
 def _derive_trigger(
-    obj: ReviewRun, *, has_inbox_review: bool, has_manual_review: bool, stamped_trigger: str | None
+    obj: ReviewRun,
+    *,
+    has_inbox_review: bool,
+    has_manual_review: bool,
+    has_bot_admission: bool,
+    stamped_trigger: str | None,
 ) -> ReviewTrigger:
     """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
     the reviewer invocation has to answer the same question before a run exists to read.
@@ -213,11 +219,13 @@ def _derive_trigger(
     Of the stamped triggers only a silent one is read, because ``_SILENT`` matches it in SQL. Every
     other trigger is derived, for the reason ``trigger_for_run`` gives.
     """
-    if not (has_inbox_review or has_manual_review) and stamped_trigger == ReviewTrigger.REVIEWHOG_CLEAN:
+    has_provenance = has_inbox_review or has_bot_admission or has_manual_review
+    if not has_provenance and stamped_trigger == ReviewTrigger.REVIEWHOG_CLEAN:
         return ReviewTrigger.REVIEWHOG_CLEAN
     return derive_review_trigger(
         has_inbox_review=has_inbox_review,
         has_manual_review=has_manual_review,
+        has_bot_admission=has_bot_admission,
         review_mode=obj.pull_request.repo_config.review_mode,
     )
 
@@ -232,18 +240,17 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     """
     if trigger == ReviewTrigger.SELF_DRIVING:
         return qs.filter(_SELF_DRIVING)
+    if trigger == ReviewTrigger.BOT_ADMISSION:
+        return qs.exclude(_SELF_DRIVING).filter(_BOT_ADMISSION)
     if trigger == ReviewTrigger.MANUAL:
-        return qs.exclude(_SELF_DRIVING).filter(_MANUAL)
+        return qs.exclude(_SELF_DRIVING | _BOT_ADMISSION).filter(_MANUAL)
+    provenance = _SELF_DRIVING | _BOT_ADMISSION | _MANUAL
     if trigger == ReviewTrigger.REVIEWHOG_CLEAN:
-        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(_SILENT)
+        return qs.exclude(provenance).filter(_SILENT)
     if trigger == ReviewTrigger.LABEL:
-        return qs.exclude(_SELF_DRIVING | _MANUAL | _SILENT).filter(
-            pull_request__repo_config__review_mode=ReviewMode.LABEL
-        )
+        return qs.exclude(provenance | _SILENT).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
     if trigger == ReviewTrigger.ALL:
-        return qs.exclude(_SELF_DRIVING | _MANUAL | _SILENT).filter(
-            pull_request__repo_config__review_mode=ReviewMode.ALL
-        )
+        return qs.exclude(provenance | _SILENT).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
     return qs.none()
 
 
@@ -281,6 +288,7 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         obj,
         has_inbox_review=bool(output.get("inbox_review")),
         has_manual_review=bool(output.get("manual_review")),
+        has_bot_admission=bool(output.get("bot_admission")),
         stamped_trigger=output.get("review_trigger"),
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
@@ -296,6 +304,7 @@ def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
         **{f"slim_output_{key}": KeyTransform(key, "output") for key in output_keys},
         slim_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
         slim_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
+        slim_has_bot_admission=ExpressionWrapper(_BOT_ADMISSION, output_field=BooleanField()),
         slim_review_trigger=KeyTextTransform("review_trigger", "output"),
     )
 
@@ -307,6 +316,7 @@ def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> con
         obj,
         has_inbox_review=obj.slim_has_inbox_review,  # type: ignore[attr-defined]
         has_manual_review=obj.slim_has_manual_review,  # type: ignore[attr-defined]
+        has_bot_admission=obj.slim_has_bot_admission,  # type: ignore[attr-defined]
         stamped_trigger=obj.slim_review_trigger,  # type: ignore[attr-defined]
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)

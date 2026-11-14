@@ -33,6 +33,7 @@ const STATUS_DISPLAY: Record<ReviewRunStatusEnumApi, OutcomeDisplay> = {
 
 const TRIGGER_LABEL: Record<ReviewTriggerEnumApi, string> = {
     [ReviewTriggerEnumApi.SelfDriving]: 'Self-driving',
+    [ReviewTriggerEnumApi.BotAdmission]: 'Bot author',
     [ReviewTriggerEnumApi.Manual]: 'Requested',
     [ReviewTriggerEnumApi.ReviewhogClean]: 'Clean PostHog Review',
     [ReviewTriggerEnumApi.Label]: 'Label',

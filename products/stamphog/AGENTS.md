@@ -179,6 +179,22 @@ narrow:
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
 
+## Bot admission (the other exception to the bot-author refusal)
+
+A repo's `.stamphog/policy.yml` may name bots under `bot_authors`, each as `{name, login, id}`.
+The server reads that list from the default branch only (`logic/bot_admission.py`, cached briefly, absence included), so a PR cannot admit its own author.
+Admission needs the login and the numeric account id to match one entry, `user.type == "Bot"`, a repo-native head, and any action that starts a review except `labeled`, because no label requests these reviews.
+A draft stays skipped before admission is considered.
+An admitted delivery passes the bot-author skip, which also stands in for the author-association check, the review-mode gate and the write-permission gate, and nothing else.
+The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
+The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that declares `publisher_files` proved every file in the PR.
+An attestation without `publisher_files` never counts for a bot, because a job of any PR could post it.
+Neither does a `sibling_files` companion, because the publisher did not name it.
+That proof is the PR's independent assurance (`assurance.every_file_proven`), and the reviewer prompt carries a provenance block for the admitted bot, because its bot-author rule would otherwise refuse the PR.
+A pending pinned attestation that could cover every unproven file turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
+Removing the policy entry is enough to stop reviews.
+The next delivery skips and dismisses the standing approval, and the engine refuses a woken re-run.
+
 ## The manual trigger (the one exception to label mode)
 
 `request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.

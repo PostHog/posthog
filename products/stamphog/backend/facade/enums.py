@@ -152,6 +152,8 @@ class ReviewTrigger(LabeledStrEnum):
 
     # Self-driving: stamphog reviewed a bot-authored PR off its own inbox provenance.
     SELF_DRIVING = "self_driving", "Self-driving"
+    # The repo policy names the PR's bot author under `bot_authors`.
+    BOT_ADMISSION = "bot_admission", "Bot author"
     # A project member asked for this review through the API.
     MANUAL = "manual", "Manual"
     # A clean PostHog Review run started this review. It is silent: only an approval reaches the PR.
