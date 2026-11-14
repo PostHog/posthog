@@ -13,7 +13,7 @@ use crate::{
     router,
 };
 
-#[instrument(skip(state, body, meta), fields(params_compression))]
+#[instrument(skip_all, fields(params_compression, method = %method))]
 #[debug_handler]
 #[allow(clippy::too_many_arguments)]
 pub async fn event(

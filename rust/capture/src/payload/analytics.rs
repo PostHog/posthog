@@ -17,6 +17,7 @@ use crate::{
     debug_or_info,
     extractors::extract_body_with_timeout,
     ingestion_warnings::SdkAttribution,
+    log_util::LoggableHeaders,
     payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -42,7 +43,7 @@ pub async fn handle_event_payload(
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
 
-    debug_or_info!(chatty_debug_enabled, headers=?headers, "entering handle_event_payload");
+    debug_or_info!(chatty_debug_enabled, headers=?LoggableHeaders(headers), "entering handle_event_payload");
 
     // this endpoint handles:
     // - GET or POST requests w/payload that is one of:
@@ -68,7 +69,7 @@ pub async fn handle_event_payload(
         path.as_str(),
     )
     .await?;
-    debug_or_info!(chatty_debug_enabled, headers=?headers, "streamed payload body");
+    debug_or_info!(chatty_debug_enabled, headers=?LoggableHeaders(headers), "streamed payload body");
 
     // capture arguments and add to logger, processing context
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
