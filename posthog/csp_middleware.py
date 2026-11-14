@@ -236,7 +236,6 @@ class CSPMiddleware:
         # connect-src, so the app's own analytics and feature flag requests are refused.
         is_admin_view = getattr(settings, "ADMIN_PORTAL_ENABLED", False) and request.path.startswith("/admin/")
         if is_admin_view:
-            django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
             admin_bundle_origin = ""
             if request.path == "/admin/tasks/task/infrastructure/":
                 bundle_url = urlsplit(settings.JS_URL)
@@ -245,7 +244,7 @@ class CSPMiddleware:
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {admin_bundle_origin}".rstrip(),
-                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}' {admin_bundle_origin}".rstrip(),
+                f"script-src 'self' 'nonce-{nonce}' {admin_bundle_origin}".rstrip(),
                 "font-src data: https://fonts.gstatic.com",
                 # Without this the directive falls back to `default-src 'self'`, which drops the
                 # `data:` icons Django admin and our own admin pages render, and the `blob:` images

@@ -159,11 +159,16 @@ class Operation:
     preview: RecordPreviewHandler | None = None
     # The run button shows this until the next page loads, for an operation that takes a while.
     pending_label: str = ""
+    # Opened from a support ticket link (`?ticket=<url>`), the reason starts as "For ticket <url>". Staff still read
+    # and submit it, so only an operation whose reason names the ticket anyway opts in.
+    reason_from_ticket: bool = False
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
         if self.preview is not None and self.form_class is None:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
+        if self.reason_from_ticket and (self.form_class is None or "reason" not in self.form_class.base_fields):
+            raise ValueError(f"Operation {self.key!r} fills its reason from the ticket, so it needs a reason field")
 
 
 class ReasonForm(forms.Form):
