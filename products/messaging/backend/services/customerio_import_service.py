@@ -552,6 +552,20 @@ class CustomerIOImportService:
         holds rows that write needs. Only its inserts wait on another write's insert, as before. When a bounce write
         holds one of the rows, the page undoes its writes and tries again after a short pause, a few times, then fails.
         """
+        for _ in range(PAGE_LOCK_ATTEMPTS - 1):
+            try:
+                with transaction.atomic():
+                    return self._write_page(team_id, imported, source, reason)
+            except OperationalError as error:
+                if not isinstance(error.__cause__, LockNotAvailable):
+                    raise
+            time.sleep(PAGE_LOCK_RETRY_SECONDS)
+        with transaction.atomic():
+            return self._write_page(team_id, imported, source, reason)
+
+    def _write_page(
+        self, team_id: int, imported: dict[str, _ImportedSuppression], source: SuppressionSource, reason: str
+    ) -> int:
         suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
         existing = set(suppressions.filter(identifier__in=list(imported)).values_list("identifier", flat=True))
         now = timezone.now()
@@ -574,33 +588,11 @@ class CustomerIOImportService:
             for email, details in sorted(imported.items())
             if email not in existing
         ]
-        for attempt in range(1, PAGE_LOCK_ATTEMPTS + 1):
-            try:
-                with transaction.atomic():
-                    self._write_page(team_id, imported, new_rows, existing, source, reason)
-                break
-            except OperationalError as error:
-                if not isinstance(error.__cause__, LockNotAvailable) or attempt == PAGE_LOCK_ATTEMPTS:
-                    raise
-                time.sleep(PAGE_LOCK_RETRY_SECONDS)
-        return len(new_rows)
-
-    def _write_page(
-        self,
-        team_id: int,
-        imported: dict[str, _ImportedSuppression],
-        new_rows: list[MessageSuppression],
-        existing: set[str],
-        source: SuppressionSource,
-        reason: str,
-    ) -> None:
-        suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
         suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
         locked = {
             row.identifier: row
             for row in suppressions.filter(identifier__in=list(imported)).select_for_update(nowait=True)
         }
-        is_bounce = source == SuppressionSource.BOUNCE
         if is_bounce:
             block_transactional_for_hard_bounces(team_id, list(imported), reason)
 
@@ -616,6 +608,7 @@ class CustomerIOImportService:
         suppressions.bulk_update(
             backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
         )
+        return len(new_rows)
 
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:
         """Bulk update preferences to opt out users from ALL categories"""

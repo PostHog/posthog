@@ -554,8 +554,9 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
                     )
             finally:
                 released.set()
-            assert result.result(timeout=10)["status"] == "completed"
+            progress = result.result(timeout=10)
 
+        assert (progress["status"], progress["suppressions_imported"]) == ("completed", 0)
         assert [
             (row.identifier, row.transient_bounce_count, row.suppressed, row.hard_bounced_at is not None)
             for row in self.rows.order_by("identifier")
