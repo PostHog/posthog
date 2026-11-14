@@ -1,11 +1,9 @@
-import { useValues } from 'kea'
-
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { useAIConsentGate } from './useAIConsentGate'
 
 export function QuillRunMetricWithAIButton({
     onRun,
@@ -14,13 +12,13 @@ export function QuillRunMetricWithAIButton({
     onRun: () => void
     disabledReason?: string
 }): JSX.Element {
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const consentGate = useAIConsentGate(onRun)
 
     return (
-        <AIConsentPopoverWrapper onApprove={onRun} ignoreDismissal>
+        <AIConsentPopoverWrapper ignoreDismissal {...consentGate.popover}>
             <Button
                 variant="primary"
-                onClick={() => dataProcessingAccepted && onRun()}
+                onClick={consentGate.onClick}
                 disabledReason={disabledReason}
                 data-attr="data-catalog-run-metric-with-ai"
             >

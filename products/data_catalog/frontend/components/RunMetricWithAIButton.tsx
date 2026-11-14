@@ -1,11 +1,9 @@
-import { useValues } from 'kea'
-
 import { IconSparkles } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { useAIConsentGate } from './useAIConsentGate'
 
 /**
  * Point the agent at the catalog rather than pasting the definition into the prompt. The definition
@@ -36,21 +34,18 @@ export function RunMetricWithAIButton({
     onRun: () => void
     disabledReason?: string
 }): JSX.Element {
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const consentGate = useAIConsentGate(onRun)
 
     return (
-        // `ignoreDismissal` keeps the consent popover reachable after a previous dismissal, so the
-        // guarded click below always has a way to grant consent rather than doing nothing.
-        <AIConsentPopoverWrapper onApprove={onRun} ignoreDismissal>
+        // `ignoreDismissal` keeps the popover reachable after a previous dismissal, so a click without
+        // consent always has a way to grant it.
+        <AIConsentPopoverWrapper ignoreDismissal {...consentGate.popover}>
             <LemonButton
                 type="primary"
                 size="small"
                 icon={<IconSparkles />}
                 sideIcon={null}
-                // The wrapper only renders a popover around this button, it does not swallow the
-                // click. Without this guard an unapproved click would run once here and again from
-                // `onApprove`, recording the run twice.
-                onClick={() => dataProcessingAccepted && onRun()}
+                onClick={consentGate.onClick}
                 disabledReason={disabledReason}
                 data-attr="data-catalog-run-metric-with-ai"
             >

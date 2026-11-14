@@ -5,11 +5,15 @@ import { Skeleton } from '@posthog/quill'
 import { ModelsOverviewErrorCallout } from 'products/data_modeling/frontend/ModelsOverviewErrorCallout'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { QuillCatalogSetupBanner } from '../components/QuillCatalogSetupBanner'
+import { metricsIntroLogic } from '../metricsIntroLogic'
 import { metricsLogic } from '../metricsLogic'
 import { CatalogMetricsBulkBar } from './CatalogMetricsBulkBar'
+import { CatalogMetricsEmptyState } from './CatalogMetricsEmptyState'
 import { catalogMetricsLogic } from './catalogMetricsLogic'
 import { CatalogMetricsTable } from './CatalogMetricsTable'
 import { CatalogMetricsToolbar } from './CatalogMetricsToolbar'
+import { MetricsIntroStrip } from './MetricsIntroStrip'
 
 const SKELETON_ROWS = 5
 
@@ -56,15 +60,29 @@ function MetricsContent(): JSX.Element {
             />
         )
     }
-    return <CatalogMetricsTable />
+    if (metricsLoadState === 'loaded') {
+        return <CatalogMetricsEmptyState />
+    }
+    return <LoadingRows />
+}
+
+function MetricsNotice(): JSX.Element | null {
+    const { metricsNotice } = useValues(metricsIntroLogic)
+    if (metricsNotice === 'intro') {
+        return <MetricsIntroStrip />
+    }
+    return metricsNotice === 'setup' ? <QuillCatalogSetupBanner /> : null
 }
 
 export function CatalogMetricsSection(): JSX.Element {
     const { selectedMetricIds } = useValues(catalogMetricsLogic)
+    const { catalogEmpty } = useValues(metricsLogic)
 
     return (
         <section aria-label="Metrics" className="flex flex-col gap-3" data-attr="data-catalog-metrics">
-            <CatalogMetricsToolbar />
+            <MetricsNotice />
+            {/* Search and filters have nothing to act on in an empty catalog. */}
+            {!catalogEmpty && <CatalogMetricsToolbar />}
             <ChecksLoadError />
             <MetricsContent />
             {selectedMetricIds.length > 0 && <CatalogMetricsBulkBar />}
