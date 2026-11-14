@@ -36,6 +36,7 @@ pub struct MetricsService {
     pub(crate) remote_write_max_expanded_bytes: u64,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
     pub(crate) k8s_resource_attributes: Arc<K8sResourceAttributes>,
+    pub(crate) keep_stale_markers: bool,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +52,7 @@ impl MetricsService {
         remote_write_max_expanded_bytes: u64,
         series_label_gate: Arc<SeriesLabelGate>,
         k8s_resource_attributes: Arc<K8sResourceAttributes>,
+        keep_stale_markers: bool,
     ) -> Self {
         Self {
             sink: kafka_sink,
@@ -59,6 +61,7 @@ impl MetricsService {
             remote_write_max_expanded_bytes,
             series_label_gate,
             k8s_resource_attributes,
+            keep_stale_markers,
         }
     }
 }
