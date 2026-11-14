@@ -599,6 +599,29 @@ class PropertySwapper(CloningVisitor):
 
         return self._move_timezone_from_field_to_constant(result) or result
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        result = super().visit_between_expr(node)
+
+        if not self.setTimeZones or self._inside_call_depth > 0 or self._inside_where_depth == 0:
+            return result
+
+        # `x BETWEEN a AND b` is `x >= a AND x <= b`, so the toTimeZone() move done for range
+        # comparisons applies to both bounds (NOT BETWEEN negates both, which keeps the equivalence).
+        inner = result.expr.expr if isinstance(result.expr, ast.Alias) else result.expr
+        if not (isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2):
+            return result
+        tz_arg = inner.args[1]
+        if not (isinstance(tz_arg, ast.Constant) and isinstance(tz_arg.value, str)):
+            return result
+
+        return ast.BetweenExpr(
+            expr=inner.args[0],
+            low=self._anchor_to_timezone(result.low, tz_arg.value),
+            high=self._anchor_to_timezone(result.high, tz_arg.value),
+            negated=result.negated,
+            type=result.type,
+        )
+
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.
 

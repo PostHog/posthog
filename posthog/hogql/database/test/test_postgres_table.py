@@ -408,6 +408,44 @@ class TestPostgresTable(BaseTest):
             f"SELECT other_table.id AS id, postgres_table.name AS name FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.ref_id, postgres_table.id)) WHERE and(equals(other_table.team_id, {self.team.pk}), greater(other_table.ref_id, 100)) LIMIT 10",
         )
 
+    # ClickHouse's postgresql() engine only forwards a WHERE conjunct that is a plain comparison of a
+    # column with a constant, so a time filter wrapped in ifNull() or toTimeZone() reads the whole table.
+    @parameterized.expand(
+        [
+            (
+                "string_literal",
+                "created_at >= toDateTime('2026-11-01 00:00:00')",
+                "greaterOrEquals(postgres_table.created_at, toDateTime(%(hogql_val_5)s, %(hogql_val_6)s))",
+            ),
+            (
+                "reversed_operands",
+                "toDateTime('2026-11-01') <= created_at",
+                "lessOrEquals(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s), postgres_table.created_at)",
+            ),
+            (
+                "between",
+                "created_at BETWEEN toDateTime('2026-11-01') AND toDateTime('2026-11-02')",
+                "postgres_table.created_at BETWEEN toDateTime(%(hogql_val_5)s, %(hogql_val_6)s) AND toDateTime(%(hogql_val_7)s, %(hogql_val_8)s)",
+            ),
+            (
+                "not_between_string_bounds",
+                "created_at NOT BETWEEN '2026-11-01' AND '2026-11-02'",
+                "postgres_table.created_at NOT BETWEEN toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s) AND toDateTime64(%(hogql_val_7)s, 6, %(hogql_val_8)s)",
+            ),
+            (
+                "now_minus_interval",
+                "created_at >= now() - INTERVAL 1 DAY",
+                "greaterOrEquals(postgres_table.created_at, toDateTime64(minus(now64(6, %(hogql_val_5)s), toIntervalDay(1)), 6, %(hogql_val_6)s))",
+            ),
+        ]
+    )
+    def test_time_filter_prints_in_pushdown_form(self, _name: str, where: str, expected_filter: str) -> None:
+        self._init_database(extra_fields={"created_at": DateTimeDatabaseField(name="created_at")})
+        self.assertEqual(
+            self._select(f"SELECT id FROM postgres_table WHERE {where} LIMIT 10"),
+            f"SELECT postgres_table.id AS id FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), {expected_filter}) LIMIT 10",
+        )
+
     def test_lazy_join_with_predicate(self):
         self.database = Database.create_for(team=self.team)
 
