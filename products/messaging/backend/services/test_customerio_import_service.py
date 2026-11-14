@@ -561,3 +561,24 @@ class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
             (row.identifier, row.transient_bounce_count, row.suppressed, row.hard_bounced_at is not None)
             for row in self.rows.order_by("identifier")
         ] == [("known@example.com", 1, True, True), ("new@example.com", 1, True, True)]
+
+    def test_import_fails_and_keeps_none_of_the_page_while_a_bounce_write_holds_a_row_through_every_retry(self):
+        self.rows.create(
+            team=self.team, identifier="known@example.com", source=SuppressionSource.MANUAL, suppressed=True
+        )
+
+        with (
+            patch("products.messaging.backend.services.customerio_import_service.time.sleep"),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            with transaction.atomic():
+                self.rows.filter(identifier="known@example.com").update(
+                    transient_bounce_count=F("transient_bounce_count") + 1
+                )
+                progress = self._start_import(executor).result(timeout=10)
+
+        assert (progress["status"], progress["suppressions_imported"]) == ("failed", 0)
+        assert [
+            (row.identifier, row.transient_bounce_count, row.hard_bounced_at is None)
+            for row in self.rows.order_by("identifier")
+        ] == [("known@example.com", 1, True)]
