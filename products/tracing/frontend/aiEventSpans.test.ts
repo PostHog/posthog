@@ -130,6 +130,19 @@ describe('buildAiEventSpans', () => {
         ])
     })
 
+    // An unparseable start used to throw `Invalid time value` and blank the whole trace view.
+    it('drops an event whose start does not parse and places the rest', () => {
+        const results = buildAiEventSpans(
+            [
+                aiEvent({ uuid: 'bad', started_at: 'not a date', ai_span_id: 'bad' }),
+                aiEvent({ uuid: 'gen', started_at: '2026-06-02T08:00:03.000Z', ai_parent_id: 'bad' }),
+            ],
+            SPANS
+        )
+
+        expect(results.map((r) => [r.span_id, r.parent_span_id])).toEqual([['ai:gen', 'TURN']])
+    })
+
     // Merging twice must not parent new rows to earlier synthetic rows or emit rows without a trace.
     it('ignores earlier synthetic rows and returns nothing without real spans', () => {
         const first = buildAiEventSpans([aiEvent({ uuid: 'e1', started_at: '2026-06-02T08:00:03.000Z' })], SPANS)
