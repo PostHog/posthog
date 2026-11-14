@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.linkedin_ads.client import LinkedinAdsAp
 from products.warehouse_sources.sources.linkedin_ads.source import (
     _CONNECTION_CHECK_ERROR,
     _MISSING_INTEGRATION_ERROR,
+    _NO_AD_ACCOUNTS_ERROR,
     LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608,
@@ -150,7 +151,7 @@ class TestLinkedInAdsSource:
     def test_get_oauth_accounts_uses_default_version_header(self, mock_client_for_integration):
         # The account picker must track the default version's header, not the client's legacy default,
         # so listing doesn't break for new sources once the oldest declared header sunsets.
-        mock_client_for_integration.return_value.get_accounts.return_value = []
+        mock_client_for_integration.return_value.get_accounts.return_value = [{"id": 5123, "name": "Example Ads"}]
 
         self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
@@ -179,6 +180,15 @@ class TestLinkedInAdsSource:
 
         with pytest.raises(IntegrationAccountListingError, match="re-authorize"):
             self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+    @mock.patch("products.warehouse_sources.sources.linkedin_ads.source.linkedin_ads_client_for_integration")
+    def test_get_oauth_accounts_without_ad_accounts_explains_missing_role(self, mock_client_for_integration):
+        mock_client_for_integration.return_value.get_accounts.return_value = []
+
+        with pytest.raises(IntegrationAccountListingError) as exc_info:
+            self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+        assert str(exc_info.value) == _NO_AD_ACCOUNTS_ERROR
 
     @mock.patch("products.warehouse_sources.sources.linkedin_ads.source.linkedin_ads_client_for_integration")
     def test_get_oauth_accounts_bad_request_propagates(self, mock_client_for_integration):
