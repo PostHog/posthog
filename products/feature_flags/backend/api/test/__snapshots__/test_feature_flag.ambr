@@ -1168,6 +1168,16 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_cohort"
+  WHERE ("posthog_cohort"."is_calculating"
+         AND "posthog_cohort"."pending_population_mode" = 'replace'
+         AND "posthog_cohort"."id" = 99999)
+  LIMIT 1
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.18
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
             (SELECT "U0"."parent_team_id" AS "parent_team_id"
@@ -1180,7 +1190,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.18
+# name: TestFeatureFlag.test_creating_static_cohort.19
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1276,32 +1286,6 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.19
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."surface",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE (("posthog_filesystem"."surface" IS NULL
-          OR "posthog_filesystem"."surface" = 'web')
-         AND "posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.2
@@ -1361,6 +1345,32 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.20
   '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.21
+  '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
          "posthog_filesystemshortcut"."user_id",
@@ -1382,7 +1392,7 @@
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.21
+# name: TestFeatureFlag.test_creating_static_cohort.22
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -1423,7 +1433,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.22
+# name: TestFeatureFlag.test_creating_static_cohort.23
   '''
   SELECT "cohort_realtime_team_access"."team_id",
          "cohort_realtime_team_access"."level",
@@ -1435,7 +1445,7 @@
   FROM "cohort_realtime_team_access"
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.23
+# name: TestFeatureFlag.test_creating_static_cohort.24
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1533,7 +1543,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.24
+# name: TestFeatureFlag.test_creating_static_cohort.25
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1580,7 +1590,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.25
+# name: TestFeatureFlag.test_creating_static_cohort.26
   '''
   SELECT "posthog_cohortcalculationhistory"."id",
          "posthog_cohortcalculationhistory"."team_id",
@@ -1601,7 +1611,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.26
+# name: TestFeatureFlag.test_creating_static_cohort.27
   '''
   SELECT "cohort_realtime_team_access"."team_id",
          "cohort_realtime_team_access"."level",
@@ -1613,7 +1623,7 @@
   FROM "cohort_realtime_team_access"
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.27
+# name: TestFeatureFlag.test_creating_static_cohort.28
   '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
@@ -1657,7 +1667,7 @@
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.28
+# name: TestFeatureFlag.test_creating_static_cohort.29
   '''
   /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
   SELECT person_id
@@ -1666,46 +1676,6 @@
     AND cohort_id = 99999
     AND person_id IN ['00000000-0000-4000-8000-000000000000']
   GROUP BY person_id
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.29
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT persons.id AS id
-  FROM
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id,
-                                                                                                              (SELECT person_static_cohort.person_id AS person_id
-                                                                                                               FROM person_static_cohort
-                                                                                                               WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))))))
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
-  WHERE in(persons.id,
-             (SELECT person_static_cohort.person_id AS person_id
-              FROM person_static_cohort
-              WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))
-  ORDER BY persons.created_at DESC,
-           persons.id DESC
-  LIMIT 101
-  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
-                    readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
@@ -1818,6 +1788,46 @@
   WHERE ("posthog_team"."project_id" = 99999
          AND "posthog_featureflag"."id" = 99999)
   LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.30
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT persons.id AS id
+  FROM
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                              (SELECT person_static_cohort.person_id AS person_id
+                                                                                                               FROM person_static_cohort
+                                                                                                               WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE in(persons.id,
+             (SELECT person_static_cohort.person_id AS person_id
+              FROM person_static_cohort
+              WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.4
