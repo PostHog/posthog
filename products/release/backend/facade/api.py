@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
 from posthog.paging import Page, PageRequest
@@ -24,6 +24,9 @@ from ..logic import (
 from ..models import Release
 from . import contracts
 
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison
+
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownLinkedObjectsError = contracts.UnknownLinkedObjectsError
 ImportFlag = contracts.ImportFlag
@@ -31,7 +34,7 @@ ImportFlag = contracts.ImportFlag
 
 RESTRICTED_NAME = "Release of a restricted flag"
 
-T = TypeVar("T")
+T = TypeVar("T", bound="SupportsRichComparison")
 
 
 FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
