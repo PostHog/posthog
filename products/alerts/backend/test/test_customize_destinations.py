@@ -89,6 +89,8 @@ class TestCustomizeSourceDestination(BaseTest):
                     {"key": "url", "type": "string"},
                     {"key": "body", "type": "json"},
                     {"key": "headers", "type": "dictionary"},
+                    {"key": "secret_headers", "type": "dictionary", "secret": True},
+                    {"key": "signing_secret", "type": "string", "secret": True},
                 ],
                 "type": "destination",
                 "status": "stable",
@@ -246,15 +248,38 @@ class TestCustomizeSourceDestination(BaseTest):
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
         assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(hog_function_ids)
 
-    def test_customize_keeps_the_rows_event_kinds_and_stored_headers(self) -> None:
+    def test_customize_keeps_the_rows_event_kinds_and_its_credentials_encrypted(self) -> None:
         self.data[DestinationType.WEBHOOK]["webhook_headers"] = {"Authorization": "Bearer test-token"}
         row_id = self._row(DestinationType.WEBHOOK, event_kinds=(AlertEventKind.FIRING,))
 
         (hog_function_id,) = self._customize(destination_id=row_id).hog_function_ids
 
         hog_function = HogFunction.objects.get(id=hog_function_id)
-        assert hog_function.filters["events"][0]["id"] == "$logs_alert_firing"
-        assert hog_function.inputs["headers"]["value"]["Authorization"] == "Bearer test-token"
+        filters, inputs, encrypted = (
+            hog_function.filters or {},
+            hog_function.inputs or {},
+            hog_function.encrypted_inputs or {},
+        )
+        assert filters["events"][0]["id"] == "$logs_alert_firing"
+        assert "url" not in inputs and "secret_headers" not in inputs
+        assert encrypted["url"]["value"] == "https://example.com/hook"
+        assert encrypted["secret_headers"]["value"] == {"Authorization": "Bearer test-token"}
+
+        self._reset([hog_function_id])
+
+        (row,) = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
+        assert row.data["webhook_headers"] == {"Authorization": "Bearer test-token"}
+
+    def test_reset_is_refused_for_a_webhook_that_signs_its_requests(self) -> None:
+        hog_function_ids = self._hog_functions(DestinationType.WEBHOOK)
+        for hog_function in HogFunction.objects.filter(id__in=hog_function_ids):
+            hog_function.encrypted_inputs = {"signing_secret": {"value": "whsec_test"}}
+            hog_function.save(update_fields=["encrypted_inputs"])
+
+        with self.assertRaises(AlertDestinationValidationError):
+            self._reset(hog_function_ids)
+
+        assert self._senders() == ["hog_functions:webhook"]
 
     def test_a_pagerduty_destination_does_not_move_while_its_alert_fires(self) -> None:
         row_id = self._row(DestinationType.PAGERDUTY)

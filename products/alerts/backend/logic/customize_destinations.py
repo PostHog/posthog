@@ -9,13 +9,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import replace
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 from django.db import transaction
 
 from products.alerts.backend.facade.contracts import CustomizableDestination, ResetDestination
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
+from products.alerts.backend.logic.destination_configs import (
+    DESTINATION_SPECS,
+    SPEC_BY_TEMPLATE_ID,
+    added_webhook_headers,
+    input_value,
+)
 from products.alerts.backend.logic.destinations import (
     create_alert_destination_hog_functions,
     list_alert_destination_groups,
@@ -23,11 +28,12 @@ from products.alerts.backend.logic.destinations import (
     owned_alert_destinations_qs,
     soft_delete_alert_destinations,
 )
+from products.alerts.backend.logic.insight_alert_destinations import with_secret_inputs
 from products.alerts_platform.backend.facade.api import (
+    has_firing_instance,
     list_source_destinations,
     lock_source_configuration,
     restore_source_destination,
-    runtime_by_public_id,
     take_source_destination_row,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -38,7 +44,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     SourceDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.cdp.backend.facade.models import HogFunction
 
 _GONE = "This destination has changed since the page loaded. Refresh the alert and try again."
 
@@ -89,8 +95,7 @@ def customize_source_destination(
         assert taken is not None
         data = cast(AlertDestinationData, {**taken.data, "type": destination_type})
         configs = [
-            replace(config, payload={**config.payload, "enabled": taken.enabled, "inputs": _with_headers(config, data)})
-            for config in build_configs(data, taken.event_kinds)
+            _kept_secret(config, data, enabled=taken.enabled) for config in build_configs(data, taken.event_kinds)
         ]
         if not configs:
             raise AlertDestinationValidationError("This destination sends no messages to customize.", field="type")
@@ -139,6 +144,7 @@ def reset_source_destination(
             )
         _refuse_incident_move_while_firing(team_id, alert_id, destination_type)
         _refuse_partly_paused(team_id, alert_id, allowed_event_ids, group.hog_function_ids)
+        data = _with_secret_headers(team_id, group.data, group.hog_function_ids)
         soft_delete_alert_destinations(
             team_id=team_id,
             alert_id=str(alert_id),
@@ -148,7 +154,7 @@ def reset_source_destination(
         row = restore_source_destination(
             team_id=team_id,
             public_id=alert_id,
-            data=group.data,
+            data=data,
             event_kinds=row_event_kinds(destination_type),
             enabled=group.fully_enabled,
             retired_hog_function_ids=group.hog_function_ids,
@@ -194,10 +200,9 @@ def _refuse_incident_move_while_firing(team_id: int, alert_id: UUID, destination
     never be resolved by the other."""
     if destination_type != DestinationType.PAGERDUTY:
         return
-    runtime = runtime_by_public_id(team_id=team_id, public_ids=[alert_id]).get(alert_id)
-    if runtime is not None and runtime.state == PlatformAlertState.FIRING:
+    if has_firing_instance(team_id=team_id, public_id=alert_id):
         raise AlertDestinationValidationError(
-            "This alert is firing, so its PagerDuty incident is open. Try again once the alert resolves.",
+            "This alert's PagerDuty incident may still be open. Try again once the alert has resolved.",
             field="type",
         )
 
@@ -223,10 +228,49 @@ def _refuse_partly_paused(
         )
 
 
-def _with_headers(config: AlertDestinationConfig, data: AlertDestinationData) -> dict[str, Any]:
-    """The config's inputs, with the headers the destination stored, such as an auth token."""
-    inputs = config.payload["inputs"]
-    stored = data.get("webhook_headers")
-    if not stored or "headers" not in inputs:
-        return inputs
-    return {**inputs, "headers": {**inputs["headers"], "value": {**inputs["headers"]["value"], **stored}}}
+# The types whose URL carries the channel's credential in its path.
+_URL_CREDENTIAL_TYPES = frozenset({DestinationType.WEBHOOK, DestinationType.DISCORD, DestinationType.TEAMS})
+
+
+def _kept_secret(
+    config: AlertDestinationConfig, data: AlertDestinationData, *, enabled: bool
+) -> AlertDestinationConfig:
+    """The config, with what the row kept encrypted kept encrypted: the URL becomes a secret input, and
+    stored headers, such as an auth token, go in the webhook template's secret headers."""
+    payload = {**config.payload, "enabled": enabled}
+    destination_type = DestinationType(data["type"])
+    if destination_type in _URL_CREDENTIAL_TYPES and "inputs_schema" not in payload:
+        spec = DESTINATION_SPECS[destination_type]
+        payload["inputs_schema"] = with_secret_inputs(spec.template_id, spec.address_input_keys)
+    if stored := data.get("webhook_headers"):
+        payload["inputs"] = {**payload["inputs"], "secret_headers": {"value": dict(stored)}}
+    return replace(config, payload=payload)
+
+
+def _with_secret_headers(
+    team_id: int, data: AlertDestinationData, hog_function_ids: Collection[UUID]
+) -> AlertDestinationData:
+    """A webhook's settings with the secret headers its HogFunctions send, which the native message sends
+    as stored headers. Refused when the standard message cannot send what they do."""
+    if data["type"] != DestinationType.WEBHOOK:
+        return data
+    secret_headers: dict[str, str] = {}
+    for encrypted in HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids)).values_list(
+        "encrypted_inputs", flat=True
+    ):
+        if input_value(encrypted or {}, "signing_secret"):
+            raise AlertDestinationValidationError(
+                "This webhook signs its requests, which the standard message can't do.", field="hog_function_ids"
+            )
+        stored = input_value(encrypted or {}, "secret_headers") or {}
+        sendable = added_webhook_headers(stored)
+        if len(sendable) != len(stored):
+            raise AlertDestinationValidationError(
+                "This webhook has a secret header the standard message can't send.", field="hog_function_ids"
+            )
+        secret_headers.update(sendable)
+    if not secret_headers:
+        return data
+    return cast(
+        AlertDestinationData, {**data, "webhook_headers": {**data.get("webhook_headers", {}), **secret_headers}}
+    )
