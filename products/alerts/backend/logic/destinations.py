@@ -21,7 +21,8 @@ from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent, AlertInternalEventsNotDelivered
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
+from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, _WebhookUrlDestination, url_hostname
+from products.alerts.backend.logic.insight_alert_destinations import with_secret_inputs
 from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
     AlertDestinationConfig,
@@ -312,7 +313,7 @@ def rebuild_source_destination_hog_functions(
     for destination in source_destinations_without_hog_functions(team_id=team_id, public_id=alert_id):
         # A row delivery disabled stays off on the source too, rather than sending again after the handback.
         configs = [
-            AlertDestinationConfig(payload={**config.payload, "enabled": destination.enabled})
+            AlertDestinationConfig(payload=_with_secret_url({**config.payload, "enabled": destination.enabled}))
             for config in build_configs(destination.data)
         ]
         try:
@@ -328,6 +329,16 @@ def rebuild_source_destination_hog_functions(
         link_source_destination(team_id=team_id, destination_id=destination.id, hog_function_ids=hog_function_ids)
         rebuilt.append(destination.id)
     return tuple(rebuilt)
+
+
+def _with_secret_url(payload: dict[str, Any]) -> dict[str, Any]:
+    """The row keeps a URL destination's address encrypted, and the URL is the channel's credential.
+    Marking it secret stores it in `encrypted_inputs` and masks it in the HogFunction API, as the insight
+    URL route does. A builder that already sets a schema keeps it."""
+    spec = SPEC_BY_TEMPLATE_ID.get(payload.get("template_id", ""))
+    if not isinstance(spec, _WebhookUrlDestination) or "inputs_schema" in payload:
+        return payload
+    return {**payload, "inputs_schema": with_secret_inputs(spec.template_id, spec.address_input_keys)}
 
 
 def _report_unreadable_destination_configs(

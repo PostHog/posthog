@@ -280,13 +280,13 @@ def build_insight_alert_url_config(
             "filters": destination_filter(alert_id, LEGACY_INSIGHT_ALERT_EVENT),
             "name": clip_hog_function_name(f"{alert_name or 'Alert'}: {label}"),
             "template_id": spec.template_id,
-            "inputs_schema": _with_secret_inputs(spec.template_id, spec.address_input_keys),
+            "inputs_schema": with_secret_inputs(spec.template_id, spec.address_input_keys),
             "inputs": inputs,
         },
     )
 
 
-def _with_secret_inputs(template_id: str, keys: frozenset[str]) -> list[dict[str, Any]]:
+def with_secret_inputs(template_id: str, keys: frozenset[str]) -> list[dict[str, Any]]:
     """The template's inputs with the URL marked secret, so the HogFunction stores it encrypted and the
     HogFunction API masks it. The URL's path is the channel's credential."""
     template = (

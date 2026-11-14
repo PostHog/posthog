@@ -385,6 +385,12 @@ class TestPlatformCutover(APIBaseTest):
             event["id"] for function in rebuilt for event in (function.filters or {}).get("events", [])
         ) == sorted(EVENT_KIND_CONFIG[kind].event_id for kind in logs_destination_event_kinds(destination_type))
         assert self._legacy_ids(alert) == {row_id: set(group.hog_function_ids)}
+        if "webhook_url" in fields:
+            url_keys = {"url", "webhookUrl"}
+            assert all(
+                url_keys & set(function.encrypted_inputs or {}) and not url_keys & set(function.inputs or {})
+                for function in rebuilt
+            )
         assert retired.isdisjoint(group.hog_function_ids)
         assert set(HogFunction.objects.filter(team=self.team, deleted=True).values_list("id", flat=True)) == retired
 
