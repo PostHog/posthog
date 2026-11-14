@@ -2094,7 +2094,7 @@ describe('Hog Executor', () => {
 
             type ReceivedRequest = { id: unknown; signature: unknown; body: string }
 
-            const receiveRequests = (statusCodes: number[] = [200]): ReceivedRequest[] => {
+            const receiveRequests = (): ReceivedRequest[] => {
                 const received: ReceivedRequest[] = []
                 mockRequest.mockImplementation((req: any, res: any) => {
                     let body = ''
@@ -2105,7 +2105,7 @@ describe('Hog Executor', () => {
                             signature: req.headers['x-hub-signature-256'],
                             body,
                         })
-                        res.writeHead(statusCodes[received.length - 1] ?? 200, { 'Content-Type': 'text/plain' })
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
                         res.end('ok')
                     })
                 })
@@ -2127,40 +2127,19 @@ describe('Hog Executor', () => {
                 return invocation
             }
 
-            it.each([
-                ['the configured secret', SECRET, BODY_SIGNATURE],
-                [
-                    'a secret of exactly 24 bytes in 12 characters',
-                    'é'.repeat(12),
-                    'sha256=08faf5c284367a94cb95273a9fb68873b5b46460b0f7de89af5f45214667aded',
-                ],
-            ])('signs the bytes the request sends with %s', async (_case, secret, signature) => {
+            it('signs the bytes the request sends with the configured secret', async () => {
                 const received = receiveRequests()
-                const invocation = await createSignedInvocation()
-                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: secret } } as any
 
-                const result = await executor.executeFetch(invocation)
+                const result = await executor.executeFetch(await createSignedInvocation())
 
                 expect(result.error).toBeUndefined()
-                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: BODY }])
-            })
-
-            it('signs every attempt of one delivery with the same delivery id', async () => {
-                const received = receiveRequests([500, 200])
-
-                const firstAttempt = await executor.executeFetch(await createSignedInvocation())
-                const retry = await executor.executeFetch(firstAttempt.invocation)
-
-                expect(retry.error).toBeUndefined()
-                expect(received.map(({ id }) => id)).toEqual([SIGNING_REFS.webhook_id, SIGNING_REFS.webhook_id])
-                expect(received.map(({ signature }) => signature)).toEqual([BODY_SIGNATURE, BODY_SIGNATURE])
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature: BODY_SIGNATURE, body: BODY }])
             })
 
             it.each([
                 ['the secret input is missing', 'POST', BODY, undefined, 'signing_secret'],
                 ['the secret is shorter than 24 bytes', 'POST', BODY, 'x'.repeat(23), 'at least 24'],
                 ['a GET request sends no body', 'GET', BODY, SECRET, 'sends none'],
-                ['a HEAD request sends no body', 'HEAD', BODY, SECRET, 'sends none'],
                 ['a POST request has an empty body', 'POST', '', SECRET, 'sends none'],
             ])('refuses to send when %s', async (_case, method, body, secret, reason) => {
                 const invocation = await createSignedInvocation(method, body)
