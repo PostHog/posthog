@@ -635,9 +635,9 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("sandbox_run_on_another_pipeline_takes_the_slot", "sandbox", 2, None, "team_daily_cap"),
+            ("sandbox_run_on_another_pipeline_takes_the_slot", "sandbox", 21, None, "team_daily_cap"),
             ("live_launch_without_a_task_yet_takes_the_slot", "launching", 2, None, "team_daily_cap"),
-            ("run_older_than_the_window_does_not_count", "sandbox", 25, None, "explore"),
+            ("yesterdays_sweep_run_has_left_the_window", "sandbox", 23, None, "explore"),
             ("external_agent_run_does_not_count", "external", 2, None, "explore"),
             ("team_override_raises_the_cap", "sandbox", 2, "this_team", "explore"),
             ("override_for_another_team_does_not_apply", "sandbox", 2, "other_team", "team_daily_cap"),
@@ -660,7 +660,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             "default_team_config": {"max_training_runs_per_day": 1},
             "team_configs": {str(override_team_id): {"max_training_runs_per_day": 2}} if override_team_id else {},
         }
-        other_pipeline = self._create_pipeline(name="other pipeline")
+        other_pipeline = self._create_pipeline(name="other pipeline", status=AutoresearchPipeline.Status.PAUSED)
         with time_machine.travel(django_timezone.now() - timedelta(hours=hours_ago), tick=False):
             AutoresearchTrainingRun.objects.create(
                 pipeline=other_pipeline,
@@ -679,6 +679,71 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.reason == expected_reason
         assert result.error is None
         assert mock_run_training.called is (expected_reason == "explore")
+
+    @parameterized.expand(
+        [
+            ("no_champion_comes_first", 1, "no_champion", None, ["team_daily_cap", "scheduled"]),
+            ("longest_wait_comes_first", 1, "waited_longer", None, ["team_daily_cap", "scheduled"]),
+            ("gated_creator_holds_no_slot", 1, "no_champion", "tasks_usage_limited", ["scheduled", "tasks_gated"]),
+            ("departed_creator_holds_no_slot", 1, "no_champion", "left_the_team", ["scheduled", "team_daily_cap"]),
+            ("free_slot_for_every_due_pipeline", 2, "no_champion", None, ["scheduled", "scheduled"]),
+        ]
+    )
+    @patch("products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_shares_free_slots_by_rank(
+        self,
+        _name: str,
+        limit: int,
+        ahead_kind: str,
+        ahead_blocked: Optional[str],
+        expected_reasons: list[str],
+        mock_run_training: MagicMock,
+        mock_payload: MagicMock,
+    ) -> None:
+        mock_payload.return_value = {"default_team_config": {"max_training_runs_per_day": limit}}
+
+        def launch(*, pipeline: AutoresearchPipeline, **_kwargs: Any) -> None:
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.RUNNING,
+                iteration_budget=3,
+                task_id=uuid.uuid4(),
+            )
+
+        mock_run_training.side_effect = launch
+        ahead_creator = self.user
+        if ahead_blocked == "tasks_usage_limited":
+            ahead_creator = User.objects.create_and_join(self.organization, "limited@example.com", None)
+            self.mock_usage_limited.side_effect = lambda creator, _team_id: creator.pk == ahead_creator.pk
+        elif ahead_blocked == "left_the_team":
+            ahead_creator = User.objects.create(email="departed@example.com")
+
+        def maintain_pipeline(status: str, last_run_day: int, creator: User) -> AutoresearchPipeline:
+            with time_machine.travel(datetime(2026, 8, 1, tzinfo=UTC), tick=False):
+                pipeline = self._create_pipeline(status=status, research_interval_days=7, created_by=creator)
+            with time_machine.travel(datetime(2026, 9, last_run_day, 2, tzinfo=UTC), tick=False):
+                AutoresearchTrainingRun.objects.create(
+                    pipeline=pipeline,
+                    status=AutoresearchTrainingRun.Status.COMPLETED,
+                    kickoff_reason="scheduled",
+                    iteration_budget=3,
+                    summary={"champion_promoted": False},
+                )
+            return pipeline
+
+        behind = maintain_pipeline(AutoresearchPipeline.Status.RUNNING, 3, self.user)
+        if ahead_kind == "no_champion":
+            ahead = maintain_pipeline(AutoresearchPipeline.Status.BOOTSTRAPPING, 3, ahead_creator)
+        else:
+            ahead = maintain_pipeline(AutoresearchPipeline.Status.RUNNING, 2, ahead_creator)
+
+        results = [
+            activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+            for pipeline in (behind, ahead)
+        ]
+
+        assert [result.reason for result in results] == expected_reasons
 
     @parameterized.expand(
         [

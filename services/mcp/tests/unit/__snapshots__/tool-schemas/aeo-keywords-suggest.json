@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "brand": {
+            "description": "The brand name. Inferred from the site when empty. Keywords that name the brand are left out.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "count": {
+            "default": 20,
+            "description": "How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+        },
+        "description": {
+            "description": "What the product does and who it is for. Inferred from the site when empty.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "domain": {
+            "description": "The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["domain"],
+    "type": "object"
+}

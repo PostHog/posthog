@@ -12,12 +12,13 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
-from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.rated_usage_tasks import report_signals_trial_grant
+from products.signals.backend.scout_harness.team_limits import max_enabled_scouts_for_team
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation, trial_billing_status
 from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION
 from products.signals.backend.trial.policy import POLICY_VERSION, TrialPolicy, TrialRefused
+from products.signals.backend.trial.scouts import trial_counted_scouts
 from products.signals.backend.usage import TrialUsage, trial_usage
 
 
@@ -150,9 +151,7 @@ class TrialService:
         )
         reason = usage.exhaustion_reason(grant) if grant else ""
         paused = self_driving_quota_gate(self.team, billing_status=billing).enforced
-        enabled_scouts = (
-            SignalScoutConfig.objects.for_team(self.policy.team_id, canonical=True).filter(enabled=True).count()
-        )
+        enabled_scouts = trial_counted_scouts(self.policy.team_id).count()
         ready = billing.ready
         eligible = bool(
             decision.enabled
@@ -182,7 +181,7 @@ class TrialService:
             "used_microusd": min(usage.spend_microusd, grant.allowance_microusd) if grant else 0,
             "new_work_paused": paused,
             "enabled_scouts": enabled_scouts,
-            "scout_limit": grant.scout_limit if grant else 3,
-            "scouts_to_pause": max(0, enabled_scouts - 3) if grant is None else 0,
+            "scout_limit": max_enabled_scouts_for_team(self.policy.team_id),
+            "scouts_to_pause": 0,
             "paid_continuation": billing.continuation,
         }

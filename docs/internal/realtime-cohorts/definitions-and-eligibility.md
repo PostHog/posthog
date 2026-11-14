@@ -94,9 +94,18 @@ The API serializer sets `cohort_type = 'realtime'` when all of the following hol
 - no leaf is `person_metadata`,
 - every cohort reference points to a cohort that is itself realtime at the moment of this save,
 - the cohort does not use `filterTestAccounts`, because the test-account filters are added at query time and the realtime evaluator cannot see them,
+- no behavioral leaf looks back more than `REALTIME_COHORT_MAX_HISTORY_DAYS` (400 by default), because the seeder backfills no further than its own lookback cap,
 - on edits, the last known person count is under a size cap.
 
-The rule reads the criteria only.
+A sliding window counts by its length, with a month as 30 days and a year as 365, the same lengths the Rust evaluator uses.
+An absolute start date counts from its written date to the team's current day, and a range with only an end date always counts as too long.
+The history limit is not rechecked as time passes.
+A realtime cohort whose start date later passes the limit stays realtime until a save that changes its criteria.
+A backfill for it in the meantime, such as a disaster-recovery run, is truncated at the seeder's cap.
+A resave through `resave_cohorts` or team enablement rechecks every cohort, so it does take such a cohort off realtime.
+Keep `REALTIME_COHORT_MAX_HISTORY_DAYS` at or below the seeder's `SEEDER_MAX_LOOKBACK_DAYS`.
+
+The rule reads the criteria, plus the team's current day for the history limit.
 No team allowlist or rollout flag is involved, so any project can hold `realtime` cohorts, and the Rust services choose which teams they actually process.
 The rule also checks no composition, which matters later on this page.
 

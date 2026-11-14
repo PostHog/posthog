@@ -10,8 +10,8 @@ use axum::Json;
 use bytes::Bytes;
 use capture_logs::authorizer::Signal;
 use capture_logs::endpoints::prometheus::{
-    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows,
-    RemoteWriteEncoding,
+    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows_with_options,
+    RemoteWriteEncoding, RemoteWriteOptions,
 };
 use metrics::counter;
 use serde::Deserialize;
@@ -144,18 +144,29 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
-    let (mut rows, timestamps_overridden) =
-        write_timeseries_to_kafka_rows(write_request.timeseries, &write_request.metadata);
+    let (mut rows, timestamps_overridden) = write_timeseries_to_kafka_rows_with_options(
+        write_request.timeseries,
+        &write_request.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: service.keep_stale_markers,
+        },
+    );
     // Before the histogram fold, so folded histograms carry the attributes and
     // fingerprint them.
     service.k8s_resource_attributes.apply(&token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
-    service.series_label_gate.apply(&token, &mut rows);
+    let (labelled, records_bytes) = service.series_label_gate.decide_metered(&token, &mut rows);
     let row_count = rows.len();
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
+        .write_metrics(
+            &token,
+            rows,
+            uncompressed_bytes,
+            Some(records_bytes),
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");
@@ -164,6 +175,7 @@ pub async fn export_prometheus_remote_write_http(
             Json(json!({"error": "Internal server error"})),
         ));
     }
+    service.series_label_gate.commit(&token, labelled);
 
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)

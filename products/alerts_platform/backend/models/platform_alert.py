@@ -366,7 +366,7 @@ class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
 
 
 class AlertDestination(TeamScopedRootMixin, UUIDModel):
-    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+    """Where an alert sends, beside any HogFunctions it has.
 
     One row is one destination a person sees on the alert's page. It sends through the platform's
     transport for its type.

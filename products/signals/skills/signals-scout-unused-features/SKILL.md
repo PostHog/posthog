@@ -17,10 +17,11 @@ metadata:
   owner_team: signals
   scope: unused_features
 scout-precheck-query: |
-  SELECT 1 AS autocapture_seen
+  SELECT 1 AS audit_due
   FROM events
   WHERE event = '$autocapture'
     AND timestamp > {now} - INTERVAL 7 DAY
+    AND {since} < {now} - INTERVAL 156 HOUR
   LIMIT 1
 ---
 
@@ -39,9 +40,15 @@ An item is a candidate only when its page has real reach and its use share sits 
 A fixed cutoff does not travel between projects: on a busy app a share of 0.05% still flags hundreds of items, while the project's own p10 gives a list a person can read.
 A rarely clicked item on a rarely viewed page is a different finding (hard to find), and an item clicked on every page (navigation) is measured against its busiest page only.
 
+**The denominator is the page's viewers, and nothing narrower.** The telemetry tier cannot see who saw a control inside a menu, a modal, or a tab, so do not ask for an "eligible exposure" or conditional-audience denominator before you report.
+For a control that renders on many routes, the denominator is the distinct viewers of the busiest single route where it was clicked. Report the item with that route named and a one-line caveat that the true audience may be smaller.
+The only narrower audience the body allows is a flag's (cause 3).
+A candidate on a page above the reach floor, in the bottom tenth, that the cause ladder below classifies as faded or reachable and not used is reported. A missing narrower denominator is never a reason to hold it back.
+
 ## Quick close-out
 
-1. `scout-scratchpad-search` with `key=pattern:unused_features:last_audit`, an exact read. A `text` search returns the newest entries first, so after an audit that wrote many item entries it can miss this one.
+1. A scheduled run can start with a `<precheck_result>` block whose row has `audit_due`. It means no run of this scout started in the last 6.5 days and `$autocapture` events arrived in the last 7, so the weekly gate is already passed: skip this step and the autocapture check in step 2.
+   Without that block (a manual run, or a project without the default pre-check), run `scout-scratchpad-search` with `key=pattern:unused_features:last_audit`, an exact read. A `text` search returns the newest entries first, so after an audit that wrote many item entries it can miss this one.
    If the marker is less than 7 days old and no scout note asks for a fresh look, close out now and say when the next audit is due.
 2. `project-get`: read `data_attributes` (the attributes this project tags elements with, often `data-attr`), `path_cleaning_filters`, `test_account_filters` and `autocapture_opt_out`.
    With autocapture off and no `$autocapture` events, write `not-in-use:unused_features` and close out.
@@ -94,7 +101,9 @@ Check causes in this order and give each candidate the first that fits:
 
 - `pattern:unused_features:last_audit`: the date, tier, window, and item count of the last full audit.
 - `pattern:unused_features:baseline`: page reach and the use share distribution (median, p10), so the next audit judges against this project.
-- `item:unused_features:<item>`: cause, use share, page, and first seen. The next audit reports only items whose cause or share moved.
+- `item:unused_features:<item>`: cause, use share, the page it is measured against, first seen, and whether it was reported. The next audit reports items whose cause or share moved, and items that meet the bar and were never reported.
+  "Remembered" is a state for one audit, not a verdict: write the condition that would make the item reportable, and judge it against this body next time.
+  A note from an earlier audit that adds a gate this body does not set, such as an eligible-exposure denominator, is out of date. Judge the item under this body and rewrite the note.
 - `allowlist:unused_features:<item>`: rare by design, or a team said to keep it. Skip it from then on.
 - `report:unused_features:<area>`: the report id for an area, so the next audit edits it.
 - `reviewer:unused_features:<area>`: a resolved owner for an area.
@@ -114,6 +123,7 @@ Classify each candidate against the scratchpad and the inbox (net-new / material
 - **First audit**: file at most 3 area reports, worst first, and name the rest in the close-out.
   Later audits report deltas only.
 - **Remember** a candidate that is one window old, has few viewers behind it, or whose cause you could not settle.
+  Each of these clears by the next audit: a second window, enough viewers, or the next cause on the ladder. A denominator you cannot measure is not an unsettled cause.
 
 ## Disqualifiers
 

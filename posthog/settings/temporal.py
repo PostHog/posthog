@@ -15,6 +15,10 @@ TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
 TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
 TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", False, type_cast=str_to_bool)
+# Each heartbeat that reaches Temporal Cloud is a billed action.
+TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS: float = get_from_env(
+    "TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS", 5.0, type_cast=float
+)
 
 TEMPORAL_SECRET_KEY: str = os.getenv("TEMPORAL_SECRET_KEY", SECRET_KEY)
 TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK_SECRET_KEYS", "")) or [SECRET_KEY]
@@ -381,6 +385,11 @@ EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
 EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-precompute-task-queue"
 )
+# The build and direct-heavy queues have workers but get no calcs yet; the routing changes send calcs to them later.
+EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-build-task-queue")
+EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-direct-heavy-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -507,10 +516,11 @@ REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 # The digest workflow's webhook in the US project, and the Authorization value it requires. Both regions post
-# there. Without both, every digest goes through Customer.io.
+# there. Without both, the send sends no digest and fails the run.
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL", "")
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET", "")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
+AEO_TASK_QUEUE = _set_temporal_task_queue("aeo-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
 # evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate

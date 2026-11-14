@@ -6,9 +6,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { engineeringAnalyticsEnable, engineeringAnalyticsSources } from '../generated/api'
 
 /**
- * Setup detection for the engineering analytics empty state. The product reads pull
- * requests and workflow runs from a GitHub warehouse source, so a project is set up once
- * it has one connected, synced or not: the scene explains an unsynced source itself.
+ * A project is set up once it has a GitHub warehouse source connected, synced or not, because the
+ * scene explains an unsynced source itself.
  *
  * Opening the product with a source connected is the opt-in that lets background work run for
  * the project. Enabling needs editor access, so a viewer's failure is ignored and the next editor

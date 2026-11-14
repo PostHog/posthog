@@ -47,7 +47,7 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.schema import UserUIConfiguration
+from posthog.schema import SessionReplayListConfiguration, UserUIConfiguration
 
 from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
@@ -66,6 +66,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
+from posthog.api.user_settings_viewset import CurrentUserLookupMixin
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
     action,
@@ -127,7 +128,15 @@ from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_key
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
+from posthog.permissions import (
+    APIScopePermission,
+    TimeSensitiveActionPermission,
+    UserNoOrgMembershipDeletePermission,
+    credential_admits_organization,
+    credential_admits_team,
+    get_authenticator_scoped_team_ids,
+    get_request_reachable_organization_ids,
+)
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
     ToolbarOAuthRefreshThrottle,
@@ -161,7 +170,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -678,15 +687,14 @@ class UserSerializer(serializers.ModelSerializer):
         # would otherwise ship a huge payload on every hit.
         PENDING_INVITES_MAX = 25
 
-        invites = (
-            OrganizationInvite.objects.filter(
-                target_email__iexact=normalized_email,
-                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
-            )
-            .exclude(organization_id__in=existing_org_ids)
-            .select_related("organization")
-            .order_by("-created_at")[:PENDING_INVITES_MAX]
-        )
+        invites = OrganizationInvite.objects.filter(
+            target_email__iexact=normalized_email,
+            created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        ).exclude(organization_id__in=existing_org_ids)
+        reachable_organizations = get_request_reachable_organization_ids(self.context.get("request"))
+        if reachable_organizations is not None:
+            invites = invites.filter(organization_id__in=reachable_organizations)
+        invites = invites.select_related("organization").order_by("-created_at")[:PENDING_INVITES_MAX]
 
         return [
             {
@@ -702,7 +710,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
             organization = Organization.objects.get(id=value)
-            if organization.memberships.filter(user=self.context["request"].user).exists():
+            request = self.context["request"]
+            if (
+                credential_admits_organization(request, organization.id)
+                and organization.memberships.filter(user=request.user).exists()
+            ):
                 # A member the org no longer admits can't point their session back at it — this
                 # endpoint is on the enforcement whitelist, so it must refuse on its own.
                 if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
@@ -718,7 +730,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_set_current_team(self, value: str) -> Team:
         try:
             team = Team.objects.get(pk=value)
-            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+            request = self.context["request"]
+            if (
+                credential_admits_team(request, team.id, team.organization_id)
+                and request.user.teams.filter(pk=team.pk).exists()
+            ):
                 return team
         except Team.DoesNotExist:
             pass
@@ -733,6 +749,9 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         try:
             UserUIConfiguration.model_validate(value)
+            # The check above coerces "false" to a boolean, but the raw JSON is what gets stored.
+            if value.get("session_replay") is not None:
+                SessionReplayListConfiguration.model_validate(value["session_replay"], strict=True)
         except pydantic.ValidationError as e:
             errors = "; ".join(
                 f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
@@ -801,7 +820,23 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+            if not current_team:
+                # Pick from the teams this user can access, as `validate_set_current_team` requires for an
+                # explicit choice: project access control can hide the organization's first team.
+                candidate_teams = instance.teams.filter(organization=current_organization)
+                request = self.context.get("request")
+                scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+                if scoped_teams:
+                    candidate_teams = candidate_teams.filter(id__in=scoped_teams)
+                current_team = candidate_teams.order_by("id").first()
+                # Saving no team would let `User.team` later pick any accessible team, outside the
+                # credential's team list, so refuse the switch instead.
+                if current_team is None and scoped_teams:
+                    raise serializers.ValidationError(
+                        {"set_current_organization": [f"Object with id={current_organization.id} does not exist."]},
+                        code="does_not_exist",
+                    )
+            validated_data["current_team"] = current_team
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
@@ -909,6 +944,30 @@ class UserSerializer(serializers.ModelSerializer):
             if str(data["team"]["organization"]) in get_ip_blocked_organization_ids(request):
                 data["team"] = None
 
+        # `/api/users/@me/` has no tenant target, so `APIScopePermission` leaves a credential confined to
+        # some organizations free to read the user's current project and organization in any other one.
+        if data.get("team") is not None and not credential_admits_team(
+            request, data["team"]["id"], data["team"]["organization"]
+        ):
+            data["team"] = None
+        if data.get("organization") is not None and not credential_admits_organization(
+            request, data["organization"]["id"]
+        ):
+            data["organization"] = None
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams and (organization := data.get("organization")) is not None:
+            organization["teams"] = [team for team in organization.get("teams") or [] if team["id"] in scoped_teams]
+            scoped_projects = {team["project_id"] for team in organization["teams"]}
+            organization["projects"] = [
+                project for project in organization.get("projects") or [] if project["id"] in scoped_projects
+            ]
+        if data.get("organizations") is not None:
+            data["organizations"] = [
+                organization
+                for organization in data["organizations"]
+                if credential_admits_organization(request, organization["id"])
+            ]
+
         # Backfill shortcut_position default for frontend if null
         with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):
             if data.get("shortcut_position") is None:
@@ -918,15 +977,18 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
+    dashboard = serializers.IntegerField(help_text="ID of the dashboard to show for the scene, in the current team.")
+
     class Meta:
         model = UserScenePersonalisation
         fields = ["scene", "dashboard"]
         read_only_fields = ["user", "team"]
 
-    def validate_dashboard(self, value: Dashboard) -> Dashboard:
+    def validate_dashboard(self, value: int) -> int:
         instance = cast(User, self.instance)
 
-        if value.team != instance.current_team:
+        dashboard_team_id = find_dashboard_team_id(dashboard_id=value)
+        if dashboard_team_id is None or instance.current_team is None or dashboard_team_id != instance.current_team.id:
             raise serializers.ValidationError("Dashboard must belong to the user's current team.")
 
         return value
@@ -952,7 +1014,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
             user=instance,
             team=instance.current_team,
             scene=validated_data["scene"],
-            defaults={"dashboard": validated_data["dashboard"]},
+            defaults={"dashboard_id": validated_data["dashboard"]},
         )
 
 
@@ -1078,6 +1140,7 @@ def refuse_pending_email_promotion() -> NoReturn:
     ),
 )
 class UserViewSet(
+    CurrentUserLookupMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -1132,31 +1195,11 @@ class UserViewSet(
             return ["user:read"] if request.method == "GET" else ["user:write"]
         return None
 
-    def get_object(self) -> User:
-        lookup_value = self.kwargs[self.lookup_field]
-        request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
-        if lookup_value == "@me":
-            self.check_object_permissions(self.request, request_user)
-            return request_user
-
-        if not request_user.is_staff:
-            raise exceptions.PermissionDenied(
-                "As a non-staff user you're only allowed to access the `@me` user instance."
-            )
-
-        return super().get_object()
-
     def get_authenticators(self):
         if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
             return [SessionAuthentication()]
 
         return super().get_authenticators()
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(id=self.request.user.id)
-        return queryset
 
     def get_serializer_context(self):
         return {
@@ -1599,6 +1642,7 @@ class UserViewSet(
         detail=True,
         throttle_classes=[],
         authentication_classes=[
+            IDJagAccessTokenAuthentication,
             SessionAuthentication,
             PersonalAPIKeyAuthentication,
             OAuthAccessTokenAuthentication,

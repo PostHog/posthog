@@ -223,6 +223,6 @@ export const WarehouseSuggestionsStatusRetrieveQueryParams = () => zod.object({
         .enum(['models', 'catalog'])
         .optional()
         .describe(
-            'Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+            'Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })

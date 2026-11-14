@@ -67,15 +67,31 @@ export function observeConsumedBatch(params: {
  * Groups are always stripped. Person is stripped when stripPerson is true.
  * These are large and easily reloaded by the worker, so we avoid storing them.
  * When integrationRefSigner is set, resolved integration inputs become signed references (see integration-input-refs).
+ * When omitRebuildableInputs is set, inputs that the executor can build again are not stored (see rebuildable-inputs).
  * Returns a new object if modifications are needed, otherwise the original.
  */
 export function sanitizeInvocationForPersistence(
     invocation: CyclotronJobInvocation,
-    { stripPerson, integrationRefSigner }: { stripPerson?: boolean; integrationRefSigner?: IntegrationRefSigner } = {}
+    {
+        stripPerson,
+        integrationRefSigner,
+        omitRebuildableInputs,
+    }: { stripPerson?: boolean; integrationRefSigner?: IntegrationRefSigner; omitRebuildableInputs?: boolean } = {}
 ): CyclotronJobInvocation {
     const state = invocation.state
     if (!state) {
         return invocation
+    }
+
+    // The built inputs can hold a typed-in secret, or a secret that a template put into a header or a URL.
+    // The key is removed, not emptied, so a worker without the rebuild builds the inputs on its rerun path
+    // instead of running with no inputs.
+    if (omitRebuildableInputs && state.inputsSource && state.globals?.inputs) {
+        const { inputs: _inputs, ...globals } = state.globals
+        return sanitizeInvocationForPersistence(
+            { ...invocation, state: { ...state, globals, inputsOmitted: true } },
+            { stripPerson, integrationRefSigner }
+        )
     }
 
     const signRef = integrationRefSigner
@@ -155,22 +171,24 @@ export function createInvocationSanitizer(
 
     return {
         sanitizeInvocations(invocations: CyclotronJobInvocation[]): CyclotronJobInvocation[] {
-            const signer = integrationRefsRollout.isEnabled() ? integrationRefSigner : undefined
+            const enabled = integrationRefsRollout.isEnabled()
             return invocations.map((inv) =>
                 sanitizeInvocationForPersistence(inv, {
                     stripPerson: stripPersonMatcher(inv.teamId),
-                    integrationRefSigner: signer,
+                    integrationRefSigner: enabled ? integrationRefSigner : undefined,
+                    omitRebuildableInputs: enabled,
                 })
             )
         },
 
         sanitizeResults(results: CyclotronJobInvocationResult[]): CyclotronJobInvocationResult[] {
-            const signer = integrationRefsRollout.isEnabled() ? integrationRefSigner : undefined
+            const enabled = integrationRefsRollout.isEnabled()
             return results.map((result) => ({
                 ...result,
                 invocation: sanitizeInvocationForPersistence(result.invocation, {
                     stripPerson: stripPersonMatcher(result.invocation.teamId),
-                    integrationRefSigner: signer,
+                    integrationRefSigner: enabled ? integrationRefSigner : undefined,
+                    omitRebuildableInputs: enabled,
                 }),
             }))
         },

@@ -1,10 +1,7 @@
 import "reflect-metadata";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
-import {
-  getGatewayUsageUrl,
-  getLlmGatewayUrl,
-} from "@posthog/agent/posthog-api";
+import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { archiveModule } from "@posthog/core/archive/archive.module";
 import {
   ARCHIVE_CLIENT,
@@ -801,7 +798,6 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     messagesUrl: (apiHost: string) =>
       `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
-    legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });

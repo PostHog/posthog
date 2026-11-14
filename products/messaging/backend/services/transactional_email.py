@@ -4,8 +4,9 @@ per send, so sends get the workflow's metrics, run history and versions."""
 import re
 import json
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime
 from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
@@ -20,15 +21,22 @@ from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
+    prepare_transactional_email_attachment_uploads,
     send_accepted_transactional_email,
     send_transactional_email as run_transactional_workflow,
 )
 
 from products.messaging.backend.facade.contracts import (
+    AttachmentNotUploaded,
+    AttachmentsRefused,
+    AttachmentUploadRequest,
+    AttachmentUploadSlot,
+    AttachmentUploadTarget,
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailTracking,
     FieldNotAccepted,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
@@ -36,35 +44,49 @@ from products.messaging.backend.facade.contracts import (
     InvalidRecipient,
     InvalidRequest,
     MarketingTemplate,
+    MessageTooLarge,
     NamedSenderNotVerified,
+    PresentAttachment,
     QueuedEmail,
     QuotaLimited,
     RecipientSuppressed,
     RecipientUnreachable,
+    SandboxFieldsUnsupported,
+    SandboxRecipientNotMember,
+    SandboxSenderNotAvailable,
     SenderNotVerified,
     SenderRequired,
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
+    SendWarning,
+    SendWarningCode,
+    SensitiveTemplate,
     TemplateNotSendable,
     TemplateNotTransactional,
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
+    UploadQuotaExceeded,
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
+from products.workflows.backend.facade.sandbox_email import provision_sandbox_sender
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
+    code_send_sandbox_sender_available,
     code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
     resolve_transactional_email_sender,
+    sending_domain_setup,
     update_transactional_email_workflow,
 )
 
@@ -80,6 +102,14 @@ CDP_SEND_RESULTS = Counter(
     "Requests to the CDP service to queue one transactional email, by result: success (202), the HTTP status class "
     "of any other answer, timeout, connection_error, or error.",
     labelnames=["result"],
+)
+SANDBOX_FALLBACKS = Counter(
+    "messaging_transactional_email_sandbox_fallback_total",
+    "Code sends from projects without a verified sender, by outcome: sandbox (the pipeline queued a first send from "
+    "the sandbox sender; replays are not counted), recipient_not_member (the pipeline refused the recipient, who is "
+    "not a member of the organization), or fields_unsupported (refused before the request because the sandbox sender "
+    "cannot send a field the request set).",
+    labelnames=["outcome"],
 )
 
 
@@ -140,6 +170,12 @@ def _observe_cdp_call(seconds: float) -> None:
     observe_transactional_email_stage("cdp_call", seconds)
 
 
+SANDBOX_FIELDS_UNSUPPORTED = (
+    "This project has no verified sending domain, so this email would go out from PostHog's sandbox sender, which "
+    "can't send `cc`, `bcc`, `reply_to`, `attachments` or a custom `from`. Remove those fields, or verify a sending "
+    "domain at {setup_url}."
+)
+
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
 # same refusal, so each of these reaches the caller as a 4xx and not as a retryable 503.
 PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
@@ -176,6 +212,57 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         InvalidRequest,
         "The email pipeline couldn't accept a field of this email, so it wasn't sent. Check the addresses and "
         "fields, then send it again.",
+    ),
+    "sandbox_recipient_not_member": (
+        SandboxRecipientNotMember,
+        "PostHog's sandbox sender only sends to members of your organization until this project verifies a sending "
+        "domain, so this email wasn't sent. Verify a sending domain at {setup_url} to send to anyone.",
+    ),
+    "sandbox_fields_unsupported": (SandboxFieldsUnsupported, SANDBOX_FIELDS_UNSUPPORTED),
+    "sandbox_sender_unavailable": (
+        SandboxSenderNotAvailable,
+        "The sandbox sender isn't available for this organization, so this email wasn't sent. Verify a sending "
+        "domain at {setup_url} to send email.",
+    ),
+}
+
+SANDBOX_SENDER_KIND = "email_sandbox"
+SANDBOX_SENDER_WARNING = (
+    "This email went out from PostHog's sandbox sender, because this project has no verified sending domain. The "
+    "sandbox sender only sends to members of your organization. Verify a sending domain to send to anyone from your "
+    "own address."
+)
+
+FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
+    "workflow_shape_not_supported": (
+        "This email's workflow can't send files, so PostHog didn't send the email.",
+        "A send with files needs a workflow with a trigger, one transactional email step, then an exit.",
+        "Send files through a workflow that has a trigger, then one transactional email step, then an exit, or "
+        "send this email without files.",
+    ),
+    "workflow_can_wait": (
+        "This email's workflow can hold a send, so PostHog didn't send the email with its files.",
+        "A step or a sending rate limit in this workflow can hold the send, so its files could expire before the "
+        "email goes out.",
+        "Send files through a workflow whose transactional email step follows the trigger directly and has no "
+        "sending rate limit, or send this email without files.",
+    ),
+    "email_render_limit_exceeded": (
+        "PostHog couldn't check the size of this email with its files, so it didn't send it.",
+        "Rendering this email's template went over a limit on time or length, so the size of the email with its "
+        "files couldn't be checked.",
+        "Simplify the email's template, or send this email without files.",
+    ),
+    "utm_value_too_long": (
+        "A UTM value in this email's workflow is too long, so PostHog didn't send the email with its files.",
+        "A UTM value is longer than 1,000 characters, so the size of this email with its files couldn't be checked.",
+        "Shorten each UTM value of the email step to 1,000 characters or fewer, or send this email without files.",
+    ),
+    "email_body_too_many_tags": (
+        "This email's template has too many Liquid tags, so PostHog didn't send the email with its files.",
+        "The email step has more than 10,000 Liquid tags, so the size of this email with its files couldn't be "
+        "checked.",
+        "Use 10,000 Liquid tags or fewer in the email step, or send this email without files.",
     ),
 }
 
@@ -405,9 +492,14 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
 
-def _code_email_workflow_id(team_id: int, key: str) -> UUID:
+def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
     template = _template_for_key(team_id, key)
     if template is not None:
+        if sensitive is False and template.sensitive:
+            raise SensitiveTemplate(
+                "This email's template is marked sensitive, so `sensitive` can't be false. "
+                "Leave `sensitive` out, or unmark the template."
+            )
         return _transactional_workflow_id(team_id, template)
     hog_flow_id = _key_workflow_id(team_id, key)
     _require_active(team_id, hog_flow_id)
@@ -441,8 +533,16 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
                 "reuse it for every recipient."
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
-        keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id)
+        key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
+        transaction.on_commit(lambda: _queue_source_detection(team_id, key_id), robust=True)
         return hog_flow_id
+
+
+def _queue_source_detection(team_id: int, key_id: str) -> None:
+    # After commit and local-only, so a send never waits on the flag service while it holds the team's key lock.
+    # Publishing only while the flag is on keeps the task off the queue until workers that know it are live.
+    if source_detection_enabled(team_id, only_locally=True):
+        detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
 
 
 def _lock_team_keys(team_id: int) -> None:
@@ -520,10 +620,10 @@ def send_code_email(
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
-        accepted_send = _accepted_send(team.id, email)
-        hog_flow_id = _code_email_workflow_id(team.id, email.key)
+        accepted_send, sandbox_warning = _accepted_send(team, email)
+        hog_flow_id = _code_email_workflow_id(team.id, email.key, email.sensitive)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
-    return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
+    return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
 
 
 def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
@@ -553,14 +653,17 @@ def _send_payload(
     return payload
 
 
-def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
+def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWarning | None]:
+    sender, sandbox_warning = _code_send_sender(team, email)
     accepted: dict[str, Any] = {
         "content": _without_empty(
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
-        "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": {"captureEngagement": email.capture_engagement},
+        "from": _without_empty(sender),
+        "tracking": _accepted_tracking(email.tracking),
     }
+    if email.sensitive is not None:
+        accepted["sensitive"] = email.sensitive
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
     if email.cc:
@@ -569,33 +672,61 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    return accepted, sandbox_warning
+
+
+def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:
+    accepted = {"captureEngagement": tracking.engagement}
+    if not tracking.opens:
+        accepted["opens"] = False
+    if tracking.clicks is not None:
+        accepted["clicks"] = tracking.clicks
     return accepted
 
 
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
     return _without_empty(
         {
+            "sha256": attachment.sha256,
             "filename": attachment.filename,
-            "content": attachment.content,
-            "contentType": attachment.content_type,
-            "contentId": attachment.content_id,
+            "content_type": attachment.content_type,
+            "content_id": attachment.content_id,
         }
     )
 
 
-def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
-    name, email = parseaddr(address) if address else ("", "")
+def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWarning | None]:
+    name, address = parseaddr(email.sender) if email.sender else ("", "")
     try:
-        sender_id = code_send_sender_id(team_id=team_id, email=email or None)
+        sender_id = code_send_sender_id(team_id=team.id, email=address or None)
     except TransactionalEmailSenderRequired as e:
         raise SenderRequired(
             "This project has more than one verified sender and no default sender. Send `from` to choose one."
         ) from e
     except TransactionalEmailSenderUnavailable as e:
-        if address:
-            raise NamedSenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
-        raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
-    return {"integrationId": sender_id, "email": email, "name": name}
+        if not code_send_sandbox_sender_available(team):
+            if email.sender:
+                raise NamedSenderNotVerified(f"No verified sender in this project can send from `{address}`.") from e
+            raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
+        if field := _field_the_sandbox_sender_cannot_send(email):
+            SANDBOX_FALLBACKS.labels(outcome="fields_unsupported").inc()
+            setup_url = sending_domain_setup(team.id).setup_url
+            raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
+        sandbox_sender_id = provision_sandbox_sender(team, None).id
+        logger.info("transactional_email_sandbox_sender_fallback", team_id=team.id, key=email.key)
+        return {"integrationId": sandbox_sender_id}, _sandbox_sender_warning(team.id)
+    return {"integrationId": sender_id, "email": address, "name": name}, None
+
+
+def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
+    fields = {
+        "cc": email.cc,
+        "bcc": email.bcc,
+        "reply_to": email.reply_to,
+        "attachments": email.attachments,
+        "from": email.sender,
+    }
+    return next((field for field, value in fields.items() if value), None)
 
 
 def _without_empty(fields: dict[str, Any]) -> dict[str, Any]:
@@ -613,6 +744,7 @@ def _queue(
     post: _PipelinePost,
     *,
     timeout: float = 10,
+    sandbox_warning: SendWarning | None = None,
 ) -> QueuedEmail:
     started_at = time.monotonic()
     try:
@@ -625,13 +757,20 @@ def _queue(
     _observe_cdp_call(time.monotonic() - started_at)
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
+    if (payload.get("send") or {}).get("attachments") and (
+        attachment_refusal := _attachment_refusal(refusal_code, answer)
+    ):
+        raise attachment_refusal
     if response.status_code == 413:
         raise ContentTooLarge(
             "The email is larger than PostHog can send. Make its content or data smaller, and link to "
             "large images and files instead of embedding them."
         )
     if response.status_code != 202:
-        refusal_code = _refusal_code(response)
+        if sandbox_warning is not None and refusal_code == "sandbox_recipient_not_member":
+            SANDBOX_FALLBACKS.labels(outcome="recipient_not_member").inc()
         unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
         if unknown_field is not None:
             logger.warning(
@@ -655,10 +794,76 @@ def _queue(
         if refusal is None:
             raise DeliveryUnavailable()
         error_class, message = refusal
-        raise error_class(message)
+        if "{setup_url}" in message:
+            setup_url = sandbox_warning.setup_url if sandbox_warning else sending_domain_setup(team_id).setup_url
+            message = message.format(setup_url=setup_url)
+        error = error_class(message)
+        error.attachment_bytes = _attachment_bytes(answer)
+        raise error
 
-    body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    sent_from_sandbox = answer.get("sender_kind") == SANDBOX_SENDER_KIND
+    replayed = bool(answer.get("replayed", False))
+    if sandbox_warning is not None and not replayed:
+        SANDBOX_FALLBACKS.labels(outcome="sandbox").inc()
+    return QueuedEmail(
+        message_id=str(answer["invocation_id"]),
+        replayed=replayed,
+        attachment_bytes=_attachment_bytes(answer),
+        warnings=(sandbox_warning,) if sandbox_warning and sent_from_sandbox else (),
+    )
+
+
+def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:
+    sha256 = answer.get("sha256") if isinstance(answer.get("sha256"), str) else None
+    error: TransactionalEmailError
+    if refusal_code == "field_not_accepted":
+        error = FieldNotAccepted("attachments")
+    elif refusal_code == "attachment_not_uploaded":
+        error = AttachmentNotUploaded(sha256)
+    elif refusal_code == "message_too_large":
+        error = MessageTooLarge(sha256)
+    elif refusal_code is not None and refusal_code in FILES_REFUSALS:
+        message, why, fix = FILES_REFUSALS[refusal_code]
+        error = AttachmentsRefused(
+            refusal_code, message, why=_explanation(answer, "reason") or why, fix=_explanation(answer, "fix") or fix
+        )
+    else:
+        return None
+    error.attachment_bytes = _attachment_bytes(answer)
+    return error
+
+
+def _explanation(answer: dict[str, Any], key: str) -> str | None:
+    value = answer.get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _sandbox_sender_warning(team_id: int) -> SendWarning:
+    setup = sending_domain_setup(team_id)
+    if setup.unverified_sender_id is None:
+        agent_action = (
+            "Tell the user this project can only email members of their organization until it has a verified "
+            f"sending domain, and ask them to verify one at {setup.setup_url}. With the PostHog MCP tools, start "
+            "with integrations-email-create for the domain they send from."
+        )
+    else:
+        agent_action = (
+            "Tell the user this project can only email members of their organization until its sending domain is "
+            f"verified, and ask them to finish verifying it at {setup.setup_url}. With the PostHog MCP tools, call "
+            f"integrations-email-status-retrieve for integration {setup.unverified_sender_id} to get the DNS records "
+            "to publish."
+        )
+    return SendWarning(
+        code=SendWarningCode.SANDBOX_SENDER,
+        message=SANDBOX_SENDER_WARNING,
+        setup_url=setup.setup_url,
+        agent_action=agent_action,
+    )
+
+
+def _attachment_bytes(answer: dict[str, Any]) -> int | None:
+    total = answer.get("attachment_bytes")
+    return total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
 
 
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
@@ -667,17 +872,97 @@ def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     except ValueError:
         return None
     for issue in issues if isinstance(issues, list) else []:
-        if isinstance(issue, dict) and issue.get("code") == "unrecognized_keys" and issue.get("path") == ["send"]:
+        if not isinstance(issue, dict) or issue.get("code") != "unrecognized_keys":
+            continue
+        if issue.get("path") == ["send", "tracking"]:
+            return "tracking"
+        if issue.get("path") == ["send"]:
             keys = issue.get("keys")
             if isinstance(keys, list) and keys and isinstance(keys[0], str):
                 return keys[0]
     return None
 
 
-def _refusal_code(response: requests.Response) -> str | None:
+def _answer(response: requests.Response) -> dict[str, Any]:
     try:
         body = response.json()
     except ValueError:
-        return None
-    code = body.get("error") if isinstance(body, dict) else None
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _refusal_code(answer: dict[str, Any]) -> str | None:
+    code = answer.get("error")
     return code if isinstance(code, str) else None
+
+
+def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadRequest]) -> list[AttachmentUploadSlot]:
+    payload = {"files": [{"sha256": file.sha256, "size": file.size} for file in files]}
+    try:
+        response = prepare_transactional_email_attachment_uploads(team.id, payload)
+    except Exception as e:
+        logger.exception("transactional_email_attachment_uploads_failed", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if response.status_code == 200:
+        return _answered_slots(team, files, response)
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
+    if refusal_code == "field_not_accepted":
+        raise FieldNotAccepted("attachments")
+    if refusal_code == "message_too_large":
+        sha256 = answer.get("sha256")
+        raise MessageTooLarge(sha256 if isinstance(sha256, str) else None)
+    if refusal_code == "upload_quota_exceeded":
+        raise UploadQuotaExceeded("This project uploaded as many file bytes as it can today.")
+    if response.status_code != 503:
+        logger.error(
+            "transactional_email_attachment_uploads_rejected",
+            team_id=team.id,
+            status_code=response.status_code,
+            refusal_code=refusal_code,
+        )
+    if refusal_code == "invalid_request":
+        raise InvalidRequest("The email pipeline refused this file list.")
+    raise DeliveryUnavailable()
+
+
+def _answered_slots(
+    team: Team, files: Sequence[AttachmentUploadRequest], response: requests.Response
+) -> list[AttachmentUploadSlot]:
+    try:
+        slots = [_upload_slot(slot) for slot in response.json()["files"]]
+    except (ValueError, KeyError, TypeError) as e:
+        logger.exception("transactional_email_attachment_uploads_unreadable", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if [slot.sha256 for slot in slots] != [file.sha256 for file in files]:
+        logger.error("transactional_email_attachment_uploads_mismatched", team_id=team.id)
+        raise DeliveryUnavailable()
+    return slots
+
+
+def _upload_slot(slot: dict[str, Any]) -> AttachmentUploadSlot:
+    if slot["status"] == "present":
+        return PresentAttachment(sha256=slot["sha256"], expires_at=datetime.fromisoformat(slot["expires_at"]))
+    if slot["status"] != "upload":
+        raise ValueError(f"Unknown attachment upload status: {slot['status']}")
+    return AttachmentUploadTarget(
+        sha256=_text(slot, "sha256"),
+        url=_text(slot, "url"),
+        method=_text(slot, "method"),
+        headers=_text_map(slot, "headers"),
+        url_expires_at=datetime.fromisoformat(slot["url_expires_at"]),
+    )
+
+
+def _text(slot: dict[str, Any], key: str) -> str:
+    value = slot[key]
+    if not isinstance(value, str):
+        raise TypeError(f"Attachment upload `{key}` is not a string")
+    return value
+
+
+def _text_map(slot: dict[str, Any], key: str) -> dict[str, str]:
+    value = slot[key]
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise TypeError(f"Attachment upload `{key}` is not a map of strings")
+    return value

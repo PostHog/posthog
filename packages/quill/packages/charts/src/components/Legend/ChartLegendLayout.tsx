@@ -52,6 +52,7 @@ export function ChartLegendLayout({
             className={`flex min-w-0 min-h-0 ${isRow ? 'flex-row' : 'flex-col'} ${stackWhenNarrow ? 'flex-1 @max-[480px]:flex-col' : ''} ${ALIGN_CLASS[align]} ${stackWhenNarrow ? '' : (className ?? '')}`}
             style={{ gap }}
             data-attr={stackWhenNarrow ? undefined : dataAttr}
+            data-legend-position={legend ? position : undefined}
         >
             {legendFirst ? legendSlot : chartSlot}
             {legendFirst ? chartSlot : legendSlot}

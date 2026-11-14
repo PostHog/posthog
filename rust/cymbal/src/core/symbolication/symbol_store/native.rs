@@ -59,9 +59,8 @@ impl Countable for ParsedNativeSymbols {
     }
 }
 
-// Caps the total bytes read out of one symbol ZIP. The zip crate inflates an entry until its
-// compressed data ends and does not stop at the uncompressed size in the entry header, so
-// each read is cut off at the remaining budget instead.
+// The zip crate inflates an entry until its compressed data ends and ignores the size in the
+// entry header, so every read out of one ZIP is cut off at a shared remaining budget.
 struct ExtractionBudget {
     max_bytes: usize,
     remaining: usize,
@@ -75,10 +74,8 @@ impl ExtractionBudget {
         }
     }
 
-    // Fails with `NativeError::DataError` when the entry does not fit in the remaining budget,
-    // and with `NativeError::ParseError` when the entry cannot be read. A read that fails, for
-    // example on a CRC mismatch at the end of the entry, still inflated its bytes, so they are
-    // charged before the error is returned.
+    // A read that fails, for example on a CRC mismatch at the end of an entry, already inflated
+    // its bytes, so they are charged before the error is returned.
     fn read(&mut self, entry: impl Read) -> Result<Vec<u8>, NativeError> {
         let mut data = Vec::new();
         let result = entry
@@ -92,7 +89,6 @@ impl ExtractionBudget {
         Ok(data)
     }
 
-    // Like `read`, but gives `None` for an entry that cannot be read, so the caller can skip it.
     fn read_optional(&mut self, entry: impl Read) -> Result<Option<Vec<u8>>, NativeError> {
         match self.read(entry) {
             Ok(data) => Ok(Some(data)),
@@ -531,8 +527,7 @@ mod test {
             let data = zip.finish().unwrap().into_inner();
             let extracted_bytes = dwarf.len() + manifest.len() + SOURCE.len();
 
-            // A budget one byte short of the bundle leaves no room for the sources, and the
-            // symbols still resolve without them.
+            // One byte short of the whole bundle: the sources are dropped and the symbols resolve.
             let without_sources =
                 ParsedNativeSymbols::from_zip_data(data.clone(), data.len(), extracted_bytes - 1)
                     .unwrap();

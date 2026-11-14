@@ -139,11 +139,11 @@ export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowor
 
 // Anthropic clients connect through a pooled MCP transport and usually omit the
 // `initialize` body's `clientInfo.name`, reporting their live product only in the
-// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to the
-// canonical client-name token the MCP analytics dashboard buckets on, so these
-// sessions are attributed to a real client instead of falling into "Other".
-// Mirrors the vendor→name mapping in the dashboard (harnessRegistry.ts and
-// models-mcp.md) — keep the three in sync.
+// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to a
+// canonical client-name token for `$mcp_client_name` and the API client header.
+// A vendor missing from this map keeps its raw header value as the client name.
+// The analytics harness label does not depend on this map, because
+// mcp_harness.py in products/mcp_analytics reads the vendor header first.
 const VENDOR_CLIENT_TO_CLIENT_NAME: Readonly<Record<string, string>> = {
     claudecode: 'claude-code',
     claudeai: 'claude-ai',
@@ -207,6 +207,10 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 // too — so it drives CLI-mode detection; the UI-host check reuses it as its own
 // user-agent fallback.
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
+
+// Published Claude artifact pages call the MCP from page code to fill in their data, so no model
+// reads the responses.
+export const ARTIFACT_RUNTIME_VENDOR_FRAGMENTS = ['claudeartifacts'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
 // OpenAI clients send no vendor header, so the shared `openai-mcp` client is matched
@@ -319,6 +323,13 @@ export class MCPClientProfile {
         return (
             matchesAnyFragment(this.userAgent, ANTHROPIC_USER_AGENT_FRAGMENTS) ||
             normalizeClientName(this.clientName ?? '').startsWith('anthropic')
+        )
+    }
+
+    isArtifactRuntime(): boolean {
+        return (
+            matchesAnyFragment(this.vendorClient, ARTIFACT_RUNTIME_VENDOR_FRAGMENTS) ||
+            matchesAnyFragment(this.clientName, ARTIFACT_RUNTIME_VENDOR_FRAGMENTS)
         )
     }
 

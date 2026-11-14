@@ -1,12 +1,8 @@
-"""Curated view over the Trunk merge-queue snapshot (``TRUNK_MERGE_QUEUE_COLUMNS``)."""
-
 TRUNK_OUT_OF_QUEUE_STATES = frozenset({"failed", "cancelled"})
 
 
 def build_query(table: str) -> str:
-    """Curated SELECT over a synced Trunk merge-queue table: parsed last-transition time, the
-    terminal-or-current state, and the skip-the-line flag. Rows without a state or transition
-    time carry nothing any consumer can window on, so they drop here."""
+    """One row per queue entry. Drops rows that have no state or no transition time."""
     return f"""
     SELECT
         state,

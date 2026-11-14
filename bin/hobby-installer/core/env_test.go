@@ -7,7 +7,13 @@ import (
 )
 
 func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
-	for _, key := range []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET"} {
+	for _, key := range []string{
+		"INTERNAL_REQUEST_TOKEN",
+		"BROWSERLESS_SECRET",
+		"RECORDING_API_JWT_SECRET",
+		"OBJECT_STORAGE_ACCESS_KEY_ID",
+		"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+	} {
 		cases := []struct {
 			name      string
 			existing  string
@@ -51,6 +57,59 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 					t.Fatalf("%s = %q, want a value of its own", key, value)
 				}
 			})
+		}
+	}
+}
+
+func TestUpgradeRestrictsEnvToOwner(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(".env", []byte("POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile applies the umask, so set the mode of an older install explicitly.
+	if err := os.Chmod(".env", 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdateEnvForUpgrade(""); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0600 {
+		t.Fatalf(".env mode = %o, want 600", mode)
+	}
+}
+
+func TestUpgradeReplacesSharedObjectStorageKeys(t *testing.T) {
+	t.Chdir(t.TempDir())
+	existing := "POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n" +
+		"OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user\n" +
+		"OBJECT_STORAGE_SECRET_ACCESS_KEY=\"object_storage_root_password\"\n"
+	if err := os.WriteFile(".env", []byte(existing), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdateEnvForUpgrade(""); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, shared := range map[string]string{
+		"OBJECT_STORAGE_ACCESS_KEY_ID":     "object_storage_root_user",
+		"OBJECT_STORAGE_SECRET_ACCESS_KEY": "object_storage_root_password",
+	} {
+		if value := ReadEnvValue(key); value == "" || value == shared {
+			t.Errorf("%s = %q, want a generated value", key, value)
+		}
+		if n := strings.Count(string(data), key+"="); n != 1 {
+			t.Errorf(".env has %d %s lines, want 1:\n%s", n, key, data)
 		}
 	}
 }

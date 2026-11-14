@@ -11,6 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AEOBrandApi,
     AEOBrandCreateRequestApi,
+    AEOEngineSettingApi,
+    AEOKeywordApi,
+    AEOKeywordCreateRequestApi,
+    AEOKeywordCreateResultApi,
+    AEOKeywordModifierReportApi,
+    AEOKeywordReportApi,
+    AEOKeywordSuggestRequestApi,
+    AEOKeywordSuggestionJobApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
@@ -21,10 +29,16 @@ import type {
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
+    AEOSetupContextApi,
+    AEOSetupJobApi,
+    AEOSetupRequestApi,
+    AEOVisibilityDashboardApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     AeoBrandsListParams,
+    AeoKeywordsModifiersParams,
+    AeoKeywordsReportParams,
     AeoPromptsChecksParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
@@ -68,6 +82,7 @@ import type {
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedAEOBrandUpdateRequestApi,
+    PatchedAEOEngineSettingUpdateRequestApi,
     PatchedAEOPromptUpdateRequestApi,
     PatchedContentAutopilotSiteProfileApi,
     PatchedHeatmapCaptureSettingsRequestApi,
@@ -203,6 +218,215 @@ export const aeoBrandsPartialUpdate = async (
     })
 }
 
+export const getAeoEnginesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_engines/`
+}
+
+/**
+ * Lists every answer engine the product can run, in display order, with whether the project runs it and how often. The no-search engines answer from training data alone and start off.
+ * @summary List AEO answer engines
+ */
+export const aeoEnginesList = async (projectId: string, options?: RequestInit): Promise<AEOEngineSettingApi[]> => {
+    return apiMutator<AEOEngineSettingApi[]>(getAeoEnginesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoEnginesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_engines/${id}/`
+}
+
+/**
+ * Turns an answer engine on or off for the project, or sets how often it checks each prompt. The next daily run uses the change. Each check on an engine is a paid model call.
+ * @summary Update an AEO answer engine
+ */
+export const aeoEnginesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAEOEngineSettingUpdateRequestApi?: PatchedAEOEngineSettingUpdateRequestApi,
+    options?: RequestInit
+): Promise<AEOEngineSettingApi> => {
+    return apiMutator<AEOEngineSettingApi>(getAeoEnginesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAEOEngineSettingUpdateRequestApi),
+    })
+}
+
+export const getAeoKeywordsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/`
+}
+
+/**
+ * Lists the project's keyword list, by keyword. The list holds at most 200 keywords, so it is never paged.
+ * @summary List AEO keywords
+ */
+export const aeoKeywordsList = async (projectId: string, options?: RequestInit): Promise<AEOKeywordApi[]> => {
+    return apiMutator<AEOKeywordApi[]>(getAeoKeywordsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/`
+}
+
+/**
+ * Adds keywords to the project's keyword list. Send many at once. Blank entries and keywords already in the list are skipped and counted. Fails with 400 when the new keywords would take the list past 200.
+ * @summary Add AEO keywords
+ */
+export const aeoKeywordsCreate = async (
+    projectId: string,
+    aEOKeywordCreateRequestApi: AEOKeywordCreateRequestApi,
+    options?: RequestInit
+): Promise<AEOKeywordCreateResultApi> => {
+    return apiMutator<AEOKeywordCreateResultApi>(getAeoKeywordsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOKeywordCreateRequestApi),
+    })
+}
+
+export const getAeoKeywordsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/${id}/`
+}
+
+/**
+ * Gets one keyword from the project's keyword list.
+ * @summary Get an AEO keyword
+ */
+export const aeoKeywordsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOKeywordApi> => {
+    return apiMutator<AEOKeywordApi>(getAeoKeywordsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/${id}/`
+}
+
+/**
+ * Removes a keyword from the project's keyword list. Checks are not changed, so adding it back restores its report.
+ * @summary Remove an AEO keyword
+ */
+export const aeoKeywordsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAeoKeywordsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAeoKeywordsModifiersUrl = (projectId: string, params?: AeoKeywordsModifiersParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_keywords/modifiers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_keywords/modifiers/`
+}
+
+/**
+ * Gets the words and two-word phrases the engines added to their web searches beyond the prompt over the last 'days' days (default 7), such as years, 'pricing', 'vs' or 'site:'. They show the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to only count answers whose searches contain it, and 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
+ * @summary Get AEO search modifiers
+ */
+export const aeoKeywordsModifiers = async (
+    projectId: string,
+    params?: AeoKeywordsModifiersParams,
+    options?: RequestInit
+): Promise<AEOKeywordModifierReportApi> => {
+    return apiMutator<AEOKeywordModifierReportApi>(getAeoKeywordsModifiersUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsReportUrl = (projectId: string, params?: AeoKeywordsReportParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_keywords/report/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_keywords/report/`
+}
+
+/**
+ * Gets one row per keyword for the last 'days' days (default 7) in the project's timezone: how many prompts contain it and how those answers mention and cite the project, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, citation position and how early the brand is named in those answers. All rates are over answered checks. A keyword matches as a phrase, case ignored. Pass 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
+ * @summary Get the AEO keyword report
+ */
+export const aeoKeywordsReport = async (
+    projectId: string,
+    params?: AeoKeywordsReportParams,
+    options?: RequestInit
+): Promise<AEOKeywordReportApi> => {
+    return apiMutator<AEOKeywordReportApi>(getAeoKeywordsReportUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsSuggestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/suggest/`
+}
+
+/**
+ * Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the organization. PostHog ranks keywords from the site, the project's tracked prompts and topics, and the web searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand are left out. Fails with 400 when the list already holds 200 keywords. Returns a pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO keywords
+ */
+export const aeoKeywordsSuggest = async (
+    projectId: string,
+    aEOKeywordSuggestRequestApi: AEOKeywordSuggestRequestApi,
+    options?: RequestInit
+): Promise<AEOKeywordSuggestionJobApi> => {
+    return apiMutator<AEOKeywordSuggestionJobApi>(getAeoKeywordsSuggestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOKeywordSuggestRequestApi),
+    })
+}
+
+export const getAeoKeywordsSuggestionRetrieveUrl = (projectId: string, jobId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/suggest/${jobId}/`
+}
+
+/**
+ * Gets a keyword suggestion job started with POST aeo_keywords/suggest/. status is pending while PostHog works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
+ * @summary Get AEO keyword suggestions
+ */
+export const aeoKeywordsSuggestionRetrieve = async (
+    projectId: string,
+    jobId: string,
+    options?: RequestInit
+): Promise<AEOKeywordSuggestionJobApi> => {
+    return apiMutator<AEOKeywordSuggestionJobApi>(getAeoKeywordsSuggestionRetrieveUrl(projectId, jobId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -220,7 +444,7 @@ export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListP
 }
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement, optionally over 'days' days and one 'engine'. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const aeoPromptsList = async (
@@ -381,6 +605,24 @@ export const aeoPromptsBulkImport = async (
     })
 }
 
+export const getAeoPromptsCreateDashboardUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/create_dashboard/`
+}
+
+/**
+ * Creates a dashboard named 'AI visibility weekly' with SQL insights over the citation checks of non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend. The queries read the brand catalog when they run, so they follow catalog edits. Each call creates a new dashboard. Subscribe to it with the subscriptions API to get it weekly in Slack or email.
+ * @summary Create the AI visibility weekly dashboard
+ */
+export const aeoPromptsCreateDashboard = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AEOVisibilityDashboardApi> => {
+    return apiMutator<AEOVisibilityDashboardApi>(getAeoPromptsCreateDashboardUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsOverviewParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -398,7 +640,7 @@ export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsO
 }
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
  * @summary Get the AEO prompt set overview
  */
 export const aeoPromptsOverview = async (
@@ -429,7 +671,7 @@ export const getAeoPromptsRankingsUrl = (projectId: string, params?: AeoPromptsR
 }
 
 /**
- * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
  * @summary Get AEO brand rankings
  */
 export const aeoPromptsRankings = async (
@@ -448,7 +690,7 @@ export const getAeoPromptsSuggestUrl = (projectId: string) => {
 }
 
 /**
- * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
  * @summary Suggest AEO prompts
  */
 export const aeoPromptsSuggest = async (
@@ -469,7 +711,7 @@ export const getAeoPromptsSuggestionRetrieveUrl = (projectId: string, jobId: str
 }
 
 /**
- * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
+ * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while PostHog works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
  * @summary Get AEO prompt suggestions
  */
 export const aeoPromptsSuggestionRetrieve = async (
@@ -493,6 +735,61 @@ export const getAeoPromptsTopicsUrl = (projectId: string) => {
  */
 export const aeoPromptsTopics = async (projectId: string, options?: RequestInit): Promise<AEOPromptTopicApi[]> => {
     return apiMutator<AEOPromptTopicApi[]>(getAeoPromptsTopicsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoSetupCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/`
+}
+
+/**
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * @summary Set up AI visibility
+ */
+export const aeoSetupCreate = async (
+    projectId: string,
+    aEOSetupRequestApi?: AEOSetupRequestApi,
+    options?: RequestInit
+): Promise<AEOSetupJobApi> => {
+    return apiMutator<AEOSetupJobApi>(getAeoSetupCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOSetupRequestApi),
+    })
+}
+
+export const getAeoSetupRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_setup/${id}/`
+}
+
+/**
+ * Gets a setup job started with POST aeo_setup/, with the state of each step. Jobs expire an hour after their last update.
+ * @summary Get AEO setup job
+ */
+export const aeoSetupRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOSetupJobApi> => {
+    return apiMutator<AEOSetupJobApi>(getAeoSetupRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoSetupContextUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/context/`
+}
+
+/**
+ * Gets what PostHog already knows about the project for AI visibility setup: the domains it may be about, from its own brands, authorized URLs, recording domains and pageview hosts, and how many prompts, keywords and checks it has. Use the first website as the default domain for POST aeo_setup/.
+ * @summary Get AEO setup context
+ */
+export const aeoSetupContext = async (projectId: string, options?: RequestInit): Promise<AEOSetupContextApi> => {
+    return apiMutator<AEOSetupContextApi>(getAeoSetupContextUrl(projectId), {
         ...options,
         method: 'GET',
     })

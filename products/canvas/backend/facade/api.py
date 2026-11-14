@@ -100,6 +100,7 @@ from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
     seed_teaching_canvas as seed_teaching_canvas,
 )
+from products.canvas.backend.web_authoring import blocks_session_action as blocks_session_action
 
 
 def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none_match: str | None) -> CanvasArtifact:

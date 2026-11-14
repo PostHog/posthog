@@ -23,15 +23,15 @@ const node = (
     nodeStats: TraceNodeApi['stats'],
     children: TraceNodeApi[] = [],
     model: string | null = null
-): TraceNodeApi => ({ id, kind, name, model, stats: nodeStats, hasError: false, children })
+): TraceNodeApi => ({ id, kind, name, label: name, model, stats: nodeStats, hasError: false, children })
 
 const SAMPLE_SESSION: TraceNodeApi[] = [
     node('trace-1', 'trace', 'support_chat', stats(0.0041, 2300), [
         node('span-1', 'span', 'search_docs', stats(null, 400)),
-        node('gen-1', 'generation', 'answer_question', stats(0.0032, 1600), [], 'gpt-4.1-mini'),
+        node('gen-1', 'generation', 'answer_question', stats(0.0032, 1600), [], 'gpt-6-luna'),
     ]),
     node('trace-2', 'trace', 'support_chat', stats(0.0028, 1400), [
-        node('gen-3', 'generation', 'answer_question', stats(0.0028, 1400), [], 'gpt-4.1-mini'),
+        node('gen-3', 'generation', 'answer_question', stats(0.0028, 1400), [], 'gpt-6-luna'),
     ]),
 ]
 

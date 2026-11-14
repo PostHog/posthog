@@ -1,16 +1,54 @@
-{# One console block. `block` is a Notice, Table, Output or Paging from posthog/admin/console/tools.py. #}
+{# One console block. `block` is a Notice, Table, Output, Paging, Stats, Links, Filters or Secret from posthog/admin/console/tools.py. #}
 {% if block.kind == "notice" %}
-    <p class="m-0 max-w-3xl text-muted-foreground">
-        {{ block.text }}
-        {% if block.href %}
-            <a class="text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
-               href="{{ block.href }}">{{ block.link_text }}</a>
-        {% endif %}
-    </p>
+    {% if block.tone %}
+        {% include "admin_console/_callout.html" with notice=block %}
+    {% else %}
+        <p class="m-0 max-w-3xl text-muted-foreground">
+            {{ block.text }}
+            {% if block.href %}
+                <a class="text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+                   href="{{ block.href }}">{{ block.link_text }}</a>
+            {% endif %}
+        </p>
+    {% endif %}
 {% elif block.kind == "table" %}
     {% include "admin_console/_table.html" with table=block %}
 {% elif block.kind == "output" %}
     <pre class="m-0 p-3 max-h-[480px] overflow-auto rounded border border-border bg-chrome font-mono text-xs whitespace-pre-wrap break-words">{{ block.text }}</pre>
+{% elif block.kind == "secret" %}
+    {# A Secret appears only on a result page, which the console shows once. console.js wires the copy button. #}
+    <section class="quill-card group/card flex flex-col max-w-xl"
+             data-quill
+             data-slot="card"
+             data-size="sm">
+        <div class="quill-card__header group/card-header" data-slot="card-header">
+            <h2 class="quill-card__title m-0" data-slot="card-title">{{ block.label }}</h2>
+        </div>
+        <div class="quill-card__content flex flex-col gap-2"
+             data-slot="card-content">
+            <div class="flex gap-2">
+                <input id="console-secret-{{ forloop.counter }}"
+                       class="quill-input font-mono"
+                       type="text"
+                       value="{{ block.value }}"
+                       aria-label="{{ block.label }}"
+                       autocomplete="off"
+                       spellcheck="false"
+                       readonly
+                       data-console-secret />
+                <button type="button"
+                        class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+                        data-console-copy="console-secret-{{ forloop.counter }}">Copy</button>
+            </div>
+            <p class="m-0 text-muted-foreground">{{ block.note }}</p>
+        </div>
+    </section>
 {% elif block.kind == "paging" %}
     {% include "admin_console/_paging.html" with paging=block %}
+{% elif block.kind == "stats" %}
+    {% include "admin_console/_stats.html" with stats=block %}
+{% elif block.kind == "links" %}
+    {% include "admin_console/_links.html" with links=block %}
+{% elif block.kind == "filters" %}
+    {% include "admin_console/_filters.html" with filters=block %}
 {% endif %}

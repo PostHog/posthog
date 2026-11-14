@@ -42,6 +42,7 @@ POPULATION_KINDS = api.POPULATION_KINDS
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
 TEMPLATE_KEY_CHOICES = api.TEMPLATE_KEY_CHOICES
 VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
+VALIDATION_ERROR_CODE_CHOICES = api.VALIDATION_ERROR_CODE_CHOICES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
@@ -2025,6 +2026,17 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
             "is passed through; any other failure is a generic message and the detail is logged."
         ),
     )
+    error_code = serializers.ChoiceField(
+        choices=VALIDATION_ERROR_CODE_CHOICES,
+        allow_null=True,
+        help_text=(
+            "Why validation did not run, or null when it did. 'invalid_definition': a query error in the "
+            "definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this "
+            "project's data, so a retry fails the same way; narrow the population, for example to people who "
+            "performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth "
+            "a retry."
+        ),
+    )
 
 
 class StartTrainingRequestSerializer(serializers.Serializer):
@@ -2042,9 +2054,9 @@ class StartTrainingRequestSerializer(serializers.Serializer):
 class TrainingRunCapReachedSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the run did not start.")
     used = serializers.IntegerField(
-        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+        help_text="Sandbox training runs the project started that count against its daily limit, across all its pipelines."
     )
-    limit = serializers.IntegerField(help_text="Sandbox training runs the project may start in any 24 hours.")
+    limit = serializers.IntegerField(help_text="The project's daily limit of sandbox training runs.")
     next_slot_at = serializers.DateTimeField(
         allow_null=True,
         help_text="When the next training run can start. Null when training runs are turned off for the project.",
@@ -2063,10 +2075,10 @@ def _limit_source_field(limit: str) -> serializers.ChoiceField:
 
 class ProjectLimitsSerializer(DataclassSerializer):
     max_training_runs_per_day = serializers.IntegerField(
-        help_text="Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off."
+        help_text="The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off."
     )
     training_runs_used = serializers.IntegerField(
-        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+        help_text="Sandbox training runs the project started that count against its daily limit, across all its pipelines."
     )
     next_slot_at = serializers.DateTimeField(
         allow_null=True,

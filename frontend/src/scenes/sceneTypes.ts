@@ -45,6 +45,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DashboardTemplateCopy = 'DashboardTemplateCopy',
+    DataDeletionRequestNew = 'DataDeletionRequestNew',
     DataManagement = 'DataManagement',
     DataPipelinesNew = 'DataPipelinesNew',
     DataOps = 'DataOps',
@@ -227,11 +228,15 @@ export enum Scene {
     Broadcasts = 'Broadcasts',
     Transactional = 'Transactional',
     TransactionalEmailLogEntry = 'TransactionalEmailLogEntry',
+    TransactionalCodeEmail = 'TransactionalCodeEmail',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    ReleaseCalendar = 'ReleaseCalendar',
+    Releases = 'Releases',
+    Release = 'Release',
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
     AIObservability = 'AIObservability',
@@ -278,6 +283,7 @@ export enum Scene {
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
     SupportTicketDetail = 'SupportTicketDetail',
     SupportSettings = 'SupportSettings',
+    SupportOverview = 'SupportOverview',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -451,6 +457,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Support (conversations)
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
+    [Scene.SupportOverview]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
     // Business knowledge
@@ -467,6 +474,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Transactional]: AccessControlResourceType.Workflow,
     [Scene.TransactionalEmailLogEntry]: AccessControlResourceType.Workflow,
+    [Scene.TransactionalCodeEmail]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
     [Scene.WorkflowsEmailDomain]: AccessControlResourceType.Workflow,
