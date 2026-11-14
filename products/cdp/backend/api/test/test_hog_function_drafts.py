@@ -744,6 +744,56 @@ class TestHogFunctionDrafts(DraftTestCase):
     @parameterized.expand(
         [
             (
+                "types_the_held_entries_again",
+                {"url": SENDER_URL, "region": "eu"},
+                {"url": SENDER_URL, "region": "eu"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "types_a_new_url_and_masks_the_rest",
+                {"url": SENDER_URL, "region": "eu"},
+                {"url": MOVED_URL, "region": MASKED_SECRET_VALUE},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "types_a_new_entry_named_entered",
+                {"url": SENDER_URL, STAGED_SECRET_ENTERED: SENDER_URL},
+                {"url": SENDER_URL, STAGED_SECRET_ENTERED: MOVED_URL},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_publish_that_changes_a_dictionary_secret_needs_the_secrets_a_draft_edit_entered(
+        self, _name: str, held_target: dict, entered_target: dict, expected_status: int
+    ):
+        function_id = self._create(
+            hog="fetch(inputs.target.url, {'headers': {'Authorization': inputs.token}});",
+            inputs_schema=[
+                {"key": "target", "type": "dictionary", "label": "Target", "secret": True},
+                SENDER_SCHEMA[1],
+            ],
+            inputs={"target": {"value": held_target}, "token": {"value": "live"}},
+        )
+
+        with secret_reentry_flag(True):
+            self._stage(function_id, {"inputs": {"target": {"value": held_target}, "token": {"value": "staged"}}})
+            confirm_token = self._preview_publish(function_id)["confirm_token"]
+            response = self.client.post(
+                self._url(function_id, "/publish"),
+                {"confirm": True, "confirm_token": confirm_token, "inputs": {"target": {"value": entered_target}}},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        live = HogFunction.objects.get(id=function_id).encrypted_inputs
+        if expected_status == status.HTTP_200_OK:
+            assert live["token"]["value"] == "staged"
+        else:
+            assert response.json()["code"] == "secret_reentry_required"
+            assert (live["target"]["value"], live["token"]["value"]) == (held_target, "live")
+
+    @parameterized.expand(
+        [
+            (
                 "by_adding_an_entry",
                 True,
                 {

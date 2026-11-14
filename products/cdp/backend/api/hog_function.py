@@ -468,9 +468,9 @@ def _without_entered_mark(entry: Any) -> Any:
     return {key: value for key, value in entry.items() if key != STAGED_SECRET_ENTERED}
 
 
-def _secret_json(entry: Any) -> str:
+def _secret_json(value: Any) -> str:
     # As JSON, because Python equates `True` with `1`, which the worker reads differently.
-    return json.dumps(_without_entered_mark(entry), default=str, sort_keys=True)
+    return json.dumps(value, default=str, sort_keys=True)
 
 
 def draft_changed_fields(hog_function: HogFunction) -> list[str]:
@@ -1120,7 +1120,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # A draft can hold a stored secret in plaintext, so at publish and in a draft test run a key made public
         # passes only with a new value.
         checks_draft = "live_encrypted_inputs" in self.context or bool(self.context.get("use_draft"))
-        if checks_draft and self._changes_a_held_secret(instance, live_secrets, requested, entered & declared):
+        # A dictionary sent with some entries still masked changes the entries it types, so it counts too.
+        sent_secrets = {
+            key for key in supplied_input_keys(requested) & declared if not _only_masked(requested[key]["value"])
+        }
+        if checks_draft and self._changes_a_held_secret(instance, live_secrets, requested, sent_secrets):
             # A draft edit entered its secrets for the secrets it saw, and the code can send one secret to an
             # address another one holds, so after a new value each of them has to be typed in this request.
             staged = dict.fromkeys(staged, False)
@@ -1175,12 +1179,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             raise serializers.ValidationError(errors, code="secret_reentry_required")
 
     @staticmethod
-    def _changes_a_held_secret(instance: HogFunction, live_secrets: dict, requested: dict, entered: set[str]) -> bool:
+    def _changes_a_held_secret(instance: HogFunction, live_secrets: dict, requested: dict, sent: set[str]) -> bool:
         held = {**live_secrets, **(instance.draft_encrypted_inputs or {})}
         return any(
             _secret_json(requested[key].get("value"))
             != _secret_json(held[key].get("value") if isinstance(held.get(key), dict) else None)
-            for key in entered
+            for key in sent
         )
 
     def _canonical_config(
@@ -2057,7 +2061,8 @@ class HogFunctionViewSet(
             # for content its editor never saw.
             seen_secrets = validated_against.draft_encrypted_inputs or {}
             stale = _draft_guarded_content(seen, staged) != _draft_guarded_content(previous, staged) or any(
-                _secret_json(seen_secrets.get(key)) != _secret_json(staged.get(key))
+                _secret_json(_without_entered_mark(seen_secrets.get(key)))
+                != _secret_json(_without_entered_mark(staged.get(key)))
                 for key in seen_secrets.keys() | staged.keys()
             )
             entered = set() if stale else entered_secret_input_keys(serializer.requested_inputs)
@@ -2080,7 +2085,8 @@ class HogFunctionViewSet(
 
         live_secrets = locked.encrypted_inputs or {}
         secret_changed = any(
-            _secret_json(draft_secrets.get(key)) != _secret_json(staged.get(key, live_secrets.get(key)))
+            _secret_json(_without_entered_mark(draft_secrets.get(key)))
+            != _secret_json(_without_entered_mark(staged.get(key, live_secrets.get(key))))
             for key in draft_secrets.keys() | staged.keys()
         )
         if secret_changed or _draft_guarded_content(previous, draft_secrets) != _draft_guarded_content(
