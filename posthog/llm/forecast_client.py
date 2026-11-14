@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 import httpx
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config, team_distinct_id
+from posthog.llm.gateway_client import ai_gateway_headers, resolve_https_ai_gateway_config, team_distinct_id
 
 FORECAST_MODEL = "posthog/mistralai/timestral-28m"
 
@@ -40,7 +40,7 @@ class ForecastError(Exception):
 
 
 class ForecastNotConfiguredError(ForecastError):
-    """No AI gateway is configured, so no call was made."""
+    """No AI gateway is configured, or its URL would send the key in clear, so no call was made."""
 
 
 class ForecastUnavailableError(ForecastError):
@@ -54,7 +54,12 @@ class ForecastRejectedError(ForecastError):
 
 
 class ForecastResponseError(ForecastError):
-    """The gateway answered with a body that does not match the forecast response."""
+    """The gateway answered with a body that does not match the forecast response.
+
+    Retryable, because one unreadable body does not mean that the next call gets one too.
+    """
+
+    retryable = True
 
 
 @frozen
@@ -79,10 +84,12 @@ def forecast(
     prediction_length: int = 1,
     trace_id: str | None = None,
     timeout: httpx.Timeout | float = DEFAULT_TIMEOUT,
+    privacy_mode: bool = False,
 ) -> dict[str, SeriesForecast]:
     """Forecast ``prediction_length`` steps of each series, keyed by ``item_id``.
 
     ``ai_product`` and ``team_id`` label the gateway's event, and ``team_id`` names the team the call is for.
+    With ``privacy_mode``, the gateway's event keeps no inputs or outputs.
     Raises ``ValueError`` for an input the gateway cannot accept, and a ``ForecastError`` subclass when the call fails.
     """
     _validate(
@@ -94,9 +101,9 @@ def forecast(
     )
     if not series:
         return {}
-    gateway = resolve_ai_gateway_config()
+    gateway = resolve_https_ai_gateway_config()
     if gateway is None:
-        raise ForecastNotConfiguredError("Forecasts need AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
+        raise ForecastNotConfiguredError("Forecasts need AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY")
 
     headers = {
         **(
@@ -109,6 +116,7 @@ def forecast(
             or {}
         ),
         "Authorization": f"Bearer {gateway.api_key}",
+        **({"X-PostHog-Privacy-Mode": "true"} if privacy_mode else {}),
     }
     url = gateway.url.rstrip("/") + "/forecast"
     forecasts: dict[str, SeriesForecast] = {}
