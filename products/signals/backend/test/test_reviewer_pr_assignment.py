@@ -1,12 +1,16 @@
 import json
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.github_integration_base import GitHubAuthorLastCommit
 from posthog.models.organization import OrganizationMembership
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
@@ -97,6 +101,7 @@ def _open_pr_github() -> MagicMock:
     }
     github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": []}
     github.get_removed_pull_request_reviewers.return_value = set()
+    github.get_author_last_commit.return_value = GitHubAuthorLastCommit(last_commit_at=timezone.now())
     return github
 
 
@@ -301,6 +306,72 @@ class TestAssignReviewersToPullRequest:
 
         if owner is None and removed is not None:
             github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["other"])
+        else:
+            github.request_pull_request_reviews.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("last_commit_days", "pinned", "owner", "expected_reviewer"),
+        [
+            ({"departed": 90, "other": 1}, None, None, "other"),
+            ({"departed": 90, "other": 90}, None, None, None),
+            ({"departed": 90, "other": 1}, "departed", None, "departed"),
+            ({"departed": 90, "other": 1}, None, "departed", "departed"),
+            ({"departed": None, "other": 1}, None, None, "departed"),
+            ({"other": 1}, None, None, None),
+        ],
+        ids=[
+            "inactive_reviewer_skipped",
+            "no_active_reviewer",
+            "pinned_reviewer_asked",
+            "owner_asked",
+            "reviewer_without_commits_asked",
+            "failed_probe_requests_nobody",
+        ],
+    )
+    def test_without_an_owner_only_an_active_committer_is_asked(
+        self,
+        org_and_team: tuple[Organization, Team],
+        last_commit_days: dict[str, int | None],
+        pinned: str | None,
+        owner: str | None,
+        expected_reviewer: str | None,
+    ) -> None:
+        org, team = org_and_team
+        for login in ["departed", "other"]:
+            _make_reviewer(org, login, opted_in=False)
+        report = _make_report(team, ["departed", "other"])
+        if pinned:
+            SignalReportArtefact.objects.create(
+                team=team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.REVIEWER_CORRECTIONS,
+                content=ReviewerCorrections(pinned=(SuggestedReviewerEntry(github_login=pinned),)).model_dump_json(),
+            )
+        github = _open_pr_github()
+        github.get_pull_request.return_value["assignees"] = [owner] if owner else []
+
+        def last_commit(_repository: str, login: str) -> GitHubAuthorLastCommit | None:
+            if login not in last_commit_days:
+                return None
+            days = last_commit_days[login]
+            return GitHubAuthorLastCommit(
+                last_commit_at=None if days is None else timezone.now() - timedelta(days=days)
+            )
+
+        github.get_author_last_commit.side_effect = last_commit
+
+        with (
+            patch("products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True),
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+        if expected_reviewer:
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [expected_reviewer])
         else:
             github.request_pull_request_reviews.assert_not_called()
 
