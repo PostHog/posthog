@@ -12,7 +12,7 @@ from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.cdp.backend.api.hog_function import STAGED_SECRET_ENTERED, HogFunctionViewSet, supplied_input_keys
+from products.cdp.backend.api.hog_function import STAGED_SECRET_ENTERED, HogFunctionViewSet
 from products.cdp.backend.api.test.secret_sender import (
     MOVED_SENDER_HOG,
     MOVED_URL,
@@ -24,6 +24,7 @@ from products.cdp.backend.api.test.secret_sender import (
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.secret_reentry import supplied_input_keys
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.validation import MASKED_SECRET_VALUE
 

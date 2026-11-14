@@ -18,7 +18,6 @@ from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
-from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -73,13 +72,19 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunResponseSerializer,
 )
 from products.cdp.backend.secret_reentry import (
+    SECRET_REENTRY_CODE,
+    SECRET_REENTRY_COUNTER,
+    SECRET_REENTRY_MESSAGE,
     SecretReentry,
     carried_mapping_secrets,
+    entered_secret_input_keys,
     filled_secret_keys,
     guarded_content,
     mapping_secret_values,
     replaces_stored_value,
+    secret_reentry_enforced,
     stored_secrets,
+    supplied_input_keys,
 )
 from products.cdp.backend.services.destination_test_runs import (
     destination_test_run_context,
@@ -91,7 +96,6 @@ from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
     DUPLICATE_INPUT_KEYS_ERROR,
-    MASKED_SECRET_VALUE,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -150,18 +154,11 @@ CREATE_ENABLED_MESSAGE = (
     "once the config looks right."
 )
 
-SECRET_REENTRY_FLAG = "cdp-secret-host-binding"
-SECRET_REENTRY_MESSAGE = "Enter this secret again to save changes to the code, inputs or mappings."
 MAPPING_SECRET_MESSAGE = (
     "A mapping still holds a saved secret. Remove it from the mapping to save changes to the code, inputs or mappings."
 )
 # Marks a draft's staged secret that a draft edit entered. Validation drops the field, so it never goes live.
 STAGED_SECRET_ENTERED = "entered"
-SECRET_REENTRY_COUNTER = Counter(
-    "posthog_cdp_secret_reentry_total",
-    "Saves that change the code, inputs or mappings of a function with a stored secret input, by outcome and by the API surface that saved them.",
-    labelnames=["outcome", "surface"],
-)
 
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
 # and it signs both sides of the publish, so a valid token proves the caller saw what publishing
@@ -306,52 +303,6 @@ def comparable_content(content: dict) -> dict:
         if isinstance(mappings, list)
         else mappings,
     }
-
-
-def supplied_input_keys(raw_inputs: Any) -> set[str]:
-    """Unlike `entered_secret_input_keys`, a dictionary counts when it still holds some masked entries."""
-    if not isinstance(raw_inputs, dict):
-        return set()
-    return {
-        key
-        for key, item in raw_inputs.items()
-        if isinstance(item, dict) and "value" in item and not (item.get("secret") and _only_masked(item["value"]))
-    }
-
-
-def _only_masked(value: Any) -> bool:
-    if isinstance(value, dict):
-        return bool(value) and all(entry == MASKED_SECRET_VALUE for entry in value.values())
-    return value == MASKED_SECRET_VALUE
-
-
-def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
-    """Input keys whose request value replaces the stored secret. A dictionary secret sent with some
-    entries still masked keeps those stored entries, so it does not count as entered."""
-    if not isinstance(raw_inputs, dict):
-        return set()
-    return {
-        key
-        for key, item in raw_inputs.items()
-        if isinstance(item, dict)
-        and "value" in item
-        and item["value"] != MASKED_SECRET_VALUE
-        and not (isinstance(item["value"], dict) and MASKED_SECRET_VALUE in item["value"].values())
-    }
-
-
-def secret_reentry_enforced(team: Team) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            SECRET_REENTRY_FLAG,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id), "created_at": team.organization.created_at}
-            },
-            send_feature_flag_events=False,
-        )
-    )
 
 
 def _in_jsonb_key_order(value: Any) -> Any:
@@ -1108,7 +1059,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             errors: dict[str, Any] = {"inputs": dict.fromkeys(missing, SECRET_REENTRY_MESSAGE)} if missing else {}
             if carried:
                 errors["mappings"] = MAPPING_SECRET_MESSAGE
-            raise serializers.ValidationError(errors, code="secret_reentry_required")
+            raise serializers.ValidationError(errors, code=SECRET_REENTRY_CODE)
 
     def _canonical_config(
         self, inputs_schema: Any, inputs: Any, mappings: Any, validate_mappings: bool

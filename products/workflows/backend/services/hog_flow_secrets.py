@@ -21,7 +21,7 @@ _FUNCTION_TRIGGER_CONFIG_TYPES = frozenset({"webhook", "manual", "tracking_pixel
 TemplateCache = dict[str, Optional[Any]]
 
 
-def _function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
+def function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
     # A function step, or a trigger whose source is function-shaped, resolves a template whose
     # inputs_schema tells us which inputs are secret. Everything else has no secret inputs.
     config = action.get("config") or {}
@@ -40,7 +40,7 @@ def _function_template_for_action(action: dict, template_cache: Optional[Templat
 
 
 def secret_keys_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> set[str]:
-    template = _function_template_for_action(action, template_cache)
+    template = function_template_for_action(action, template_cache)
     if not template:
         return set()
     return {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}
@@ -121,7 +121,7 @@ def mask_secret_action_inputs(
     # A secret dictionary paired with a plain one (a webhook's secret headers) keeps its entry names,
     # so the editor can list them and a save changes one entry without wiping the others.
     for flow_action in actions:
-        template = _function_template_for_action(flow_action, template_cache)
+        template = function_template_for_action(flow_action, template_cache)
         schemas = (template.inputs_schema or []) if template else []
         secret_keys = {schema["key"] for schema in schemas if schema.get("secret")}
         if not secret_keys:
@@ -234,9 +234,13 @@ def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache]
     return normalized
 
 
-def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dict]) -> list[dict]:
+def rehydrate_flow_secrets(
+    actions: list[dict], secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
+) -> list[dict]:
     # Fold decrypted secrets back into each action's config.inputs. Used for inline test runs that
     # ship a config to the executor directly, bypassing the worker's manager (which decrypts normally).
+    # Only the keys the action's template declares secret come back: the live map can still hold a secret
+    # of a step that the content being run moved to another template, and that template's code must not read it.
     result: list[dict] = []
     for original in actions:
         action = deepcopy(original)
@@ -244,6 +248,10 @@ def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dic
         action_secrets = secrets_by_action.get(action_id) if isinstance(action_id, str) else None
         config = action.get("config")
         if action_secrets and isinstance(config, dict) and isinstance(config.get("inputs"), dict):
-            config["inputs"] = {**config["inputs"], **action_secrets}
+            declared = secret_keys_for_action(action, template_cache)
+            config["inputs"] = {
+                **config["inputs"],
+                **{key: value for key, value in action_secrets.items() if key in declared},
+            }
         result.append(action)
     return result
