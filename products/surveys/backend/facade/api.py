@@ -1,4 +1,6 @@
 from collections.abc import Collection
+from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -9,7 +11,6 @@ from products.surveys.backend.desktop_feedback import (
     read_desktop_feedback_media,
     submit_desktop_feedback,
 )
-from products.surveys.backend.facade.contracts import SurveySummary
 from products.surveys.backend.models import Survey
 from products.surveys.backend.responses.linked import (
     LinkedResponseUnavailable,
@@ -38,6 +39,17 @@ __all__ = [
     "read_desktop_feedback_media",
     "submit_desktop_feedback",
 ]
+
+
+@dataclass(frozen=True)
+class SurveySummary:
+    id: UUID
+    name: str
+    created_at: datetime
+    start_date: datetime | None
+    end_date: datetime | None
+    linked_flag_id: int | None
+    archived: bool
 
 
 def existing_survey_ids(
