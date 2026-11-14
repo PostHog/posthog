@@ -303,6 +303,9 @@ Creative, audience, demographic, and publisher reports are excluded to avoid cou
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
 
+Introspected tables without a usable primary key default to append-only sync when supported, otherwise full refresh.
+Sources that support incremental sync still accept explicit keys, detected keys, and the `id` fallback.
+
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
 Selecting a source in the `Advertising` category records Marketing analytics product intent as well as Data warehouse intent.
