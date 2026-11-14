@@ -390,22 +390,29 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
         }
 
+        // The view's own link, opened again after its filters changed, restores them.
+        const restoreOpenedView = (savedView: string): void => {
+            const view: LogsViewApi | undefined = cache.openedView
+            const viewFilters = view?.short_id === savedView ? (view.filters ?? {}) : {}
+            if (view && SAVED_VIEW_FILTER_PARAMS.some((key) => viewFilters[key as keyof typeof viewFilters])) {
+                actions.applySavedView(view)
+            }
+        }
+
         const applySavedViewParam = (params: Params): void => {
             const raw = params[SAVED_VIEW_PARAM]
             // The id goes into the API path, so anything but a short id is ignored rather than requested.
             const savedView = typeof raw === 'string' && SAVED_VIEW_ID_PATTERN.test(raw) ? raw : null
             // A link edited after the view opened carries its own filters, which win over the view's.
             const linkHasFilters = SAVED_VIEW_FILTER_PARAMS.some((key) => params[key])
-            if (savedView && savedView !== values.openSavedView?.short_id) {
-                actions.openSavedViewById(savedView, linkHasFilters)
-            } else if (savedView && !linkHasFilters && cache.openedView?.short_id === savedView) {
-                // The view's own link, opened again after its filters changed, restores them.
-                const viewFilters = cache.openedView.filters ?? {}
-                if (SAVED_VIEW_FILTER_PARAMS.some((key) => viewFilters[key as keyof typeof viewFilters])) {
-                    actions.applySavedView(cache.openedView)
+            if (!savedView) {
+                if (values.openSavedView) {
+                    actions.setOpenSavedView(null)
                 }
-            } else if (!savedView && values.openSavedView) {
-                actions.setOpenSavedView(null)
+            } else if (savedView !== values.openSavedView?.short_id) {
+                actions.openSavedViewById(savedView, linkHasFilters)
+            } else if (!linkHasFilters) {
+                restoreOpenedView(savedView)
             }
         }
 
