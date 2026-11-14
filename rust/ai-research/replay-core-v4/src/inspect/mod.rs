@@ -8,5 +8,6 @@ pub mod events;
 pub mod features;
 pub mod rrweb;
 pub mod session;
+pub mod sketch;
 pub mod srcset;
 pub mod stats;

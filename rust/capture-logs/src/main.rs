@@ -177,8 +177,6 @@ async fn main() {
 
     let unknown_tokens = setup_unknown_tokens(&config);
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
-    let vercel_drain_gate =
-        vercel::VercelDrainGate::new(&config.vercel_drain_enabled_tokens.unwrap_or_default());
     let authorizer = Authorizer::new(Arc::new(token_dropper)).with_unknown_tokens(unknown_tokens);
     let logs_service = match Service::new(
         kafka_sink,
@@ -258,7 +256,6 @@ async fn main() {
             post(vercel::export_vercel_logs_http).options(options_handler),
         )
         .with_state(logs_service.clone())
-        .layer(axum::Extension(vercel_drain_gate))
         .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
         .layer(RequestDecompressionLayer::new())

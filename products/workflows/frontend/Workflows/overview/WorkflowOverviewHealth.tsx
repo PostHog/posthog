@@ -79,7 +79,7 @@ export function WorkflowOverviewHealth({
     const range = getDateRangeAbsolute()
     const { retry } = useActions(logic)
     const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId }))
-    const { emailSendingPaused } = useValues(workflowLogic)
+    const { emailSendingPause } = useValues(workflowLogic)
 
     const loading = (healthTotalsLoading && !healthTotals) || (stepTotalsLoading && failedRuns === null)
     const totals = healthTotals ?? {}
@@ -91,7 +91,7 @@ export function WorkflowOverviewHealth({
         <div className="@container rounded border bg-surface-primary" data-attr="workflow-overview-health">
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
                 <h3 className="mb-0 text-base font-semibold">Health</h3>
-                {emailSendingPaused ? (
+                {emailSendingPause.paused ? (
                     <LemonTag type="danger" data-attr="workflow-overview-health-paused">
                         Email sending paused
                     </LemonTag>

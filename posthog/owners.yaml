@@ -21,6 +21,10 @@ rules:
       owners: team-data-tools
     - match: '/integrations/'
       owners: team-warehouse-sources
+    - match:
+          - '/llm/forecast_client.py'
+          - '/llm/test_forecast_client.py'
+      owners: team-apm
     - match: '/management/migration_analysis/'
       owners: team-devex
     # Each line acknowledges a risky migration, so one added line lets that migration skip the check.
@@ -71,6 +75,7 @@ rules:
           - '/scheduling/test/test_*.py'
           - '/slo/test/test_*.py'
           - '/test/repo_invariants/test_*.py'
+          - '/test/test_cascade_delete.py'
       owners: team-devex
     - match:
           - '/security/test/test_*.py'

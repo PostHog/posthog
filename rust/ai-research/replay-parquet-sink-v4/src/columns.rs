@@ -304,6 +304,11 @@ pub static BLOCK_COLUMNS: LazyLock<Vec<Column>> = LazyLock::new(|| {
             },
         ],
         optional(Utf8, &["unread_reason"]),
+        // A recorder from before the sketch sends rows without it.
+        vec![Column::NullableList {
+            name: "image_ref_sketch",
+            leaf: Int32,
+        }],
     ]
     .concat()
 });

@@ -11,7 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.signals.backend.facade.spend import complete_task_spend
-from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
+from products.tasks.backend.constants import STOPPED_BEFORE_TURN_CLOSED_STATE_KEY, TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
@@ -40,6 +40,8 @@ _TERMINAL_STATE_MARKERS = (
     SANDBOX_GONE_STATE_KEY,
 )
 
+_STOPPED_RUN_MARKERS = (TIMED_OUT_INACTIVITY_STATE_KEY, SANDBOX_GONE_STATE_KEY)
+
 _TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
 
@@ -60,6 +62,13 @@ class UpdateTaskRunStatusInput:
     last_agent_heartbeat_at: Optional[str] = None
     seconds_since_last_agent_heartbeat: Optional[float] = None
     sandbox_backend: Optional[str] = None
+
+
+def _terminal_state_updates(input: UpdateTaskRunStatusInput, marker: str) -> dict[str, bool]:
+    updates = {marker: True}
+    if marker in _STOPPED_RUN_MARKERS and input.end_of_turn_received is not True:
+        updates[STOPPED_BEFORE_TURN_CLOSED_STATE_KEY] = True
+    return updates
 
 
 @activity.defn
@@ -117,7 +126,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
-                task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates=_terminal_state_updates(input, marker)
+                )
             if (
                 input.status == TaskRun.Status.FAILED
                 and input.error_type
