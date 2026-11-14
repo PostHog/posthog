@@ -13,9 +13,9 @@ from posthog.schema import ProductKey
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
-from posthog.clickhouse.query_tagging import DagsterTags, Feature, tags_context
-from posthog.cloud_utils import is_cloud
+from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, dagster_tags, describe_runs
+from posthog.dags.common.shards import inserted_rows, shard_workload, tagged
 from posthog.dags.data_deletion_requests import DELETION_JOB_NAMES
 from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import squash_person_overrides
@@ -481,7 +481,9 @@ class ShardBackfill:
         """
         # Every replica of the shard, including offline ones, stores a copy of each inserted part.
         disks_by_host = self.cluster.map_hosts_in_shard_by_role(
-            self.shard_num, tagged(self.query_tags, _read_policy_disks), node_role=self.node_role
+            self.shard_num,
+            tagged(self.query_tags, _read_policy_disks, product=ProductKey.FEATURE_FLAGS),
+            node_role=self.node_role,
         ).result()
         if not disks_by_host:
             raise dagster.Failure(description=f"No replica of shard {self.shard_num} reported its disks.")
@@ -557,7 +559,7 @@ class ShardBackfill:
         return sync_execute(query, workload=self.workload, sync_client=client)[0]
 
     def _on_host(self, host: HostInfo, fn: Callable[[Client], T]) -> T:
-        return self.cluster.on_host(host, tagged(self.query_tags, fn)).result()
+        return self.cluster.on_host(host, tagged(self.query_tags, fn, product=ProductKey.FEATURE_FLAGS)).result()
 
 
 def wait_for_blocking_runs(
@@ -586,39 +588,6 @@ def blocking_runs_started_since(instance: dagster.DagsterInstance, check: Blocki
         instance, BLOCKING_JOB_NAMES, statuses=statuses, created_after=check.since, exclude_run_id=run_id
     )
     return [run for run in runs if run not in check.finished_runs]
-
-
-def shard_workload() -> tuple[Workload, NodeRole]:
-    return (Workload.OFFLINE, NodeRole.DATA) if is_cloud() else (Workload.DEFAULT, NodeRole.ALL)
-
-
-def tagged(query_tags: DagsterTags, fn: Callable[[Client], T]) -> Callable[[Client], T]:
-    # The cluster runs fn on a pool thread. The query tags do not cross into that thread.
-    def run(client: Client) -> T:
-        with tags_context(
-            kind="dagster", dagster=query_tags, product=ProductKey.FEATURE_FLAGS, feature=Feature.BACKFILL
-        ):
-            return fn(client)
-
-    return run
-
-
-def on_shard_host(
-    cluster: ClickhouseCluster,
-    shard_num: int,
-    fn: Callable[[Client], T],
-    query_tags: DagsterTags,
-    workload: Workload,
-    node_role: NodeRole,
-) -> T:
-    host = cluster.any_host_in_shard_by_roles(shard_num, [node_role], workload)
-    return cluster.on_host(host, tagged(query_tags, fn)).result()
-
-
-def inserted_rows(result: Any) -> int:
-    # sync_execute returns the written row count for an INSERT that wrote rows. It returns
-    # an empty result for an INSERT that wrote none.
-    return result if isinstance(result, int) else 0
 
 
 def _read_policy_disks(client: Client) -> list[PolicyDisk]:

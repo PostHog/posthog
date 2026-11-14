@@ -17,11 +17,14 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
+from posthog.schema import ProductKey
+
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
 from posthog.dags.common import dagster_tags
 from posthog.dags.common.dictionaries import Dictionary
+from posthog.dags.common.shards import inserted_rows, on_shard_host, shard_workload
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
     create_on_every_cluster,
@@ -33,10 +36,7 @@ from posthog.dags.flag_evaluations_backfill import (
     OWNER_TAG,
     BlockingRunCheck,
     blocking_runs_started_since,
-    inserted_rows,
-    on_shard_host,
     resolve_backfill_days,
-    shard_workload,
     wait_for_blocking_runs,
 )
 from posthog.dataclasses import frozen
@@ -327,7 +327,9 @@ def build_repair_shard(
         return sum(insert(agreeing_calls_query, day, client) for day in plan.days)
 
     def on_this_shard(fn: Callable[[Client], int]) -> int:
-        return on_shard_host(cluster, shard_num, fn, dagster_tags(context), workload, node_role)
+        return on_shard_host(
+            cluster, shard_num, fn, dagster_tags(context), workload, node_role, product=ProductKey.FEATURE_FLAGS
+        )
 
     stale_keys = 0
     for day in plan.days:
