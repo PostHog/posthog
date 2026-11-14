@@ -37,7 +37,7 @@ class PcaBasis:
 # runs out of memory at a few hundred topics.
 _ASSIGNMENT_INSERT_SQL = """
 INSERT INTO {target_table}
-    (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run, source_min_timestamp, timestamp)
+    (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run, tool, timestamp)
 SELECT
     %(team_id)s AS team_id,
     intent_hash,
@@ -47,9 +47,9 @@ SELECT
     toFloat32(dotProduct(embedding, %(pca_pc1)s) - %(pca_offset_1)s) AS x,
     toFloat32(dotProduct(embedding, %(pca_pc2)s) - %(pca_offset_2)s) AS y,
     if(arrayElement(dists, best) > arrayElement(%(thresholds)s, best), 1, 0) AS is_outlier,
-    substringUTF8(text, 1, %(max_text_length)s) AS intent_text,
-    accurateCast(calls, 'UInt32') AS calls_in_run,
-    source_min_timestamp,
+    substringUTF8(content, 1, %(max_text_length)s) AS intent_text,
+    toUInt32(JSONExtractUInt(metadata, 'calls')) AS calls_in_run,
+    JSONExtractString(metadata, 'tool') AS tool,
     now64(3) AS timestamp
 FROM (
     SELECT
