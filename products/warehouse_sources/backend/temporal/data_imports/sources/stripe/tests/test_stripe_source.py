@@ -1254,6 +1254,151 @@ def test_balance_history_switch_decides_which_customers_are_swept(_name, enabled
     assert sorted(row["customer"] for row in rows) == expected_customers
 
 
+_HAS_PAYMENT_METHOD_EXPAND = "data.has_payment_method"
+_EXPAND_REFUSED = ScriptedResponse(
+    status=400,
+    json={
+        "error": {
+            "type": "invalid_request_error",
+            "message": "This property cannot be included (data.has_payment_method)",
+        }
+    },
+)
+
+
+def _payment_method_api(
+    customer_pages: list[list[dict[str, Any]]],
+    refuse_expand_on_page: Optional[int] = None,
+    error: Optional[ScriptedResponse] = None,
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """A Stripe account whose customer listing serves `has_payment_method` only on an expand request.
+
+    `refuse_expand_on_page` answers an expand request for that page with Stripe's refusal, the way an
+    account without access, or one whose access Stripe removed mid-sweep, is answered."""
+    customers = [customer for page in customer_pages for customer in page]
+    page_starts = {None: 0} | {customer_pages[i - 1][-1]["id"]: i for i in range(1, len(customer_pages))}
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/customers":
+            page_index = page_starts[request.param("starting_after")]
+            expanded = request.param("expand[]") == _HAS_PAYMENT_METHOD_EXPAND
+            if expanded and page_index == refuse_expand_on_page:
+                return error or _EXPAND_REFUSED
+            page = [
+                {k: v for k, v in customer.items() if expanded or k != "has_payment_method"}
+                for customer in customer_pages[page_index]
+            ]
+            has_more = page_index < len(customer_pages) - 1
+            return ScriptedResponse(json={"object": "list", "data": page, "has_more": has_more, "url": request.path})
+        customer_id = request.path.split("/")[3]
+        attached = next(c for c in customers if c["id"] == customer_id).get("has_payment_method") is not False
+        payment_methods = (
+            [{"id": f"pm_{customer_id}", "object": "payment_method", "created": 1700000000, "customer": customer_id}]
+            if attached
+            else []
+        )
+        return ScriptedResponse(
+            json={"object": "list", "data": payment_methods, "has_more": False, "url": request.path}
+        )
+
+    return respond
+
+
+_CUSTOMERS_WITH_SIGNAL = [
+    [
+        {"id": "cus_none", "has_payment_method": False},
+        {"id": "cus_card", "has_payment_method": True},
+    ],
+    [
+        {"id": "cus_unknown"},
+        {"id": "cus_none_2", "has_payment_method": False},
+    ],
+]
+
+
+class TestPaymentMethodSweepHasPaymentMethodExpand:
+    def _run(self, endpoint: str, script: Any, flag_on: bool = True) -> tuple[DriveResult, MagicMock]:
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.is_team_flag_enabled",
+            return_value=flag_on,
+        ) as flag:
+            return SourceDriver(StripeSource(), config).run(endpoint, script), flag
+
+    @staticmethod
+    def _swept_customers(result: DriveResult) -> list[str]:
+        return [path.split("/")[3] for path in result.paths if path.endswith("/payment_methods")]
+
+    @staticmethod
+    def _customer_list_expands(result: DriveResult) -> list[str | None]:
+        return [request.param("expand[]") for request in result.requests if request.path == "/v1/customers"]
+
+    @parameterized.expand([(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,), (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,)])
+    def test_granted_account_skips_customers_without_payment_methods(self, endpoint):
+        result, _ = self._run(endpoint, _payment_method_api(_CUSTOMERS_WITH_SIGNAL))
+
+        assert result.raised is None
+        assert self._swept_customers(result) == ["cus_card", "cus_unknown"]
+        assert self._customer_list_expands(result) == [_HAS_PAYMENT_METHOD_EXPAND, _HAS_PAYMENT_METHOD_EXPAND]
+        rows = [row for table in result.rows for row in table.to_pylist()]
+        assert sorted(row["customer"] for row in rows) == ["cus_card", "cus_unknown"]
+        assert all("has_payment_method" not in row for row in rows)
+
+    @parameterized.expand(
+        [
+            # An account without access is refused on the first page.
+            ("refused_on_first_page", 0, [None, "cus_card"], ["cus_none", "cus_card", "cus_unknown", "cus_none_2"]),
+            # Stripe removed the account's access after the first page. The listing continues after
+            # the last customer it handed over, and the first page keeps its skips.
+            ("refused_mid_sweep", 1, ["cus_card"], ["cus_card", "cus_unknown", "cus_none_2"]),
+        ]
+    )
+    def test_refused_expand_falls_back_to_sweeping_every_customer(
+        self, _name, refused_page, relist_cursors, expected_swept
+    ):
+        result, _ = self._run(
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            _payment_method_api(_CUSTOMERS_WITH_SIGNAL, refuse_expand_on_page=refused_page),
+        )
+
+        assert result.raised is None
+        listings = [request for request in result.requests if request.path == "/v1/customers"]
+        relists = listings[refused_page + 1 :]
+        assert [request.param("expand[]") for request in listings[: refused_page + 1]] == [
+            _HAS_PAYMENT_METHOD_EXPAND
+        ] * (refused_page + 1)
+        assert [(request.param("expand[]"), request.param("starting_after")) for request in relists] == [
+            (None, cursor) for cursor in relist_cursors
+        ]
+        assert self._swept_customers(result) == expected_swept
+
+    def test_other_customer_list_errors_still_fail_the_sync(self):
+        error = ScriptedResponse(
+            status=400, json={"error": {"type": "invalid_request_error", "message": "Invalid limit"}}
+        )
+        result, _ = self._run(
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            _payment_method_api(_CUSTOMERS_WITH_SIGNAL, refuse_expand_on_page=0, error=error),
+        )
+
+        assert isinstance(result.raised, stripe_lib.InvalidRequestError)
+        assert len([path for path in result.paths if path == "/v1/customers"]) == 1
+
+    def test_flag_off_sends_no_expand_and_sweeps_every_customer(self):
+        result, _ = self._run(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, _payment_method_api(_CUSTOMERS_WITH_SIGNAL), False)
+
+        assert result.raised is None
+        assert self._customer_list_expands(result) == [None, None]
+        assert self._swept_customers(result) == ["cus_none", "cus_card", "cus_unknown", "cus_none_2"]
+
+    def test_other_tables_skip_the_flag_check(self):
+        _, flag = self._run(CHARGE_RESOURCE_NAME, _stripe_list_api([{"id": "ch_1", "created": NOW}], "created"))
+
+        flag.assert_not_called()
+
+
 class TestScrubClientSecrets:
     @parameterized.expand(
         [
