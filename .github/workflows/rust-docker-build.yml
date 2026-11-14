@@ -55,7 +55,16 @@ jobs:
                   clean: false
 
             - name: Fetch the current commit's history
-              run: git fetch --no-tags --filter=blob:none --unshallow origin "$GITHUB_SHA"
+              run: |
+                  for attempt in 1 2 3; do
+                      if git fetch --no-tags --filter=blob:none --unshallow origin "$GITHUB_SHA"; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep 10
+                      fi
+                  done
+                  exit 1
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
