@@ -524,15 +524,15 @@ class TestBackfillTickActivities:
             pytest.param(3, [], False, id="quote_spent"),
         ],
     )
-    def test_retired_quality_mode_backfill_stops_at_its_quoted_count(
-        self, dispatched: int, expected_ids: list[str], queried: bool
-    ) -> None:
+    def test_backfill_stops_at_its_quoted_count(self, dispatched: int, expected_ids: list[str], queried: bool) -> None:
         scanner = _make_scanner()
+        cursor_end_time = timezone.now() - dt.timedelta(minutes=30)
         backfill = _make_backfill(
             scanner,
-            scanner_snapshot={**_frozen_snapshot(scanner), "sampling_mode": "focused"},
             total_count=3,
             dispatched_count=dispatched,
+            cursor_end_time=cursor_end_time,
+            cursor_session_id="cursor-session",
         )
         fetched = [
             CandidateSession(session_id=session_id, session_end=timezone.now() - dt.timedelta(hours=hours))
@@ -546,6 +546,11 @@ class TestBackfillTickActivities:
         assert [c.session_id for c in result.candidates] == expected_ids
         assert query_cls.return_value.run.called is queried
         assert result.more_work_below_cursor is False
+        # The advance matches on these, so a completing tick that drops them leaves the backfill running.
+        assert (result.started_from_cursor_end_time, result.started_from_cursor_session_id) == (
+            cursor_end_time,
+            "cursor-session",
+        )
 
     def test_unrunnable_exposure_filter_cancels_the_backfill(self) -> None:
         # The candidate query raises PermissionDenied when the launcher was deleted or lost
