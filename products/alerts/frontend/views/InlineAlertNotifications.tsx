@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
-import { LemonDialog } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
@@ -11,12 +9,12 @@ import { IntegrationType } from '~/types'
 
 import {
     AlertNotificationDestinationEditor,
-    AlertNotificationDestinationMessageAction,
     AlertNotificationDestinationView,
     AlertNotificationUrlInput,
     PendingAlertNotificationDestinationView,
     pagerDutyPendingDetail,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { destinationMessageAction } from 'products/alerts/frontend/components/destinationMessageAction'
 import type { AlertDestinationListItemApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
@@ -187,37 +185,6 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
 
     const messageCustomization = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
 
-    const messageAction = (destination: AlertDestinationListItemApi): AlertNotificationDestinationMessageAction => {
-        const loading = changingMessageDestinationKeys.has(destinationKey(destination))
-        return destination.message_customized
-            ? {
-                  label: 'Reset to standard message',
-                  tooltip: 'Send the standard PostHog message instead of your edited one',
-                  onClick: () =>
-                      LemonDialog.open({
-                          title: 'Reset to the standard message?',
-                          description:
-                              "This destination will send PostHog's standard message. Your edits to its message are deleted.",
-                          primaryButton: {
-                              children: 'Reset',
-                              status: 'danger',
-                              onClick: () => resetDestinationMessage(destination),
-                              'data-attr': 'alert-destination-reset-message-confirm',
-                          },
-                          secondaryButton: { children: 'Cancel' },
-                      }),
-                  loading,
-                  dataAttr: 'alert-destination-reset-message',
-              }
-            : {
-                  label: 'Customize',
-                  tooltip: 'Edit the message this destination sends',
-                  onClick: () => customizeDestination(destination),
-                  loading,
-                  dataAttr: 'alert-destination-customize-message',
-              }
-    }
-
     const selectedType =
         !pagerDutyAvailable && storedSelectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
             ? ALERT_NOTIFICATION_TYPE_SLACK
@@ -296,7 +263,14 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
                           targetBlank: true,
                       }
                     : undefined,
-            messageAction: messageCustomization ? messageAction(destination) : undefined,
+            messageAction: messageCustomization
+                ? destinationMessageAction({
+                      messageCustomized: destination.message_customized,
+                      loading: changingMessageDestinationKeys.has(destinationKey(destination)),
+                      onCustomize: () => customizeDestination(destination),
+                      onReset: () => resetDestinationMessage(destination),
+                  })
+                : undefined,
             onDelete: () => deleteDestination(destination),
         }
     })
