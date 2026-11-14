@@ -61,6 +61,7 @@ export type FakeCloudOptions = {
     denied?: string[]
     host?: 'ready' | 'failed' | 'silent'
     deleteFailures?: number
+    deleteTakesMs?: number
     rollsBack?: 'create' | 'update'
     outlives?: string[]
 }
@@ -334,7 +335,8 @@ export class FakeCloud implements Aws {
 
     private transition(stack: Stack, status: string): void {
         stack.status = status
-        stack.settlesAt = this.options.now().getTime() + TAKES_MS[status]
+        const takesMs = status === 'DELETE_IN_PROGRESS' ? this.options.deleteTakesMs : undefined
+        stack.settlesAt = this.options.now().getTime() + (takesMs ?? TAKES_MS[status])
     }
 
     private settleStack(name: string): void {

@@ -282,7 +282,7 @@ async function receiptOf(
     manifest: Manifest,
     inventory: Inventory,
     lost: string[],
-    { until, listedBy, clusterGoneListedBy }: { until: number; listedBy: number; clusterGoneListedBy?: number }
+    { until, listedBy }: { until: number; listedBy: number }
 ): Promise<Receipt> {
     for (;;) {
         const { failures, tagged } = await discover(controller, profile, manifest, inventory)
@@ -315,9 +315,6 @@ async function receiptOf(
                 clean: gone && unlisted.length === 0,
                 unlisted,
                 resources,
-                ...(clusterGoneListedBy === undefined
-                    ? {}
-                    : { clusterGoneListedBy: new Date(clusterGoneListedBy).toISOString() }),
             }
         }
         await controller.sleep(POLL_MS)
@@ -356,15 +353,18 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
             controller.warn(`Could not delete stack ${manifest.stackName}: ${error.message}`)
         )
         const requested = await orGone(evidence.get(keyOf(manifest.runId, 'stack-requested')), () => true, 'NoSuchKey')
-        if (blind && requested !== GONE) {
-            clusterGoneListedBy ??= controller.now().getTime() + TAG_LISTING_LAG_MS
-            listedBy = Math.max(listedBy, clusterGoneListedBy)
+        const waitsForListings = blind && requested !== GONE
+        if (waitsForListings) {
+            listedBy = Math.max(listedBy, clusterGoneListedBy ?? controller.now().getTime() + TAG_LISTING_LAG_MS)
         }
-        receipt = await receiptOf(controller, profile, manifest, inventory, lost, {
-            until,
-            listedBy,
-            clusterGoneListedBy,
-        })
+        receipt = await receiptOf(controller, profile, manifest, inventory, lost, { until, listedBy })
+        const stackGone = receipt.resources.some(({ type, state }) => type === STACK && state === GONE)
+        const graceEnd =
+            clusterGoneListedBy ??
+            (waitsForListings && stackGone ? Date.parse(receipt.checkedAt) + TAG_LISTING_LAG_MS : undefined)
+        if (graceEnd !== undefined) {
+            receipt = { ...receipt, clusterGoneListedBy: new Date(graceEnd).toISOString() }
+        }
         await evidence.put(
             keyOf(manifest.runId, `receipts/${receipt.checkedAt}-${randomUUID()}.json`),
             JSON.stringify(receipt, null, 2)

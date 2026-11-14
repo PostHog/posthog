@@ -1014,6 +1014,30 @@ describe('cloud controller', () => {
         expect(cloud.schedules.size).toBe(0)
     })
 
+    it('waits for the tag listings again when the stack outlived the teardown that found its cluster gone', async () => {
+        const { controller } = prepare({
+            cloud: { deleteTakesMs: 3 * HOUR_MS },
+            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
+        })
+        cloud.hideCreationWhile(() => true)
+        onSleep = () => {
+            if (cloud.resources.length > 0) {
+                interrupt?.()
+            }
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        err.length = 0
+        now = new Date(now.getTime() + 4 * HOUR_MS)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+        expect(err.join('\n')).toContain('until the tag listings catch up')
+
+        now = new Date(now.getTime() + HOUR_MS / 3)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(0)
+        expect(released(leasedRunId())).toBe(1)
+    })
+
     it.each([
         ['its receipt', false],
         ['no receipt', true],
