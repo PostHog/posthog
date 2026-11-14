@@ -1496,12 +1496,6 @@ export namespace Schemas {
 
     export interface AICreditSettingsResponse {
       /**
-         * The most the organization can spend on AI in a billing period, in USD. Null means no limit.
-         * @nullable
-         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
-         */
-      monthly_spend_limit_usd: string | null;
-      /**
          * Automatic reload charges the card when the AI balance drops below this many USD.
          * @nullable
          * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
@@ -1772,6 +1766,15 @@ export namespace Schemas {
       date: string;
       /** Charged to the AI balance that day, in USD, by product. */
       spend_usd: AISpendDaySpendUsd;
+    }
+
+    export interface AISpendLimitResponse {
+      /**
+         * The most the organization can spend on AI in a billing period, in USD. Null means no limit.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      limit_usd: string | null;
     }
 
     export interface AISpendProduct {
@@ -86711,7 +86714,7 @@ export namespace Schemas {
          * @nullable
          * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
          */
-      monthly_spend_limit_usd?: string | null;
+      limit_usd?: string | null;
     }
 
     /**

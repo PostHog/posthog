@@ -28,6 +28,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -1525,6 +1526,10 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
 
 
+def _gateway_answer(status_code: int, body: dict[str, Any]) -> httpx.Response:
+    return httpx.Response(status_code, json=body, request=httpx.Request("GET", "http://gw"))
+
+
 def _billing_answer(status_code: int, body: dict[str, Any]) -> MagicMock:
     answer = MagicMock(status_code=status_code)
     answer.json.return_value = body
@@ -1549,8 +1554,7 @@ GATEWAY_SPEND = {
 
 
 AI_CREDIT_SETTINGS_ANSWER = {
-    "monthly_spend_limit_usd": "250.00",
-    "low_balance_threshold_usd": None,
+    "low_balance_threshold_usd": "20.00",
     "automatic_reload": {
         "enabled": False,
         "target_usd": None,
@@ -1635,7 +1639,7 @@ class TestAICreditsBillingAPI(APILicensedTest):
             ("purchase_ended", "post", "purchase", 409, {"status": "ended"}, 409, "ai_credits_purchase_ended"),
             ("purchase_unfinished", "post", "purchase", 503, {}, 503, "ai_credits_purchase_unfinished"),
             ("not_in_rollout", "get", "card", 403, {}, 403, "ai_credits_unavailable"),
-            ("settings_refused", "patch", "settings/spend_limit", 400, {}, 400, "ai_credits_settings_rejected"),
+            ("settings_refused", "patch", "settings/automatic_reload", 400, {}, 400, "ai_credits_settings_rejected"),
             ("billing_failed", "get", "settings", 500, {}, 502, "billing_service_error"),
         ]
     )
@@ -1657,7 +1661,7 @@ class TestAICreditsBillingAPI(APILicensedTest):
             for path, data in [
                 ("quote", {"amount_usd": "50"}),
                 ("purchase", {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"}),
-                ("settings/spend_limit", {"monthly_spend_limit_usd": "250.00"}),
+                ("settings/automatic_reload", {"low_balance_threshold_usd": "20.00"}),
             ]
         }
 
@@ -1793,6 +1797,80 @@ class TestAICreditsBillingAPI(APILicensedTest):
 
         assert (response.status_code, response.json()["code"]) == (503, "ai_spend_unavailable")
         assert "gateway's own words" not in response.content.decode()
+
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.request")
+    def test_reads_the_spend_limit_from_the_gateway(self, mock_request: MagicMock) -> None:
+        mock_request.return_value = _gateway_answer(200, {"limit_usd": "250.00"})
+
+        response = self.client.get("/api/billing/ai_credits/spend_limit")
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"limit_usd": "250.00"})
+        assert mock_request.call_args.args == (
+            "GET",
+            f"http://gateway.example/internal/accounts/{self.organization.id}/spend-limit",
+        )
+
+    @parameterized.expand([("sets_a_limit", "250.00"), ("removes_the_limit", None)])
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.request")
+    def test_an_admin_sets_the_spend_limit_in_the_gateway_and_the_change_is_logged(
+        self, _name: str, limit: str | None, mock_request: MagicMock
+    ) -> None:
+        mock_request.side_effect = [
+            _gateway_answer(200, {"limit_usd": "100.00"}),
+            _gateway_answer(200, {"limit_usd": limit}),
+        ]
+
+        response = self.client.patch(
+            "/api/billing/ai_credits/settings/spend_limit",
+            {"limit_usd": limit, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"limit_usd": limit})
+        assert (mock_request.call_args.args[0], mock_request.call_args.kwargs["json"]) == ("PUT", {"limit_usd": limit})
+        detail = ActivityLog.objects.get(organization_id=self.organization.id, scope="Billing").detail
+        change = cast(dict[str, Any], detail)["changes"][0]
+        assert (change["field"], change["before"], change["after"]) == ("limit_usd", "100.00", limit)
+
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.request")
+    def test_the_same_spend_limit_again_records_no_change(self, mock_request: MagicMock) -> None:
+        mock_request.return_value = _gateway_answer(200, {"limit_usd": "250.00"})
+
+        self.client.patch(
+            "/api/billing/ai_credits/settings/spend_limit",
+            {"limit_usd": "250.00", "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert not ActivityLog.objects.filter(organization_id=self.organization.id, scope="Billing").exists()
+
+    @parameterized.expand(
+        [
+            ("read_gateway_error", "get", 500, {"error": "gateway's own words"}),
+            ("read_answer_invalid", "get", 200, {"limit_usd": "gateway's own words"}),
+            ("write_reads_first", "patch", 500, {"error": "gateway's own words"}),
+        ]
+    )
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.request")
+    def test_a_failed_spend_limit_call_is_a_named_error(
+        self, _name: str, method: str, gateway_status: int, gateway_body: dict[str, Any], mock_request: MagicMock
+    ) -> None:
+        mock_request.return_value = _gateway_answer(gateway_status, gateway_body)
+        path = "spend_limit" if method == "get" else "settings/spend_limit"
+
+        response = getattr(self.client, method)(
+            f"/api/billing/ai_credits/{path}",
+            {"limit_usd": "250.00", "organization_id": str(self.organization.id)} if method == "patch" else None,
+            content_type="application/json",
+        )
+
+        assert (response.status_code, response.json()["code"]) == (503, "ai_spend_limit_unavailable")
+        assert "gateway's own words" not in response.content.decode()
+        assert [call.args[0] for call in mock_request.call_args_list] == ["GET"]
 
 
 class TestAISpendPeriod(SimpleTestCase):
@@ -1965,6 +2043,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         "ai_credit_history",
         "ai_credit_card",
         "ai_spend",
+        "ai_spend_limit",
     }
     UNLOCKED_WRITE_ACTIONS = {
         "deactivate",

@@ -84,14 +84,17 @@ export const BillingAiCreditsSettingsAutomaticReloadPartialUpdateBody = /* @__PU
         .describe('The exact words the person agreed to. Turning automatic reload on needs them.'),
 })
 
-export const billingAiCreditsSettingsSpendLimitPartialUpdateBodyMonthlySpendLimitUsdRegExp = new RegExp(
+/**
+ * Set the organization's AI spend limit, which the AI gateway enforces over the billing period.
+ */
+export const billingAiCreditsSettingsSpendLimitPartialUpdateBodyLimitUsdRegExp = new RegExp(
     '^-?\\d{0,10}(?:\\.\\d{0,2})?$'
 )
 
 export const BillingAiCreditsSettingsSpendLimitPartialUpdateBody = /* @__PURE__ */ zod.object({
     organization_id: zod.uuid().optional().describe('Organization selected when this payment flow started.'),
-    monthly_spend_limit_usd: zod
-        .stringFormat('decimal', billingAiCreditsSettingsSpendLimitPartialUpdateBodyMonthlySpendLimitUsdRegExp)
+    limit_usd: zod
+        .stringFormat('decimal', billingAiCreditsSettingsSpendLimitPartialUpdateBodyLimitUsdRegExp)
         .nullish()
         .describe(
             'The most the organization can spend on AI in a billing period, in USD, such as \"250.00\". Pass null to remove the limit.'

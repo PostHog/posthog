@@ -34,8 +34,15 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, get_org_spend
+from posthog.llm.gateway_internal_client import (
+    AIGatewayInternalError,
+    get_org_spend,
+    get_org_spend_limit,
+    set_org_spend_limit,
+)
 from posthog.models import Organization, OrganizationIntegration, Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
@@ -751,24 +758,10 @@ class AIAutomaticReloadSettingsSerializer(serializers.Serializer):
 
 
 class AICreditSettingsResponseSerializer(serializers.Serializer):
-    monthly_spend_limit_usd = _usd_field(
-        "The most the organization can spend on AI in a billing period, in USD. Null means no limit.",
-        allow_null=True,
-    )
     low_balance_threshold_usd = _usd_field(
         "Automatic reload charges the card when the AI balance drops below this many USD.", allow_null=True
     )
     automatic_reload = AIAutomaticReloadSettingsSerializer(help_text="The automatic reload settings.")
-
-
-class AISpendLimitRequestSerializer(BillingPaymentOrganizationSerializer):
-    monthly_spend_limit_usd = _usd_field(
-        'The most the organization can spend on AI in a billing period, in USD, such as "250.00". '
-        "Pass null to remove the limit.",
-        min_value=Decimal("0"),
-        max_value=MAXIMUM_AI_CREDIT_USD,
-        allow_null=True,
-    )
 
 
 class AIAutomaticReloadRequestSerializer(BillingPaymentOrganizationSerializer):
@@ -898,6 +891,29 @@ class AISpendUnavailable(APIException):
     default_detail = "AI spend isn't available right now. Try again in a few minutes."
 
 
+class AISpendLimitUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "ai_spend_limit_unavailable"
+    default_detail = "The AI spend limit isn't available right now. Try again in a few minutes."
+
+
+class AISpendLimitResponseSerializer(serializers.Serializer):
+    limit_usd = _usd_field(
+        "The most the organization can spend on AI in a billing period, in USD. Null means no limit.",
+        allow_null=True,
+    )
+
+
+class AISpendLimitRequestSerializer(BillingPaymentOrganizationSerializer):
+    limit_usd = _usd_field(
+        'The most the organization can spend on AI in a billing period, in USD, such as "250.00". '
+        "Pass null to remove the limit.",
+        min_value=Decimal("0"),
+        max_value=MAXIMUM_AI_CREDIT_USD,
+        allow_null=True,
+    )
+
+
 # The page offers a year of billing periods, like billing's usage and spend ranges, and compares each
 # period with the one before it, so the oldest read is one more period back.
 AI_SPEND_MAX_PERIODS_AGO = 12
@@ -1006,7 +1022,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "authorize",
         "authorize_status",
         "ai_credit_purchase",
-        "ai_spend_limit",
+        "ai_spend_limit_update",
         "ai_automatic_reload",
     }
     # A GET has no body, so these actions name the organization in the query string.
@@ -1570,25 +1586,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(AICreditSettingsResponseSerializer(answer).data)
 
     @validated_request(
-        request_serializer=AISpendLimitRequestSerializer,
-        responses={200: OpenApiResponse(response=AICreditSettingsResponseSerializer)},
-    )
-    @action(
-        methods=["PATCH"],
-        detail=False,
-        url_path="ai_credits/settings/spend_limit",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
-    )
-    def ai_spend_limit(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        limit = request.validated_data["monthly_spend_limit_usd"]
-        answer = self._ai_credits(
-            lambda manager, organization: manager.update_ai_spend_limit(
-                organization, {"monthly_spend_limit_usd": None if limit is None else str(limit)}
-            )
-        )
-        return Response(AICreditSettingsResponseSerializer(answer).data)
-
-    @validated_request(
         request_serializer=AIAutomaticReloadRequestSerializer,
         responses={200: OpenApiResponse(response=AICreditSettingsResponseSerializer)},
     )
@@ -1653,6 +1650,77 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             raise AISpendUnavailable()
         return Response(answer.data)
+
+    def _gateway_spend_limit(self, organization: Organization, call: Callable[[str], dict[str, Any]]) -> Decimal | None:
+        try:
+            answer = AISpendLimitResponseSerializer(data=call(str(organization.id)))
+        except AIGatewayInternalError as error:
+            logger.warning("ai_spend_limit_gateway_unavailable", organization_id=str(organization.id))
+            raise AISpendLimitUnavailable() from error
+        if not answer.is_valid():
+            logger.warning(
+                "ai_spend_limit_gateway_answer_invalid", organization_id=str(organization.id), errors=answer.errors
+            )
+            raise AISpendLimitUnavailable()
+        return answer.validated_data["limit_usd"]
+
+    @validated_request(responses={200: OpenApiResponse(response=AISpendLimitResponseSerializer)})
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="ai_credits/spend_limit",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
+    def ai_spend_limit(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if not get_cached_instance_license():
+            raise NotFound("AI credits need PostHog Cloud.")
+        limit = self._gateway_spend_limit(self._get_org_required(), get_org_spend_limit)
+        return Response(AISpendLimitResponseSerializer({"limit_usd": limit}).data)
+
+    @validated_request(
+        request_serializer=AISpendLimitRequestSerializer,
+        responses={200: OpenApiResponse(response=AISpendLimitResponseSerializer)},
+    )
+    @action(
+        methods=["PATCH"],
+        detail=False,
+        url_path="ai_credits/settings/spend_limit",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
+    def ai_spend_limit_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Set the organization's AI spend limit, which the AI gateway enforces over the billing period."""
+        if not get_cached_instance_license():
+            raise NotFound("AI credits need PostHog Cloud.")
+        organization = self._get_org_required()
+        requested: Decimal | None = request.validated_data["limit_usd"]
+        before = self._gateway_spend_limit(organization, get_org_spend_limit)
+        after = self._gateway_spend_limit(
+            organization,
+            lambda organization_id: set_org_spend_limit(organization_id, None if requested is None else str(requested)),
+        )
+        if before != after:
+            log_activity(
+                organization_id=organization.id,
+                team_id=None,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(organization.id),
+                scope="Billing",
+                activity="changed",
+                detail=Detail(
+                    name="AI spend limit",
+                    changes=[
+                        Change(
+                            type="Billing",
+                            action="changed",
+                            field="limit_usd",
+                            before=None if before is None else str(before),
+                            after=None if after is None else str(after),
+                        )
+                    ],
+                ),
+            )
+        return Response(AISpendLimitResponseSerializer({"limit_usd": after}).data)
 
     @validated_request(responses={200: OpenApiResponse(response=AICreditCardResponseSerializer)})
     @action(

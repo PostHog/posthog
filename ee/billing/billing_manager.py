@@ -1140,9 +1140,6 @@ class BillingManager:
     def ai_credit_settings(self, organization: Organization) -> dict[str, Any]:
         return self._ai_credits_request(organization, "GET", "settings")
 
-    def update_ai_spend_limit(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        return self._ai_credits_request(organization, "PATCH", "settings/spend-limit", body=data)
-
     def update_ai_automatic_reload(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         return self._ai_credits_request(organization, "PATCH", "settings/automatic-reload", body=data)
 

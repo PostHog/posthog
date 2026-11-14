@@ -137,9 +137,10 @@ function SpendDetails({
 }
 
 export function BillingPeriodSpendTile(): JSX.Element {
-    const { spendSummary, spendUnavailable, currentSpendSummary, isCurrentPeriod, settings } = useValues(aiCreditsLogic)
+    const { spendSummary, spendUnavailable, currentSpendSummary, isCurrentPeriod, spendLimit } =
+        useValues(aiCreditsLogic)
 
-    const limitUsd = settings?.monthly_spend_limit_usd ? Number(settings.monthly_spend_limit_usd) : null
+    const limitUsd = spendLimit?.limit_usd ? Number(spendLimit.limit_usd) : null
     const outlook =
         currentSpendSummary && limitUsd !== null ? spendLimitOutlook(currentSpendSummary, limitUsd, dayjs()) : null
 

@@ -11,7 +11,6 @@ import { aiCreditsLogic } from './aiCreditsLogic'
 
 const QUOTE = { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' }
 const RELOAD_ON = {
-    monthly_spend_limit_usd: null,
     low_balance_threshold_usd: '20.00',
     automatic_reload: {
         enabled: true,
@@ -48,7 +47,6 @@ describe('aiCreditsLogic', () => {
                 '/api/billing/ai_credits/settings/': () => [
                     200,
                     {
-                        monthly_spend_limit_usd: null,
                         low_balance_threshold_usd: null,
                         automatic_reload: {
                             enabled: false,
@@ -64,6 +62,7 @@ describe('aiCreditsLogic', () => {
                     { card: { brand: 'visa', last4: '4242', exp_month: 8, exp_year: 2030 } },
                 ],
                 '/api/billing/ai_credits/history/': () => [200, { results: [], has_more: false }],
+                '/api/billing/ai_credits/spend_limit/': () => [200, { limit_usd: '250.00' }],
                 '/api/billing/ai_credits/quote/': ({ request }) => [
                     200,
                     { ...QUOTE, amount_usd: new URL(request.url).searchParams.get('amount_usd') },
@@ -220,6 +219,31 @@ describe('aiCreditsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(reloadSaves).toEqual([{ organization_id: MOCK_DEFAULT_ORGANIZATION.id, ...expectedChange }])
+    })
+
+    // The AI gateway holds the limit. When its read fails, the form can't know the limit, so a save must leave it.
+    it('saves no spend limit when the limit did not load', async () => {
+        const limitSaves: unknown[] = []
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        useMocks({
+            get: { '/api/billing/ai_credits/spend_limit/': () => [503, { code: 'ai_spend_limit_unavailable' }] },
+            patch: {
+                '/api/billing/ai_credits/settings/spend_limit/': async ({ request }) => {
+                    limitSaves.push(await request.json())
+                    return [200, { limit_usd: '100.00' }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openSettingsModal()
+        logic.actions.setSpendSettingsFormValues({ noSpendLimit: false, spendLimitUsd: 100 })
+        logic.actions.submitSpendSettingsForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(limitSaves).toEqual([])
     })
 
     it('shows the chosen billing period, and keeps the balance and reloads on the current one', async () => {

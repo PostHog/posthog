@@ -12,7 +12,6 @@ import { AICredits } from './AICredits'
 import { aiCreditsLogic } from './aiCreditsLogic'
 
 const RELOAD_ON = {
-    monthly_spend_limit_usd: '500.00',
     low_balance_threshold_usd: '20.00',
     automatic_reload: {
         enabled: true,
@@ -24,7 +23,6 @@ const RELOAD_ON = {
 }
 
 const RELOAD_OFF_AFTER_DECLINE = {
-    monthly_spend_limit_usd: null,
     low_balance_threshold_usd: '20.00',
     automatic_reload: {
         enabled: false,
@@ -129,7 +127,11 @@ function spendFor(periodsAgo: number, balanceUsd: string): Record<string, unknow
 }
 
 /** A null balance means the AI gateway doesn't answer. */
-function mocks(settings: Record<string, unknown>, balanceUsd: string | null): ReturnType<typeof mswDecorator> {
+function mocks(
+    settings: Record<string, unknown>,
+    balanceUsd: string | null,
+    limitUsd: string | null = '500.00'
+): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
             '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
@@ -138,6 +140,17 @@ function mocks(settings: Record<string, unknown>, balanceUsd: string | null): Re
             '/api/billing/ai_credits/card/': { card: { brand: 'visa', last4: '4242', exp_month: 8, exp_year: 2030 } },
             '/api/billing/ai_credits/history/': HISTORY,
             '/api/billing/ai_credits/quote/': { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' },
+            // A balance of null stands for an AI gateway that doesn't answer, which also holds the limit.
+            '/api/billing/ai_credits/spend_limit/': () =>
+                balanceUsd === null
+                    ? [
+                          503,
+                          {
+                              code: 'ai_spend_limit_unavailable',
+                              detail: "The AI spend limit isn't available right now.",
+                          },
+                      ]
+                    : [200, { limit_usd: limitUsd }],
             '/api/billing/ai_credits/spend/': ({ request }) =>
                 balanceUsd === null
                     ? [503, { code: 'ai_spend_unavailable', detail: "AI spend isn't available right now." }]
@@ -163,7 +176,7 @@ type Story = StoryObj<typeof AICredits>
 
 export const ReloadOn: Story = { decorators: [mocks(RELOAD_ON, '118.400000')] }
 
-export const ReloadOffAfterADecline: Story = { decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, '6.100000')] }
+export const ReloadOffAfterADecline: Story = { decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, '6.100000', null)] }
 
 export const SpendNotReportedYet: Story = { decorators: [mocks(RELOAD_ON, null)] }
 
@@ -174,19 +187,19 @@ function AICreditsWithAddFundsOpen(): JSX.Element {
 }
 
 export const AddFunds: Story = {
-    decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, '6.100000')],
+    decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, '6.100000', null)],
     render: () => <AICreditsWithAddFundsOpen />,
 }
 
 function AICreditsWithSettingsOpen(): JSX.Element {
-    const { settings } = useValues(aiCreditsLogic)
+    const { settings, spendLimit } = useValues(aiCreditsLogic)
     const { openSettingsModal } = useActions(aiCreditsLogic)
-    // The modal fills its form from the settings, so it opens once they have loaded.
+    // The modal fills its form from the settings and the spend limit, so it opens once both have loaded.
     useEffect(() => {
-        if (settings) {
+        if (settings && spendLimit) {
             openSettingsModal()
         }
-    }, [settings, openSettingsModal])
+    }, [settings, spendLimit, openSettingsModal])
     return <AICredits />
 }
 

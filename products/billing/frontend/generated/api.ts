@@ -15,6 +15,7 @@ import type {
     AICreditPurchaseResponseApi,
     AICreditQuoteResponseApi,
     AICreditSettingsResponseApi,
+    AISpendLimitResponseApi,
     AISpendResponseApi,
     BillingActivationRequestApi,
     BillingActivationResponseApi,
@@ -274,11 +275,14 @@ export const getBillingAiCreditsSettingsSpendLimitPartialUpdateUrl = () => {
     return `/api/billing/ai_credits/settings/spend_limit/`
 }
 
+/**
+ * Set the organization's AI spend limit, which the AI gateway enforces over the billing period.
+ */
 export const billingAiCreditsSettingsSpendLimitPartialUpdate = async (
     patchedAISpendLimitRequestApi?: PatchedAISpendLimitRequestApi,
     options?: RequestInit
-): Promise<AICreditSettingsResponseApi> => {
-    return apiMutator<AICreditSettingsResponseApi>(getBillingAiCreditsSettingsSpendLimitPartialUpdateUrl(), {
+): Promise<AISpendLimitResponseApi> => {
+    return apiMutator<AISpendLimitResponseApi>(getBillingAiCreditsSettingsSpendLimitPartialUpdateUrl(), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -307,6 +311,17 @@ export const billingAiCreditsSpendRetrieve = async (
     options?: RequestInit
 ): Promise<AISpendResponseApi> => {
     return apiMutator<AISpendResponseApi>(getBillingAiCreditsSpendRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingAiCreditsSpendLimitRetrieveUrl = () => {
+    return `/api/billing/ai_credits/spend_limit/`
+}
+
+export const billingAiCreditsSpendLimitRetrieve = async (options?: RequestInit): Promise<AISpendLimitResponseApi> => {
+    return apiMutator<AISpendLimitResponseApi>(getBillingAiCreditsSpendLimitRetrieveUrl(), {
         ...options,
         method: 'GET',
     })

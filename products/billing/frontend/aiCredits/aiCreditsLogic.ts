@@ -31,6 +31,7 @@ import {
     billingAiCreditsSettingsAutomaticReloadPartialUpdate,
     billingAiCreditsSettingsRetrieve,
     billingAiCreditsSettingsSpendLimitPartialUpdate,
+    billingAiCreditsSpendLimitRetrieve,
     billingAiCreditsSpendRetrieve,
 } from 'products/billing/frontend/generated/api'
 import type {
@@ -39,6 +40,7 @@ import type {
     AICreditHistoryResponseApi,
     AICreditQuoteResponseApi,
     AICreditSettingsResponseApi,
+    AISpendLimitResponseApi,
     AISpendResponseApi,
     PatchedAIAutomaticReloadRequestApi,
 } from 'products/billing/frontend/generated/api.schemas'
@@ -173,6 +175,15 @@ class PaymentNotConfirmed extends Error {}
 async function readSpend(periodsAgo: number): Promise<AISpendResponseApi | null> {
     try {
         return await billingAiCreditsSpendRetrieve({ periods_ago: periodsAgo })
+    } catch {
+        return null
+    }
+}
+
+/** Null when the AI gateway didn't answer, so a settings save knows to leave the limit alone. */
+async function readSpendLimit(): Promise<AISpendLimitResponseApi | null> {
+    try {
+        return await billingAiCreditsSpendLimitRetrieve()
     } catch {
         return null
     }
@@ -320,6 +331,8 @@ export interface aiCreditsLogicValues {
     showAddFundsFormErrors: boolean
     showSpendSettingsFormErrors: boolean
     spend: AISpendResponseApi | null
+    spendLimit: AISpendLimitResponseApi | null
+    spendLimitLoading: boolean
     spendProducts: ChartedProduct[]
     spendSettingsForm: AISpendSettingsForm
     spendSettingsFormAllErrors: Record<string, any>
@@ -450,6 +463,21 @@ export interface aiCreditsLogicActions {
         payload?: any
     ) => {
         settings: AICreditSettingsResponseApi
+        payload?: any
+    }
+    loadSpendLimit: () => any
+    loadSpendLimitFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpendLimitSuccess: (
+        spendLimit: AISpendLimitResponseApi | null,
+        payload?: any
+    ) => {
+        spendLimit: AISpendLimitResponseApi | null
         payload?: any
     }
     openAddFundsModal: () => {
@@ -598,7 +626,8 @@ export interface aiCreditsLogicMeta {
         ) => string | null
         settingsEditDisabledReason: (
             settings: AICreditSettingsResponseApi | null,
-            settingsLoading: boolean
+            settingsLoading: boolean,
+            spendLimitLoading: boolean
         ) => string | null
     }
 }
@@ -636,6 +665,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             { loadSettings: async () => await billingAiCreditsSettingsRetrieve() },
         ],
         card: [null as AICreditCardResponseApi | null, { loadCard: async () => await billingAiCreditsCardRetrieve() }],
+        spendLimit: [null as AISpendLimitResponseApi | null, { loadSpendLimit: async () => await readSpendLimit() }],
         // The current period carries the balance, the reloads and the limit, whichever period the page shows.
         currentSpend: [null as AISpendResponseApi | null, { loadCurrentSpend: async () => await readSpend(0) }],
         pastSpend: [
@@ -787,13 +817,14 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             } as AISpendSettingsForm,
             errors: (form: AISpendSettingsForm) => ({
                 ...(form.reloadEnabled ? reloadAmountErrors(form) : {}),
-                spendLimitUsd: form.noSpendLimit
-                    ? undefined
-                    : form.spendLimitUsd === undefined || form.spendLimitUsd === null
-                      ? 'Enter a limit, or choose no limit'
-                      : form.spendLimitUsd < 0
-                        ? 'Enter a limit of $0 or more'
-                        : undefined,
+                spendLimitUsd:
+                    form.noSpendLimit || !values.spendLimit
+                        ? undefined
+                        : form.spendLimitUsd === undefined || form.spendLimitUsd === null
+                          ? 'Enter a limit, or choose no limit'
+                          : form.spendLimitUsd < 0
+                            ? 'Enter a limit of $0 or more'
+                            : undefined,
             }),
             submit: async (form: AISpendSettingsForm) => {
                 const settings = values.settings
@@ -804,16 +835,18 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                         settings?.automatic_reload,
                         values.card?.card
                     )
+                    // The form only knows the limit once the AI gateway answered, so it leaves an unknown limit alone.
                     const spendLimit = form.noSpendLimit ? null : usd(form.spendLimitUsd)
-                    if (spendLimit !== (settings?.monthly_spend_limit_usd ?? null)) {
+                    if (values.spendLimit && spendLimit !== values.spendLimit.limit_usd) {
                         await billingAiCreditsSettingsSpendLimitPartialUpdate({
                             organization_id: values.pageOrganizationId,
-                            monthly_spend_limit_usd: spendLimit,
+                            limit_usd: spendLimit,
                         })
                     }
                 } catch (error) {
                     lemonToast.error(settingsSaveError(error))
                     actions.loadSettings()
+                    actions.loadSpendLimit()
                     return
                 }
                 posthog.capture('ai credits settings saved', {
@@ -823,6 +856,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 lemonToast.success('AI credit settings saved')
                 actions.closeSettingsModal()
                 actions.loadSettings()
+                actions.loadSpendLimit()
             },
         },
     })),
@@ -923,9 +957,13 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         ],
         // The settings form starts from the saved settings, so the person edits them only after they load.
         settingsEditDisabledReason: [
-            (s) => [s.settings, s.settingsLoading],
-            (settings: AICreditSettingsResponseApi | null, settingsLoading: boolean): string | null => {
-                if (settingsLoading) {
+            (s) => [s.settings, s.settingsLoading, s.spendLimitLoading],
+            (
+                settings: AICreditSettingsResponseApi | null,
+                settingsLoading: boolean,
+                spendLimitLoading: boolean
+            ): string | null => {
+                if (settingsLoading || spendLimitLoading) {
                     return 'Loading your settings'
                 }
                 return settings ? null : "Your settings didn't load. Reload the page."
@@ -981,8 +1019,8 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 lowBalanceThresholdUsd: amount(settings?.low_balance_threshold_usd) ?? 20,
                 targetUsd: amount(reload?.target_usd) ?? 100,
                 monthlyReloadLimitUsd: amount(reload?.monthly_reload_limit_usd),
-                spendLimitUsd: amount(settings?.monthly_spend_limit_usd),
-                noSpendLimit: !settings?.monthly_spend_limit_usd,
+                spendLimitUsd: amount(values.spendLimit?.limit_usd),
+                noSpendLimit: !values.spendLimit?.limit_usd,
             })
         },
         loadCurrentSpendSuccess: ({ currentSpend }) => {
@@ -1009,6 +1047,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
     afterMount(({ actions, values }) => {
         actions.recordPageOrganization(values.currentOrganization?.id ?? null)
         actions.loadSettings()
+        actions.loadSpendLimit()
         actions.loadCard()
         actions.loadHistory()
         actions.loadCurrentSpend()
