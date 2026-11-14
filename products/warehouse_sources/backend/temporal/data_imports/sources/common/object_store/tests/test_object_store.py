@@ -1650,6 +1650,14 @@ class TestAccessDeniedMessage:
         assert not valid
         assert message is not None and message.startswith(NO_SUCH_BUCKET_ERROR)
 
+    def test_a_sync_also_sees_a_bare_forbidden_error(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = _forbidden_os_error()
+        source = _source_with_store(store)
+
+        with pytest.raises(ObjectStorageError, match=ACCESS_DENIED_ERROR):
+            source.get_schemas(BUCKET_ROOT_CONFIG, 1)
+
 
 BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(
     values={
