@@ -422,6 +422,12 @@ describe('scenario environment', () => {
             expect(fetchRetriesOf(hogflowWorker(settings))).toBe(retries)
         })
 
+        it('refuses fetch retries that never run out', () => {
+            expect(() => fetchRetriesOf(hogflowWorker({ CDP_FETCH_RETRIES: 'Infinity' }))).toThrow(
+                'CDP_FETCH_RETRIES Infinity is not a number of retries'
+            )
+        })
+
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
 

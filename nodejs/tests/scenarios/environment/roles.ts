@@ -98,7 +98,11 @@ export function roleSpecs(
 }
 
 export function fetchRetriesOf({ env }: RoleSpec): number {
-    return overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_FETCH_RETRIES
+    const retries = overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_FETCH_RETRIES
+    if (!Number.isFinite(retries)) {
+        throw new Error(`CDP_FETCH_RETRIES ${env.CDP_FETCH_RETRIES} is not a number of retries`)
+    }
+    return retries
 }
 
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {
