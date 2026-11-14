@@ -198,16 +198,6 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
     })
 }
 
-// A browser drops tabs and newlines anywhere in a URL, and control characters before it, then reads the scheme.
-const isJavascriptHref = (href: string): boolean => {
-    const url = href.replace(/[\t\n\r]/g, '')
-    let start = 0
-    while (start < url.length && (url.charCodeAt(start) <= 0x20 || /\s/.test(url[start]))) {
-        start++
-    }
-    return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
-}
-
 export const openPixelTag = (pixelUrl: string): string => `<img src="${pixelUrl}" style="display: none;" />`
 
 export const addTrackingToEmail = (
@@ -242,7 +232,7 @@ export const addTrackingToEmail = (
         const href = decodeHtmlEntitiesInHref(rawHref)
         // The anchor scan skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
-        if (isJavascriptHref(href)) {
+        if (/^\s*javascript:/i.test(href)) {
             return m
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
