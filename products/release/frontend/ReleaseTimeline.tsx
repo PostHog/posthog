@@ -103,7 +103,7 @@ function TrackLanesContent({
     const summarySpans = open ? [] : mergeOverlapping(row.spans.filter((span) => span.kind !== 'flag' || !steps.length))
     const hasExperiment = summarySpans.some((span) => span.kind.startsWith('experiment'))
     const laneFor = (span: ReleaseSpan): Lane | undefined =>
-        lanes.find((lane) => lane.kind !== 'broadcast' && lane.href === span.href)
+        (span.count ?? 1) > 1 ? undefined : lanes.find((lane) => lane.kind !== 'broadcast' && lane.href === span.href)
     return (
         <div className="relative" style={{ width: scale.days * scale.day }}>
             <ReleaseTrackGrid scale={scale} />

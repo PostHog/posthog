@@ -176,6 +176,7 @@ export type Lane =
           live: boolean
           span: ReleaseSpan
           href: string
+          survey: RelatedSurvey
       }
 
 export interface Track {
@@ -302,6 +303,7 @@ export function buildTrack(
                 href: urls.survey(survey.id),
             },
             href: urls.survey(survey.id),
+            survey,
         })
     }
     return { row, steps: row.flags[0] ? (stepsByFlag.get(row.flags[0].id) ?? NO_STEPS) : NO_STEPS, lanes }
