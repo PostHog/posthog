@@ -18,6 +18,7 @@ from products.alerts.backend.facade.contracts import CustomizableDestination, Re
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
     SPEC_BY_TEMPLATE_ID,
+    WEBHOOK_HEADERS,
     added_webhook_headers,
     input_value,
 )
@@ -27,6 +28,7 @@ from products.alerts.backend.logic.destinations import (
     list_owned_alert_destinations,
     owned_alert_destinations_qs,
     soft_delete_alert_destinations,
+    stored_inputs,
 )
 from products.alerts.backend.logic.insight_alert_destinations import with_secret_inputs
 from products.alerts_platform.backend.facade.api import (
@@ -250,27 +252,49 @@ def _kept_secret(
 def _with_secret_headers(
     team_id: int, data: AlertDestinationData, hog_function_ids: Collection[UUID]
 ) -> AlertDestinationData:
-    """A webhook's settings with the secret headers its HogFunctions send, which the native message sends
-    as stored headers. Refused when the standard message cannot send what they do."""
-    if data["type"] != DestinationType.WEBHOOK:
-        return data
-    secret_headers: dict[str, str] = {}
-    for encrypted in HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids)).values_list(
-        "encrypted_inputs", flat=True
+    """The destination's settings as the standard message would send them, with every header its
+    HogFunctions send, secret ones included. Refused when the standard message cannot send to the same
+    place with the same headers: a templated address or header, a signing secret, or HogFunctions of one
+    destination that send different headers."""
+    spec = DESTINATION_SPECS[DestinationType(data["type"])]
+    sent_headers: list[dict[str, str]] = []
+    for inputs, encrypted in HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids)).values_list(
+        "inputs", "encrypted_inputs"
     ):
-        if input_value(encrypted or {}, "signing_secret"):
+        stored = stored_inputs(inputs, encrypted)
+        if any("{" in str(input_value(stored, key) or "") for key in spec.address_input_keys):
+            raise AlertDestinationValidationError(
+                "This destination's address is a template, which the standard message can't fill in.",
+                field="hog_function_ids",
+            )
+        if data["type"] != DestinationType.WEBHOOK:
+            continue
+        if input_value(stored, "signing_secret"):
             raise AlertDestinationValidationError(
                 "This webhook signs its requests, which the standard message can't do.", field="hog_function_ids"
             )
-        stored = input_value(encrypted or {}, "secret_headers") or {}
-        sendable = added_webhook_headers(stored)
-        if len(sendable) != len(stored):
+        headers = {
+            name: value
+            for name, value in (input_value(stored, "headers") or {}).items()
+            if WEBHOOK_HEADERS.get(name) != value
+        }
+        headers.update(input_value(stored, "secret_headers") or {})
+        sendable = added_webhook_headers(headers)
+        if len(sendable) != len(headers):
             raise AlertDestinationValidationError(
-                "This webhook has a secret header the standard message can't send.", field="hog_function_ids"
+                "This webhook sends a header the standard message can't send, such as a templated value.",
+                field="hog_function_ids",
             )
-        secret_headers.update(sendable)
-    if not secret_headers:
+        sent_headers.append(sendable)
+    if not sent_headers:
         return data
-    return cast(
-        AlertDestinationData, {**data, "webhook_headers": {**data.get("webhook_headers", {}), **secret_headers}}
-    )
+    if any(headers != sent_headers[0] for headers in sent_headers):
+        raise AlertDestinationValidationError(
+            "This webhook sends different headers for different events. Make them match, then reset it.",
+            field="hog_function_ids",
+        )
+    restored = cast(AlertDestinationData, {**data})
+    restored.pop("webhook_headers", None)
+    if sent_headers[0]:
+        restored["webhook_headers"] = sent_headers[0]
+    return restored
