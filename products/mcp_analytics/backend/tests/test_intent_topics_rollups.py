@@ -1,0 +1,285 @@
+from datetime import UTC, timedelta
+from zoneinfo import ZoneInfo
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
+
+from parameterized import parameterized
+
+from posthog.schema import DateRange, MCPIntentTopicsQuery
+
+from posthog.hogql.query import execute_hogql_query
+
+from products.mcp_analytics.backend.hogql_queries.intent_topics import MCPIntentTopicsQueryRunner
+from products.mcp_analytics.backend.intent_hash import intent_hash
+from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls, iter_hourly_call_pages
+from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls, rebuild_topic_daily
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests.intent_topics_helpers import recent_hour
+from products.mcp_analytics.backend.tests.test_intent_assignments_table import _insert_assignment
+
+OTHER_TEAM_ID = 10**9
+DAY = recent_hour(days_ago=3).replace(hour=0)
+
+
+class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand([("utc", "UTC"), ("fractional_offset", "Asia/Kolkata")])
+    def test_returns_complete_utc_hours_by_intent_and_tool_with_distinct_conversations(
+        self, _name: str, timezone: str
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        for minute, session in ((5, "s1"), (10, "s1"), (50, "s2"), (70, "s2"), (130, "s3")):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="a",
+                timestamp=DAY + timedelta(minutes=minute),
+                properties={
+                    "$mcp_tool_name": "query-trends",
+                    "$mcp_intent": "plot signups",
+                    "$mcp_session_id": session,
+                },
+            )
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="a",
+            timestamp=DAY + timedelta(minutes=6),
+            properties={"$mcp_tool_name": "query-funnel", "$mcp_intent": "plot signups", "$mcp_session_id": "s1"},
+        )
+        flush_persons_and_events()
+
+        # The window starts and ends inside an hour: the first hour is read whole, the last one is left
+        # for the next run, so a later run never replaces a complete bucket with a partial one.
+        for page_size in (1, 50_000):
+            pages = list(
+                iter_hourly_call_pages(
+                    self.team,
+                    since=DAY + timedelta(minutes=45),
+                    until=DAY + timedelta(minutes=150),
+                    page_size=page_size,
+                )
+            )
+            # A page size of 1 yields every bucket as its own page, so the worker never holds the whole window.
+            assert len(pages) == (3 if page_size == 1 else 1)
+            rows = [row for page in pages for row in page]
+
+            assert [
+                ((r.hour.astimezone(UTC) - DAY).total_seconds() / 3600, r.hash, r.tool, r.calls, len(r.conversations))
+                for r in rows
+            ] == [
+                (0.0, intent_hash("plot signups"), "query-funnel", 1, 1),
+                (0.0, intent_hash("plot signups"), "query-trends", 3, 2),
+                (1.0, intent_hash("plot signups"), "query-trends", 1, 1),
+            ]
+
+        # One intent sent from many sessions must not grow a bucket without bound; the call count stays exact.
+        capped = [
+            row
+            for page in iter_hourly_call_pages(self.team, since=DAY, until=DAY + timedelta(hours=1), conversation_cap=1)
+            for row in page
+        ]
+        assert [(r.tool, r.calls, len(r.conversations)) for r in capped] == [
+            ("query-funnel", 1, 1),
+            ("query-trends", 3, 1),
+        ]
+
+    def test_a_query_cut_short_by_a_limit_raises_instead_of_returning_partial_counts(self) -> None:
+        # Partial counts would be written as a newer version of each bucket and replace the complete ones.
+        with patch(
+            "products.mcp_analytics.backend.intent_topics.corpus.execute_hogql_query", wraps=execute_hogql_query
+        ) as execute:
+            list(iter_hourly_call_pages(self.team, since=DAY, until=DAY + timedelta(hours=1)))
+
+        settings = execute.call_args.kwargs["settings"]
+        assert (settings.timeout_overflow_mode, settings.read_overflow_mode) == ("throw", "throw")
+
+
+class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _hourly(
+        self, hour: int, hash_: str, tool: str, calls: int, conversations: tuple[int, ...] = (1,)
+    ) -> HourlyCalls:
+        return HourlyCalls(
+            hour=DAY + timedelta(hours=hour), hash=hash_, tool=tool, calls=calls, conversations=conversations
+        )
+
+    def _daily(self) -> list[tuple]:
+        return execute_hogql_query(
+            query="""
+                SELECT toString(day), tool, topic_id, calls, length(conversation_hashes), outlier_calls, intents
+                FROM posthog.mcp_intent_topic_daily
+                ORDER BY tool, topic_id, inserted_at
+            """,
+            team=self.team,
+        ).results
+
+    def _topic_calls(self) -> list[tuple]:
+        response = MCPIntentTopicsQueryRunner(
+            query=MCPIntentTopicsQuery(
+                dateRange=DateRange(date_from=DAY.date().isoformat(), date_to=DAY.date().isoformat())
+            ),
+            team=self.team,
+        ).calculate()
+        return [(t.topic_id, t.calls, t.sessions) for t in response.results]
+
+    def test_sums_calls_per_tool_and_topic_with_unassigned_outliers_and_distinct_conversations(self) -> None:
+        insert_hourly_calls(
+            self.team.pk,
+            [
+                self._hourly(1, "h1", "query-trends", 3, conversations=(1,)),
+                self._hourly(2, "h1", "query-trends", 2, conversations=(1,)),
+                self._hourly(1, "h2", "query-trends", 4, conversations=(1, 2)),
+                self._hourly(1, "h3", "query-funnel", 1),
+                self._hourly(1, "h4", "query-trends", 7),
+            ],
+            now=DAY + timedelta(days=1),
+        )
+        _insert_assignment(self.team.pk, "h1", "topic-a")
+        _insert_assignment(self.team.pk, "h2", "topic-a", is_outlier=1)
+        _insert_assignment(self.team.pk, "h3", "topic-b")
+        _insert_assignment(OTHER_TEAM_ID, "h4", "topic-z")
+
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+        )
+
+        assert self._daily() == [
+            (DAY.date().isoformat(), "query-funnel", "topic-b", 1, 1, 0, 1),
+            (DAY.date().isoformat(), "query-trends", "", 7, 1, 0, 1),
+            (DAY.date().isoformat(), "query-trends", "topic-a", 9, 2, 4, 2),
+        ]
+
+    def test_reads_the_latest_hourly_version_and_rebuilds_whole_days(self) -> None:
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 3)], now=DAY + timedelta(hours=2))
+        # A later sync re-reads the same complete hour after late events arrive.
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 5)], now=DAY + timedelta(hours=3))
+        insert_hourly_calls(self.team.pk, [self._hourly(23, "h1", "query-trends", 1)], now=DAY + timedelta(hours=24))
+        _insert_assignment(self.team.pk, "h1", "topic-a")
+
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+        )
+        # The next nightly window overlaps only the last two hours of the day.
+        rebuild_topic_daily(
+            team_id=self.team.pk,
+            window_start=DAY + timedelta(hours=22),
+            window_end=DAY + timedelta(hours=48),
+            now=DAY + timedelta(days=2),
+        )
+
+        assert self._topic_calls() == [("topic-a", 6, 1)]
+
+    def test_reassigned_calls_move_between_topics_without_double_counting(self) -> None:
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 3)], now=DAY)
+        _insert_assignment(self.team.pk, "h1", "topic-a", timestamp=DAY)
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(hours=1)
+        )
+        _insert_assignment(self.team.pk, "h1", "topic-b", timestamp=DAY + timedelta(days=1))
+
+        # A second rebuild inside the same second, as a refit followed by its reassignment can do.
+        rebuild_topic_daily(
+            team_id=self.team.pk,
+            window_start=DAY,
+            window_end=DAY + timedelta(days=1),
+            now=DAY + timedelta(hours=1, microseconds=500),
+        )
+
+        assert self._topic_calls() == [("topic-b", 3, 1)]
+
+    @parameterized.expand(
+        [
+            ("missing_source", True, None, "", 0),
+            ("expired_source", True, 120, "", 0),
+            ("retained_source", True, 2, "topic-new", 4),
+            ("missing_source_without_retention", False, None, "", 0),
+        ]
+    )
+    def test_daily_uses_only_the_eligible_latest_assignment(
+        self,
+        _name: str,
+        enforce_retention: bool,
+        source_days_ago: int | None,
+        expected_topic: str,
+        expected_outlier_calls: int,
+    ) -> None:
+        self.team.event_retention_months = 3
+        self.team.save()
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 4)], now=DAY)
+        _insert_assignment(
+            self.team.pk,
+            "h1",
+            "topic-old",
+            timestamp=DAY - timedelta(days=40),
+            source_min_timestamp=DAY - timedelta(days=45),
+        )
+        _insert_assignment(
+            self.team.pk,
+            "h1",
+            "topic-new",
+            is_outlier=1,
+            calls_in_run=999,
+            timestamp=DAY,
+            source_min_timestamp=DAY - timedelta(days=source_days_ago) if source_days_ago is not None else None,
+        )
+        _insert_assignment(
+            OTHER_TEAM_ID,
+            "h1",
+            "topic-other-team",
+            timestamp=DAY + timedelta(hours=1),
+            source_min_timestamp=DAY,
+        )
+
+        with self.settings(EVENTS_DATA_RETENTION_ENFORCED=enforce_retention):
+            rebuild_topic_daily(
+                team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+            )
+
+        assert self._daily() == [
+            (DAY.date().isoformat(), "query-trends", expected_topic, 4, 1, expected_outlier_calls, 1)
+        ]
+
+    def test_daily_keeps_tied_assignment_fields_from_one_row(self) -> None:
+        insert_hourly_calls(self.team.pk, [self._hourly(1, "h1", "query-trends", 4)], now=DAY)
+        _insert_assignment(
+            self.team.pk, "h1", None, is_outlier=1, timestamp=DAY, source_min_timestamp=DAY - timedelta(days=1)
+        )
+        _insert_assignment(
+            self.team.pk, "h1", "topic-a", is_outlier=0, timestamp=DAY, source_min_timestamp=DAY - timedelta(days=2)
+        )
+
+        rebuild_topic_daily(
+            team_id=self.team.pk, window_start=DAY, window_end=DAY + timedelta(days=1), now=DAY + timedelta(days=1)
+        )
+
+        assert self._daily() in [
+            [(DAY.date().isoformat(), "query-trends", "", 4, 1, 4, 1)],
+            [(DAY.date().isoformat(), "query-trends", "topic-a", 4, 1, 0, 1)],
+        ]
+
+    def test_days_follow_the_project_timezone(self) -> None:
+        self.team.timezone = "Europe/Berlin"
+        self.team.save()
+        late_utc_hour = DAY + timedelta(hours=23)
+        local_day = late_utc_hour.astimezone(ZoneInfo("Europe/Berlin")).date()
+        insert_hourly_calls(self.team.pk, [self._hourly(23, "h1", "query-trends", 4)], now=DAY + timedelta(days=1))
+        _insert_assignment(self.team.pk, "h1", "topic-a")
+
+        rebuild_topic_daily(
+            team_id=self.team.pk,
+            window_start=DAY,
+            window_end=DAY + timedelta(days=2),
+            now=DAY + timedelta(days=2),
+            timezone=self.team.timezone,
+        )
+
+        def topic_calls(day: str) -> list[tuple]:
+            response = MCPIntentTopicsQueryRunner(
+                query=MCPIntentTopicsQuery(dateRange=DateRange(date_from=day, date_to=day)), team=self.team
+            ).calculate()
+            return [(t.topic_id, t.calls) for t in response.results]
+
+        assert local_day != DAY.date()
+        assert topic_calls(local_day.isoformat()) == [("topic-a", 4)]
+        assert topic_calls(DAY.date().isoformat()) == []

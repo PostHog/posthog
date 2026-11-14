@@ -10,16 +10,22 @@ from unittest.mock import patch
 
 import numpy as np  # noqa: E402
 
+from posthog.schema import DateRange, MCPIntentTopicsQuery  # noqa: E402
+
+from posthog.hogql.parser import parse_select  # noqa: E402
 from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
 from posthog.models.team.team import Team  # noqa: E402
 
+from products.mcp_analytics.backend.hogql_queries.intent_topics import MCPIntentTopicsQueryRunner  # noqa: E402
 from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
-from products.mcp_analytics.backend.intent_topics import persist, pipeline  # noqa: E402
+from products.mcp_analytics.backend.intent_topics import persist, pipeline, rollups  # noqa: E402
+from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls  # noqa: E402
 from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel  # noqa: E402
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic  # noqa: E402
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin  # noqa: E402
 from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour
+from products.mcp_analytics.backend.tests.test_intent_assignments_table import _insert_assignment  # noqa: E402
 from products.mcp_analytics.backend.tests.test_intent_topics_clustering import skip_without_umap  # noqa: E402
 
 NOW = recent_hour(days_ago=0)
@@ -60,6 +66,53 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         assert mock_emit.call_args.kwargs["metadata"]["calls"] == 2
         run = MCPIntentClusteringRun.objects.get(team=self.team, run_id=outcome.run_id)
         assert run.kind == "sync" and run.n_embeddings_requested == 1
+        hourly = execute_hogql_query(
+            query="SELECT intent_hash, tool, calls FROM posthog.mcp_intent_calls_hourly ORDER BY calls DESC",
+            team=self.team,
+        ).results
+        assert hourly == [
+            (intent_hash("new intent"), "query-trends", 2),
+            (intent_hash("already embedded"), "query-trends", 1),
+        ]
+
+    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
+    def test_replaying_a_window_after_late_events_replaces_its_counts(self, _mock_emit) -> None:
+        def call(minutes_ago: int, session: str) -> None:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="a",
+                timestamp=NOW - timedelta(minutes=minutes_ago),
+                properties={
+                    "$mcp_tool_name": "query-trends",
+                    "$mcp_intent": "plot signups",
+                    "$mcp_session_id": session,
+                },
+            )
+
+        start = NOW - timedelta(hours=1)
+        call(50, "s1")
+        flush_persons_and_events()
+        pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+        call(40, "s2")
+        call(30, "s3")
+        flush_persons_and_events()
+        pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+
+        hourly = execute_hogql_query(
+            query=parse_select(
+                "SELECT calls, length(conversation_hashes) FROM {hourly}",
+                placeholders={"hourly": rollups.hourly_calls_source(since=start, until=NOW)},
+            ),
+            team=self.team,
+        ).results
+        _insert_assignment(self.team.pk, intent_hash("plot signups"), "topic-a")
+        rollups.rebuild_topic_daily(team_id=self.team.pk, window_start=start, window_end=NOW, now=NOW)
+        daily = execute_hogql_query(
+            query="SELECT calls, length(conversation_hashes) FROM posthog.mcp_intent_topic_daily", team=self.team
+        ).results
+
+        assert (hourly, daily) == ([(3, 3)], [(3, 3)])
 
     def _call(self, text: str, at, team: Team | None = None) -> None:
         _create_event(
@@ -137,13 +190,15 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
+        hourly_rows: list[HourlyCalls] = []
         for i, vector in enumerate(_blob_vectors(0, 60, seed=1)):
-            self._embed(f"create insight {i}", vector, days_ago=2, calls=1 + i % 3)
+            hourly_rows.append(self._embed(f"create insight {i}", vector, days_ago=2, calls=1 + i % 3))
         for i, vector in enumerate(_blob_vectors(1, 60, seed=2)):
-            self._embed(f"list flags {i}", vector, days_ago=3)
+            hourly_rows.append(self._embed(f"list flags {i}", vector, days_ago=3))
         flush_persons_and_events()
+        rollups.insert_hourly_calls(self.team.pk, hourly_rows, now=NOW)
 
-    def _embed(self, text: str, vector: list[float], *, days_ago: int, calls: int = 1) -> None:
+    def _embed(self, text: str, vector: list[float], *, days_ago: int, calls: int = 1) -> HourlyCalls:
         at = NOW - timedelta(days=days_ago)
         for _ in range(calls):
             _create_event(
@@ -154,6 +209,7 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
                 properties={"$mcp_intent": text},
             )
         insert_intent_embedding(self.team.pk, intent_hash(text), text, at=at, embedding=vector, calls=99)
+        return HourlyCalls(hour=at, hash=intent_hash(text), tool="query-trends", calls=calls, conversations=(1,))
 
     def _assignments(self) -> list[tuple]:
         return execute_hogql_query(
@@ -184,6 +240,11 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         rows = self._assignments()
         assert sorted(r[0] for r in rows) == sorted(str(t.pk) for t in topics)
         assert [r[1] for r in rows] == [60, 60]
+        daily = execute_hogql_query(
+            query="SELECT topic_id, sum(calls), sum(intents) FROM posthog.mcp_intent_topic_daily GROUP BY topic_id ORDER BY sum(calls) DESC",
+            team=self.team,
+        ).results
+        assert [(r[1], r[2]) for r in daily] == [(120, 60), (60, 60)]
 
     @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics", return_value={})
     def test_second_refit_keeps_topic_ids(self, _mock_labels) -> None:
@@ -225,10 +286,31 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert row[0] == 3
         assert row[1].replace(tzinfo=first.tzinfo) == first
 
-    def test_assign_without_topics_is_skipped(self) -> None:
+
+class TestAssignWithoutTopics(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def test_assign_without_topics_is_skipped_and_still_counts_the_calls_as_unassigned(self) -> None:
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [
+                HourlyCalls(hour=NOW - timedelta(hours=3), hash="h1", tool="query-trends", calls=6, conversations=(1,)),
+                # Rolled up by a sync that caught up after an outage, days before the nightly window.
+                HourlyCalls(hour=NOW - timedelta(days=3), hash="h2", tool="query-trends", calls=4, conversations=(2,)),
+            ],
+            now=NOW,
+        )
+
         outcome = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=1), window_end=NOW)
 
         assert outcome.status == "skipped_too_few"
+        coverage = (
+            MCPIntentTopicsQueryRunner(
+                query=MCPIntentTopicsQuery(dateRange=DateRange(date_from=(NOW - timedelta(days=3)).date().isoformat())),
+                team=self.team,
+            )
+            .calculate()
+            .coverage
+        )
+        assert (coverage.calls_with_intent, coverage.calls_assigned) == (10, 0)
 
 
 class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -282,3 +364,34 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         start = pipeline.sync_window_start(self.team, now=NOW)
 
         assert start == NOW - pipeline.MAX_SYNC_CATCH_UP
+
+
+class TestFitSampleWindow(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def test_sample_follows_calls_in_the_window_not_embedding_time(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        for text, days_ago, calls in (("old but hot", 20, 1), ("fresh but cold", 1, 99), ("expired", 40, 1)):
+            insert_intent_embedding(
+                self.team.pk, intent_hash(text), text, at=NOW - timedelta(days=days_ago), calls=calls
+            )
+        insert_intent_embedding(other_team.pk, intent_hash("shared"), "shared", at=NOW - timedelta(days=1))
+        for team, text, days_ago, calls in (
+            (self.team, "old but hot", 2, 40),
+            (self.team, "expired", 2, 5),
+            (self.team, "fresh but cold", 12, 7),
+            (self.team, "shared", 2, 50),
+            (other_team, "fresh but cold", 2, 99),
+        ):
+            for _ in range(calls):
+                _create_event(
+                    team=team,
+                    event="$mcp_tool_call",
+                    distinct_id="agent-1",
+                    timestamp=NOW - timedelta(days=days_ago),
+                    properties={"$mcp_intent": text},
+                )
+        flush_persons_and_events()
+
+        sample = pipeline.fetch_fit_sample(self.team, since=NOW - timedelta(days=7), until=NOW)
+
+        assert sample.hashes == [intent_hash("old but hot")]
+        assert sample.weights.tolist() == [40.0]
