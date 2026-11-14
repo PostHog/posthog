@@ -452,10 +452,14 @@ pub fn check_metrics_expansion(
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     let mut expanded_bytes: usize = 0;
     for resource_metrics in &request.resource_metrics {
+        let resource_attributes = extract_resource_attributes(resource_metrics.resource.as_ref());
         let resource_bytes = ROW_OVERHEAD_BYTES
-            + attributes_bytes(&extract_resource_attributes(
-                resource_metrics.resource.as_ref(),
-            ));
+            .saturating_add(attributes_bytes(&resource_attributes))
+            .saturating_add(
+                resource_attributes
+                    .get("service.name")
+                    .map_or(0, String::len),
+            );
         for scope_metrics in &resource_metrics.scope_metrics {
             let scope_bytes = scope_metrics.scope.as_ref().map_or(0, |scope| {
                 scope
@@ -1127,10 +1131,29 @@ mod tests {
 
         assert!(check_metrics_expansion(&metrics_request(64, 10_000), LIMIT).is_ok());
 
-        for field in ["resource", "name", "unit", "scope_name", "scope_version"] {
+        for field in [
+            "resource",
+            "service_name",
+            "name",
+            "unit",
+            "scope_name",
+            "scope_version",
+        ] {
             for data_points in [10, 100] {
-                let resource_bytes = if field == "resource" { LARGE_FIELD } else { 64 };
+                let resource_bytes = match field {
+                    "resource" => LARGE_FIELD,
+                    "service_name" => LARGE_FIELD / 2,
+                    _ => 64,
+                };
                 let mut request = metrics_request(resource_bytes, data_points);
+                if field == "service_name" {
+                    request.resource_metrics[0]
+                        .resource
+                        .as_mut()
+                        .unwrap()
+                        .attributes[0]
+                        .key = "service.name".to_string();
+                }
                 let scope_metrics = &mut request.resource_metrics[0].scope_metrics[0];
                 match field {
                     "name" => scope_metrics.metrics[0].name = "m".repeat(LARGE_FIELD),
