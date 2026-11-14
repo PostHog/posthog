@@ -2,6 +2,9 @@
 set -Eeuo pipefail
 
 AWS_CLI_VERSION=2.22.0
+AWS_CLI_SHA256=f315aa564190a12ae05a05bd8ab7b0645dd4a1ad71ce9e47dae4ff3dfeee8ceb
+RUSTUP_VERSION=1.29.3
+RUSTUP_INIT_SHA256=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
 RUST_TOOLCHAIN=1.91.1
 SQLX_CLI_VERSION=0.8.0
 
@@ -26,6 +29,7 @@ install_packages_and_aws_cli() {
     apt-get update -q
     apt-get install -y -q build-essential ca-certificates curl docker-compose-v2 docker.io git jq pkg-config unzip xz-utils
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip" -o /tmp/awscliv2.zip
+    echo "${AWS_CLI_SHA256}  /tmp/awscliv2.zip" | sha256sum --check --strict
     unzip -q /tmp/awscliv2.zip -d /tmp
     /tmp/aws/install --update
 }
@@ -46,12 +50,14 @@ install_node_and_pnpm() {
     (cd /tmp && sha256sum --check --strict node.sha256)
     tar -xJf "/tmp/node-${version}-linux-x64.tar.xz" -C /usr/local --strip-components 1
     pnpm_version=$(jq -r '.packageManager | sub("^pnpm@"; "")' "$repo/package.json")
-    curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${pnpm_version}/pnpm-linux-x64" -o /usr/local/bin/pnpm
-    chmod +x /usr/local/bin/pnpm
+    npm install --global "pnpm@${pnpm_version}"
 }
 
 install_sqlx_cli() {
-    curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    curl -fsSL "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" -o /tmp/rustup-init
+    echo "${RUSTUP_INIT_SHA256}  /tmp/rustup-init" | sha256sum --check --strict
+    chmod +x /tmp/rustup-init
+    /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
     "$HOME/.cargo/bin/cargo" install sqlx-cli --version "$SQLX_CLI_VERSION" --features postgres,rustls --no-default-features --locked --root /usr/local
 }
 
