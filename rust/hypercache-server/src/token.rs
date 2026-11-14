@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt;
 
 /// A validated project API token.
@@ -60,6 +61,18 @@ impl fmt::Display for Token {
     }
 }
 
+/// Keeps `phc_` project tokens whole, because they are public and identify the project in logs.
+/// Any other value in a token field can be a private key, so only its prefix and suffix are logged.
+pub fn loggable_token(token: &str) -> Cow<'_, str> {
+    if token.starts_with("phc_") {
+        return Cow::Borrowed(token);
+    }
+    match (token.get(..4), token.get(token.len().saturating_sub(4)..)) {
+        (Some(prefix), Some(suffix)) if token.len() > 8 => Cow::Owned(format!("{prefix}…{suffix}")),
+        _ => Cow::Borrowed("***"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +120,16 @@ mod tests {
     fn test_as_str_roundtrip() {
         let token = Token::parse("phc_test123").unwrap();
         assert_eq!(token.as_str(), "phc_test123");
+    }
+
+    #[test]
+    fn test_loggable_token() {
+        assert_eq!(
+            loggable_token("phc_abcdefghijklmnop"),
+            "phc_abcdefghijklmnop"
+        );
+        assert_eq!(loggable_token("phx_abcdefghijklmnop"), "phx_…mnop");
+        assert_eq!(loggable_token("legacy-token-value"), "lega…alue");
+        assert_eq!(loggable_token("short"), "***");
     }
 }
