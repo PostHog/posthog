@@ -311,8 +311,11 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         next_cursor_end_time=walked_to.session_end if walked_to else None,
         next_cursor_session_id=walked_to.session_id if walked_to else "",
         # Held-back candidates are still work below the cursor, so a truncated batch must not look
-        # like a drained window; that would complete the backfill with sessions left unscanned.
-        more_work_below_cursor=len(candidates) == inputs.candidate_limit or truncated_by_caps,
+        # like a drained window; that would complete the backfill with sessions left unscanned. A batch
+        # that spends the rest of the quote completes it now, because the next tick's quota gate could
+        # otherwise hold the finished backfill active.
+        more_work_below_cursor=(len(candidates) == inputs.candidate_limit or truncated_by_caps)
+        and admitted + skipped < remaining,
     )
 
 

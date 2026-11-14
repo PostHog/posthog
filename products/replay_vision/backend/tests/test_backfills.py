@@ -520,8 +520,9 @@ class TestBackfillTickActivities:
     @pytest.mark.parametrize(
         "dispatched,expected_ids,queried",
         [
-            pytest.param(2, ["a"], True, id="quote_left"),
-            pytest.param(3, [], False, id="quote_spent"),
+            # A full page whose last quoted session dispatches still has to complete the backfill.
+            pytest.param(2, ["a"], True, id="quote_spent_by_this_batch"),
+            pytest.param(3, [], False, id="quote_already_spent"),
         ],
     )
     def test_backfill_stops_at_its_quoted_count(self, dispatched: int, expected_ids: list[str], queried: bool) -> None:
@@ -541,7 +542,7 @@ class TestBackfillTickActivities:
         with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
             query_cls.return_value.run.return_value = fetched
             result = find_backfill_candidates_activity(
-                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=3)
             )
         assert [c.session_id for c in result.candidates] == expected_ids
         assert query_cls.return_value.run.called is queried
