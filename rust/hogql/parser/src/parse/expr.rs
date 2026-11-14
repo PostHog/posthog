@@ -62,20 +62,34 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ) -> Result<E::Value, ParseError> {
         loop {
             let kind = self.peek();
-            // A bare alias was just built: only an outer-tier operator (AND, OR,
-            // ternary `?`, or a chained AS) may wrap it. Any value-tier operator
-            // terminates the expression here, matching cpp's two-tier grammar
-            // (`1 AS x AND y` is `(1 AS x) AND y`; `1 AS x + 2` rejects).
-            if std::mem::take(&mut self.after_bare_alias)
-                && !matches!(
+            // A bare alias was just built: an outer-tier operator (AND, OR,
+            // ternary `?`, a chained AS) may wrap it, and a comparison may take
+            // it as its left operand, matching the optional `AS` on cpp's
+            // `ColumnExprPrecedence3`. That alias rides on the comparison
+            // alternative itself, so the right operand keeps `BP_COMPARE + 1`
+            // as for any comparison. Every other value-tier operator ends the
+            // expression here (`1 AS x + 2` rejects).
+            if std::mem::take(&mut self.after_bare_alias) {
+                let continues = matches!(
                     kind,
                     TokenKind::Keyword(Kw::And)
                         | TokenKind::Keyword(Kw::Or)
                         | TokenKind::Keyword(Kw::As)
                         | TokenKind::QMark
-                )
-            {
-                break;
+                        | TokenKind::Keyword(Kw::In)
+                        | TokenKind::Keyword(Kw::Like)
+                        | TokenKind::Keyword(Kw::Ilike)
+                ) || (kind == TokenKind::Keyword(Kw::Not)
+                    && matches!(
+                        self.peek_next(),
+                        TokenKind::Keyword(Kw::In)
+                            | TokenKind::Keyword(Kw::Like)
+                            | TokenKind::Keyword(Kw::Ilike)
+                    ))
+                    || infix_bp(kind).is_some_and(|(lbp, _, _)| lbp == BP_COMPARE);
+                if !continues {
+                    break;
+                }
             }
             if let Some((lbp, rbp, op)) = infix_bp(kind) {
                 if lbp < min_bp {
@@ -5270,11 +5284,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 *lhs = self.emit.alias(prev, &name);
                 // `AS`/aliases sit in the loosest (boolean) grammar tier, so only an
                 // outer-tier operator may bind to a bare alias — `AND`, `OR`, ternary
-                // (`?`), or a chained `AS` wrap it, while a value-tier operator (`+`,
-                // `[`, `::`, `BETWEEN`, `IS`, a call `()`, …) cannot and terminates the
+                // (`?`), or a chained `AS` wrap it, and a comparison may take it as its
+                // left operand (`1 AS x > 0`). Any other value-tier operator (`+`, `[`,
+                // `::`, `BETWEEN`, `IS`, a call `()`, …) cannot and terminates the
                 // expression (cpp rejects `1 AS x + 2`; parenthesise as `(1 AS x) + 2`).
                 // The Pratt loop's next iteration reads this flag and stops before
-                // folding a value-tier op onto the alias.
+                // folding such an op onto the alias.
                 self.after_bare_alias = true;
                 Ok(Some(true))
             }
