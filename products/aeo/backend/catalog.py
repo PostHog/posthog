@@ -290,9 +290,12 @@ class _CitedBrandHosts:
 
 
 def _cited_brand_hosts(rows: list[tuple[str, int]], domains: set[str]) -> _CitedBrandHosts:
-    """The cited hosts of the `MAX_COMPETITOR_CANDIDATE_BRANDS` most cited candidates. Candidates rank by the
-    smaller of their two counts, which never exceeds the citations, so the cap only ever drops brands that were
-    too rarely cited to reach the top of the list anyway."""
+    """The cited hosts of the `MAX_COMPETITOR_CANDIDATE_BRANDS` most cited candidates.
+
+    Citations bound a candidate's rank, because it ranks by the smaller of its two counts, so the cap keeps the
+    brands that can rank highest. It is still an approximation: a brand below the cap outranks one above it when
+    enough of the brands above score no name match at all. Bounding the regex is worth that, because without the
+    cap one request's cost follows how many domains the window cites."""
     hosts: dict[str, list[str]] = defaultdict(list)
     citations: Counter[str] = Counter()
     for host, answers in rows:
