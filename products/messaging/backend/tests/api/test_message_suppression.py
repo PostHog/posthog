@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 
@@ -200,27 +201,35 @@ class TestBulkAddSuppressions(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("complaint", SuppressionSource.COMPLAINT, True, "Spam complaint", "Spam complaint"),
-            ("manual", SuppressionSource.MANUAL, True, "Manually added", "Manually added"),
-            ("soft_bounces", SuppressionSource.BOUNCE, True, "Soft bounced 3 times", "Soft bounced 3 times"),
-            ("counting_soft_bounces", SuppressionSource.BOUNCE, False, None, "Imported (bounced)"),
+            ("complaint", {"source": SuppressionSource.COMPLAINT, "reason": "Spam complaint"}, "Spam complaint"),
+            ("manual", {"source": SuppressionSource.MANUAL, "reason": "Manually added"}, "Manually added"),
+            (
+                "soft_bounces",
+                {"source": SuppressionSource.BOUNCE, "reason": "Soft bounced 3 times"},
+                "Imported (bounced)",
+            ),
+            ("counting_soft_bounces", {"source": SuppressionSource.BOUNCE, "suppressed": False}, "Imported (bounced)"),
+            (
+                "global_list_copy",
+                {
+                    "source": SuppressionSource.BOUNCE,
+                    "reason": "Hard bounced",
+                    "hard_bounced_at": timezone.now(),
+                    "last_bounce_diagnostic": GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC,
+                },
+                "Imported (bounced)",
+            ),
         ]
     )
     def test_imported_bounce_makes_an_existing_entry_block_transactional_email(
-        self,
-        _name: str,
-        source: SuppressionSource,
-        suppressed: bool,
-        reason: str | None,
-        expected_reason: str,
+        self, _name: str, existing: dict, expected_reason: str
     ) -> None:
+        suppressed = existing.get("suppressed", True)
         MessageSuppression.objects.for_team(self.team.id).create(
             team=self.team,
             identifier="alice@example.com",
-            source=source,
-            suppressed=suppressed,
             suppressed_at=timezone.now() if suppressed else None,
-            reason=reason,
+            **{"suppressed": True, **existing},
         )
 
         response = self._bulk_add([{"identifier": "alice@example.com", "reason": "bounce"}])
@@ -234,13 +243,8 @@ class TestBulkAddSuppressions(APIBaseTest):
             row.suppressed,
             row.suppressed_at is not None,
             row.hard_bounced_at is not None,
-        ) == (
-            source,
-            expected_reason,
-            True,
-            True,
-            True,
-        )
+            row.last_bounce_diagnostic,
+        ) == (existing["source"], expected_reason, True, True, True, None)
 
     @parameterized.expand(
         [

@@ -569,7 +569,7 @@ class CustomerIOImportService:
         # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
         suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
         if is_bounce:
-            block_transactional_for_hard_bounces(team_id, sorted(existing), reason)
+            block_transactional_for_hard_bounces(team_id, list(imported), reason)
 
         backfilled = []
         for email, row in existing.items():

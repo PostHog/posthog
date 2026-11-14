@@ -1,11 +1,15 @@
 from django.db import transaction
-from django.db.models import Case, F, QuerySet, Value, When
+from django.db.models import Case, F, Q, QuerySet, TextField, Value, When
 from django.db.models.functions import Coalesce, Greatest, Least, Now
 from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUNCE_MAX_HOLD, EmailHardBounce
+from products.messaging.backend.models.email_hard_bounce import (
+    GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC,
+    GLOBAL_HARD_BOUNCE_MAX_HOLD,
+    EmailHardBounce,
+)
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 
@@ -51,22 +55,32 @@ def block_transactional_for_hard_bounces(team_id: int, identifiers: list[str], r
     """Make the team's existing rows for these hard-bounced addresses suppress them and block transactional email.
 
     `team_id` must be the canonical project id. A row keeps its source, so a spam complaint still needs confirmation
-    to remove, and keeps a reason it has. A row someone removed from the list stays removed.
+    to remove. A manual entry or a complaint keeps its reason, like a live hard bounce. A row copied from the global
+    list becomes the team's own bounce, so it stays when the global hold lapses. A row someone removed stays removed.
+    Each statement updates one row, so the import never holds two row locks that a Node bounce write can wait on.
     """
+    pending = MessageSuppression.objects.for_team(team_id, canonical=True).filter(
+        Q(hard_bounced_at__isnull=True)
+        | Q(source=SuppressionSource.BOUNCE, last_bounce_diagnostic=GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC),
+        identifier__in=identifiers,
+        deleted=False,
+    )
     now = timezone.now()
-    with transaction.atomic():
-        suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
-        locked = list(
-            suppressions.filter(identifier__in=identifiers, deleted=False, hard_bounced_at__isnull=True)
-            .order_by("identifier")
-            .select_for_update()
-            .values_list("id", flat=True)
-        )
-        suppressions.filter(id__in=locked).update(
+    for row_id in list(pending.values_list("id", flat=True)):
+        pending.filter(id=row_id).update(
             suppressed=True,
             suppressed_at=Case(When(suppressed=False, then=Value(now)), default=F("suppressed_at")),
             hard_bounced_at=now,
-            reason=Coalesce(F("reason"), Value(reason)),
+            reason=Case(
+                When(source__in=[SuppressionSource.MANUAL, SuppressionSource.COMPLAINT], then=F("reason")),
+                default=Value(reason),
+                output_field=TextField(),
+            ),
+            last_bounce_diagnostic=Case(
+                When(last_bounce_diagnostic=GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC, then=Value(None)),
+                default=F("last_bounce_diagnostic"),
+                output_field=TextField(),
+            ),
             updated_at=now,
         )
 
