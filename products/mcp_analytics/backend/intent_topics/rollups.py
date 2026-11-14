@@ -31,6 +31,10 @@ from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls
 
 INSERT_BATCH_SIZE = 10_000
 
+# Each insert returns only once every shard has its rows. A run counts as written when it finishes, so a
+# deletion that waits for finished runs could otherwise sweep before a background forward lands.
+_CONFIRMED_INSERT_SETTINGS: dict[str, object] = {"insert_distributed_sync": 1, "async_insert": 0}
+
 _HOURLY_INSERT_SQL = (
     "INSERT INTO "
     + MCP_INTENT_CALLS_HOURLY_WRITABLE_TABLE
@@ -45,6 +49,7 @@ def insert_hourly_calls(team_id: int, rows: Sequence[HourlyCalls], *, now: datet
             sync_execute(
                 _HOURLY_INSERT_SQL,
                 [(team_id, row.hour, row.hash, row.tool, row.calls, list(row.conversations), now) for row in batch],
+                settings=_CONFIRMED_INSERT_SETTINGS,
                 team_id=team_id,
                 workload=Workload.OFFLINE,
             )
@@ -171,7 +176,11 @@ def rebuild_topic_daily(
         )
         with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
             sync_execute(
-                query.sql, query.context.values, settings=query.settings, team_id=team_id, workload=Workload.OFFLINE
+                query.sql,
+                query.context.values,
+                settings={**query.settings, **_CONFIRMED_INSERT_SETTINGS},
+                team_id=team_id,
+                workload=Workload.OFFLINE,
             )
 
 
