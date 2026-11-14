@@ -1501,8 +1501,9 @@ DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 
 # Upper bounds on what staff can pick per token. The gateway refuses a TTL past 7 days.
 DEV_GATEWAY_TOKEN_MAX_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_MAX_CAP_USD", "1000")
 DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS", 7 * 24 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
-# spent. The limit is approximate, because cost that settles after a revoke is not counted.
+# Caps of tokens minted in the trailing 24 hours, and of older tokens still live, count against this
+# until revoked, then only what the token spent. The limit is approximate, because cost that settles
+# after a revoke is not counted.
 DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "1000")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 

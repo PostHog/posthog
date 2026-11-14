@@ -71,7 +71,8 @@ export function pickError(
     if (capUsd === null || !Number.isFinite(capUsd) || capUsd < min || capUsd > max) {
         return `Pick an amount between $${min} and $${max}.`
     }
-    if (Math.round(capUsd * 100) !== capUsd * 100) {
+    // Compare with a tolerance: 19.99 * 100 is 1998.9999999999998 in floating point.
+    if (Math.abs(capUsd * 100 - Math.round(capUsd * 100)) > 1e-6) {
         return 'Pick an amount in whole cents.'
     }
     if (ttlSeconds === null || ttlSeconds < usage.ttl_min_seconds || ttlSeconds > usage.ttl_max_seconds) {

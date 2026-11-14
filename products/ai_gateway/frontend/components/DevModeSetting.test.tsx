@@ -59,6 +59,8 @@ describe('<DevModeSetting />', () => {
         ['the picked cap is exactly what is left', '40.00', 10, true],
         ['the picked cap is more than what is left', '40.00', 10.01, false],
         ['the picked cap is below the minimum', '0.00', 4.99, false],
+        ['the picked cap has cents', '0.00', 19.99, true],
+        ['the picked cap has fractions of a cent', '0.00', 19.995, false],
         ['the picked cap is above the maximum', '0.00', 1000.01, false],
     ])('allows minting when %s', (_name, usedUsd, pickedCap, canMint) => {
         devModeLogic.actions.loadUsageSuccess({ ...USAGE, daily_cap_usd: '50.00', used_usd: usedUsd })

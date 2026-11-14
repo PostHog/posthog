@@ -38,8 +38,8 @@ export function DevModeTeamUsage(): JSX.Element {
         <div className="flex flex-col gap-4">
             <p className="mb-0">
                 Spend is settled gateway cost for calls made with developer mode tokens. Reserved is what counts against
-                each user's daily limit: what revoked tokens spent, and the full cap of every other token minted in the
-                last 24 hours.
+                each user's limit: what revoked tokens spent, and the full cap of every other token minted in the last
+                24 hours or still live.
             </p>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput type="search" placeholder="Search by email" value={search} onChange={setSearch} />

@@ -17,7 +17,7 @@ from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import QuerySet, Sum
+from django.db.models import Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -127,12 +127,20 @@ def eligibility_refusal(user: User) -> DevTokenRefused | None:
     return None
 
 
-def _window_start() -> datetime:
-    return timezone.now() - timedelta(days=1)
+def _counted_q(now: datetime) -> Q:
+    # A token can outlive the 24h window, so a live one keeps counting until it expires or is revoked.
+    return Q(created_at__gte=now - timedelta(days=1)) | Q(revoked_at__isnull=True, expires_at__gt=now)
 
 
-def _window_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
-    return DevGatewayToken.objects.filter(user_id=user_id, created_at__gte=_window_start())
+def _counted_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
+    return DevGatewayToken.objects.filter(_counted_q(timezone.now()), user_id=user_id)
+
+
+def _frees_at(row: DevGatewayToken) -> datetime:
+    day_after_mint = row.created_at + timedelta(days=1)
+    if row.revoked_at is None and row.expires_at is not None and row.expires_at > day_after_mint:
+        return row.expires_at
+    return day_after_mint
 
 
 def _counted_usd(row: DevGatewayToken) -> Decimal:
@@ -144,7 +152,7 @@ def _cents_up(amount: Decimal) -> Decimal:
 
 
 def _used_usd(user_id: int) -> Decimal:
-    used = _window_tokens(user_id).aggregate(total=Sum(Coalesce("spent_usd", "cap_usd")))["total"]
+    used = _counted_tokens(user_id).aggregate(total=Sum(Coalesce("spent_usd", "cap_usd")))["total"]
     return used or Decimal("0")
 
 
@@ -169,17 +177,17 @@ def _to_dto(row: DevGatewayToken, remaining: dict[str, Decimal] | None = None) -
 
 
 def _available_at(user_id: int, left: Decimal) -> datetime:
-    for row in _window_tokens(user_id).order_by("created_at"):
+    for row in sorted(_counted_tokens(user_id), key=_frees_at):
         left += _counted_usd(row)
         if left >= TOKEN_CAP_MIN_USD:
-            return row.created_at + timedelta(days=1)
+            return _frees_at(row)
     return timezone.now()
 
 
 def _daily_limit_refusal(user_id: int, used: Decimal, left: Decimal) -> DevTokenRefused:
     available_at = _available_at(user_id, left)
     has_live_token = (
-        _window_tokens(user_id)
+        _counted_tokens(user_id)
         .filter(token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now())
         .exists()
     )
@@ -188,8 +196,8 @@ def _daily_limit_refusal(user_id: int, used: Decimal, left: Decimal) -> DevToken
     )
     return DevTokenRefused(
         "daily_limit",
-        f"You've used ${_cents_up(used):.2f} of your ${daily_cap_usd():.2f} limit for the last 24 hours, "
-        f"and a new token needs ${TOKEN_CAP_MIN_USD:.2f} left. "
+        f"You've used ${_cents_up(used):.2f} of your ${daily_cap_usd():.2f} limit, which counts tokens from the "
+        f"last 24 hours and older tokens that are still live, and a new token needs ${TOKEN_CAP_MIN_USD:.2f} left. "
         f"{next_step} another token at {available_at:%Y-%m-%d %H:%M} UTC.",
         429,
     )
@@ -210,8 +218,7 @@ def _reserve(user: User, client: DevTokenClient, requested_cap: Decimal | None) 
         elif requested_cap > left_cents:
             raise DevTokenRefused(
                 "daily_limit",
-                f"cap_usd is {requested_cap:.2f}, but ${left_cents:.2f} of your ${daily_cap_usd():.2f} limit "
-                "for the last 24 hours is left.",
+                f"cap_usd is {requested_cap:.2f}, but ${left_cents:.2f} of your ${daily_cap_usd():.2f} limit is left.",
                 429,
             )
         else:
@@ -356,10 +363,8 @@ def _remaining_by_hash(hashes: list[str]) -> dict[str, Decimal]:
 
 def usage(user: User) -> DevTokenUsage:
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
-        # Every token that counts against the daily limit, including revoked and expired ones.
-        recent = DevGatewayToken.objects.filter(
-            user_id=user.pk, token_hash__isnull=False, created_at__gte=_window_start()
-        ).order_by("-created_at")
+        # Every token that counts against the limit, so each live one stays listed and revocable.
+        recent = _counted_tokens(user.pk).filter(token_hash__isnull=False).order_by("-created_at")
         live_hashes = [
             row.token_hash
             for row in recent
@@ -502,7 +507,14 @@ def team_usage(viewer: User) -> DevTeamUsage:
                 tokens_minted_30d=len(mine),
                 live_tokens=sum(1 for row in mine if not row.revoked_at and row.expires_at and row.expires_at > now),
                 revoked_30d=sum(1 for row in mine if row.revoked_at),
-                reserved_usd_24h=sum((_counted_usd(row) for row in mine if row.created_at >= day_ago), Decimal("0")),
+                reserved_usd_24h=sum(
+                    (
+                        _counted_usd(row)
+                        for row in mine
+                        if row.created_at >= day_ago or (not row.revoked_at and row.expires_at and row.expires_at > now)
+                    ),
+                    Decimal("0"),
+                ),
                 spend_usd_24h=spent.day,
                 spend_usd_7d=spent.week,
                 spend_usd_30d=spent.month,

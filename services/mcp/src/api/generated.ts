@@ -38285,7 +38285,7 @@ export namespace Schemas {
       /** Tokens minted in the last 30 days that were revoked. */
       revoked_30d: number;
       /**
-         * Budget counted for tokens minted in the last 24 hours, in USD.
+         * Budget counted against the user's limit, in USD: tokens minted in the last 24 hours and older live ones.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       reserved_usd_24h: string;
@@ -38463,12 +38463,12 @@ export namespace Schemas {
 
     export interface DevTokenUsage {
       /**
-         * Most budget one user can use in 24 hours, in USD.
+         * Most budget one user can hold, in USD, counting tokens minted in the last 24 hours and older live ones.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       daily_cap_usd: string;
       /**
-         * Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.
+         * Budget used, in USD, by tokens minted in the last 24 hours and older tokens still live: spend for revoked tokens, the full cap otherwise.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       used_usd: string;
@@ -38493,7 +38493,7 @@ export namespace Schemas {
       ttl_min_seconds: number;
       /** Longest lifetime of a new token, in seconds. */
       ttl_max_seconds: number;
-      /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
+      /** Tokens the user minted in the last 24 hours, including revoked and expired ones, plus older tokens still live, newest first. */
       tokens: DevToken[];
     }
 

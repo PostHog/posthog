@@ -32,12 +32,17 @@ class DevTokenSerializer(serializers.Serializer):
 
 class DevTokenUsageSerializer(serializers.Serializer):
     daily_cap_usd = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Most budget one user can use in 24 hours, in USD."
+        max_digits=10,
+        decimal_places=2,
+        help_text="Most budget one user can hold, in USD, counting tokens minted in the last 24 hours and older live ones.",
     )
     used_usd = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text="Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.",
+        help_text=(
+            "Budget used, in USD, by tokens minted in the last 24 hours and older tokens still live: "
+            "spend for revoked tokens, the full cap otherwise."
+        ),
     )
     token_cap_usd = serializers.DecimalField(
         max_digits=10, decimal_places=2, help_text="Largest cap of a new token, in USD."
@@ -55,7 +60,10 @@ class DevTokenUsageSerializer(serializers.Serializer):
     ttl_max_seconds = serializers.IntegerField(help_text="Longest lifetime of a new token, in seconds.")
     tokens = DevTokenSerializer(
         many=True,
-        help_text="Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones.",
+        help_text=(
+            "Tokens the user minted in the last 24 hours, including revoked and expired ones, "
+            "plus older tokens still live, newest first."
+        ),
     )
 
 
@@ -72,7 +80,9 @@ class DevUserUsageSerializer(serializers.Serializer):
     live_tokens = serializers.IntegerField(help_text="Tokens that are neither revoked nor expired.")
     revoked_30d = serializers.IntegerField(help_text="Tokens minted in the last 30 days that were revoked.")
     reserved_usd_24h = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Budget counted for tokens minted in the last 24 hours, in USD."
+        max_digits=10,
+        decimal_places=2,
+        help_text="Budget counted against the user's limit, in USD: tokens minted in the last 24 hours and older live ones.",
     )
     spend_usd_24h = serializers.DecimalField(
         max_digits=12, decimal_places=6, help_text="Settled gateway spend in the last 24 hours, in USD."

@@ -129,7 +129,7 @@ export function DevModeSetting(): JSX.Element {
                         <span translate="no">
                             ${remainingUsd?.toFixed(2)} of ${usage.daily_cap_usd}
                         </span>{' '}
-                        left in the last 24 hours
+                        left. Live tokens and tokens from the last 24 hours count against it.
                     </span>
                 ) : null}
             </div>
@@ -146,7 +146,7 @@ export function DevModeSetting(): JSX.Element {
             <LemonTable<DevTokenApi>
                 dataSource={usage?.tokens ?? []}
                 loading={usageLoading}
-                emptyState="No tokens created in the last 24 hours"
+                emptyState="No live tokens, and none created in the last 24 hours"
                 columns={[
                     {
                         title: 'Created',
