@@ -1,0 +1,1472 @@
+[
+  {
+    "temporal_workflow_type": "MonitoringAssessmentWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "RunScoutTrialComparisonWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "RunScoutTrialEvaluationWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "RunScoutTrialJudgeWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "RunSignalsScoutWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "account-channel-summary",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "account-channel-summary-coordinator",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "activate-dev-stack-image",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "activity-summary-tick",
+    "product": "signals",
+    "task_queues": "SELF_DRIVING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "aeo-brand-sentiment",
+    "product": "aeo",
+    "task_queues": "LLMA_EVALS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "ai-observability-trace-summary",
+    "product": "ai_observability",
+    "task_queues": "LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "ai-sync-vectors",
+    "product": "temporal/ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-deliver",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-deliver-preview",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-evaluate",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-orchestrate",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-record-inventory",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-release-expired-holds",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-source-dispatch",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "anomaly-investigation",
+    "product": "temporal/ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "anomaly-scoring-due-list-refresh",
+    "product": "signals",
+    "task_queues": "SELF_DRIVING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "anomaly-scoring-tick",
+    "product": "signals",
+    "task_queues": "SELF_DRIVING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "autoresearch-coordinator",
+    "product": "autoresearch",
+    "task_queues": "AUTORESEARCH_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "autoresearch-inference",
+    "product": "autoresearch",
+    "task_queues": "AUTORESEARCH_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "autoresearch-property-cleanup",
+    "product": "autoresearch",
+    "task_queues": "AUTORESEARCH_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "autoresearch-validation",
+    "product": "autoresearch",
+    "task_queues": "AUTORESEARCH_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "azure-blob-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "backfill-batch-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "backfill-conversation-tasks",
+    "product": "posthog_ai",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "backfill-error-tracking",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "backfill-group-type-created-at",
+    "product": "temporal/backfill_group_type_created_at",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "backfill-materialized-properties-batch",
+    "product": "temporal/backfill_materialized_property",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "backfill-warehouse-person-properties",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "bake-dev-stack-image",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "batch-export-monitoring",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "bigquery-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "billing-alert-platform-evaluate",
+    "product": "billing_alerts",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "buffer-signals",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "build-sandbox-image",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "business-knowledge-ingest-source",
+    "product": "business_knowledge",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "business-knowledge-learn",
+    "product": "business_knowledge",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "business-knowledge-learning-coordinator",
+    "product": "business_knowledge",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "business-knowledge-refresh-coordinator",
+    "product": "business_knowledge",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "business-knowledge-refresh-coordinator-v2",
+    "product": "business_knowledge",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "business-knowledge-refresh-source",
+    "product": "business_knowledge",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "canvas-build",
+    "product": "canvas",
+    "task_queues": "CANVAS_BUILD_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "cdc-extraction",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "cdc-slot-cleanup",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "chat-agent",
+    "product": "temporal/ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "check-alert",
+    "product": "temporal/alerts",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "check-billing-alert-batch",
+    "product": "billing_alerts",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "checkpoint-compaction-sweep",
+    "product": "temporal/ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "cleanup-alert-checks",
+    "product": "temporal/alerts",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "cleanup-data-quality-check-runs",
+    "product": "data_quality",
+    "task_queues": "DATA_MODELING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "cleanup-property-definitions",
+    "product": "temporal/cleanup_property_definitions",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "compute-warehouse-table-statistics",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "context-layer-bootstrap-dream",
+    "product": "context_layer",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "context-layer-dream-coordinator",
+    "product": "context_layer",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "conversation-mirror",
+    "product": "posthog_ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "conversation-processing",
+    "product": "temporal/ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "conversations-signals-coordinator",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "copy-recordings",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "count-all-playlists",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "count-playlist",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "create-proxy",
+    "product": "temporal/proxy_service",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "create-snapshot-for-repository",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-account-track-rule-coordinator",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-account-track-rule-evaluation",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-calendar-sync",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-calendar-sync-coordinator",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-google-account-backfill",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-backfill",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-coordinator",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-deletion",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-deletion-team",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-discovery",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-discovery-team",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-ownership-claims-coordinator",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-ownership-claims-sweep",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-catalog-weekly-digest",
+    "product": "data_catalog",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-catalog-weekly-digest-test",
+    "product": "data_catalog",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-import-post-import",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-modeling-enrich-view-semantics",
+    "product": "temporal/data_modeling",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-modeling-execute-dag",
+    "product": "temporal/data_modeling",
+    "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-modeling-materialize-view",
+    "product": "temporal/data_modeling",
+    "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-quality-reconcile-metric-schedules",
+    "product": "data_quality",
+    "task_queues": "DATA_MODELING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-quality-run-suite",
+    "product": "data_quality",
+    "task_queues": "DATA_MODELING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "databricks-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-organization",
+    "product": "temporal/delete_teams",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-persons",
+    "product": "temporal/delete_persons",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-project-data",
+    "product": "temporal/delete_teams",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-proxy",
+    "product": "temporal/proxy_service",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-recordings-with-person",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-recordings-with-query",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-recordings-with-session-ids",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-recordings-with-team",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "delete-teams-data",
+    "product": "temporal/delete_teams",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "discover-schemas",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "dlq-replay",
+    "product": "temporal/dlq_replay",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "ducklake-compaction",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "ducklake-copy.data-imports",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "ducklake-copy.data-modeling",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "ducklake-register.data-imports",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "dwh-cdp-producer-job",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "emit-conversations-signals",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "emit-data-import-signals",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "emit-eval-report-signal",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "emit-eval-signal",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "enforce-logs-retention-entitlements",
+    "product": "logs",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "enforce-max-replay-retention",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "engineering-analytics-ci-signals-coordinator",
+    "product": "engineering_analytics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "enrich-warehouse-table-semantics",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-alert-delivery",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-built-in-filters-refresh",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-issue-created",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_LIFECYCLE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-issue-reopened",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_LIFECYCLE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-issue-spiking",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_LIFECYCLE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-recommendations-refresh",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-spike-event-cleanup",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-symbol-set-cleanup",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-weekly-digest",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-weekly-digest-page",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "execute-wizard-run",
+    "product": "wizard",
+    "task_queues": "WIZARD_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "experiment-metrics-recalculation-workflow",
+    "product": "experiments",
+    "task_queues": "EXPERIMENTS_RECALCULATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "experiment-precompute-canary",
+    "product": "experiments",
+    "task_queues": "EXPERIMENTS_RECALCULATION_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "experiment-precompute-enrollment-census",
+    "product": "experiments",
+    "task_queues": "EXPERIMENTS_RECALCULATION_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "experiment-regular-metrics-workflow",
+    "product": "experiments",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "experiment-saved-metrics-workflow",
+    "product": "experiments",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "experiment-scheduled-recalculation-workflow",
+    "product": "experiments",
+    "task_queues": "EXPERIMENTS_RECALCULATION_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "experiment-timeseries-recalculation-workflow",
+    "product": "experiments",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "export-asset",
+    "product": "temporal/exports",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "external-data-job",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "fetch-depot-job-log",
+    "product": "engineering_analytics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "fetch-github-job-log",
+    "product": "engineering_analytics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "file-download-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "generate-digest-data",
+    "product": "temporal/weekly_digest",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "generate-event-screenshots",
+    "product": "temporal/event_screenshots",
+    "task_queues": "EVENT_SCREENSHOTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "generate-scout-rubrics",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "github-job-logs-coordinator",
+    "product": "engineering_analytics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "handle-subscription-value-change",
+    "product": "subscriptions",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "harmonic-enrichment-status-poll",
+    "product": "growth",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,SIGNUP_ENRICHMENT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "health-check-workflow",
+    "product": "temporal/health_checks",
+    "task_queues": "HEALTH_CHECK_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "heatmap-page-history-capture",
+    "product": "web_analytics",
+    "task_queues": "WEB_ANALYTICS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "heatmap-page-history-tick",
+    "product": "web_analytics",
+    "task_queues": "WEB_ANALYTICS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "http-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "icp-reenrichment-sweep",
+    "product": "growth",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,SIGNUP_ENRICHMENT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "inbox-ranking-scoring-sweep",
+    "product": "signals",
+    "task_queues": "SELF_DRIVING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "ingestion-acceptance-test",
+    "product": "temporal/ingestion_acceptance_test",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "insight-alert-native-cleanup",
+    "product": "alerts",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "insight-alert-platform-evaluate",
+    "product": "alerts",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "insight-alert-platform-late-chart",
+    "product": "alerts",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "intercom-import-batch",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "intercom-import-coordinator",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "knowledge-writer-merge-check",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "knowledge-writer-merge-reconcile",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "knowledge-writer-publish",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-eval-reports-count-triggered-coordinator",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-eval-reports-generate-and-deliver",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-eval-reports-scheduled-coordinator",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-eval-suggestions-coordinator",
+    "product": "ai_observability",
+    "task_queues": "LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-eval-suggestions-team",
+    "product": "ai_observability",
+    "task_queues": "LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-evaluation-backfill",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-evaluation-clustering",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-evaluation-clustering-coordinator",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-evaluation-sampler",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-evaluation-sampler-coordinator",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-trace-clustering",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-trace-clustering-coordinator",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-trace-summarization",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-trace-summarization-coordinator",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "logs-alert-check",
+    "product": "logs",
+    "task_queues": "LOGS_ALERTING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "logs-alert-evaluate",
+    "product": "logs",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "logs-alert-platform-signals",
+    "product": "logs",
+    "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "logs-volume-tick",
+    "product": "logs",
+    "task_queues": "LOGS_VOLUME_TICK_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "managed-warehouse.reconcile-model-aliases",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "managed-warehouse.translate-views",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "mcpa-intent-clustering",
+    "product": "temporal/mcp_analytics",
+    "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "mcpa-intent-clustering-coordinator",
+    "product": "temporal/mcp_analytics",
+    "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "messaging-provider-import",
+    "product": "messaging",
+    "task_queues": "MESSAGING_IMPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "metrics-alert-evaluate",
+    "product": "metrics",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "metrics-recording-rules-evaluate",
+    "product": "metrics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "metrics-suggested-dashboards-discovery",
+    "product": "metrics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "metrics-suggested-dashboards-generate",
+    "product": "metrics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "metrics-suggested-dashboards-suggest",
+    "product": "metrics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "monitor-proxy",
+    "product": "temporal/proxy_service",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "no-op",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "notebook-frame-materialize",
+    "product": "notebooks",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "notebook-run",
+    "product": "notebooks",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "notebook-sandbox-cmd-run",
+    "product": "notebooks",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "notebook-widget-generate",
+    "product": "notebooks",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "personal-inbox-ranking-tick",
+    "product": "signals",
+    "task_queues": "SELF_DRIVING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "postgres-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "posthog-code-agent-relay",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "posthog-code-slack-mention-command",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "posthog-slack-inbox-onboarding",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "process-ai-subscription",
+    "product": "subscriptions",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "process-subscription",
+    "product": "subscriptions",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "process-task",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "pulse-generate-brief",
+    "product": "pulse",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "purge-deleted-recording-metadata",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "rasterize-recording",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "reconcile-organization-active-state-to-billing",
+    "product": "temporal/billing_active_sync",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "redshift-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-count-metrics",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-alert-check",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-apply-scanner",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-backfill-scanner",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-build-benchmark",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-gemini-cleanup-sweep",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-media",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-meter-scanner-reads",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-rebuild-highlight-feeds",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-reconcile-scanner-schedules",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-refresh-learned-rules",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-refresh-scanner-estimates",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "replay-vision-sweep-scanner",
+    "product": "replay_vision",
+    "task_queues": "REPLAY_VISION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "research-agent",
+    "product": "temporal/ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "resolve-pr",
+    "product": "review_hog",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "review-classify-finding-outcomes",
+    "product": "review_hog",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "review-perspectives",
+    "product": "review_hog",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "review-pr",
+    "product": "review_hog",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "review-pr-queue",
+    "product": "review_hog",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "review-validate-issues",
+    "product": "review_hog",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-aggregate-evaluation",
+    "product": "temporal/ai_observability",
+    "task_queues": "LLMA_EVALS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-evaluation",
+    "product": "temporal/ai_observability",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_EVALS_TASK_QUEUE,LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-investigation-safety-net",
+    "product": "temporal/alerts",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-quota-limiting",
+    "product": "temporal/quota_limiting",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-scout-suggestions",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-signals-scout-coordinator",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-signals-scout-suggestions-coordinator",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-tagger",
+    "product": "temporal/ai_observability",
+    "task_queues": "LLMA_EVALS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-trace-evaluation",
+    "product": "temporal/ai_observability",
+    "task_queues": "LLMA_EVALS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "run-usage-reports",
+    "product": "temporal/usage_report",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "s3-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "salesforce-conversations-slack-enrichment",
+    "product": "temporal/salesforce_enrichment",
+    "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "salesforce-enrichment-async",
+    "product": "temporal/salesforce_enrichment",
+    "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "salesforce-stripe-enrichment",
+    "product": "temporal/salesforce_enrichment",
+    "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "salesforce-usage-enrichment",
+    "product": "temporal/salesforce_enrichment",
+    "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "schedule-all-subscriptions",
+    "product": "subscriptions",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "schedule-due-alert-checks",
+    "product": "temporal/alerts",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "schedule-due-billing-alert-checks",
+    "product": "billing_alerts",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "score-sessions-batch",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "security-sync-access-rules",
+    "product": "security",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "send-weekly-digest",
+    "product": "temporal/weekly_digest",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-emitter",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-report-deletion",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-report-inbox-notification",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-report-reingestion",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-report-summary",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signals-custom-agent",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signup-enrichment",
+    "product": "growth",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,SIGNUP_ENRICHMENT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signup-enrichment-recheck",
+    "product": "growth",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,SIGNUP_ENRICHMENT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-agent-design-relay",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-app-daily-focus-sweep",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-app-fork-thread",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-app-mention",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-app-mention-processing",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-app-onboarding",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-app-unfurl-charts",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "slack-app-work-focus",
+    "product": "slack_app",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "snowflake-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "stage-warehouse-account-properties",
+    "product": "customer_analytics",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "stamphog-review",
+    "product": "stamphog",
+    "task_queues": "STAMPHOG_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "summarize-llm-traces",
+    "product": "temporal/ai",
+    "task_queues": "MAX_AI_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "support-reply-coordinator",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "support-reply-pipeline",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "surfacing-score-export-sweep",
+    "product": "temporal/session_replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "sync-events-retention",
+    "product": "temporal/sync_events_retention",
+    "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "sync-organization-active-state-to-billing",
+    "product": "temporal/billing_active_sync",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "sync-warehouse-account-properties",
+    "product": "customer_analytics",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "sync-warehouse-account-properties-fanout",
+    "product": "customer_analytics",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "sync-warehouse-person-properties",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "task-run-gateway-usage",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "team-signal-grouping",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "team-signal-grouping-v2",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "team-signal-reingestion",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "today-compute-highlights",
+    "product": "today",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "traces-alert-evaluate",
+    "product": "tracing",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "update-signal-spend",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "upgrade-queries",
+    "product": "product_analytics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "wa-digest-notification",
+    "product": "web_analytics",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "wa-digest-notification-test",
+    "product": "web_analytics",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "wa-weekly-digest",
+    "product": "web_analytics",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "wa-weekly-digest-test",
+    "product": "web_analytics",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "wait",
+    "product": "temporal/tests",
+    "task_queues": "TEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "warehouse-alert-evaluate",
+    "product": "warehouse_sources",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "warehouse-migration-crawl",
+    "product": "warehouse_sources",
+    "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "warehouse-sources-queue-partition-management",
+    "product": "temporal/warehouse_sources_queue_partition_management",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "warehouse-suggestions",
+    "product": "warehouse_suggestions",
+    "task_queues": "DATA_MODELING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "weekly-digest",
+    "product": "temporal/weekly_digest",
+    "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "wizard-stamp-rescore",
+    "product": "growth",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,SIGNUP_ENRICHMENT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "workflows-export",
+    "product": "batch_exports",
+    "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "zendesk-import-batch",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "zendesk-import-coordinator",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  }
+]
