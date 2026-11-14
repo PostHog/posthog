@@ -44,13 +44,15 @@ def _insert_assignment(team_id: int, intent_hash: str, topic_id: str | None, **o
         "is_outlier": 0,
         "intent_text": "list feature flags",
         "calls_in_run": 3,
+        "source_min_timestamp": _now() - timedelta(days=2),
         "timestamp": _now() - timedelta(days=1),
         **overrides,
     }
     sync_execute(
         f"""
         INSERT INTO {MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE}
-        (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run, timestamp)
+        (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run,
+         source_min_timestamp, timestamp)
         VALUES
         """,
         [row],

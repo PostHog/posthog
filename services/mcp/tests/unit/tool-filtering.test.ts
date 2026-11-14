@@ -1156,7 +1156,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
             'mcp-session-recording-console-logs',
-            'workflows-push-token-import-mcp',
             'discussions-slack-sync',
             'ui-customization',
             'warehouse-migration-import',

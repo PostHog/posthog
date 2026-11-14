@@ -16,7 +16,7 @@ from posthog.hogql.database.schema.mcp_intent_assignments import (
     MCPIntentAssignmentsTable,
     MCPIntentCallsHourlyTable,
     MCPIntentTopicDailyTable,
-    RawMCPIntentAssignmentsTable,
+    StoredMCPIntentAssignmentsTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -126,7 +126,7 @@ _MCP_INTENT_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
 
 _MCP_INTENT_TABLES = (
     MCPIntentAssignmentsTable,
-    RawMCPIntentAssignmentsTable,
+    StoredMCPIntentAssignmentsTable,
     MCPIntentCallsHourlyTable,
     MCPIntentTopicDailyTable,
 )
@@ -275,7 +275,7 @@ def restricted_property_keys_for_table_type(
             WebStatsDimensionalPreAggregatedTable,
             WebBouncesDimensionalPreAggregatedTable,
             MCPIntentAssignmentsTable,
-            RawMCPIntentAssignmentsTable,
+            StoredMCPIntentAssignmentsTable,
             MCPIntentCallsHourlyTable,
             MCPIntentTopicDailyTable,
             ModelSpecificEmbeddingTable,

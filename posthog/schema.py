@@ -29838,7 +29838,7 @@ class QueryResponseAlternative118(BaseModel):
     )
 
 
-class QueryResponseAlternative120(BaseModel):
+class QueryResponseAlternative119(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29897,7 +29897,7 @@ class QueryResponseAlternative120(BaseModel):
     )
 
 
-class QueryResponseAlternative121(BaseModel):
+class QueryResponseAlternative120(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29952,7 +29952,7 @@ class QueryResponseAlternative121(BaseModel):
     )
 
 
-class QueryResponseAlternative122(BaseModel):
+class QueryResponseAlternative121(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -30009,7 +30009,7 @@ class QueryResponseAlternative122(BaseModel):
     )
 
 
-class QueryResponseAlternative123(BaseModel):
+class QueryResponseAlternative122(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -38890,7 +38890,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative120
         | QueryResponseAlternative121
         | QueryResponseAlternative122
-        | QueryResponseAlternative123
     ]
 ):
     root: (
@@ -39013,7 +39012,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative120
         | QueryResponseAlternative121
         | QueryResponseAlternative122
-        | QueryResponseAlternative123
     )
 
 

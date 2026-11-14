@@ -72,11 +72,12 @@ class TestAssignmentInsert(ClickhouseTestMixin, APIBaseTest):
 
         self._run()
 
-        rows = self._assignments()
-        assert [(r[0], r[1], r[2]) for r in rows] == [("h-a", "topic-a", 0), ("h-b", "topic-b", 0)]
-        assert rows[0][3] == 0.0
-        assert rows[0][4:6] == (1.0, 0.0)  # PCA projection of e0 on (pc1=e0, pc2=e1)
-        assert rows[0][6:9] == ("near a", 7, "assign-1")
+        rows = {row[0]: row for row in self._assignments()}
+        assert (rows[hash_a][1:3], rows[hash_b][1:3]) == (("topic-a", 0), ("topic-b", 0))
+        assert rows[hash_a][3] == 0.0
+        assert rows[hash_a][4:6] == (1.0, 0.0)
+        assert rows[hash_a][6:9] == ("near a", 7, "assign-1")
+        assert rows[hash_b][7] == 2
 
     def test_flags_outliers_beyond_the_topic_distance(self) -> None:
         far = [0.0] * 256

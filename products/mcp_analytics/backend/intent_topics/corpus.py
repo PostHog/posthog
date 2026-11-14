@@ -1,7 +1,7 @@
 """Reads for the intent topics pipeline: distinct intents from events, and which ones already have vectors."""
 
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from posthog.schema import HogQLQueryModifiers
@@ -17,6 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.team.team import Team
 
+from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.mcp_analytics.backend.hogql_queries.base import CONVERSATION_ID_SQL, EFFECTIVE_TOOL_SQL
 from products.mcp_analytics.backend.intent_hash import INTENT_HASH_HOGQL, INTENT_PROPERTY
 from products.mcp_analytics.backend.intent_topics.constants import (
