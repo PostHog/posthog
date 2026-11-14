@@ -17,6 +17,7 @@ from products.data_catalog.evals.scorers import (
     AnswerValueStated,
     CanonicalMetricRun,
     DeprecationProposed,
+    GovernedBehaviorCorrectness,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
     MetricsCatalogBeforeAnswer,
@@ -720,3 +721,32 @@ def test_metric_description_quality_judges_the_stored_description() -> None:
 
     assert prepared["output"]["description"] == narrating_update
     assert prepared["output"]["definition"] == json.dumps({"kind": "HogQLQuery"})
+
+
+_PROGRESS_NOTE = "I'm checking which issues the exceptions come from."
+_SCOUT_REPORT = "Today's error rate is 4x the 7-day baseline, from one burst of known issues."
+
+
+@parameterized.expand(
+    [
+        ("finish_report", "completed", _SCOUT_REPORT),
+        ("failed_finish", "failed", _PROGRESS_NOTE),
+        ("no_finish", None, _PROGRESS_NOTE),
+    ]
+)
+def test_governed_behavior_judges_the_delivered_answer(_name: str, finish_status: str | None, expected: str) -> None:
+    progress = _session_update(
+        0, {"sessionUpdate": "agent_message", "content": {"type": "text", "text": _PROGRESS_NOTE}}
+    )
+    finish_calls = (
+        []
+        if finish_status is None
+        else [("mcp__posthog-code-tools__finish", {"status": "completed", "report": _SCOUT_REPORT}, finish_status)]
+    )
+    raw_log = "\n".join([progress, _tool_log(finish_calls)]) if finish_calls else progress
+
+    prepared = GovernedBehaviorCorrectness()._prepare(
+        {"raw_log": raw_log}, {"governed_behavior_correctness": {"expected_behavior": "Reports the error rate."}}
+    )
+
+    assert prepared["output"]["final_message"] == expected

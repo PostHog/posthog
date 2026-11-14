@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import re
 import json
+from collections.abc import Callable
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.data_catalog.evals.constants import (
     APPROVED_BADGE_CODE_POINT,
@@ -57,6 +60,7 @@ METRIC_LIST_TOOL = "metric-list"
 METRIC_DESCRIBE_TOOL = "metric-describe"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
 QUESTION_TOOL = "askuserquestion"
+FINISH_TOOL = "finish"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
@@ -76,6 +80,38 @@ def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
     if not raw_log:
         return None
     return LogParser.cached(raw_log, initial_prompt=(output or {}).get("prompt", "") or "")
+
+
+def _final_answer(parser: LogParser) -> str | None:
+    """A scout run delivers its report through `finish`, so its last chat message can be a progress note."""
+    for call in reversed(parser.get_tool_calls(FINISH_TOOL)):
+        report = call.input.get("report")
+        if not call.is_error and isinstance(report, str) and report.strip():
+            return report
+    return parser.get_final_agent_message()
+
+
+@frozen
+class _JudgedAnswer:
+    spec: dict[str, Any]
+    parser: LogParser | None
+    final: str
+
+
+def _judged_answer(
+    name: str,
+    output: dict[str, Any] | None,
+    expected: dict | None,
+    final_of: Callable[[LogParser], str | None],
+) -> _JudgedAnswer | Score:
+    spec = expected.get(name) if isinstance(expected, dict) else None
+    if not isinstance(spec, dict) or not isinstance(spec.get("expected_behavior"), str):
+        return Score(name=name, score=None, metadata={"reason": "not requested"})
+    parser = _parser_for(output)
+    final = final_of(parser) if parser is not None else None
+    if not isinstance(final, str) or not final.strip():
+        return Score(name=name, score=0.0, metadata={"reason": "no final message"})
+    return _JudgedAnswer(spec=spec, parser=parser, final=final)
 
 
 def _requested(expected: dict | None, name: str) -> bool:
@@ -685,27 +721,22 @@ class GovernedBehaviorCorrectness(JudgedScorer):
         )
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
-        spec = expected.get(self._name()) if isinstance(expected, dict) else None
-        if not isinstance(spec, dict) or not isinstance(spec.get("expected_behavior"), str):
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        judged = _judged_answer(self._name(), output, expected, _final_answer)
+        if isinstance(judged, Score):
+            return judged
 
-        parser = _parser_for(output)
-        final = parser.get_final_agent_message() if parser is not None else None
-        if not isinstance(final, str) or not final.strip():
-            return Score(name=self._name(), score=0.0, metadata={"reason": "no final message"})
-
-        sql_calls = parser.get_tool_calls(SQL_TOOL) if parser is not None else []
+        sql_calls = judged.parser.get_tool_calls(SQL_TOOL) if judged.parser is not None else []
         metric_catalog_calls = (
-            [*parser.get_tool_calls(METRIC_LIST_TOOL), *parser.get_tool_calls(METRIC_DESCRIBE_TOOL)]
-            if parser is not None
+            [*judged.parser.get_tool_calls(METRIC_LIST_TOOL), *judged.parser.get_tool_calls(METRIC_DESCRIBE_TOOL)]
+            if judged.parser is not None
             else []
         )
-        metric_runs = parser.get_tool_calls(METRIC_RUN_TOOL) if parser is not None else []
-        metric_creates = parser.get_tool_calls(METRIC_CREATE_TOOL) if parser is not None else []
+        metric_runs = judged.parser.get_tool_calls(METRIC_RUN_TOOL) if judged.parser is not None else []
+        metric_creates = judged.parser.get_tool_calls(METRIC_CREATE_TOOL) if judged.parser is not None else []
         return {
             "output": {
                 "prompt": (output or {}).get("prompt", ""),
-                "final_message": final,
+                "final_message": judged.final,
                 "sql_calls": json.dumps(
                     [
                         {
@@ -748,7 +779,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                     ]
                 ),
             },
-            "expected": {"expected_behavior": spec["expected_behavior"]},
+            "expected": {"expected_behavior": judged.spec["expected_behavior"]},
         }
 
 
@@ -927,17 +958,12 @@ class SemanticTrustDecisionCorrectness(JudgedScorer):
         )
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
-        spec = expected.get(self._name()) if isinstance(expected, dict) else None
-        if not isinstance(spec, dict) or not isinstance(spec.get("expected_behavior"), str):
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-
-        parser = _parser_for(output)
-        final = parser.get_final_agent_message() if parser is not None else None
-        if not isinstance(final, str) or not final.strip():
-            return Score(name=self._name(), score=0.0, metadata={"reason": "no final message"})
+        judged = _judged_answer(self._name(), output, expected, LogParser.get_final_agent_message)
+        if isinstance(judged, Score):
+            return judged
 
         catalog_evidence = []
-        for call in _successful_sql(parser) if parser is not None else []:
+        for call in _successful_sql(judged.parser) if judged.parser is not None else []:
             query = call.input.get("query") if isinstance(call.input, dict) else None
             if isinstance(query, str) and _INFO_SCHEMA in query.lower():
                 catalog_evidence.append({"query": query, "result": call.output})
@@ -945,10 +971,10 @@ class SemanticTrustDecisionCorrectness(JudgedScorer):
         return {
             "output": {
                 "prompt": (output or {}).get("prompt", ""),
-                "final_message": final,
+                "final_message": judged.final,
                 "catalog_evidence": catalog_evidence,
             },
-            "expected": {"expected_behavior": spec["expected_behavior"]},
+            "expected": {"expected_behavior": judged.spec["expected_behavior"]},
         }
 
 

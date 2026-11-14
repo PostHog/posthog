@@ -50,6 +50,10 @@ export type BusinessKnowledgeContent = {
     hasRepositories?: boolean | undefined
 }
 
+export type MetricCatalogContent = {
+    count: number
+}
+
 export type State = {
     projectId: string | undefined
     orgId: string | undefined
@@ -78,7 +82,9 @@ export type State = {
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
     Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'businessKnowledgeContent'>, BusinessKnowledgeContent | undefined> &
-    Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined>
+    Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'metricCatalog'>, MetricCatalogContent | undefined> &
+    Record<PrefixedString<'metricCatalogFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

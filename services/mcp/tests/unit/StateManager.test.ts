@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
@@ -1375,6 +1375,50 @@ describe('StateManager', () => {
 
             expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
             expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
+        })
+    })
+
+    describe('getOrFetchMetricCatalog', () => {
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('re-reads an empty catalog after a minute so a newly saved metric counts', async () => {
+            vi.useFakeTimers()
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ count: 0, results: [] })
+                .mockResolvedValueOnce({ count: 1, results: [{ name: 'revenue_weekly' }] })
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 0 })
+            vi.advanceTimersByTime(61 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 1 })
+        })
+
+        it('drops a cached empty catalog when its refresh fails', async () => {
+            vi.useFakeTimers()
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ count: 0, results: [] })
+                .mockRejectedValue(new Error('Synthetic metric list failure'))
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 0 })
+            vi.advanceTimersByTime(61 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+        })
+
+        it('reads a failed lookup as unknown', async () => {
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi.fn(() => Promise.reject(new Error('Synthetic metric list failure')))
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
         })
     })
 

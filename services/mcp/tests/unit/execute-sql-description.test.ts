@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { InstructionsBuilder } from '@/hono/instructions'
+import { type ExecToolState, InstructionsBuilder } from '@/hono/instructions'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 
@@ -25,6 +25,16 @@ describe('formatExecuteSqlDescription', () => {
         const metricRoutingPosition = rendered.indexOf('#### Metric discovery (semantic layer)')
         expect(metricRoutingPosition).toBeGreaterThan(rendered.indexOf('### When to use `execute-sql`'))
         expect(metricRoutingPosition).toBeLessThan(rendered.indexOf('#### Regular schema discovery'))
+    })
+
+    it('swaps the metric rule for the save offer when a project has no saved metrics', () => {
+        const rendered = builder.formatExecuteSqlDescription({
+            metricCatalog: { count: 0 },
+        } as unknown as ExecToolState)
+
+        expect(rendered).not.toContain('The first call for that shape is `metric-list`')
+        expect(rendered).toContain('This project has no saved metrics, so skip `metric-list`.')
+        expect(rendered).toContain('#### Regular schema discovery')
     })
 
     // The description ships to every MCP client on every tools/list; keep the catalog

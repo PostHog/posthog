@@ -12,7 +12,6 @@ import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
-import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
@@ -36,6 +35,7 @@ export type ExecToolState = Pick<
     ResolvedState,
     | 'renderUiEnabled'
     | 'businessKnowledgeContent'
+    | 'metricCatalog'
     | 'clientProfile'
     | 'requestContext'
     | 'sessionContext'
@@ -111,6 +111,7 @@ export class InstructionsBuilder {
                 state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG] === true &&
                 INBOX_FIRST_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name)),
             inboxClaimEnabled: state.allTools.some((tool) => tool.name === INBOX_CLAIM_TOOL),
+            metricCatalog: state.metricCatalog,
         }
     }
 
@@ -221,10 +222,14 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(): string {
+    formatExecuteSqlDescription(state?: ExecToolState): string {
         // Metric discovery leads the splice so catalog-first routing still precedes
         // raw schema discovery, without displacing the tool's own intro line.
-        const schemaDiscovery = `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
+        const metricDiscovery = this.formatter.buildMetricDiscovery({
+            guidelines: this.guidelines,
+            metricCatalog: state?.metricCatalog,
+        })
+        const schemaDiscovery = `${metricDiscovery}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
             schema_discovery: schemaDiscovery,

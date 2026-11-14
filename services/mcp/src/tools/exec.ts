@@ -128,7 +128,14 @@ function namesMatchingSearch(names: string[], term: string): string[] {
     return names.filter((name) => tokens.some((token) => name.toLowerCase().includes(token)))
 }
 
-function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], nameMatches: string[]): string | undefined {
+function catalogDiscoveryHint(
+    allTools: Tool<ZodObjectAny>[],
+    nameMatches: string[],
+    metricCatalogLookup: boolean
+): string | undefined {
+    if (!metricCatalogLookup) {
+        return undefined
+    }
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
         availableToolNames.has('metric-list') &&
@@ -293,6 +300,7 @@ export interface ExecToolOptions {
      * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
+    metricCatalogLookup?: boolean
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -2012,7 +2020,8 @@ export function createExecTool(
                     if (truncatedFrom > 0) {
                         const catalogHint = catalogDiscoveryHint(
                             allTools,
-                            namesMatchingSearch(matchedNames, searchTerm)
+                            namesMatchingSearch(matchedNames, searchTerm),
+                            options.metricCatalogLookup !== false
                         )
                         return JSON.stringify({
                             matches,
@@ -2026,7 +2035,11 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
+                    const catalogHint = catalogDiscoveryHint(
+                        allTools,
+                        namesMatchingSearch(matchedNames, searchTerm),
+                        options.metricCatalogLookup !== false
+                    )
                     const hint = [fallbackHint, catalogHint].filter(Boolean).join(' ')
                     if (hint) {
                         return JSON.stringify({ matches, hint })

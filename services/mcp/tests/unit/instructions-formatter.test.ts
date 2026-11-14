@@ -301,6 +301,48 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('metric catalog gating', () => {
+        const formatter = new InstructionsFormatter()
+        const surfaces = [
+            {
+                surface: 'tools instructions',
+                render: (ctx: InstructionsContext) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                surface: 'exec command reference',
+                render: (ctx: InstructionsContext) => formatter.buildExecCommandReference(ctx),
+            },
+            {
+                surface: 'Claude exec command reference',
+                render: (ctx: InstructionsContext) => formatter.buildClaudeExecCommandReference(ctx),
+            },
+        ]
+
+        it.each(
+            surfaces.flatMap(({ surface, render }) => [
+                { surface, render, name: 'unread catalog', catalog: undefined, empty: false },
+                { surface, render, name: 'saved metrics', catalog: { count: 3 }, empty: false },
+                { surface, render, name: 'no saved metrics', catalog: { count: 0 }, empty: true },
+            ])
+        )('$surface: $name', ({ surface, render, catalog, empty }) => {
+            const result = render({ ...fullCtx, metricCatalog: catalog })
+
+            expect(/`metric-list` first|call metric-list|with `metric-list` before/.test(result)).toBe(!empty)
+            expect(result.includes('This project has no saved metrics, so skip `metric-list`.')).toBe(empty)
+            const offersToSave = surface !== 'Claude exec command reference' || empty
+            expect(result.includes('Offer to save a reusable settled measure as a proposed metric')).toBe(offersToSave)
+            if (empty) {
+                expect(result).toContain('"governed catalog consulted: no match"')
+                expect(result).toContain(
+                    'If you save one in this session or switch projects, use `metric-list` from then on.'
+                )
+            }
+            expect(result.includes('Run `learn analytics` before writing SQL or joins')).toBe(
+                surface === 'Claude exec command reference'
+            )
+        })
+    })
+
     describe('replay vision guidance', () => {
         const visionTools = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
         it.each([
