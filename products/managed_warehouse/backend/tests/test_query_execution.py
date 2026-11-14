@@ -82,7 +82,7 @@ def _canary_runner_boundaries(canary_domain: str = CANARY_DOMAIN) -> Iterator[tu
     module = "posthog.hogql_queries.hogql_query_runner"
     with (
         override_settings(MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN=canary_domain),
-        tags_context(trigger=None, feature=None, alert_config_id=None),
+        tags_context(trigger=None, feature=None, alert_config_id=None, browser_session=True),
         patch(f"{module}.validate_managed_trino_query"),
         patch(f"{module}.get_direct_connection_source", return_value=source),
         patch(f"{module}.get_adapter_for_source", return_value=MagicMock(engine="trino")),
@@ -154,6 +154,7 @@ def test_a_managed_trino_run_connects_the_way_the_runner_decided(team: Team, can
     connection = MagicMock()
     connection.cursor.return_value = cursor
     with (
+        tags_context(browser_session=True),
         patch("posthoganalytics.feature_enabled", return_value=True),
         patch("products.managed_warehouse.backend.query_execution.enable_customer_warehouse_access", return_value=True),
         patch(
@@ -314,7 +315,9 @@ def test_raw_target_rejects_unauthorized_callers_before_cached_results(
         ),
         patch(
             "posthog.hogql.direct_connection.get_query_tags",
-            return_value=QueryTags(access_method=access_method),
+            return_value=QueryTags(
+                access_method=access_method, browser_session=True if access_method is None else None
+            ),
         ),
         patch.object(AnalyticsQueryRunner, "run") as cached_run,
         pytest.raises(ExposedHogQLError, match=error),
@@ -334,6 +337,7 @@ def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -
     connection = MagicMock()
     connection.cursor.return_value = cursor
     with (
+        tags_context(browser_session=True),
         patch("posthoganalytics.feature_enabled", return_value=True),
         patch(
             "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",

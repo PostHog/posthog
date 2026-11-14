@@ -30,7 +30,12 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
+from posthog.clickhouse.query_tagging import (
+    AccessMethod,
+    tag_authentication,
+    tag_browser_session_authentication,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.exceptions import InsufficientScope
@@ -267,6 +272,7 @@ class SessionAuthentication(
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
             refuse_blocked_account(request, user, call_site="session", impersonated=is_impersonated_session(request))
+            tag_browser_session_authentication()
 
             return (user, auth)
 
