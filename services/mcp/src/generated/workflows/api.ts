@@ -964,13 +964,15 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = () => zod.object({
         .min(1)
         .default(hogFlowsInvocationResultsRetrieveQueryAfterDefault)
         .describe(
-            "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs."
+            "Start of the time range, matched on the time the invocation was first scheduled, so a run that finishes on a later day stays in the range it started in. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d, so widen it explicitly for older runs."
         ),
     before: zod
         .string()
         .min(1)
         .optional()
-        .describe("End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now."),
+        .describe(
+            "End of the time range, matched on the time the invocation was first scheduled. Same format as 'after'. Defaults to now."
+        ),
     distinct_id: zod
         .string()
         .min(1)
@@ -982,7 +984,7 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = () => zod.object({
         .max(hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax)
         .optional()
         .describe(
-            "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+            "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name."
         ),
     limit: zod
         .number()
