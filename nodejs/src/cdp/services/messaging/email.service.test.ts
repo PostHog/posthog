@@ -492,6 +492,16 @@ describe('EmailService', () => {
                     expect(result.error).toMatchInlineSnapshot(
                         `"The selected email integration domain is not verified"`
                     )
+                    expect(result.metrics).toEqual(
+                        isTest
+                            ? []
+                            : [
+                                  expect.objectContaining({
+                                      metric_name: 'email_failed',
+                                      prometheus_metric_name: 'email_sender_unverified',
+                                  }),
+                              ]
+                    )
                     expect(await settledActivationEvents()).toEqual(
                         Array(reports).fill({
                             team: team.uuid,
@@ -505,18 +515,6 @@ describe('EmailService', () => {
                     )
                 }
             )
-            it('records an unverified email domain as email_failed that Prometheus labels email_sender_unverified', async () => {
-                invocation.queueParameters = createEmailParams({ from: { integrationId: 2 } })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(result.metrics).toEqual([
-                    expect.objectContaining({
-                        metric_name: 'email_failed',
-                        prometheus_metric_name: 'email_sender_unverified',
-                    }),
-                ])
-            })
             it.each([
                 ['unsupported', 'Email delivery mode not supported'],
                 [
@@ -1879,6 +1877,11 @@ describe('EmailService', () => {
             [
                 'only the recipient',
                 'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: test@example.com',
+                undefined,
+            ],
+            [
+                'only a recipient whose address contains the sender',
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: test@posthog-test.com.au, xtest@posthog-test.com',
                 undefined,
             ],
             ['no identity', 'Illegal address', undefined],

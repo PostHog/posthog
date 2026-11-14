@@ -292,14 +292,15 @@ class UnverifiedEmailDomainError extends Error {
 
 class SesSenderNotVerifiedError extends Error {}
 
-// SES names every identity that failed its check. A sandboxed SES account also names unverified
-// recipients, which is our fault and not the customer's, so only a rejection that names the sender counts.
-function sesRejectedUnverifiedSender(error: unknown, senderEmail: string): boolean {
+const addressesIn = (text: string): string[] =>
+    (text.match(/[^\s<>",;:]+@[^\s<>",;:]+/g) ?? []).map((address) => address.replace(/\.$/, '').toLowerCase())
+
+function sesNamedSenderAsUnverified(error: unknown, senderEmail: string): boolean {
     return (
         error instanceof Error &&
         error.name === 'MessageRejected' &&
         error.message.includes('not verified') &&
-        error.message.toLowerCase().includes(senderEmail.toLowerCase())
+        addressesIn(error.message).includes(senderEmail.toLowerCase())
     )
 }
 
@@ -1746,7 +1747,7 @@ export class EmailService {
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
             const message = `Failed to send email via SES: ${error instanceof Error ? error.message : String(error)}`
-            if (sesRejectedUnverifiedSender(error, from.email)) {
+            if (sesNamedSenderAsUnverified(error, from.email)) {
                 throw new SesSenderNotVerifiedError(message)
             }
             throw new Error(message)
