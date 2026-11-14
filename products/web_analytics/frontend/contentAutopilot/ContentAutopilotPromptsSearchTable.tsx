@@ -5,8 +5,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { AEOPromptSetSearchApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { OVERVIEW_DAYS } from './contentAutopilotPromptsOverviewLogic'
-import { engineLabel } from './utils'
+import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
 
 type SearchRow = AEOPromptSetSearchApi
 type SearchColumn = LemonTableColumn<SearchRow, keyof SearchRow | undefined>
@@ -16,9 +15,11 @@ const citedShare = (row: SearchRow): number => (row.answers ? row.cited / row.an
 /** One row per web search the engines ran. Expanding a row lists the prompts that ran it. */
 export const ContentAutopilotPromptsSearchTable = ({
     rows,
+    days,
     onOpenPrompt,
 }: {
     rows: SearchRow[]
+    days: number
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
     const columns: SearchColumn[] = [
@@ -54,7 +55,7 @@ export const ContentAutopilotPromptsSearchTable = ({
         {
             title: 'Engines',
             key: 'engines',
-            render: (_, row) => <span className="text-muted">{row.engines.map(engineLabel).join(', ')}</span>,
+            render: (_, row) => <ContentAutopilotEngineMarks engines={row.engines} />,
         },
     ]
     return (
@@ -88,12 +89,7 @@ export const ContentAutopilotPromptsSearchTable = ({
                     </div>
                 ),
             }}
-            emptyState={`No web searches in the last ${OVERVIEW_DAYS} days. Only some engines report the searches they run.`}
-            footer={
-                <span className="px-3 py-2 text-xs text-muted">
-                    The web searches the engines ran while answering your prompts. Expand one to see its prompts.
-                </span>
-            }
+            emptyState={`No web searches in the last ${days} days. Only some engines report the searches they run.`}
         />
     )
 }

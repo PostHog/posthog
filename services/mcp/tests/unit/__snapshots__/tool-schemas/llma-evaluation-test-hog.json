@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "What a preview samples from: the unsaved evaluation's conditions and target.",
     "properties": {
         "allows_na": {
             "default": false,
@@ -9,9 +10,31 @@
         "conditions": {
             "description": "Optional trigger conditions to filter which events are sampled.",
             "items": {
-                "additionalProperties": {},
-                "propertyNames": {
-                    "type": "string"
+                "description": "A trigger condition set, as on an evaluation. The id is optional here.",
+                "properties": {
+                    "id": {
+                        "description": "Identifier of this condition set, if any.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "properties": {
+                        "description": "Property filters (event or person) that scope which generations match this condition set.",
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "rollout_percentage": {
+                        "default": 100,
+                        "description": "Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "number"
+                    }
                 },
                 "type": "object"
             },
@@ -157,6 +180,15 @@
             "minimum": 1,
             "type": "number"
         },
+        "sample_ids": {
+            "description": "Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, matching `target`. Up to 10, and only units from the last 7 days. Conditions and sampling are ignored for pinned units, and unknown IDs are skipped. A session target tests at most 3 sessions.",
+            "items": {
+                "maxLength": 400,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "source": {
             "description": "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
             "minLength": 1,
@@ -172,16 +204,19 @@
             "description": "Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.",
             "properties": {
                 "quiet_period_seconds": {
-                    "default": 3600,
-                    "description": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.",
+                    "description": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.",
                     "maximum": 86400,
                     "minimum": 10,
                     "type": "number"
                 },
+                "strategy": {
+                    "description": "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.\n\n* `fixed_window` - Fixed window\n* `inactivity` - Inactivity",
+                    "enum": ["fixed_window", "inactivity"],
+                    "type": "string"
+                },
                 "window_seconds": {
-                    "default": 1800,
-                    "description": "Aggregation window for trace samples, in seconds.",
-                    "maximum": 7200,
+                    "description": "Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.",
+                    "maximum": 604800,
                     "minimum": 10,
                     "type": "number"
                 }

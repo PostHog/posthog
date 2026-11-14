@@ -3,6 +3,7 @@ import asyncio
 import threading
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import patch
@@ -16,6 +17,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.alerts.retry_policy import ALERT_SIGNAL_SCHEDULE_TO_CLOSE
+
 from products.alerts.backend.platform_chart_detail import (
     CHART_ASSET_ID_KEY,
     CHART_PENDING_KEY,
@@ -23,6 +26,7 @@ from products.alerts.backend.platform_chart_detail import (
     LATE_CHART_WORKFLOW,
     RenderedChart,
 )
+from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_REQUESTED_KEY, FiringSignalRequest
 from products.alerts.backend.platform_investigation_detail import (
     METRICS_INVESTIGATION_REQUESTED_KEY,
     InvestigationClaims,
@@ -35,11 +39,14 @@ from products.alerts.backend.temporal.platform_evaluate import (
     CHART_START_TO_CLOSE,
     CHECK_HEARTBEAT_TIMEOUT,
     CHECK_RETRY_POLICY,
+    CLAIM_SCHEDULE_TO_CLOSE,
     EVALUATION_BUDGET,
+    METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE,
     REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
     AdmittedInsightCheck,
     ClaimInsightInvestigationsInputs,
     FailedInsightCheckInputs,
+    FiringSignalsInputs,
     InsightAlertPlatformEvaluateWorkflow,
     InsightBatchPlanInputs,
     InsightChartInputs,
@@ -53,6 +60,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
     AlertDeliveryRequest,
     AlertEventKind,
+    FiringEpisode,
     GroupOutcome,
     HeldDelivery,
     PlatformAlertOutcome,
@@ -547,6 +555,8 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
 
 def test_the_binding_holds_the_whole_batch() -> None:
     assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET
+    # The inbox signal runs beside the claim, so it must fit the claim's share of the budget.
+    assert ALERT_SIGNAL_SCHEDULE_TO_CLOSE <= CLAIM_SCHEDULE_TO_CLOSE + METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE
 
 
 def test_a_firing_waits_for_one_render_at_most() -> None:
@@ -746,3 +756,68 @@ async def test_a_metrics_firing_is_delivered_once_its_investigation_releases_it(
         elif event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
             order.append("delivery")
     assert order.index("run_platform_metrics_investigations_activity") < order.index("delivery")
+
+
+@pytest.mark.parametrize("send_fails", [False, True])
+async def test_a_recorded_firing_emits_its_inbox_signal_and_a_failed_send_keeps_the_batch(
+    environment: WorkflowEnvironment, send_fails: bool
+) -> None:
+    started_at = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    scheduled: list[str] = []
+    sent: list[FiringSignalsInputs] = []
+
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        return [] if inputs.exclude else [AdmittedInsightCheck(configuration_id=ADMITTED[0], owned_by_platform=True)]
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        outcome = _outcome(inputs.configuration_id, AlertEventKind.FIRING, "firing")
+        group = replace(
+            outcome.groups[0],
+            firing_episode=FiringEpisode(started_at=started_at, ended=False),
+            source_detail={FIRING_SIGNAL_REQUESTED_KEY: "legacy-alert", "breaches": ["above 100"]},
+        )
+        return SourceBatchEvaluation(outcomes=(replace(outcome, groups=(group,)),), deliveries=())
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        scheduled.append("record")
+        return len(inputs.outcomes)
+
+    @activity.defn(name="emit_platform_insight_firing_signals_activity")
+    async def emit(inputs: FiringSignalsInputs) -> None:
+        scheduled.append("emit")
+        sent.append(inputs)
+        if send_fails:
+            raise ApplicationError("signals unavailable", non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, record, emit],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        result = await environment.client.execute_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+
+    assert result == 1
+    assert scheduled[:2] == ["record", "emit"]
+    assert sent[0].requests == (
+        FiringSignalRequest(
+            team_id=1,
+            alert_id="legacy-alert",
+            configuration_id=ADMITTED[0],
+            episode_started_at=started_at,
+            breaches=("above 100",),
+        ),
+    )

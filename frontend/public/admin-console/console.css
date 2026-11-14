@@ -336,6 +336,9 @@
     .end-2 {
         inset-inline-end: calc(0.25rem * 2);
     }
+    .top-0 {
+        top: calc(0.25rem * 0);
+    }
     .top-1 {
         top: calc(0.25rem * 1);
     }
@@ -477,6 +480,9 @@
     }
     .mb-4 {
         margin-bottom: calc(0.25rem * 4);
+    }
+    .ml-1 {
+        margin-left: calc(0.25rem * 1);
     }
     .ml-auto {
         margin-left: auto;
@@ -640,8 +646,14 @@
     .max-w-\[42rem\] {
         max-width: 42rem;
     }
+    .max-w-\[280px\] {
+        max-width: 280px;
+    }
     .max-w-\[320px\] {
         max-width: 320px;
+    }
+    .max-w-\[480px\] {
+        max-width: 480px;
     }
     .max-w-\[520px\] {
         max-width: 520px;
@@ -654,6 +666,9 @@
     }
     .min-w-0 {
         min-width: calc(0.25rem * 0);
+    }
+    .min-w-\[160px\] {
+        min-width: 160px;
     }
     .min-w-\[240px\] {
         min-width: 240px;
@@ -845,6 +860,9 @@
     .overflow-x-auto {
         overflow-x: auto;
     }
+    .overflow-y-auto {
+        overflow-y: auto;
+    }
     .\!rounded-full {
         border-radius: calc(infinity * 1px) !important;
     }
@@ -984,6 +1002,9 @@
     .py-2 {
         padding-block: calc(0.25rem * 2);
     }
+    .py-3 {
+        padding-block: calc(0.25rem * 3);
+    }
     .py-8 {
         padding-block: calc(0.25rem * 8);
     }
@@ -1011,6 +1032,9 @@
     .pb-2 {
         padding-bottom: calc(0.25rem * 2);
     }
+    .pb-4 {
+        padding-bottom: calc(0.25rem * 4);
+    }
     .pb-20 {
         padding-bottom: calc(0.25rem * 20);
     }
@@ -1025,6 +1049,9 @@
     }
     .text-right {
         text-align: right;
+    }
+    .align-top {
+        vertical-align: top;
     }
     .font-mono {
         font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -1075,6 +1102,10 @@
     .text-\[length\:var\(--text-ui\,0\.8125rem\)\] {
         font-size: var(--text-ui, 0.8125rem);
     }
+    .leading-7 {
+        --tw-leading: calc(0.25rem * 7);
+        line-height: calc(0.25rem * 7);
+    }
     .font-bold {
         --tw-font-weight: var(--font-weight-bold);
         font-weight: var(--font-weight-bold);
@@ -1111,6 +1142,9 @@
     }
     .whitespace-nowrap {
         white-space: nowrap;
+    }
+    .whitespace-pre-line {
+        white-space: pre-line;
     }
     .whitespace-pre-wrap {
         white-space: pre-wrap;
@@ -9192,6 +9226,10 @@ body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
     inherits: false;
     initial-value: solid;
 }
+@property --tw-leading {
+    syntax: '*';
+    inherits: false;
+}
 @property --tw-font-weight {
     syntax: '*';
     inherits: false;
@@ -9337,6 +9375,7 @@ body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
             --tw-skew-x: initial;
             --tw-skew-y: initial;
             --tw-border-style: solid;
+            --tw-leading: initial;
             --tw-font-weight: initial;
             --tw-tracking: initial;
             --tw-ordinal: initial;

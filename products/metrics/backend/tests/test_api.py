@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from functools import partial
 from typing import Any
+from urllib.parse import parse_qs
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -62,7 +63,7 @@ class TestMetricsValuesApi(APIBaseTest):
 OPTIONS_SQL = "SELECT DISTINCT service_name FROM posthog.metrics"
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+@override_settings(SNUFFLE_METRICS_URL="http://snuffle.test:9091")
 class TestMetricsVariableOptionsApi(APIBaseTest):
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/metrics/variable_options/", body, format="json")
@@ -513,13 +514,19 @@ class TestMetricQueryBodyValidation(SimpleTestCase):
         serializer = _MetricQueryBodySerializer(data={"promql": "sum(rate(http_requests_total[5m]))"})
         assert serializer.is_valid(), serializer.errors
 
+    def test_capital_m_offset_is_minutes(self) -> None:
+        serializer = _MetricQueryBodySerializer(data={"metricName": "up", "dateFrom": "-30M"})
+        assert serializer.is_valid(), serializer.errors
+        span = serializer.validated_data["dateTo"] - serializer.validated_data["dateFrom"]
+        assert span == timedelta(minutes=30)
+
     def test_builder_query_aggregation_defaults_to_sum(self) -> None:
         serializer = _MetricQueryBodySerializer(data={"metricName": "http_requests_total"})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["aggregation"] == "sum"
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+@override_settings(SNUFFLE_METRICS_URL="http://snuffle.test:9091")
 class TestMetricsPromqlQueryApi(APIBaseTest):
     def _post(self, query: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/metrics/query/", {"query": query}, format="json")
@@ -552,6 +559,122 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
         values = [point["value"] for point in series["points"]]
         assert 1.5 in values
         assert 9.0 not in values
+
+    def _snuffle(self, data: dict[str, Any]) -> MagicMock:
+        upstream = MagicMock(spec=requests.Response, status_code=200, headers={})
+        upstream.json.return_value = {"status": "success", "data": data}
+        return upstream
+
+    def test_instant_promql_query_returns_one_value_per_series(self) -> None:
+        upstream = self._snuffle(
+            {
+                "resultType": "vector",
+                "result": [
+                    {"metric": {"group_id": "ingestion"}, "value": [1793185200, "1200"]},
+                    {"metric": {"group_id": "replay"}, "value": [1793185200, "7"]},
+                ],
+            }
+        )
+        expr = "topk(5, sum by (group_id) (kafka_consumer_group_lag))"
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream) as request:
+            response = self._post({"promql": expr, "instant": True, "time": "2026-10-28T11:00:00Z"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert request.call_args.args == ("POST", "http://snuffle.test:9091/api/v1/query")
+        assert request.call_args.kwargs["data"] == {"query": expr, "time": "1793185200.0"}
+        results = response.json()["results"]
+        assert [(s["labels"], s["value"]) for s in results] == [
+            ({"group_id": "ingestion"}, 1200.0),
+            ({"group_id": "replay"}, 7.0),
+        ]
+        assert results[0]["time"] == "2026-10-28T11:00:00+00:00"
+        assert "points" not in results[0]
+
+    def test_time_alone_makes_an_instant_query(self) -> None:
+        upstream = self._snuffle({"resultType": "scalar", "result": [1793185200, "3"]})
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream) as request:
+            response = self._post({"promql": "vector(1) * 3", "time": "-1h"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert request.call_args.args[1] == "http://snuffle.test:9091/api/v1/query"
+        assert [s["value"] for s in response.json()["results"]] == [3.0]
+
+    def test_instant_promql_query_rejects_a_range_vector(self) -> None:
+        upstream = self._snuffle({"resultType": "matrix", "result": []})
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream):
+            response = self._post({"promql": "up[5m]", "instant": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "range vector" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("with_date_from", {"instant": True, "dateFrom": "-1h"}, "dateFrom"),
+            ("with_date_to", {"time": "-1h", "dateTo": "-5m"}, "dateTo"),
+            ("with_summary", {"instant": True, "output": "summary"}, "summary"),
+            ("promql_with_interval", {"instant": True, "interval": "minute"}, "interval"),
+            ("time_too_early", {"time": "0001-01-01T00:00:00Z"}, "Too early"),
+            ("time_too_late", {"time": "9999-12-31T23:30:00Z"}, "Too late"),
+        ]
+    )
+    def test_instant_query_rejects_range_options(self, _name: str, options: dict[str, Any], message: str) -> None:
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            response = self._post({"promql": "up", **options})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in str(response.json())
+        request.assert_not_called()
+
+    def test_summary_output_returns_last_min_max_and_avg_per_series(self) -> None:
+        upstream = self._snuffle(
+            {
+                "resultType": "matrix",
+                "result": [
+                    {
+                        "metric": {"job": "api"},
+                        "values": [[1793181600, "4"], [1793181660, "2"], [1793181720, "NaN"]],
+                    },
+                    {"metric": {"job": "web"}, "values": [[1793181660, "1"]]},
+                ],
+            }
+        )
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream):
+            response = self._post(
+                {
+                    "promql": "sum by (job) (up)",
+                    "dateFrom": "2026-10-28T10:00:00Z",
+                    "dateTo": "2026-10-28T11:00:00Z",
+                    "interval": "minute",
+                    "output": "summary",
+                }
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        api, web = response.json()["results"]
+        assert "points" not in api
+        assert {key: api[key] for key in ("labels", "last", "time", "min", "max", "avg")} == {
+            "labels": {"job": "api"},
+            "last": 2.0,
+            "time": "2026-10-28T10:01:00+00:00",
+            "min": 2.0,
+            "max": 4.0,
+            "avg": 3.0,
+        }
+        assert (web["last"], web["min"], web["max"], web["avg"]) == (1.0, 1.0, 1.0, 1.0)
+
+    def test_promql_query_links_to_the_metrics_viewer(self) -> None:
+        upstream = self._snuffle({"resultType": "vector", "result": []})
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream):
+            response = self._post({"promql": 'sum(up{job="api"})', "time": "2026-10-28T11:00:00Z"})
+
+        params = parse_qs(response.json()["url_params"])
+        assert params == {
+            "activeTab": ["viewer"],
+            "language": ["promql"],
+            "query": ['sum(up{job="api"})'],
+            "dateFrom": ["2026-10-28T10:00:00+00:00"],
+            "dateTo": ["2026-10-28T11:00:00+00:00"],
+        }
 
     def test_promql_query_needs_the_snuffle_flag(self) -> None:
         def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
@@ -587,6 +710,7 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
     @parameterized.expand(
         [
             ("span_over_the_builder_limit", {"dateFrom": "-40d"}, "maximum span is 31 days"),
+            ("lowercase_m_months", {"dateFrom": "-30m"}, "use '-30M' for minutes; lowercase m means months"),
             (
                 "reversed_bounds_in_one_bucket",
                 {"dateFrom": "2026-01-01T10:59:00Z", "dateTo": "2026-01-01T10:58:00Z", "interval": "hour"},
@@ -641,6 +765,18 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert response["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
         request.assert_not_called()
+
+
+class TestMetricsBuilderQueryApi(APIBaseTest):
+    def test_lowercase_m_offset_too_wide_hints_at_minutes(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query/",
+            {"query": {"metricName": "up", "dateFrom": "-30m"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "use '-30M' for minutes; lowercase m means months" in response.json()["detail"]
 
 
 class TestMetricsErrorSpikesApi(APIBaseTest):

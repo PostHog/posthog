@@ -111,7 +111,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 
 ### Components (`@posthog/quill`)
 
-- DataTable
+- DataTable (`selectable` for the checkbox variant)
 - DatePicker, DateTimePicker (quickRanges, CUSTOM_RANGE)
 - useCalendar
 - Metric → import from `@posthog/quill-components/metric` only (pulls in charts)
@@ -233,6 +233,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Cards may contain an `ItemGroup`; never nest cards; never wrap a whole page section in a card
 - Table vs Item list:
   - Table: rows share columns users compare, sort, or scan vertically (DataTable when sorting/filtering/selection is needed)
+  - Rows the user picks for a bulk action: `DataTable` with `selectable`, never a checkbox column built by hand. It adds the header checkbox and shift-click range selection. Pass `getRowId`, `rowSelection` and `onRowSelectionChange`, keep the selection in the list's logic, and clear it when the filters change.
   - A link in a table cell is a small link Button, never a bare Link: `<Button variant="link-foreground" size="sm" nativeButton={false} render={<LinkPrimitive to={url} />}>`. It keeps the foreground color and, on hover, shows the normal button fill, because a whole column of `primary` links is too loud. Use `link-muted` for a secondary link. The table keeps its text in line with the column header. See the Table `WithLinks` story
   - Item rows: heterogeneous entries (primary/secondary text + actions)
 - Overlays:
@@ -270,6 +271,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - Scrolling:
   - Default: a plain scroller with an edge fade, `overflow-y-auto scroll-mask-y-4 scroll-py-4`. This is the pattern quill's menus, Select and Combobox use. The fade is CSS only, while `ScrollArea` runs JavaScript and React state updates on every scroll
   - `scroll-py-4` keeps a keyboard-focused row clear of the fade. The mask fades the content itself, so keep sticky headers and other fixed controls outside the scroller
+  - The mask also fades the scroller's own scrollbar. When the scrollbar shows, use quill's `quill-scroll-fade` class instead: sticky gradients inside the content box, with `--quill-scroll-fade-top-offset` to keep a sticky header solid
   - Use `ScrollArea` only when you need what it adds: custom, always-visible or hidden scrollbars (`alwaysShowScrollbars`, `hideScrollbars`), scroll-to-edge buttons (`showScrollToButton`), or a dialog body (`DialogBody` renders one by default)
   - The fade needs scroll-driven animations (Chrome, Edge, Safari 26 and later). Firefox and reduced-motion users get no fade, and the content still scrolls normally
   - The web app's Tailwind build loads `tailwindcss-scroll-mask` (`common/tailwind/tailwind.css`), so every `scroll-mask-*` utility works in app code
@@ -359,6 +361,8 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   | `LemonTag`                             | `Badge`                                                                                                      |
   | `LemonSelect`                          | `Select`                                                                                                     |
   | `LemonSegmentedButton`                 | `ToggleGroup`                                                                                                |
+  | `LemonTable`                           | `DataTable`                                                                                                  |
+  | `LemonTable bulkSelection`             | `DataTable selectable`, with `getRowId`, `rowSelection` and `onRowSelectionChange`; shift-click still works  |
   | `AccessControlAction`, `Shortcut`      | keep the wrapper around the quill `Button`, menu item, `Checkbox` or `Switch`; it passes `disabledReason` in |
 
 ### PostHog Desktop

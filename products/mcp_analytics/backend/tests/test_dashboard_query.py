@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, call, patch
 
 from django.db import connections
@@ -33,12 +33,17 @@ from posthog.schema import (
     MCPProtocolVersionBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
+    PersonPropertyFilter,
     PropertyOperator,
     QueryStatus,
     QueryStatusResponse,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    SessionPropertyFilter,
 )
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.warehouse_warnings import record_warnings
@@ -48,11 +53,12 @@ from posthog.clickhouse.query_tagging import tag_queries, tags_context
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 
 from products.mcp_analytics.backend.facade.api import invalidate_custom_harness_rules
-from products.mcp_analytics.backend.hogql_queries.dashboard_query import MCPDashboardQueryRunner
+from products.mcp_analytics.backend.hogql_queries.dashboard_query import LEAN_DATABASE_FLAG, MCPDashboardQueryRunner
 from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
@@ -328,6 +334,124 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert list(batch.results) == [section.value for section in sections]
         for section in sections:
             assert self._rows(batch, section) == self._rows(self._run([section]), section), section
+
+    @parameterized.expand(
+        [
+            *(
+                (f"{entry_point}_{name}", entry_point, sections, True)
+                for entry_point in ("run", "calculate")
+                for name, sections in (
+                    ("hogql_section", [MCPDashboardSection.KPIS]),
+                    ("typed_section", [MCPDashboardSection.HARNESS_ROWS]),
+                    ("batch", list(MCPDashboardSection)),
+                )
+            ),
+            ("unshared_typed_section", "run", [MCPDashboardSection.HARNESS_ROWS], False),
+        ]
+    )
+    def test_a_query_builds_one_database_for_all_its_sections(
+        self, _name: str, entry_point: str, sections: list[MCPDashboardSection], shared: bool
+    ) -> None:
+        self._seed()
+        create_for = Database.create_for
+        runner = self._runner(sections)
+
+        with (
+            override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", shared),
+            patch.object(Database, "create_for", side_effect=create_for) as build,
+        ):
+            self._run(sections, runner) if entry_point == "run" else runner.calculate()
+
+        assert build.call_count == 1
+
+    def _seed_revenue(self) -> None:
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName="purchase",
+                revenueProperty="revenue",
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        _create_person(team_id=self.team.pk, distinct_ids=["d1"])
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="d1",
+            timestamp=NOW - timedelta(days=2),
+            properties={"revenue": 100},
+        )
+
+    @parameterized.expand(
+        [
+            ("one_section_per_request", PROPERTIES, False, False, "Acme Agent"),
+            (
+                "revenue_filter",
+                [*PROPERTIES, PersonPropertyFilter(key="$virt_revenue", value=0, operator=PropertyOperator.GT)],
+                False,
+                True,
+                "Claude Code",
+            ),
+            (
+                "session_filter",
+                [*PROPERTIES, SessionPropertyFilter(key="$session_duration", value=0, operator=PropertyOperator.GTE)],
+                False,
+                True,
+                "Acme Agent",
+            ),
+            ("batch", PROPERTIES, True, True, "Acme Agent"),
+        ]
+    )
+    def test_the_lean_database_flag_gives_every_section_the_same_rows(
+        self, _name: str, properties: list, batch: bool, builds_full_catalog: bool, harness: str
+    ) -> None:
+        self._seed_revenue()
+        self._seed()
+        with self.captureOnCommitCallbacks(execute=True):
+            MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="codex")
+            invalidate_custom_harness_rules(self.team)
+        sections = list(MCPDashboardSection)
+
+        def rows_by_section() -> dict[MCPDashboardSection, Any]:
+            rows: dict[MCPDashboardSection, Any] = {}
+            for request in [sections] if batch else [[section] for section in sections]:
+                runner = self._runner(request, properties=properties)
+                response = self._run(request, runner, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                rows |= {section: self._rows(response, section) for section in request}
+            return rows
+
+        full = rows_by_section()
+        create_for = Database.create_for
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=lambda key, *_, **__: key == LEAN_DATABASE_FLAG),
+            patch.object(Database, "create_for", side_effect=create_for) as full_catalog_build,
+        ):
+            lean = rows_by_section()
+
+        assert (full_catalog_build.call_count > 0) == builds_full_catalog
+        assert full[MCPDashboardSection.TOOL_ROWS], "the seed should leave rows to compare"
+        assert harness in json.dumps(lean[MCPDashboardSection.HARNESS_ROWS])
+        assert lean == full
+
+    def test_a_batch_reports_its_database_build_on_the_section_that_built_it(self) -> None:
+        self._seed()
+        sections = [MCPDashboardSection.TOOL_ROWS, MCPDashboardSection.KPIS, MCPDashboardSection.HARNESS_ROWS]
+
+        with patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            self._run(sections, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        builds = [args[1]["build_database_ms"] for args, _ in report.call_args_list if args[0] == "query executed"]
+        assert len(builds) == len(sections)
+        assert sum(build is not None for build in builds) == 1
+
+    def test_the_lean_database_keeps_its_own_cache_entries(self) -> None:
+        sections = [MCPDashboardSection.TOOL_ROWS]
+        full_key = self._runner(sections).get_cache_key()
+
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda key, *_, **__: key == LEAN_DATABASE_FLAG):
+            lean_key = self._runner(sections).get_cache_key()
+
+        assert lean_key != full_key
 
     def test_a_failed_section_leaves_the_others_and_stays_uncached(self) -> None:
         self._seed()

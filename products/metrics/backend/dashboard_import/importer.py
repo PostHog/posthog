@@ -145,7 +145,7 @@ MAX_LAYOUT_ROUNDS = 3
 
 
 def promql_available(team: Team, user: User) -> bool:
-    return bool(settings.SNUFFLE_APM_URL) and posthog_feature_flag_enabled(
+    return bool(settings.SNUFFLE_METRICS_URL) and posthog_feature_flag_enabled(
         SNUFFLE_API_FEATURE_FLAG,
         str(user.distinct_id),
         organization_id=team.organization_id,
@@ -855,6 +855,7 @@ class DashboardImporter:
             "duration_seconds": round((timezone.now() - started).total_seconds(), 1),
             "layout_rounds": state.layout_check.round if state.layout_check else None,
             **result.summary.model_dump(),
+            "$update_person_last_seen_at": False,
         }
         if not background:
             report_user_action(self._user, "metrics dashboard import finished", properties, team=self._team)

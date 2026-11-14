@@ -852,17 +852,12 @@ export const FileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
-export const fileSystemMoveCreateBodyTypeMax = 100
-
-export const fileSystemMoveCreateBodyRefMax = 100
-
 export const FileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(fileSystemMoveCreateBodyTypeMax).optional(),
-    ref: zod.string().max(fileSystemMoveCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
+    new_path: zod
+        .string()
+        .describe(
+            "Full new path for the entry, including its own name as the last segment, such as 'Experiments\/Q4\/Weekly signups'. Missing parent folders are created. Escape a '\/' inside a name as '\\\/'."
+        ),
 })
 
 /**
@@ -1235,7 +1230,6 @@ export const PropertyDefinitionsUsageMetricsCreateBody = /* @__PURE__ */ zod.obj
             zod.object({
                 type: zod
                     .enum(['event', 'person', 'group', 'session'])
-                    .describe('\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session')
                     .default(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault)
                     .describe(
                         'Property definition type the name belongs to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'

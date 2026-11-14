@@ -14,6 +14,8 @@ import {
 } from 'products/workflows/frontend/generated/api'
 import type { BroadcastConversionCandidateApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import type { BroadcastSendErrorAction } from './BroadcastSendErrorBanner'
+
 export interface ManagedBroadcast {
     id: string
     name?: string | null
@@ -114,6 +116,37 @@ export function summaryActions(input: BroadcastSummaryActionsInput): BroadcastSu
             : null,
     ]
     return actions.filter((action): action is BroadcastSummaryAction => action !== null)
+}
+
+export interface BroadcastSendErrorActions {
+    fixAction: BroadcastSendErrorAction | undefined
+    resendAction: BroadcastSendErrorAction | undefined
+}
+
+/** A sent broadcast can't change, so a fix goes into a copy. A broadcast with sends still scheduled is edited in place. */
+export function sendErrorActions(
+    input: Pick<
+        BroadcastSummaryActionsInput,
+        'userAccessLevel' | 'canMoveToDraft' | 'canEditContent' | 'onMoveToDraft' | 'onSendAgain'
+    >
+): BroadcastSendErrorActions {
+    const sendAgain = (label: string): BroadcastSendErrorAction => ({
+        label,
+        onClick: input.onSendAgain,
+        disabledReason: createDisabledReason(),
+    })
+    return {
+        fixAction: input.canMoveToDraft
+            ? {
+                  label: 'Stop and edit',
+                  onClick: input.onMoveToDraft,
+                  disabledReason: manageDisabledReason(input.userAccessLevel),
+              }
+            : input.canEditContent
+              ? sendAgain('Fix and send again')
+              : undefined,
+        resendAction: input.canEditContent ? sendAgain('Send again') : undefined,
+    }
 }
 
 function label(broadcast: ManagedBroadcast): string {

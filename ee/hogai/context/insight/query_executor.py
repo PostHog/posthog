@@ -90,6 +90,7 @@ from ee.hogai.context.insight.format import (
     StickinessResultsFormatter,
     TrendsResultsFormatter,
     format_access_control_warnings,
+    format_warehouse_suggestions,
     format_warehouse_sync_warnings,
     get_boxplot_results,
     is_boxplot_query,
@@ -349,8 +350,12 @@ class AssistantQueryExecutor:
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
+                suggestions = self._suggestions_that_fit_budget(response_dict, self._max_sql_result_chars)
                 if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
-                    fallback_results = SQLResultsFormatter.bound_fallback(fallback_results, self._max_sql_result_chars)
+                    fallback_results = SQLResultsFormatter.bound_fallback(
+                        fallback_results, _budget_left_after(self._max_sql_result_chars, suggestions)
+                    )
+                fallback_results += suggestions
                 fallback_elapsed = time.time() - fallback_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -686,13 +691,17 @@ class AssistantQueryExecutor:
 
         warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
         result_budget = self._max_sql_result_chars
-        if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and result_budget is not None:
+        is_sql = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode)
+        if is_sql and result_budget is not None:
             result_budget -= len(warning_prefix)
             if result_budget < SQLResultsFormatter.MIN_RESULT_CHARS:
                 return SQLResultsFormatter.bound_fallback(
                     "[SQL result preview omitted because query warnings exceed the preview budget.]\n" + warning_prefix,
                     self._max_sql_result_chars,
                 )
+        suggestions = self._suggestions_that_fit_budget(response, result_budget if is_sql else None)
+        if is_sql:
+            result_budget = _budget_left_after(result_budget, suggestions)
 
         try:
             # Handle assistant-specific query types with direct formatting
@@ -763,14 +772,27 @@ class AssistantQueryExecutor:
 
             if warning_prefix:
                 result = warning_prefix + result
-            if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
-                result = SQLResultsFormatter.bound_fallback(result, self._max_sql_result_chars)
-            return result
+            if is_sql:
+                result = SQLResultsFormatter.bound_fallback(
+                    result, _budget_left_after(self._max_sql_result_chars, suggestions)
+                )
+            return result + suggestions
         except Exception:
             elapsed = time.time() - start_time
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} _compress_results failed after {elapsed:.3f}s for {query_type}")
             raise
+
+    @staticmethod
+    def _suggestions_that_fit_budget(response: dict[str, Any], result_budget: int | None) -> str:
+        suggestions = format_warehouse_suggestions(response)
+        if result_budget is None or result_budget - len(suggestions) >= SQLResultsFormatter.MIN_RESULT_CHARS:
+            return suggestions
+        return ""
+
+
+def _budget_left_after(budget: int | None, text: str) -> int | None:
+    return None if budget is None else budget - len(text)
 
 
 def _is_boxplot_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:

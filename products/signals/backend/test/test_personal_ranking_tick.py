@@ -163,42 +163,45 @@ class TestTickEnrollment(_TickTest):
 
 
 class TestTickSelection(_TickTest):
-    def test_selects_due_pairs_paying_first_then_by_activity_and_oldest_list_within_the_org_share(self) -> None:
+    def test_selects_overdue_pairs_first_then_paying_and_recent_activity_within_the_org_share(self) -> None:
         paying = Team.objects.create(
             organization=Organization.objects.create(name="Paying", has_active_subscription=True), name="Paying"
         )
         free = Team.objects.create(organization=Organization.objects.create(name="Free"), name="Free")
         with time_machine.travel(NOW, tick=False):
             users = {
-                "paying": self._pair(paying, "paying@example.com", active_hours_ago=30),
-                "recent_no_list": self._pair(free, "a@example.com", active_hours_ago=1),
-                "recent_old_list": self._pair(free, "b@example.com", active_hours_ago=1, list_hours_ago=3),
+                "paying_recent": self._pair(paying, "paying@example.com", active_hours_ago=0.5, list_hours_ago=2),
+                "free_no_list": self._pair(free, "a@example.com", active_hours_ago=30),
+                "free_overdue": self._pair(free, "b@example.com", active_hours_ago=10, list_hours_ago=6),
                 # Past this organization's share of the tick.
-                "older": self._pair(free, "c@example.com", active_hours_ago=2, list_hours_ago=4),
-                "oldest_activity": self._pair(self.team, "d@example.com", active_hours_ago=3, list_hours_ago=5),
-                "fresh_list": self._pair(self.team, "e@example.com", active_hours_ago=1, list_hours_ago=0.2),
+                "free_recent": self._pair(free, "c@example.com", active_hours_ago=1, list_hours_ago=3),
+                "old_activity_overdue": self._pair(self.team, "d@example.com", active_hours_ago=20, list_hours_ago=30),
+                # Past the limit: the most recent activity does not beat an overdue pair.
+                "recent_not_overdue": self._pair(self.team, "e@example.com", active_hours_ago=0.2, list_hours_ago=1.5),
+                "fresh_list": self._pair(self.team, "f@example.com", active_hours_ago=1, list_hours_ago=0.2),
                 "checked_recently": self._pair(
-                    self.team, "f@example.com", active_hours_ago=1, list_hours_ago=3, checked_hours_ago=0.2
+                    self.team, "g@example.com", active_hours_ago=1, list_hours_ago=30, checked_hours_ago=0.2
                 ),
-                "inactive": self._pair(self.team, "g@example.com", active_hours_ago=24 * 10),
+                "inactive": self._pair(self.team, "h@example.com", active_hours_ago=24 * 10),
             }
             selection = select_pairs(
-                parse_config({"tick": {"enabled": True, "max_org_share": 0.5}}),
+                parse_config({"tick": {"enabled": True, "max_org_share": 0.5, "overdue_after_minutes": 240}}),
                 NOW,
                 4,
                 [paying.id, free.id, self.team.id],
             )
 
         assert [pair.user_id for pair in selection.pairs] == [
-            users[name].id for name in ("paying", "recent_no_list", "recent_old_list", "oldest_activity")
+            users[name].id for name in ("free_no_list", "old_activity_overdue", "free_overdue", "paying_recent")
         ]
-        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (5, 2, 5.0)
-        assert (selection.oldest_due_activity_hours, selection.oldest_due_summary_hours) == (3.0, 0.0)
-        assert selection.fresh_share == 2 / 7
+        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (6, 1, 30.0)
+        assert (selection.due_overdue, selection.picked_overdue) == (3, 3)
+        assert (selection.oldest_due_activity_hours, selection.oldest_due_summary_hours) == (20.0, 0.0)
+        assert selection.fresh_share == 2 / 8
         assert (selection.pair_list_hours, selection.unpicked_without_list, selection.unpicked_oldest_hours) == (
-            [None, None, 3.0, 5.0],
+            [None, 30.0, 6.0, 2.0],
             0,
-            4.0,
+            3.0,
         )
 
 
@@ -324,6 +327,8 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
         "time_budget_seconds": 600.0,
         "stop_reason": None,
         "due_pairs": pairs,
+        "due_overdue": pairs,
+        "picked_overdue": 2,
         "enrolled_teams": 3,
     }
     return PersonalRankingTickPlan(**{**fields, **overrides})
@@ -440,6 +445,7 @@ async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
         stop_reason,
     )
     assert (result.due_pairs, result.enrolled_teams) == (plan.due_pairs, plan.enrolled_teams)
+    assert (result.due_overdue, result.picked_overdue) == (plan.due_overdue, min(picked, 2))
     backlog = result.remaining
     # The tick takes a few milliseconds, which adds to the age of the oldest remaining list.
     assert (

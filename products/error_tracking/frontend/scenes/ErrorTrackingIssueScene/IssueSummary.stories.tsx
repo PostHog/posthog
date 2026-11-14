@@ -17,7 +17,7 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     likely_cause: 'The cart request can finish after the first render when the session token is refreshed.',
     who_is_affected: 'About 40 signed-in users a day, mostly on Safari, in the last 7 days.',
     suggested_next_step: 'Check that the checkout page waits for the cart request before it reads the total.',
-    model: 'gpt-4.1-mini',
+    model: 'gpt-6-luna',
     generated_at: '2026-10-20T09:00:00Z',
     checked_at: '2026-10-20T09:00:00Z',
 }

@@ -6,12 +6,17 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { PageToolbarMode } from '../../messaging/pageToolbarBridge'
+import type { PageToolbarHeatmapState, PageToolbarMessage, PageToolbarMode } from '../../messaging/pageToolbarBridge'
 import { configureFakeExtensionBrowser } from './__mocks__/fakeExtensionBrowser'
-import { STORY_PAGE_URL, pageToolbarState } from './__mocks__/pageToolbarState'
+import { STORY_PAGE_URL, flagComparison, pageToolbarState } from './__mocks__/pageToolbarState'
 import { ExtensionPanel } from './ExtensionPanel'
 
-type StoryArgs = { mode: PageToolbarMode; tabUrl?: string }
+type StoryArgs = {
+    mode: PageToolbarMode
+    tabUrl?: string
+    heatmap?: Partial<PageToolbarHeatmapState>
+    messages?: PageToolbarMessage[]
+}
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Toolbar extension',
@@ -36,11 +41,13 @@ const meta: Meta<StoryArgs> = {
             },
         }),
     ],
-    render: ({ mode, tabUrl }) => {
+    render: ({ mode, tabUrl, heatmap, messages }) => {
         const uiHost = window.location.origin
+        const pageState = pageToolbarState(mode)
         configureFakeExtensionBrowser({
             tabUrl: tabUrl ?? STORY_PAGE_URL,
-            pageState: pageToolbarState(mode),
+            pageState: { ...pageState, heatmap: { ...pageState.heatmap, ...heatmap } },
+            messages,
             storage: {
                 posthogUiHost: uiHost,
                 posthogToolbarTokens: {
@@ -75,6 +82,18 @@ export const Heatmap: Story = {
     parameters: { testOptions: { waitForSelector: 'text=Compare plans' } },
 }
 
+export const HeatmapSavedVariantFilter: Story = {
+    args: {
+        mode: 'heatmap',
+        heatmap: {
+            variantFilter: { flagKey: 'pricing-page-redesign', variant: 'test' },
+            variantFlags: [],
+            variantFilterGate: false,
+        },
+    },
+    parameters: { testOptions: { waitForSelector: 'text=pricing-page-redesign: test' } },
+}
+
 export const Actions: Story = {
     args: { mode: 'actions' },
     parameters: { testOptions: { waitForSelector: 'text=Clicked contact sales' } },
@@ -83,6 +102,11 @@ export const Actions: Story = {
 export const FeatureFlags: Story = {
     args: { mode: 'flags' },
     parameters: { testOptions: { waitForSelector: 'text=checkout-button-copy' } },
+}
+
+export const FeatureFlagComparison: Story = {
+    args: { mode: 'flags', messages: [{ type: 'flag-comparison', comparison: flagComparison }] },
+    parameters: { testOptions: { waitForSelector: '[data-attr="toolbar-extension-flag-comparison-back"]' } },
 }
 
 export const Events: Story = {

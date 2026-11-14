@@ -666,6 +666,7 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
     return _SlackBinding(
         integration=integration,
         thread_context=SlackThreadContext(
+            team_id=team_id,
             integration_id=integration.id,
             channel=ctx.channel,
             thread_ts=ctx.thread_ts,

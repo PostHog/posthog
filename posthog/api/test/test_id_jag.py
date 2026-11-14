@@ -48,6 +48,7 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.user import User as UserModel
 from posthog.permissions import get_authenticator_client
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -941,6 +942,40 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("ema_names_its_organization", True, True, "own", status.HTTP_200_OK),
+            ("ema_names_another_organization", True, True, "other", status.HTTP_400_BAD_REQUEST),
+            ("ema_without_claim", True, True, None, status.HTTP_400_BAD_REQUEST),
+            ("ema_application_no_longer_approved", True, False, "own", status.HTTP_400_BAD_REQUEST),
+            ("manual_config_ignores_claim", False, False, "other", status.HTTP_200_OK),
+        ]
+    )
+    def test_ema_registered_issuer_requires_its_organization_and_an_approved_application(
+        self,
+        _name: str,
+        registered_through_ema: bool,
+        application_approved: bool,
+        aud_tenant: str | None,
+        expected_status: int,
+    ) -> None:
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
+        if registered_through_ema:
+            application = OAuthApplication.objects.get(client_id=_RESOURCE_CLIENT_ID)
+            application.can_manage_ema_issuer = application_approved
+            application.save()
+            config.id_jag_registered_by_application = application
+            config.save()
+
+        claims: dict[str, Any] = {}
+        if aud_tenant is not None:
+            claims["aud_tenant"] = str(self.organization.id) if aud_tenant == "own" else str(uuid.uuid4())
+        assertion = _make_id_jag(extra_claims=claims)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+
+    @parameterized.expand(
+        [
             ("parameter_only", None, "https://mcp.posthog.com/mcp", "https://mcp.posthog.com/mcp", None),
             ("neither", None, None, _SITE_URL, None),
             ("claim_and_parameter_differ", _SITE_URL, "https://mcp.posthog.com/mcp", None, "invalid_target"),
@@ -1318,3 +1353,51 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {token}")
 
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)
+
+    def test_me_hides_the_current_project_and_organization_outside_the_tokens_organization(self) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = other_organization
+        self.user.save()
+        inviting_organization = Organization.objects.create(name="Inviting")
+        OrganizationInvite.objects.create(organization=inviting_organization, target_email=self.user.email)
+
+        token = self._mint_access_token(scope="user:read")
+        resp = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertIsNone(body["team"])
+        self.assertIsNone(body["organization"])
+        self.assertEqual([organization["id"] for organization in body["organizations"]], [str(self.organization.id)])
+        self.assertEqual(body["pending_invites"], [])
+
+    @parameterized.expand([("set_current_team",), ("set_current_organization",)])
+    def test_me_refuses_to_switch_outside_the_tokens_organization(self, field: str) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = self.team
+        self.user.current_organization = self.organization
+        self.user.save()
+        target = other_team.id if field == "set_current_team" else str(other_organization.id)
+
+        token = self._mint_access_token(scope="user:write")
+        resp = self.client.patch(
+            "/api/users/@me/",
+            {field: target},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team_id, self.team.id)
+        self.assertEqual(self.user.current_organization_id, self.organization.id)
+
+    def test_organization_list_holds_only_the_tokens_organization(self) -> None:
+        Organization.objects.bootstrap(self.user)
+
+        token = self._mint_access_token(scope="organization:read")
+        resp = self.client.get("/api/organizations/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual([organization["id"] for organization in resp.json()["results"]], [str(self.organization.id)])

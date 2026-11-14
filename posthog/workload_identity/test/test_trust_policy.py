@@ -14,7 +14,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, WORKFLOWS_TEMPLATE_ID_MAP
+from posthog.email import WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import set_instance_setting
@@ -410,7 +410,6 @@ class TestSendWorkloadTrustPolicyChangedEmail(APIBaseTest):
         )
         assert "Production deploys" in sent[0].html_body
         assert sent[0].use_http is True
-        assert sent[0].template_name in CUSTOMER_IO_TEMPLATE_ID_MAP
         assert sent[0].template_name in WORKFLOWS_TEMPLATE_ID_MAP
 
 

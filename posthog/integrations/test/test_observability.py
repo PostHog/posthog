@@ -249,6 +249,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
             ("fresh", 10, None, False, "", "fresh"),
             ("expired", 800, None, False, "", "refreshed"),
             ("stale_token", 10, "old", True, "", "stale_token"),
+            ("expired_and_the_caller_holds_the_stored_token", 800, "old", True, "", "refreshed"),
             ("failed_refresh_sets_errors", 800, None, True, "TOKEN_REFRESH_FAILED", "error"),
             ("raising_refresh", 800, None, True, "raise", "error"),
         ]
@@ -265,12 +266,12 @@ class TestIntegrationsSdkMetrics(BaseTest):
         )
         before = _sample(TOKEN_REFRESH, kind="resend", result=result)
 
-        def refresh(oauth: OauthIntegration) -> None:
+        def refresh(oauth: OauthIntegration) -> IntegrationPatch:
             if errors == "raise":
                 raise RuntimeError("provider down")
-            oauth.integration.errors = errors
+            return IntegrationPatch(errors=errors)
 
-        with patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=refresh) as mocked:
+        with patch.object(OauthIntegration, "token_refresh_patch", autospec=True, side_effect=refresh) as mocked:
             try:
                 OAuthAccessor(kind="resend").refresh_access_token(self.team_id, row.id, stale_access_token=stale)
             except RuntimeError:

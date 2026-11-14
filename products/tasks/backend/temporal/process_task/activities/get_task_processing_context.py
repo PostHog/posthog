@@ -119,6 +119,7 @@ class TaskProcessingContext:
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
+    repository_integration_id: int | None = None
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
@@ -212,6 +213,10 @@ class TaskProcessingContext:
     @property
     def has_github_credentials(self) -> bool:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
+
+    @property
+    def has_gitlab_credentials(self) -> bool:
+        return self.repository_integration_id is not None
 
     @property
     def repositories(self) -> list[str]:
@@ -935,7 +940,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             task_run = TaskRun.objects.select_related(
                 "task__created_by",
                 "task__team",
-                "task__github_integration",
                 "task__github_user_integration",
             ).get(id=run_id)
             posthoganalytics.tag("origin_product", task_run.task.origin_product)
@@ -1074,8 +1078,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
     flags = _fetch_run_flags(distinct_id=distinct_id, organization_id=organization_id, run_id=run_id)
-    pr_loop_enabled = task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(
-        flags, PR_LOOP_FEATURE_FLAG
+    # The PR follow-up loop reads GitHub checks and reviews, so it stays off for GitLab merge requests.
+    pr_loop_enabled = task.repository_integration_id is None and (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(flags, PR_LOOP_FEATURE_FLAG)
     )
     log_with_activity_context(f"pr_loop_enabled: {pr_loop_enabled} for this task run", run_id=run_id)
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
@@ -1325,8 +1330,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
-        github_integration_id=task.github_integration_id,
-        github_user_integration_id=user_github_integration_id,
+        # A GitLab task gets no GitHub credential, so the GitHub refresh loop never rewrites its remote.
+        github_integration_id=task.github_integration_id if task.repository_integration_id is None else None,
+        github_user_integration_id=user_github_integration_id if task.repository_integration_id is None else None,
+        repository_integration_id=task.repository_integration_id,
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,

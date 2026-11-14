@@ -339,7 +339,7 @@ class TestReplySuggestionPlacement(SimpleTestCase):
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(id=7, config={}, integration_id="T1", team=Team(id=1))
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=7, channel="C001", thread_ts="1.0"),
+            SlackThreadContext(team_id=1, integration_id=7, channel="C001", thread_ts="1.0"),
             RunFooter(model="claude-opus-5"),
             turn_person_message="why does the retry never stop?",
         )

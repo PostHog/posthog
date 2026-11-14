@@ -1,6 +1,11 @@
 from dataclasses import field
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
+)
 
 
 @frozen
@@ -25,15 +30,24 @@ class StiggEndpointConfig:
     default_incremental_field: str | None = None
 
 
-# Plans are versioned, so the plans listing can return one row per version of the same plan.
-# The plan sub-resource paths take only the plan id, so the parent filter in `stigg.py` sends
-# one request per plan id.
+# Plans and addons are versioned, so their listings can return one row per version of the same
+# package. The sub-resource paths take only the package id, so the parent filter in `stigg.py`
+# sends one request per id.
 _PLAN_FANOUT = DependentEndpointConfig(
     parent_name="plans",
     resolve_param="plan_id",
     resolve_field="pathId",
     include_from_parent=["id"],
     parent_field_renames={"id": "planId"},
+    parent_params={"limit": 100},
+)
+
+_ADDON_FANOUT = DependentEndpointConfig(
+    parent_name="addons",
+    resolve_param="addon_id",
+    resolve_field="pathId",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "addonId"},
     parent_params={"limit": 100},
 )
 
@@ -47,10 +61,10 @@ _CUSTOMER_FANOUT = DependentEndpointConfig(
 )
 
 
-# Stigg REST API (https://api.stigg.io/api/v1) list endpoints. All are full refresh only:
-# the list endpoints expose a server-side `createdAt` range filter but no updated-since
-# filter, and billing objects (subscriptions, plans, customers) mutate in place — syncing
-# incrementally on creation time would permanently miss those updates, so we do not
+# Stigg REST API (https://api.stigg.io/api/v1) list endpoints. All but the credit ledger are
+# full refresh only: the list endpoints expose a server-side `createdAt` range filter but no
+# updated-since filter, and billing objects (subscriptions, plans, customers) mutate in place —
+# syncing incrementally on creation time would permanently miss those updates, so we do not
 # advertise it. Change capture on Stigg's side is webhook/queue based, with manual setup
 # only (no programmatic webhook management API).
 STIGG_ENDPOINTS: dict[str, StiggEndpointConfig] = {
@@ -92,6 +106,12 @@ STIGG_ENDPOINTS: dict[str, StiggEndpointConfig] = {
         primary_keys=["planId", "id"],
         fanout=_PLAN_FANOUT,
     ),
+    "addon_charges": StiggEndpointConfig(
+        name="addon_charges",
+        path="/addons/{addon_id}/charges",
+        primary_keys=["addonId", "id"],
+        fanout=_ADDON_FANOUT,
+    ),
     # `customerId` is a required filter. Without `resourceId` the API returns only the grants
     # that are not scoped to a resource.
     "credit_grants": StiggEndpointConfig(
@@ -99,6 +119,35 @@ STIGG_ENDPOINTS: dict[str, StiggEndpointConfig] = {
         path="/credits/grants?customerId={customer_id}",
         primary_keys=["customerId", "id"],
         fanout=_CUSTOMER_FANOUT,
+    ),
+    # Ledger events are immutable and filter server-side on `startDate` (inclusive), so the table
+    # can sync incrementally. Rows carry no id and several fields are null for some event types, so
+    # the key is every field that can tell two events apart (the merge matches nulls as equal).
+    "credit_ledger": StiggEndpointConfig(
+        name="credit_ledger",
+        path="/credits/ledger?customerId={customer_id}",
+        primary_keys=[
+            "customerId",
+            "creditCurrencyId",
+            "creditGrantId",
+            "eventType",
+            "timestamp",
+            "eventId",
+            "featureId",
+            "reservationId",
+            "resourceId",
+        ],
+        partition_key="timestamp",
+        fanout=_CUSTOMER_FANOUT,
+        incremental_fields=[
+            IncrementalField(
+                label="timestamp",
+                type=IncrementalFieldType.DateTime,
+                field="timestamp",
+                field_type=IncrementalFieldType.DateTime,
+            )
+        ],
+        default_incremental_field="timestamp",
     ),
     # One unpaginated state object per customer. Rows carry no id or creation time, so the key
     # is the feature or the credit currency that `stigg.py` lifts to the row root.
@@ -116,4 +165,6 @@ STIGG_ENDPOINTS: dict[str, StiggEndpointConfig] = {
 
 ENDPOINTS = tuple(STIGG_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: config.incremental_fields for name, config in STIGG_ENDPOINTS.items() if config.incremental_fields
+}

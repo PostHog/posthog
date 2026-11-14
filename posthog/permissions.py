@@ -854,6 +854,73 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
     return None
 
 
+_REACHABLE_ORGANIZATIONS_ATTR = "_credential_reachable_organization_ids"
+
+
+def get_request_reachable_organization_ids(request: Request | None) -> frozenset[str] | None:
+    """The organizations the request's credential may reach, or None when it carries no restriction.
+
+    A credential scoped to teams reaches the organizations of those teams, limited by its organization
+    list when it has one, the same rule `get_organization_ids_in_key_scope` applies to personal API keys.
+    The result is cached on the request, so a team-scoped credential costs one query per request.
+    """
+    if request is None:
+        return None
+    # Read the instance dict, not `getattr`: DRF's Request forwards unknown attributes to the wrapped
+    # HttpRequest, and a test double answers every attribute, so either could fake a cached value.
+    cache = vars(request)
+    if _REACHABLE_ORGANIZATIONS_ATTR in cache:
+        return cache[_REACHABLE_ORGANIZATIONS_ATTR]
+
+    authenticator = getattr(request, "successful_authenticator", None)
+    scoped_organizations = get_authenticator_scoped_organization_ids(authenticator)
+    scoped_teams = get_authenticator_scoped_team_ids(authenticator)
+    reachable: frozenset[str] | None
+    if not scoped_teams:
+        reachable = frozenset(scoped_organizations) if scoped_organizations is not None else None
+    else:
+        team_organizations = {
+            str(organization_id)
+            for organization_id in Team.objects.filter(id__in=scoped_teams).values_list("organization_id", flat=True)
+        }
+        reachable = frozenset(
+            organization_id
+            for organization_id in team_organizations
+            if scoped_organizations is None or organization_id in scoped_organizations
+        )
+    cache[_REACHABLE_ORGANIZATIONS_ATTR] = reachable
+    return reachable
+
+
+def credential_admits_organization(request: Request | None, organization_id: object) -> bool:
+    """Whether the request's credential may reach `organization_id`. Always true for credentials with no
+    restriction, such as session auth."""
+    reachable = get_request_reachable_organization_ids(request)
+    return reachable is None or str(organization_id) in reachable
+
+
+def credential_admits_team(request: Request | None, team_id: int, organization_id: object) -> bool:
+    """Whether the request's credential may reach the team: its organization is reachable, and the team is
+    in the credential's team list when it has one."""
+    if not credential_admits_organization(request, organization_id):
+        return False
+    scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+    return not scoped_teams or team_id in scoped_teams
+
+
+def check_team_within_credential_scope(request: Request, team_id: int) -> None:
+    """Refuse a user-scoped route that acts on `team_id` when the credential cannot reach that team.
+
+    `APIScopePermission` skips the tenant check for `scope_object = "user"` routes, so a route that
+    reads or writes data of the user's current team has to make this check itself.
+    """
+    if get_request_reachable_organization_ids(request) is None:
+        return
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if not credential_admits_team(request, team_id, organization_id):
+        raise PermissionDenied("This token cannot access your current project.")
+
+
 def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     """The teams a scoped token is confined to, or None when the credential carries no team
     restriction (session auth, or a token scoped to every team in the organization).

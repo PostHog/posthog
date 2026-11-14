@@ -7,9 +7,11 @@ caller asks for them with `with_source_rows()` or uses `IntegrationManager.sourc
 one kind with one auth type, because a new row has exactly one auth type. `OAuthAccessor` adds the
 token refresh.
 
-No operation returns a queryset, and no operation runs caller code inside its transaction. The
-integration rows move to a separate service later, so the operations here are the whole contract, and
-only their transport changes. Rows come back typed as the read-only `IntegrationRecord`.
+No operation returns a queryset, and no operation runs caller code inside the transaction of the
+backend. The integration rows move to a separate service later, so the operations here are the whole
+contract, and only their transport changes. Rows come back typed as the read-only `IntegrationRecord`.
+The deletes and writes run the hooks of the products (see `lifecycle.py`) in the Django database, around
+the backend call.
 
 The accessors hold the scope rules and send the storage work to `current_backend()` (see
 `backend/`). No code here queries the model.
@@ -17,7 +19,9 @@ The accessors hold the scope rules and send the storage work to `current_backend
 
 import re
 import builtins
+import dataclasses
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from typing import ClassVar, Literal
 
 from posthog.integrations.backend import (
@@ -33,16 +37,20 @@ from posthog.integrations.catalogue import KINDS
 from posthog.integrations.contracts import (
     SOURCE_MARKER_CONFIG_KEY,
     ConfigValue,
+    CrossTeamFilter,
     IntegrationInUse,
     IntegrationNotFound,
     IntegrationPatch,
     IntegrationRecord,
     IntegrationUsage,
+    RepositoryCache,
     UnknownIntegrationKind,
     UnsupportedAuthType,
     UnsupportedIntegrationFilter,
+    UpdatedRows,
 )
 from posthog.integrations.enums import AuthType
+from posthog.integrations.lifecycle import run_delete_hooks, run_saved_hooks, sdk_delete, sdk_write
 from posthog.integrations.observability import instrumented, record_token_refresh
 from posthog.integrations.source_kinds import is_source_kind
 from posthog.integrations.usages import integration_usages
@@ -61,15 +69,52 @@ _SCALAR_TYPES = (str, int, float, bool, type(None))
 AuthTypes = AuthType | frozenset[AuthType] | Literal["default"]
 
 
+# `where_iexact` can name one nested key, such as `account.name`.
+_MAX_IEXACT_PATH_DEPTH = 2
+
+
+def _checked_config_key(key: object) -> str:
+    if not isinstance(key, str) or not _CONFIG_KEY.match(key) or "__" in key or key in RESERVED_CONFIG_KEYS:
+        raise UnsupportedIntegrationFilter(f"Cannot filter integrations on the config key {key!r}")
+    return key
+
+
 def _checked_where(where: Mapping[str, ConfigValue] | None) -> dict[str, ConfigValue]:
     checked: dict[str, ConfigValue] = {}
     for key, value in (where or {}).items():
-        if not isinstance(key, str) or not _CONFIG_KEY.match(key) or "__" in key or key in RESERVED_CONFIG_KEYS:
-            raise UnsupportedIntegrationFilter(f"Cannot filter integrations on the config key {key!r}")
+        _checked_config_key(key)
         if not isinstance(value, _SCALAR_TYPES):
             raise UnsupportedIntegrationFilter(f"Cannot compare the config key {key!r} with a {type(value).__name__}")
         checked[key] = value
     return checked
+
+
+def _checked_where_in(where_in: Mapping[str, tuple[object, ...]]) -> None:
+    for key, values in where_in.items():
+        _checked_config_key(key)
+        # Django drops None from an `IN` list, so a None would match nothing in one backend only.
+        bad = [value for value in values if value is None or not isinstance(value, _SCALAR_TYPES)]
+        if bad:
+            raise UnsupportedIntegrationFilter(f"Cannot compare the config key {key!r} with {bad[0]!r}")
+
+
+def _checked_where_iexact(where_iexact: Mapping[str, object]) -> None:
+    for path, text in where_iexact.items():
+        segments = path.split(".") if isinstance(path, str) else [path]
+        if len(segments) > _MAX_IEXACT_PATH_DEPTH:
+            raise UnsupportedIntegrationFilter(f"Cannot filter integrations on the config path {path!r}")
+        for segment in segments:
+            _checked_config_key(segment)
+        if not isinstance(text, str):
+            raise UnsupportedIntegrationFilter(f"Cannot compare the config path {path!r} with a {type(text).__name__}")
+
+
+def _checked_cross_team_filter(cross_team_filter: CrossTeamFilter) -> CrossTeamFilter:
+    _checked_where_in(cross_team_filter.where_in)
+    _checked_where_iexact(cross_team_filter.where_iexact)
+    if cross_team_filter.has_config_key is not None:
+        _checked_config_key(cross_team_filter.has_config_key)
+    return dataclasses.replace(cross_team_filter, where=_checked_where(cross_team_filter.where))
 
 
 def _checked_config_keys(keys: Iterable[str]) -> None:
@@ -237,11 +282,29 @@ class IntegrationReader:
         """The number of rows of every team with this external id."""
         return self._backend.count(self._cross_team_scope("count_by_external_id"), RowFilter(external_id=external_id))
 
+    @instrumented("count_by_external_ids")
+    def count_by_external_ids(self, external_ids: Iterable[str]) -> dict[str, int]:
+        """The number of rows of every team for each external id, in one read. An id without rows is not a key."""
+        scope = self._cross_team_scope("count_by_external_ids")
+        return self._backend.count_by_external_ids(scope, external_ids=sorted(set(external_ids)))
+
     @instrumented("exists_by_external_id")
     def exists_by_external_id(self, external_id: str) -> bool:
         """True when a row of any team has this external id."""
         scope = self._cross_team_scope("exists_by_external_id")
         return self._backend.exists(scope, RowFilter(external_id=external_id))
+
+    @instrumented("list_across_teams", rows="returned")
+    def list_across_teams(self, cross_team_filter: CrossTeamFilter) -> builtins.list[IntegrationRecord]:
+        """The rows of every team that match the filter, ordered by id. Oldest first unless `newest_first`.
+
+        Only for sweeps, admin commands and reads for an organization. Request code that reads one team
+        uses `list`. In the credentials service, only the web, Celery and Temporal deployments can call
+        it, and the service audits each row that it returns. Raises `ValueError` on
+        `IntegrationManager.any`, because the result would mix providers.
+        """
+        scope = self._cross_team_scope("list_across_teams")
+        return self._backend.list_across_teams(scope, _checked_cross_team_filter(cross_team_filter))
 
     @instrumented("usages")
     def usages(self, team_id: int, id: int) -> builtins.list[IntegrationUsage]:
@@ -251,27 +314,35 @@ class IntegrationReader:
 
     @instrumented("delete")
     def delete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
-        """Delete the row. Raises `IntegrationInUse` when other objects use it, unless `ignore_usages`."""
+        """Delete the row. Raises `IntegrationInUse` when other objects use it, unless `ignore_usages`.
+
+        The delete hooks of the products run first, in the same transaction. See `lifecycle.py`.
+        """
         scope = self._scope()
-        if not ignore_usages:
+        with sdk_delete():
             # Read the row first, so a row out of the scope raises `IntegrationNotFound`, not `IntegrationInUse`.
             row = self._backend.get(scope, team_id=team_id, id=id)
-            usages = integration_usages(team_id, row.id)
-            if usages:
-                raise IntegrationInUse(usages)
-        self._backend.delete(scope, team_id=team_id, id=id)
+            if not ignore_usages:
+                usages = integration_usages(team_id, row.id)
+                if usages:
+                    raise IntegrationInUse(usages)
+            run_delete_hooks([row])
+            self._backend.delete(scope, team_id=team_id, id=id)
 
     @instrumented("delete_by_external_id", rows="written")
     def delete_by_external_id(self, external_id: str) -> int:
         """Delete the rows of every team with this external id, for example after an app is uninstalled.
 
         Raises `ValueError` on `IntegrationManager.any`, because it would delete rows of other providers.
-        All the deletes commit together or not at all. Each row is deleted on its own, so the delete
-        signals fire.
+        All the deletes commit together or not at all, with the delete hooks of each row. See `lifecycle.py`.
         """
-        return self._backend.delete_by_external_id(
-            self._cross_team_scope("delete_by_external_id"), external_id=external_id
-        )
+        if not external_id:
+            # `RowFilter(external_id=None)` selects every row of the scope, so the hooks would run for all of them.
+            raise ValueError("delete_by_external_id needs an external id")
+        scope = self._cross_team_scope("delete_by_external_id")
+        with sdk_delete():
+            run_delete_hooks(self._backend.list(scope, RowFilter(external_id=external_id)))
+            return self._backend.delete_by_external_id(scope, external_id=external_id)
 
     async def aget(self, team_id: int, id: int) -> IntegrationRecord:
         return await database_sync_to_async(self.get)(team_id, id)
@@ -378,9 +449,11 @@ class AuthAccessor(IntegrationReader):
 
         Raises `IntegrationConflict` when the team already has a row of the kind with this external id.
         """
-        return self._backend.create(
-            self._new_row(team_id, external_id, config, sensitive_config, created_by_id),
-        )
+        new = self._new_row(team_id, external_id, config, sensitive_config, created_by_id)
+        with sdk_write():
+            row = self._backend.create(new)
+        run_saved_hooks(row, created=True, config_changed=True)
+        return row
 
     @instrumented("upsert")
     def upsert(
@@ -394,11 +467,16 @@ class AuthAccessor(IntegrationReader):
     ) -> tuple[IntegrationRecord, bool]:
         """Create the row with this external id, or replace the config of the existing one.
 
-        Returns the row and True when it is new. Raises `IntegrationConflict` when a row with this
-        external id exists outside the scope, for example with another auth type.
+        A replace also clears `errors`, because a new config is a reconnect. `created_by_id=None` keeps
+        the creator of an existing row. Returns the row and True when it is new. Raises
+        `IntegrationConflict` when a row with this external id exists outside the scope, for example
+        with another auth type.
         """
         new = self._new_row(team_id, external_id, config, sensitive_config, created_by_id)
-        return self._backend.upsert(self._scope(), new)
+        with sdk_write():
+            row, created = self._backend.upsert(self._scope(), new)
+        run_saved_hooks(row, created=created, config_changed=True)
+        return row, created
 
     @instrumented("update")
     def update(
@@ -412,7 +490,10 @@ class AuthAccessor(IntegrationReader):
         sensitive_config_remove: Iterable[str] = (),
         errors: str | None = None,
     ) -> IntegrationRecord:
-        """Merge `config_patch` into the config and drop the keys in `config_remove`. `errors=None` keeps the errors."""
+        """Merge `config_patch` into the config and drop the keys in `config_remove`. `errors=None` keeps the errors.
+
+        The saved hooks run after the write, also when the patch changes nothing. See `lifecycle.py`.
+        """
         patch = IntegrationPatch(
             config_patch=dict(config_patch or {}),
             config_remove=tuple(config_remove),
@@ -420,7 +501,10 @@ class AuthAccessor(IntegrationReader):
             sensitive_config_remove=tuple(sensitive_config_remove),
             errors=errors,
         )
-        return self._backend.update(self._scope(), team_id=team_id, id=id, patch=_checked_patch(patch))
+        with sdk_write():
+            row = self._backend.update(self._scope(), team_id=team_id, id=id, patch=_checked_patch(patch))
+        run_saved_hooks(row, created=False, config_changed=bool(patch.config_patch or patch.config_remove))
+        return row
 
     @instrumented("update_by_external_id", rows="written")
     def update_by_external_id(self, external_id: str, patch: IntegrationPatch) -> int:
@@ -432,6 +516,53 @@ class AuthAccessor(IntegrationReader):
         _checked_patch(patch)
         scope = self._cross_team_scope("update_by_external_id")
         return self._backend.update_by_external_id(scope, external_id=external_id, patch=patch)
+
+    @instrumented("change_external_id")
+    def change_external_id(self, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        """Give the row another external id. Raises `IntegrationConflict` when the team has a row of the kind with that id."""
+        return self._backend.change_external_id(self._scope(), team_id=team_id, id=id, external_id=external_id)
+
+    @instrumented("update_where")
+    def update_where(self, team_id: int, *, where: Mapping[str, ConfigValue], patch: IntegrationPatch) -> UpdatedRows:
+        """Apply `patch` to every row of the team whose config matches `where`, all or none.
+
+        The rows stay locked until every write is done, so a concurrent write of one of them is kept.
+        Returns every matched row after the write, oldest first, and the ids of the rows that changed.
+        """
+        checked_where = _checked_where(where)
+        if not checked_where:
+            raise ValueError("update_where needs a where filter. Use update to write one row.")
+        row_filter = RowFilter(team_id=team_id, where=checked_where)
+        return self._backend.update_where(self._scope(), row_filter, _checked_patch(patch))
+
+    @instrumented("get_repository_cache")
+    def get_repository_cache(self, team_id: int, id: int) -> RepositoryCache:
+        """The GitHub repository list that the row caches. Raises `IntegrationNotFound`."""
+        return self._backend.get_repository_cache(self._scope(), team_id=team_id, id=id)
+
+    @instrumented("set_repository_cache")
+    def set_repository_cache(
+        self,
+        team_id: int,
+        id: int,
+        *,
+        repositories: builtins.list[dict[str, object]] | None,
+        updated_at: datetime,
+    ) -> None:
+        """Store the time of a repository list fetch, and the list itself when it is not None.
+
+        Pass `repositories=None` when the list did not change, so the large list is not written again.
+        Writes only the cache, so a concurrent change of the config is kept.
+        """
+        self._backend.set_repository_cache(
+            self._scope(), team_id=team_id, id=id, repositories=repositories, updated_at=updated_at
+        )
+
+    @instrumented("expire_repository_cache_by_external_id", rows="written")
+    def expire_repository_cache_by_external_id(self, external_id: str) -> int:
+        """Mark the cached repository list of every team's row with this external id as stale."""
+        scope = self._cross_team_scope("expire_repository_cache_by_external_id")
+        return self._backend.expire_repository_cache_by_external_id(scope, external_id=external_id)
 
     async def acreate(
         self,
@@ -503,8 +634,8 @@ class OAuthAccessor(AuthAccessor):
         worker stored.
 
         Pass `stale_access_token` to refresh also when that token is still the stored access token,
-        for example after the provider refused it. When the row has another token, the row comes back
-        without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
+        for example after the provider refused it. An empty string matches a row without an access
+        token. When the row has another token, the row comes back without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
         Raises `ValueError` when the kind has no OAuth token refresh.
         """
         if self._kind not in OauthIntegration.supported_kinds:

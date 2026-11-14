@@ -809,13 +809,19 @@ describe('RecordingApi', () => {
         const serviceToken = (): string =>
             `Bearer ${new JWT(JWT_SECRET).sign({ team_id: 1, op: 'read' }, PosthogJwtAudience.RECORDING_API, { expiresIn: '5m' })}`
 
-        const buildApp = async (role: string, enforced = false): Promise<express.Application> => {
+        const buildApp = async (
+            role: string,
+            enforced = false,
+            config: Partial<RecordingApiConfig> = {}
+        ): Promise<express.Application> => {
             const recordingApi = new RecordingApi(
                 {
                     RECORDING_API_JWT_SECRET: JWT_SECRET,
                     RECORDING_API_BLOCKS_JWT_SECRET: BLOCKS_JWT_SECRET,
                     RECORDING_API_ROLE: role,
                     RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: enforced,
+                    RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: 10000,
+                    ...config,
                 } as RecordingApiConfig,
                 mockPostgres,
                 mockOutputs
@@ -851,12 +857,25 @@ describe('RecordingApi', () => {
 
             expect(res.status).toBe(200)
             expect(res.headers['cache-control']).toBe('private, max-age=14400, immutable')
+            expect(res.headers['x-content-type-options']).toBe('nosniff')
             expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
             expect(Buffer.from(res.body).toString()).toBe('block-bytes')
-            expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc')
+            expect(mockService.getBlockByRef).toHaveBeenCalledWith(
+                1,
+                'session-123',
+                'v1.abc',
+                expect.any(Function),
+                10000
+            )
             expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
                 { id: 'viewer:u7', cost: 1, bucketSize: 2000, refillRate: 8 },
             ])
+
+            const revalidated = await supertest(app)
+                .get(BLOCK_URL)
+                .set('Authorization', browserToken())
+                .set('If-None-Match', res.headers['etag'])
+            expect(revalidated.status).toBe(304)
         })
 
         it.each([
@@ -907,6 +926,32 @@ describe('RecordingApi', () => {
 
             expect(res.status).toBe(expectedStatus)
             expect(res.headers['cache-control']).toBe('no-store')
+        })
+
+        it.each([
+            ['under both limits', [30, 30], [200, 200]],
+            ['over the size cap', [101], [413]],
+            ['over the bytes in flight', [80], [503]],
+        ])('admits a block %s, releasing its bytes once sent', async (_, sizes, expectedStatuses) => {
+            mockService.getBlockByRef.mockImplementation((_t, _s, _r, admit) => {
+                const admission = admit!((sizes as number[])[mockService.getBlockByRef.mock.calls.length - 1])
+                return Promise.resolve(
+                    admission === 'ok'
+                        ? { ok: true, data: Buffer.from('block-bytes') }
+                        : { ok: false, error: admission }
+                )
+            })
+            const app = await buildApp('public', false, {
+                RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: 100,
+                RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: 50,
+            })
+
+            const statuses: number[] = []
+            for (const _size of sizes) {
+                statuses.push((await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())).status)
+            }
+
+            expect(statuses).toEqual(expectedStatuses)
         })
 
         it.each([

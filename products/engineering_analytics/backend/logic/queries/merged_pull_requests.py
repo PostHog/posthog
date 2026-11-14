@@ -1,20 +1,7 @@
-"""Curated query: pull requests merged since a cutoff, with their branch-tip head SHA.
+"""Curated query: merged pull requests of one repository with their head SHA, newest merge first.
 
-The discovery seam behind ReviewHog telemetry — "which PRs merged recently, and the commit at each
-branch tip". Embeds the curated pull-requests source (see ``logic.views.pull_requests``) as a
-subquery and keeps only PRs that have merged (``merged_at`` is non-null exactly when a PR actually
-merged — the same condition the source derives ``state = 'merged'`` from) at or after ``since``,
-carry a branch-tip SHA (a malformed snapshot without one is excluded, never surfaced empty), scoped
-to a single ``owner/name`` repository, newest merge first.
-
-``since`` and ``numbers`` are alternatives, not cumulative: a caller that names PR numbers gets those
-PRs whatever their merge date, and ``since`` bounds the scan only for the open-ended read. One of the
-two is required, so neither can be omitted into an unbounded scan of every merge in the repository.
-See ``query_merged_pull_requests`` for why an exact ask must not be narrowed by the recency window.
-
-``head_sha`` is the run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge``
-commit (SPEC §7). Repo matching is case-insensitive, like ``resolve_branch``: the curated repo
-identity comes from ``base.repo.full_name`` and the caller's slug need not match GitHub's casing.
+``since`` and ``numbers`` are alternatives: named PR numbers are returned whatever their merge date.
+``head_sha`` is the branch-tip SHA (``head.sha``), never the ``refs/pull/N/merge`` commit.
 """
 
 from datetime import datetime
@@ -24,10 +11,8 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import MergedPullRequest
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# HogQL applies a default 100-row limit when a query names none, silently truncating the result; set
-# an explicit ceiling so the recency-bounded set isn't capped at an arbitrary 100. In a repo merging
-# more than this many PRs inside the window, the ceiling drops the oldest merges — callers that need
-# specific PRs pass ``numbers`` so the result is bounded by their ask instead.
+# HogQL applies a default 100-row limit when a query names none. Past this ceiling the oldest merges
+# are dropped, so a caller that needs specific PRs passes ``numbers``.
 _LIMIT = 1000
 
 _SELECT = f"""
@@ -65,12 +50,8 @@ def query_merged_pull_requests(
         "repo_owner": ast.Constant(value=repo_owner.lower()),
         "repo_name": ast.Constant(value=repo_name.lower()),
     }
-    # An explicit number list is already a precise, self-bounding ask, so `since` could only drop
-    # rows the caller named. A caller waiting on a specific PR (a ReviewHog report still awaiting
-    # outcome classification) cannot tell that loss apart from "no such merge", and because its
-    # discovery set carries no time bound the report would be re-asked for and re-dropped on every
-    # sweep forever. Applying one filter or the other keeps a by-number ask answerable for a PR of
-    # any age, while `since` still bounds the open-ended scan.
+    # A by-number read ignores `since`, because `since` could only drop rows the caller named, and
+    # the caller cannot tell that loss apart from a PR that never merged.
     since_filter = ""
     numbers_filter = ""
     if numbers is None:

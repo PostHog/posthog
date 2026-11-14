@@ -2307,6 +2307,24 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
 
+    def test_metadata_probe_statement_timeout_is_classified_retryable(self, source):
+        # `_get_table`'s per-table catalog probes (materialized-view/view checks, the column
+        # metadata SELECT) raise the raw psycopg QueryCanceled unconverted, unlike the data-read
+        # path and the whole-schema catalog scan, which both convert a statement_timeout hit into a
+        # more specific exception first. Without this classification, every occurrence floods error
+        # tracking at `exception` level (see `_handle_import_error`) instead of being treated as the
+        # self-recovering condition it is.
+        error_msg = "canceling statement due to statement timeout"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Metadata-probe statement timeout should be classified retryable: {error_msg}"
+
+    def test_metadata_probe_statement_timeout_is_not_also_non_retryable(self, source):
+        error_msg = "canceling statement due to statement timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Metadata-probe statement timeout should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
@@ -2861,6 +2879,13 @@ class TestIsConnectionDroppedError:
             # ProtocolViolation rather than OperationalError. Same transient pool-capacity class as
             # the pgcat/Supavisor checkout failures above; the reconnect must catch it.
             psycopg.errors.ProtocolViolation("query_wait_timeout"),
+            # PgBouncer's own `idle_transaction_timeout` setting disconnects a client that leaves a
+            # transaction open longer than the configured limit — exactly what our server-cursor
+            # reads do between fetches during a slow delta-merge. Same bare error-packet shape as
+            # `query_wait_timeout` above, so psycopg surfaces it as ProtocolViolation rather than the
+            # `IdleInTransactionSessionTimeout` Postgres itself raises for the server-side timeout
+            # (already covered by the type check); same transient class, so the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("idle transaction timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
@@ -8925,20 +8950,34 @@ class TestGetPrimaryKeys:
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
 
-    def test_reraises_connection_drop_during_child_partition_fallback(self):
+    @parameterized.expand(
+        [
+            (
+                "connection_drop",
+                psycopg.OperationalError("the connection is lost"),
+                "the connection is lost",
+            ),
+            (
+                "recovery_conflict",
+                psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"),
+                "conflict with recovery",
+            ),
+        ]
+    )
+    def test_reraises_transient_error_during_child_partition_fallback(self, _name, error, match):
         logger = structlog.get_logger()
         cursor = MagicMock()
         # Primary PK query returns no rows, so the child-partition fallback runs.
         cursor.fetchall.return_value = []
-        # The fallback query then hits a transient connection drop. It must propagate to the setup
-        # retry loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
-        cursor.execute.side_effect = [None, psycopg.OperationalError("the connection is lost")]
+        # The fallback query then hits a transient error. It must propagate to the setup retry
+        # loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
+        cursor.execute.side_effect = [None, error]
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}._explain_query"),
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            with pytest.raises(psycopg.OperationalError, match="the connection is lost"):
+            with pytest.raises(type(error), match=match):
                 _get_primary_keys(cast(Any, cursor), "public", "events", logger)
         mock_capture.assert_not_called()
 

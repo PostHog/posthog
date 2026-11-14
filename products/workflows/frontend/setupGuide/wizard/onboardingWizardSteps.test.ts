@@ -34,12 +34,13 @@ describe('onboardingWizardSteps', () => {
         expect(firstOpenStepIndex(MESSAGING_WIZARD_STEPS, done)).toBe(expected)
     })
 
-    test.each<[string, 'messaging' | 'automation' | 'broadcast', boolean, ReachChannel[] | null, string[]]>([
+    test.each<[string, 'messaging' | 'automation' | 'broadcast', boolean, ReachChannel[] | null, boolean, string[]]>([
         [
             'messaging asks which channels before any channel setup',
             'messaging',
             true,
             null,
+            false,
             ['reach', 'opt-outs', 'sending-rules', 'journey'],
         ],
         [
@@ -47,6 +48,7 @@ describe('onboardingWizardSteps', () => {
             'messaging',
             true,
             ['push'],
+            false,
             ['reach', 'push', 'opt-outs', 'sending-rules', 'journey'],
         ],
         [
@@ -54,6 +56,7 @@ describe('onboardingWizardSteps', () => {
             'messaging',
             true,
             ['email', 'push'],
+            false,
             ['reach', 'channel', 'domain', 'push', 'opt-outs', 'sending-rules', 'journey'],
         ],
         [
@@ -61,18 +64,44 @@ describe('onboardingWizardSteps', () => {
             'messaging',
             false,
             ['push'],
+            false,
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'journey'],
         ],
-        ['automation never asks about push', 'automation', true, ['push'], ['template', 'connect', 'create']],
+        ['automation never asks about push', 'automation', true, ['push'], false, ['template', 'connect', 'create']],
         [
             'broadcasts send email only, so they never ask about push',
             'broadcast',
             true,
             ['push'],
+            false,
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'broadcast'],
         ],
-    ])('%s', (_, path, pushEnabled, reachChannels, expected) => {
-        expect(wizardSteps(path, pushEnabled, reachChannels)).toEqual(expected)
+        [
+            'journey first picks the journey before the email setup',
+            'messaging',
+            false,
+            null,
+            true,
+            ['journey', 'channel', 'domain', 'opt-outs', 'sending-rules'],
+        ],
+        [
+            'journey first still asks which channels after the pick',
+            'messaging',
+            true,
+            ['email', 'push'],
+            true,
+            ['journey', 'reach', 'channel', 'domain', 'push', 'opt-outs', 'sending-rules'],
+        ],
+        [
+            'journey first shows the broadcast before the email setup',
+            'broadcast',
+            true,
+            null,
+            true,
+            ['broadcast', 'channel', 'domain', 'opt-outs', 'sending-rules'],
+        ],
+    ])('%s', (_, path, pushEnabled, reachChannels, journeyFirst, expected) => {
+        expect(wizardSteps(path, pushEnabled, reachChannels, journeyFirst)).toEqual(expected)
     })
 
     const unset = { maxMessages: null, windowDays: null }
@@ -93,11 +122,12 @@ describe('onboardingWizardSteps', () => {
         expect(customFrequencyCapError(cap) !== null).toBe(blocked)
     })
 
-    const saved = { ...unset, engagementEvents: false }
+    const saved = { ...unset, holdHours: null, engagementEvents: false }
+    const savedCustom = { maxMessages: 3, windowDays: 5, holdHours: 24, engagementEvents: true }
     test.each<[string, Parameters<typeof sendingRulesToSave>, ReturnType<typeof sendingRulesToSave>]>([
         [
             'a new setup saves the recommended cap and engagement events',
-            [saved, { maxMessages: 1, windowDays: 2 }, true, true],
+            [saved, { maxMessages: 1, windowDays: 2 }, null, true, true],
             {
                 capture_workflows_engagement_events: true,
                 marketing_frequency_cap_max_messages: 1,
@@ -106,19 +136,24 @@ describe('onboardingWizardSteps', () => {
         ],
         [
             'an unchanged custom cap is not saved again',
-            [{ maxMessages: 3, windowDays: 5, engagementEvents: true }, { maxMessages: 3, windowDays: 5 }, true, true],
+            [savedCustom, { maxMessages: 3, windowDays: 5 }, 24, true, true],
             null,
         ],
         [
-            'no cap clears a saved cap',
-            [{ maxMessages: 3, windowDays: 5, engagementEvents: true }, unset, true, true],
+            'a changed hold time is saved on its own',
+            [savedCustom, { maxMessages: 3, windowDays: 5 }, null, true, true],
+            { capture_workflows_engagement_events: true, marketing_frequency_cap_hold_hours: null },
+        ],
+        [
+            'no cap clears a saved cap and ignores the hidden hold field',
+            [savedCustom, unset, 48, true, true],
             {
                 capture_workflows_engagement_events: true,
                 marketing_frequency_cap_max_messages: null,
                 marketing_frequency_cap_window_days: null,
             },
         ],
-        ['a non-admin saves nothing', [saved, { maxMessages: 1, windowDays: 2 }, true, false], null],
+        ['a non-admin saves nothing', [saved, { maxMessages: 1, windowDays: 2 }, 48, true, false], null],
     ])('%s', (_, args, expected) => {
         expect(sendingRulesToSave(...args)).toEqual(expected)
     })

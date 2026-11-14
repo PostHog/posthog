@@ -1,7 +1,7 @@
 import type { Schemas } from '@/api/generated'
-import { wrapError } from '@/lib/errors'
+import { findRecoverableApiError, PostHogValidationError, wrapError } from '@/lib/errors'
 import { withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
-import type { Context } from '@/tools/types'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
 import {
     collectRunRefs,
@@ -197,17 +197,22 @@ const UNRUN_REFERENCE = /Referenced node '([A-Za-z_][A-Za-z0-9_]*)' has not been
  */
 function withUnrunUpstreamHint(error: unknown, cells: CellTagBlock[]): unknown {
     const message = error instanceof Error ? error.message : ''
-    const name = UNRUN_REFERENCE.exec(message)?.[1]
+    const apiError = findRecoverableApiError(error)
+    const name = UNRUN_REFERENCE.exec(apiError instanceof PostHogValidationError ? apiError.detail : message)?.[1]
     const upstream = name ? cells.find((cell) => cell.returnVariable === name && cell.nodeId) : undefined
     if (!upstream) {
         return error
     }
-    // The original stays as the cause, so the error handler still finds the 400 and treats the
-    // mistake as recoverable rather than as an internal failure.
-    return wrapError(
-        `${message} Cell ${upstream.nodeId} produces ${name}. Run it with notebooks-run-cell, then run this cell again.`,
-        error
+    const reference = withInformationalResponse(
+        { node_id: upstream.nodeId, return_variable: name },
+        'notebook-upstream-cell'
     )
+    const hint = `Run the upstream cell with notebooks-run-cell, then run this cell again.\n${reference[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]}`
+    if (apiError instanceof PostHogValidationError) {
+        // MCP and CLI formatters unwrap errors, so the typed error must carry the safe hint.
+        return new PostHogValidationError({ ...apiError, message: `${apiError.message} ${hint}` })
+    }
+    return wrapError(`${message} ${hint}`, error)
 }
 
 /**

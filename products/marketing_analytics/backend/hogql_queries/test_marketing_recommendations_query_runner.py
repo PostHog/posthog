@@ -7,13 +7,23 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MarketingAnalyticsRecommendationsQuery, MarketingAnalyticsRecommendationsSource
+from posthog.schema import (
+    CachedMarketingAnalyticsRecommendationsQueryResponse,
+    DateRange,
+    MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsRecommendationsSource,
+)
 
+from posthog.constants import AvailableFeature
+from posthog.models import User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
 )
+from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
@@ -49,6 +59,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "campaign_primary_status": "String",
                 "campaign_primary_status_reasons": "String",
                 "campaign_budget_recommended_budget_amount_micros": "Int64",
+                "customer_id": "Int64",
             }
         rows = []
         for i in range(1, count + 1):
@@ -59,6 +70,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                     "LIMITED" if constrained else "ELIGIBLE",
                     '"[""BUDGET_CONSTRAINED""]"' if constrained else '"[]"',
                     "300000000" if constrained else "0",
+                    "1234567890",
                 ]
             rows.append(",".join(row))
         campaigns = self._table(
@@ -89,8 +101,114 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             user=self.user,
         ).calculate()
 
-        budget = [(rec.subject, rec.action) for rec in response.results if rec.rule == "budget_constrained"]
-        assert budget == ([("Campaign 101", "Raise the daily budget from $100 to $300")] if has_status else [])
+        budget = [
+            (rec.subject, rec.action, rec.identity.customer_id, rec.identity.campaign_id)
+            for rec in response.results
+            if rec.rule == "budget_constrained"
+        ]
+        assert budget == (
+            [("Campaign 101", "Raise the daily budget from $100 to $300", "1234567890", "101")] if has_status else []
+        )
+
+    def test_resolved_recommendations_leave_the_results_until_restored(self) -> None:
+        campaign_columns = "campaign_id,campaign_name,campaign_advertising_channel_type,campaign_budget_amount_micros,campaign_primary_status,campaign_primary_status_reasons,campaign_budget_recommended_budget_amount_micros,customer_id"
+        campaigns = self._table(
+            "campaign",
+            {
+                "campaign_id": "Int64",
+                "campaign_name": "String",
+                "campaign_advertising_channel_type": "String",
+                "campaign_budget_amount_micros": "Int64",
+                "campaign_primary_status": "String",
+                "campaign_primary_status_reasons": "String",
+                "campaign_budget_recommended_budget_amount_micros": "Int64",
+                "customer_id": "Int64",
+            },
+            f'{campaign_columns}\n1,Search,SEARCH,100000000,LIMITED,"[""BUDGET_CONSTRAINED""]",300000000,1234567890\n',
+        )
+        stats = self._table(
+            "campaign_stats",
+            {
+                "campaign_id": "Int64",
+                "segments_date": "Date",
+                "metrics_cost_micros": "Int64",
+                "metrics_conversions": "Float64",
+            },
+            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+        )
+
+        def run(include_resolved: bool = False, user: User | None = None) -> tuple[bool, list[tuple[str, str | None]]]:
+            response = MarketingAnalyticsRecommendationsQueryRunner(
+                query=MarketingAnalyticsRecommendationsQuery(
+                    dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
+                    sources=[
+                        MarketingAnalyticsRecommendationsSource(
+                            sourceType="GoogleAds", campaignTable=campaigns, campaignStatsTable=stats
+                        )
+                    ],
+                    includeResolved=include_resolved,
+                ),
+                team=self.team,
+                user=user or self.user,
+            ).run()
+            assert isinstance(response, CachedMarketingAnalyticsRecommendationsQueryResponse)
+            return response.is_cached or False, [
+                (rec.rule, rec.resolution.resolution if rec.resolution else None) for rec in response.results
+            ]
+
+        assert run() == (False, [("budget_constrained", None)])
+        resolution = RecommendationResolution.objects.for_team(self.team.pk).create(
+            team=self.team,
+            rule="budget_constrained",
+            source_type="google_ads",
+            customer_id="1234567890",
+            campaign_id="1",
+            resolution="dismissed",
+        )
+
+        assert run() == (True, [])
+        assert run(include_resolved=True) == (True, [("budget_constrained", "dismissed")])
+
+        resolution.resolution = "applied"
+        resolution.save()
+        assert run(include_resolved=True) == (True, [("budget_constrained", "applied")])
+
+        resolution.delete()
+        assert run() == (True, [("budget_constrained", None)])
+
+        # A member denied any Google source could name views of their own, so they see no resolution.
+        RecommendationResolution.objects.for_team(self.team.pk).create(
+            team=self.team,
+            rule="budget_constrained",
+            source_type="google_ads",
+            customer_id="1234567890",
+            campaign_id="1",
+            resolution="dismissed",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="denied", connection_id="denied", source_type="GoogleAds"
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="campaign",
+            table=DataWarehouseTable.objects.create(
+                team=self.team, name="denied_campaign", columns={}, external_data_source=source
+            ),
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        assert run(include_resolved=True, user=member)[1] == [("budget_constrained", None)]
 
     def test_ranking_page_is_the_page_with_most_impressions_for_the_query(self) -> None:
         query_page = self._table(

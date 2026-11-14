@@ -1,6 +1,7 @@
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 
 import { ClickHouseClient } from '@clickhouse/client'
+import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
@@ -351,6 +352,103 @@ describe('RerunPaginatorService integration', () => {
             expect(enqueued.map((i) => i.id)).toEqual(['inv-real'])
             // by-ids mode marks done once remaining_ids is drained, regardless of
             // whether every id had a matching CH row.
+            expect(next.progress.done).toBe(true)
+        })
+
+        it('walks an ID list too long for one ClickHouse query param, including pages with no matches', async () => {
+            const ids = Array.from({ length: 3000 }, () => randomUUID())
+            const [first, last] = [ids[0], ids[ids.length - 1]]
+            await seedRows([
+                { invocation_id: first, status: 'failed', error: new Error('5xx') },
+                { invocation_id: last, status: 'failed', error: new Error('5xx') },
+            ])
+
+            let state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ids,
+                    },
+                },
+            })
+            let pages = 0
+            while (!state.progress.done) {
+                ;({ state } = await paginator.processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                }))
+                expect(state.progress.last_error).toBeUndefined()
+                pages += 1
+                if (!state.progress.done) {
+                    // A worker from before page-by-page IDs reads only this list, so it can't resend covered runs.
+                    expect(state.request.filter.invocation_ids).toEqual(ids.slice(pages * RERUN_PAGE_SIZE))
+                }
+            }
+
+            const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(enqueued.map((i) => i.id)).toEqual([first, last])
+            expect(state.progress.queued).toBe(2)
+            expect(pages).toBe(ids.length / RERUN_PAGE_SIZE)
+        })
+
+        it('reruns an ID once when a job queued earlier repeats it across pages', async () => {
+            await seedRows([{ invocation_id: 'inv-repeated', status: 'failed', error: new Error('5xx') }])
+            const others = Array.from({ length: RERUN_PAGE_SIZE }, () => randomUUID())
+
+            let state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-repeated', ...others, 'inv-repeated'],
+                    },
+                },
+            })
+            while (!state.progress.done) {
+                ;({ state } = await paginator.processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                }))
+            }
+
+            const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-repeated'])
+        })
+
+        it('keeps a job that started before page-by-page IDs on its cursor, so it does not rerun earlier rows', async () => {
+            await seedRows([
+                { invocation_id: 'inv-newer', status: 'failed', scheduledAt: new Date('2026-05-02T00:00:00Z') },
+                { invocation_id: 'inv-older', status: 'failed', scheduledAt: new Date('2026-05-01T00:00:00Z') },
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-newer', 'inv-older'],
+                    },
+                },
+                progress: {
+                    queued: 1,
+                    skipped: 0,
+                    done: false,
+                    cursor: { scheduled_at: '2026-05-02T00:00:00.000000', invocation_id: 'inv-newer' },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-older'])
             expect(next.progress.done).toBe(true)
         })
 

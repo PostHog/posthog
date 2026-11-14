@@ -151,6 +151,54 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
         )
 
 
+class TestBulkAddSuppressions(APIBaseTest):
+    def _bulk_add(self, suppressions: list[dict[str, str]]):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/messaging_suppressions/bulk_add_suppressions/",
+            {"suppressions": suppressions},
+            format="json",
+        )
+
+    def test_rejects_more_than_1000_entries(self) -> None:
+        response = self._bulk_add([{"identifier": f"user{i}@example.com"} for i in range(1001)])
+
+        assert response.status_code == 400, response.json()
+        assert not MessageSuppression.objects.for_team(self.team.id).exists()
+
+    def test_re_adding_is_idempotent(self) -> None:
+        suppressions = [
+            {"identifier": "alice@example.com", "reason": "bounce"},
+            {"identifier": "bob@example.com", "reason": "complaint"},
+        ]
+
+        first = self._bulk_add(suppressions)
+        second = self._bulk_add(suppressions)
+
+        assert first.status_code == 200, first.json()
+        assert first.json() == {"total": 2, "created": 2, "already_present": 0}
+        assert second.status_code == 200, second.json()
+        assert second.json() == {"total": 2, "created": 0, "already_present": 2}
+        assert MessageSuppression.objects.for_team(self.team.id).count() == 2
+
+    def test_identifiers_are_lowercased_and_trimmed(self) -> None:
+        response = self._bulk_add(
+            [
+                {"identifier": "  Alice@Example.COM ", "reason": "bounce"},
+                {"identifier": "alice@example.com", "reason": "manual"},
+            ]
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"total": 1, "created": 1, "already_present": 0}
+        row = MessageSuppression.objects.for_team(self.team.id).get()
+        assert (row.identifier, row.source, row.suppressed, row.hard_bounced_at is not None) == (
+            "alice@example.com",
+            SuppressionSource.BOUNCE,
+            True,
+            True,
+        )
+
+
 class TestRemoveSuppressions(APIBaseTest):
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/messaging_suppressions/{action}/"

@@ -1,45 +1,7 @@
-"""Per-job-attempt CI history with commit attribution — the green/red boundary substrate.
+"""One row per job attempt with the commit and PR attribution of its run.
 
-Composes the curated ``workflow_jobs`` and ``workflow_runs`` builders (one row per job attempt,
-jobs LEFT JOIN runs) exactly like ``job_costs``, but instead of the cost model it exposes commit
-attribution: who authored the head commit, its message, and which PR the run belongs to. That is
-what lets a caller answer "master went red at SHA X, authored by Y, via PR Z" — the boundary
-analysis the CI-breakage investigation skill runs.
-
-``build_query`` renders the SELECT for one GitHub source; ``build_team_view`` unions every
-qualifying source. The jobs↔runs join is a LEFT JOIN on ``run_id`` alone: the runs warehouse
-snapshot upserts by ``id`` and keeps only the newest attempt's row per run, so requiring
-``run_attempt`` equality would blank attribution for every earlier-attempt job after a re-run.
-Attribution is attempt-invariant (a re-run is the same commit), so joining on ``run_id`` is
-correct; ``run_attempt`` in the output comes from the jobs side. A LEFT JOIN so a job attempt is
-never dropped when its run row is missing. ClickHouse fills the unmatched run side with type
-defaults (empty repo/sha, ``pr_number`` 0), not NULL — HogQL doesn't set ``join_use_nulls`` — so a
-missing run reads as empty attribution rather than a real repo.
-
-The commit's author and message come from the run's ``head_commit`` Nullable-JSON column, which the
-shared ``workflow_runs`` builder deliberately does not surface (only this view needs the strings,
-and every other embedder — cost, health, PR list — pays for the width). Rather than widen the shared
-builder, this module reads those fields through its own minimal projection over the raw runs table
-and LEFT JOINs it on ``run_id`` — the ``head_commit`` JSON is ``ifNull``-unwrapped before
-``JSONExtractString`` because a Nullable column can't feed the extractor.
-
-Two PR keys, by design: ``pr_number`` is the runs builder's association-derived number (0 when the
-run has no own-repo ``pull_requests`` association — pushes to master, fork PRs), and
-``commit_pr_number`` resolves the merged PR that produced the head commit. The latter is how a
-master push run gets PR attribution at all, since its association is empty (SPEC §6). Both come
-straight off the runs builder, which defines each key once for every consumer. On a merge-queue
-gate run ``pr_number`` is the PR the queue was landing rather than an association, and
-``is_merge_queue`` is what tells the two apart.
-
-``created_at_raw`` is the unparsed jobs ``created_at`` string riding alongside the parsed
-``created_at``. Consumers windowing this view pair their precise ``created_at`` bound with a coarse
-``created_at_raw >= '<YYYY-MM-DD>'`` floor a day below the window — ISO strings compare
-lexicographically, and a raw-string predicate is the only one the parquet scan can prune on (a
-parsed-column predicate hits a computed column and forces a full scan). ``created_at`` stays the
-precise filter; the raw twin just lets the jobs scan skip.
-
-Nothing here is registered as a global HogQL view; it is provisioned per-team as a non-materialized
-``DataWarehouseSavedQuery`` by data_modeling's managed-viewset sync (kind ``engineering_analytics``).
+Jobs join runs on ``(ci_engine, run_id)`` and never on ``run_attempt``, because the runs snapshot
+keeps only the newest attempt's row. A job whose run row is missing reads type defaults, not NULL.
 """
 
 from typing import TYPE_CHECKING
@@ -58,14 +20,11 @@ from products.engineering_analytics.backend.logic.views import workflow_jobs, wo
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-# Public view name — stable contract for insights, subscriptions, other products, and execute-sql.
+# Saved queries and insights select this view by name, so a rename breaks them.
 VIEW_NAME = "engineering_analytics_ci_job_history"
 
-# Public column contract (order fixes the UNION ALL column order across sources and the saved-query
-# schema). ``nullable=True`` on the columns that can genuinely be NULL (the parsed timestamps, a
-# queued job's conclusion/completed_at, a run's raw head_sha, and commit_pr_number when there's no
-# ``(#NNNN)``); the attribution columns stay nullable for parity with job_costs even though a join
-# miss fills them with type defaults rather than NULL (see the module docstring).
+# The column order is the UNION ALL order across sources and the saved-query schema, so append new
+# columns and never reorder.
 FIELDS: dict[str, FieldOrTable] = {
     "repo_owner": StringDatabaseField(name="repo_owner", nullable=True),
     "repo_name": StringDatabaseField(name="repo_name", nullable=True),
@@ -88,9 +47,8 @@ FIELDS: dict[str, FieldOrTable] = {
     "commit_message": StringDatabaseField(name="commit_message", nullable=True),
     "commit_pr_number": IntegerDatabaseField(name="commit_pr_number", nullable=True),
     "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
-    # A job GitHub re-listed under a later run_attempt without re-running it (see the workflow_jobs
-    # builder). Its timestamps and conclusion are the earlier attempt's, so a boundary or duration
-    # read that counts it counts one execution twice.
+    # A copy carries the timestamps and conclusion of the attempt that ran, so a duration read that
+    # counts it counts one execution twice.
     "is_rerun_copy": BooleanDatabaseField(name="is_rerun_copy"),
     "ci_engine": StringDatabaseField(name="ci_engine", nullable=True),
     "native_run_id": StringDatabaseField(name="native_run_id", nullable=True),
@@ -101,11 +59,8 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 def _head_commit_query(runs_table: str) -> str:
-    """The run's commit attribution, keyed on ``run_id`` alone — attribution is attempt-invariant.
-
-    ``ifNull``-unwraps the Nullable ``head_commit`` JSON to ``'{}'`` before extracting, so a run
-    with no landed commit object yields empty strings rather than a Nullable-into-extractor error.
-    """
+    """The head commit's author and message per ``run_id``. A run with no commit object yields
+    empty strings."""
     return f"""
         SELECT
             run_id,
@@ -128,16 +83,11 @@ def build_query(
     pull_requests_table: str | None = None,
     head_commit_runs_table: str | None = None,
 ) -> str:
-    """The per-job-attempt history SELECT for one GitHub source: curated jobs LEFT JOIN curated runs,
-    plus the run's commit attribution.
+    """The ``FIELDS`` columns for one source.
 
-    ``pull_requests_table`` is what lets the runs builder resolve ``commit_pr_number`` through the
-    merged PR's ``merge_commit_sha`` instead of the head commit's message. It is optional because
-    this view qualifies on jobs + runs alone (see ``resolve_job_source_tables``), so a repo can
-    reach it without a PR snapshot; without one, attribution falls back to the message suffix.
-
-    ``head_commit_runs_table`` names the plain GitHub runs table when ``runs_table`` also holds Depot
-    CI runs, which carry no commit object, so the attribution scan skips them.
+    Without ``pull_requests_table``, ``commit_pr_number`` comes only from the ``(#NNNN)`` suffix of
+    the head commit's message. ``head_commit_runs_table`` names the plain GitHub runs table when
+    ``runs_table`` also holds Depot CI runs, which carry no commit object.
     """
     jobs = workflow_jobs.build_query(jobs_table)
     runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table)
@@ -183,10 +133,9 @@ def build_query(
 
 
 def build_team_view(team: "Team") -> str | None:
-    """The full view body for a team: every GitHub source with both runs and jobs synced, unioned.
+    """The view body over every source with runs and jobs synced, or None when the team has none.
 
-    None when the team has no qualifying source (no view is created). Gated on the same
-    ``resolve_job_source_tables`` condition as ``job_costs`` so the exposed views stay coherent.
+    The gate matches ``job_costs`` so that a team gets both views or neither.
     """
     sources = resolve_job_source_tables(team)
     if not sources:

@@ -395,12 +395,16 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                 origin: str,
                 stage: str,
                 report_id: UUID | None,
+                task_runtime: str,
+                model_access: str,
             ) -> dict[str, str | int]:
                 result = original_bind(
                     admission,
                     origin=origin,
                     stage=stage,
                     report_id=report_id,
+                    task_runtime=task_runtime,
+                    model_access=model_access,
                 )
                 grant_locked.set()
                 assert spend_locked.wait(timeout=10)

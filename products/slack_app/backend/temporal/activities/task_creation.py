@@ -613,7 +613,7 @@ def create_posthog_code_task_for_repo_activity(
         api as signals_facade,
         report_tasks,
     )
-    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.models import PUBLIC_CHANNEL_CONVERSATION_TYPES, SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
@@ -739,6 +739,7 @@ def create_posthog_code_task_for_repo_activity(
     )
 
     slack_thread_context = SlackThreadContext(
+        team_id=integration.team_id,
         integration_id=integration.id,
         channel=channel,
         thread_ts=thread_ts,
@@ -924,11 +925,15 @@ def create_posthog_code_task_for_repo_activity(
         )
 
         if signal_report_id:
+            # The report's scout reads the question, and what a scout reads can reach the whole project.
+            # Only a public channel thread was already open to everyone in the workspace.
+            shared_in_public_channel = not is_fork and conversation_type in PUBLIC_CHANNEL_CONVERSATION_TYPES
             tasks_facade.link_slack_task_to_report(
                 team_id=integration.team_id,
                 task_id=str(created.task_id),
                 report_id=signal_report_id,
                 user_id=user_id,
+                question=title_text or None if shared_in_public_channel else None,
             )
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, Any] = {
@@ -1113,6 +1118,13 @@ def forward_posthog_code_followup_activity(
         slack_user_id=slack_user_id,
         context="followup",
     ):
+        return True
+
+    try:
+        tasks_facade.check_wake_by_task_id(mapping.task_id, source="slack_follow_up")
+    except tasks_facade.TaskDoneError as error:
+        _clear_processing_reaction(slack, channel, user_message_ts)
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
         return True
 
     # Reply-tag fallback for turns with no per-turn actor (boot prompt,
@@ -1328,6 +1340,7 @@ def forward_posthog_code_followup_activity(
     # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
+        team_id=mapping.team_id,
         integration_id=inputs.integration_id,
         channel=channel,
         thread_ts=thread_ts,
@@ -1387,7 +1400,6 @@ def _stop_run_for_runtime_handoff(
     Two runs that both answer the thread are worse than a refusal.
     """
     from products.slack_app.backend.facade.run_preferences import describe_run_model, resolve_live_run_override
-    from products.slack_app.backend.feature_flags import is_slack_app_runtime_handoff_enabled
     from products.tasks.backend.facade import cancellation as tasks_cancellation
 
     if override is None or not override.model:
@@ -1415,11 +1427,6 @@ def _stop_run_for_runtime_handoff(
         slack_user_id=slack_user_id,
         actor_user=actor_user,
     )
-    # Captured with the flag off too, so the refusals show how many people ask for a runtime change.
-    if not is_slack_app_runtime_handoff_enabled(integration, actor_user.distinct_id if actor_user else None):
-        capture("flag_off")
-        return None
-
     try:
         outcome, _ = tasks_cancellation.cancel_task_run(
             task_run.id,
@@ -1888,6 +1895,7 @@ def _resume_task_with_new_run(
                 )
 
     slack_thread_context = SlackThreadContext(
+        team_id=mapping.team_id,
         integration_id=inputs.integration_id,
         channel=channel,
         thread_ts=thread_ts,
@@ -1940,6 +1948,7 @@ def _resume_task_with_new_run(
 
 
 def _delete_followup_progress(
+    team_id: int,
     integration_id: int,
     channel: str,
     thread_ts: str,
@@ -1951,6 +1960,7 @@ def _delete_followup_progress(
     try:
         SlackThreadHandler(
             SlackThreadContext(
+                team_id=team_id,
                 integration_id=integration_id,
                 channel=channel,
                 thread_ts=thread_ts,

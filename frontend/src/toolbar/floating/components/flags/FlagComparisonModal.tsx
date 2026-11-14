@@ -10,14 +10,14 @@ import { flagComparisonLogic } from '~/toolbar/shared/flags/flagComparisonLogic'
 
 // VisualImageDiffViewer is most of the comparison code, so the flags menu chunk loads it only when a comparison opens.
 const FlagComparisonDiff = lazy(() =>
-    retryImport(() => import('~/toolbar/floating/components/flags/FlagComparisonDiff')).then((m) => ({
+    retryImport(() => import('~/toolbar/shared/flags/FlagComparisonDiff')).then((m) => ({
         default: m.FlagComparisonDiff,
     }))
 )
 
 export function FlagComparisonModal(): JSX.Element {
-    const { comparison, onCaptures, afterCapture } = useValues(flagComparisonLogic)
-    const { closeComparison } = useActions(flagComparisonLogic)
+    const { comparison, onCaptures, beforeCapture, afterCapture } = useValues(flagComparisonLogic)
+    const { closeComparison, setAfterValue } = useActions(flagComparisonLogic)
 
     return (
         <LemonModal
@@ -34,7 +34,7 @@ export function FlagComparisonModal(): JSX.Element {
                     : undefined
             }
         >
-            {comparison ? (
+            {comparison && beforeCapture && afterCapture ? (
                 <FlagComparisonErrorBoundary>
                     <Suspense
                         fallback={
@@ -43,7 +43,13 @@ export function FlagComparisonModal(): JSX.Element {
                             </div>
                         }
                     >
-                        <FlagComparisonDiff />
+                        <FlagComparisonDiff
+                            before={beforeCapture}
+                            after={afterCapture}
+                            onCaptures={onCaptures}
+                            identical={comparison.identical}
+                            onAfterValueChange={setAfterValue}
+                        />
                     </Suspense>
                 </FlagComparisonErrorBoundary>
             ) : null}

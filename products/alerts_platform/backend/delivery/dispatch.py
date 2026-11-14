@@ -12,13 +12,16 @@ from django.utils import timezone
 import structlog
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
+from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
 from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import Opening, ThreadBusy, ThreadKey, ThreadStore
 from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
+    DestinationRefused,
     MessageHandle,
     RootEditor,
     RootImageEditor,
@@ -44,6 +47,20 @@ from products.alerts_platform.backend.temporal.metrics import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# PagerDuty dedups on the event's `dedup_key`, so a retry of a send whose answer was lost cannot
+# page twice. It keeps release-and-retry, which also delivers the event the first try never did.
+_IDEMPOTENT_PROVIDERS = frozenset({"pagerduty"})
+
+
+def _recorded_as_delivered(error: Exception, provider: str) -> bool:
+    """Whether a send that failed this way is remembered as sent rather than tried again.
+
+    A provider without an idempotency key would post a second copy on a retry, and a duplicate
+    page is worse than a message that may not have arrived. The send is counted as `ambiguous`,
+    so the rate stays visible.
+    """
+    return isinstance(error, DeliveryAmbiguous) and provider not in _IDEMPOTENT_PROVIDERS
 
 
 def deliver(
@@ -109,6 +126,26 @@ def deliver(
                 ),
                 in_reply_to=claim.handle,
             )
+        except DeliveryAmbiguous as error:
+            if not _recorded_as_delivered(error, transport.provider):
+                thread_store.release(claim)
+                raise
+            # No handle: nothing confirmed where the message landed, so a later message in this
+            # conversation posts as a new opening message rather than a reply. A reply under a
+            # confirmed opening may have landed, so that opening still catches up. The loop goes
+            # on, so the other transitions are still sent and counted.
+            logger.warning(
+                "alerts_platform_delivery_ambiguous",
+                configuration_id=configuration_id,
+                evaluation_key=evaluation_key,
+                provider=transport.provider,
+                # A grouping key can be a raw breakdown value, such as an email address.
+                grouped=bool(transition.grouping_key),
+            )
+            if claim.handle is not None:
+                _edit_root(transport=transport, team_id=team_id, target=target, root=claim.handle, key=key)
+            thread_store.delivered(claim, None)
+            continue
         except Exception:
             thread_store.release(claim)
             raise
@@ -147,8 +184,23 @@ def _send(
             succeeded=False,
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
-        outcome: DeliveryOutcomeLabel = "misconfigured" if isinstance(error, DestinationMisconfigured) else "failed"
+        outcome: DeliveryOutcomeLabel
+        if _recorded_as_delivered(error, transport.provider):
+            outcome = "ambiguous"
+        elif isinstance(error, DestinationMisconfigured):
+            outcome = "misconfigured"
+        else:
+            outcome = "failed"
         safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
+        if isinstance(error, DestinationRefused):
+            notify_refused(
+                team_id=team_id,
+                message=message,
+                # Where the send went, not the destination id: a converted alert has one id per event
+                # kind, so one broken URL would be noticed once for each kind it was refused on.
+                destination=transport.channel_target(target),
+                refusal=error,
+            )
         raise
     record_delivery(
         team_id=team_id,
