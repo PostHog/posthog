@@ -3653,11 +3653,12 @@ function unusableSenderError(action: HogFlowAction, integrations: IntegrationTyp
     const from: EmailTemplateFrom | undefined = action.config.inputs?.email?.value?.from
     for (const senderId of selectedSenderIds(from ?? {})) {
         // Compared as text, as the backend gate does, so "012" names no sender on either side.
-        const sender = integrations.find((integration) => String(integration.id) === String(senderId))
-        if (!sender || sender.kind !== 'email') {
-            return "This sender can't be found. Choose another sender."
-        }
-        if (!isVerifiedEmailSender(sender)) {
+        const sender = integrations.find(
+            (integration) => integration.kind === 'email' && String(integration.id) === String(senderId)
+        )
+        // The list leaves out senders this user can't view, so a missing one may still send. The backend
+        // refuses a deleted sender by name when the workflow goes live.
+        if (sender && !isVerifiedEmailSender(sender)) {
             return "This sender's domain isn't verified yet, so its emails would fail. Verify the domain, or choose a verified sender."
         }
     }

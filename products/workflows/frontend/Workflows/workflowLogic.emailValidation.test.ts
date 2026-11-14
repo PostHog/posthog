@@ -348,12 +348,12 @@ describe('workflowLogic email step "from" validation', () => {
 
     it.each([
         ['an unverified sender', { integrationId: 43 }, "This sender's domain isn't verified yet"],
-        ['a deleted sender', { integrationId: 99 }, "This sender can't be found"],
+        ["a sender the editor can't see", { integrationId: 99 }, null],
         ['an unverified sender in the rotation', { integrationId: 42, integrationIds: [42, 43] }, "isn't verified yet"],
-        ['no unverified primary sender a rotation replaces', { integrationId: 43, integrationIds: [42] }, null],
-        ['no verified sender named by a digit string', { integrationId: '42' }, null],
-        ['a sender id with leading zeros', { integrationId: '042' }, "This sender can't be found"],
-    ])('flags %s on the step before any save attempt', async (_name, fromValue, message) => {
+        ['an unverified primary sender a rotation replaces', { integrationId: 43, integrationIds: [42] }, null],
+        ['an unverified sender named by a digit string', { integrationId: '43' }, "isn't verified yet"],
+        ['a sender id with leading zeros, which names no sender', { integrationId: '043' }, null],
+    ])('shows the sender error, if any, for %s before any save attempt', async (_name, fromValue, message) => {
         const senders = [
             { id: 42, kind: 'email', config: { verified: true, email: 'hi@example.com' } },
             { id: 43, kind: 'email', config: { verified: false, email: 'hi@unverified.example.com' } },
