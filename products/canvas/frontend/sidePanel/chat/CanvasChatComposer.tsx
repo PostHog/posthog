@@ -10,7 +10,7 @@ import { canvasChatLogic } from './canvasChatLogic'
 export function CanvasChatComposer(): JSX.Element {
     const { draft, chatState, sendError, sending } = useValues(canvasChatLogic)
     const { setDraft, sendMessage } = useActions(canvasChatLogic)
-    const { generationStarting } = useValues(canvasSceneLogic)
+    const { generationStarting, editAccessDisabledReason } = useValues(canvasSceneLogic)
     const live = chatState === 'running' || chatState === 'awaiting' || chatState === 'starting'
 
     return (
@@ -25,7 +25,7 @@ export function CanvasChatComposer(): JSX.Element {
                 onInstructionChange={(value) => setDraft(value)}
                 onSubmit={sendMessage}
                 submitting={generationStarting || sending}
-                disabledReason={draft.trim() ? null : 'Write a message first'}
+                disabledReason={editAccessDisabledReason ?? (draft.trim() ? null : 'Write a message first')}
                 placeholder={live ? 'Send the agent a message' : 'Ask for a change'}
                 ariaLabel="Message the agent"
                 submitLabel="Send"

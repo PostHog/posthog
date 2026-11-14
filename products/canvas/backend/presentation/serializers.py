@@ -8,6 +8,8 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.canvas.backend.facade.api import (
     CANVAS_LAYOUT_SCHEMA_VERSION,
     GRID_COLUMN_CHOICES,
@@ -20,6 +22,7 @@ from products.canvas.backend.facade.api import (
     ConnectorKind,
     canvas_sdk_version,
     contract_limits,
+    editable_canvas_ids,
 )
 from products.canvas.backend.facade.contracts import CanvasBuildRecord, CanvasRecord
 from products.canvas.backend.facade.enums import (
@@ -89,7 +92,7 @@ class CanvasComponentMetaSerializer(serializers.Serializer):
     )
 
 
-class CanvasSerializer(serializers.Serializer):
+class CanvasSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     """A canvas document. Version/build content hangs off the source and build endpoints."""
 
     id = serializers.UUIDField(read_only=True)
@@ -142,6 +145,29 @@ class CanvasSerializer(serializers.Serializer):
     @extend_schema_field(CanvasComponentMetaSerializer(allow_null=True))
     def get_component_meta(self, canvas: CanvasRecord) -> dict | None:
         return canvas.component_meta
+
+    def get_user_access_level(self, obj: CanvasRecord | ObjectAccessRef | models.Model) -> str | None:
+        if isinstance(obj, CanvasRecord):
+            obj = ObjectAccessRef(
+                resource="canvas", id=str(obj.id), team_id=obj.team_id, created_by_id=obj.created_by_id
+            )
+        level = super().get_user_access_level(obj)
+        if level == "editor" and isinstance(obj, ObjectAccessRef) and obj.id not in self._edit_canvas_ids():
+            # The space rule narrows editing beyond the object-level grant, so don't offer edit controls that 404.
+            return "viewer"
+        return level
+
+    def _edit_canvas_ids(self) -> set[str]:
+        """Ids the viewer may edit, computed once per request and kept on the view."""
+        view = self.context.get("view")
+        viewer_for = getattr(view, "_viewer", None)
+        if view is None or viewer_for is None:
+            return set()
+        cached = getattr(view, "_canvas_edit_ids", None)
+        if cached is None:
+            cached = editable_canvas_ids(viewer_for())
+            view._canvas_edit_ids = cached
+        return cached
 
 
 class CanvasCreateSerializer(serializers.Serializer):
