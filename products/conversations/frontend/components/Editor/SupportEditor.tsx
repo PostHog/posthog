@@ -313,12 +313,41 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
     },
 }
 
+// Emphasis, code, links and the escape character act anywhere in a line; a `!` only before a link.
+const INLINE_MARKDOWN = /[\\`*_[\]]|!(?=\[)/g
+// A heading, a bullet, a thematic break and a numbered marker act only at the start of a line.
+const LINE_START_MARKDOWN = /^([ \t]*)(#{1,6}(?=[ \t]|$)|[-+](?=[ \t]|$)|-{2,}(?=[ \t]*$)|\d{1,9}[.)](?=[ \t]|$))/gm
+// A GFM table needs its delimiter row, and that row holds only pipes, hyphens, colons and spaces.
+const TABLE_DELIMITER_ROW = /^([ \t]*)([-:|][-:|\t ]*)$/gm
+
 /**
- * Escape special markdown characters in plain text to prevent unintended formatting.
- * Characters: \ ` * _ { } [ ] ( ) # + - . ! |
+ * Escape the markdown characters that would otherwise change how a reply renders.
+ *
+ * The set stays narrow because the stored markdown is also read as plain text, by the text/plain
+ * part of the reply email and by the widget's conversation list. Every backslash added here shows
+ * up for the customer on those surfaces, so a character is escaped only where markdown acts on it.
+ * This must match `_escape_markdown` in posthog/comment/formatting.py, which serializes the same
+ * content on the backend.
+ *
+ * The two line regexes anchor on this string, which is one text node rather than a whole line, so a
+ * marker in a node that follows a mark on the same line still takes a backslash it does not need.
  */
 function escapeMarkdown(text: string): string {
-    return text.replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1')
+    return text
+        .replace(INLINE_MARKDOWN, '\\$&')
+        .replace(LINE_START_MARKDOWN, (_match, indent: string, marker: string) =>
+            // A numbered marker takes the backslash on its delimiter, because `\1` is not an escape.
+            /^\d/.test(marker) ? `${indent}${marker.slice(0, -1)}\\${marker.slice(-1)}` : `${indent}\\${marker}`
+        )
+        .replace(TABLE_DELIMITER_ROW, (match, indent: string, row: string) => {
+            // A table needs a pipe and a hyphen in the row, so a rule of only hyphens starts nothing.
+            if (!row.includes('|') || !row.includes('-')) {
+                return match
+            }
+            // The backslash takes a character `unescape_markdown` knows, so a leading `:` keeps it forever.
+            const cut = Math.min(row.indexOf('|'), row.indexOf('-'))
+            return `${indent}${row.slice(0, cut)}\\${row.slice(cut)}`
+        })
 }
 
 /**
@@ -326,6 +355,33 @@ function escapeMarkdown(text: string): string {
  */
 function escapeAltText(text: string): string {
     return text.replace(/([\\\]])/g, '\\$1')
+}
+
+/**
+ * Join serialized siblings, and escape a `!` that ends one where the next opens a generated link.
+ *
+ * A link's `[` is written after the node before it was escaped, so the `!` would read as an image
+ * opener and take the link's label as alt text. Every `[` the text itself held is already escaped,
+ * so an unescaped one is always the serializer's own. An empty part, such as an image with no
+ * source, leaves the `!` next to the link and is skipped rather than treated as a gap.
+ *
+ * Reading the accumulated string instead would flatten it on every part, which is quadratic on a
+ * long link-heavy draft. Each part is inspected on its own, and the join happens once.
+ */
+function joinSerialized(parts: string[]): string {
+    const chunks = [...parts]
+    let previous = -1
+    for (let index = 0; index < chunks.length; index++) {
+        const chunk = chunks[index]
+        if (!chunk) {
+            continue
+        }
+        if (previous >= 0 && chunk.startsWith('[') && chunks[previous].endsWith('!')) {
+            chunks[previous] = `${chunks[previous].slice(0, -1)}\\!`
+        }
+        previous = index
+    }
+    return chunks.join('')
 }
 
 /**
@@ -392,10 +448,10 @@ function serializeNode(node: JSONContent): string {
     // Handle specific node types
     switch (node.type) {
         case 'doc':
-            return (node.content || []).map(serializeNode).join('')
+            return joinSerialized((node.content || []).map(serializeNode))
 
         case 'paragraph': {
-            const content = (node.content || []).map(serializeNode).join('')
+            const content = joinSerialized((node.content || []).map(serializeNode))
             return content + '\n\n'
         }
 
@@ -431,7 +487,7 @@ function serializeNode(node: JSONContent): string {
         default:
             // For unknown nodes, try to serialize children
             if (node.content) {
-                return (node.content || []).map(serializeNode).join('')
+                return joinSerialized((node.content || []).map(serializeNode))
             }
             return ''
     }

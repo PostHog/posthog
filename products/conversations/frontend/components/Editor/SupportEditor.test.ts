@@ -54,6 +54,72 @@ describe('SupportEditor serialization and preview schema', () => {
             '1. parent\n   - child',
         ],
         [
+            'prose punctuation left alone, because the customer also reads this as plain text',
+            { type: 'doc', content: [paragraph('Use v2.5 (not v1), e.g. query-time properties!')] },
+            'Use v2.5 (not v1), e.g. query-time properties!',
+        ],
+        [
+            'the characters that would still format the reply',
+            { type: 'doc', content: [paragraph('2 * 3, a_b, `code`, [label]')] },
+            '2 \\* 3, a\\_b, \\`code\\`, \\[label\\]',
+        ],
+        [
+            'a numbered line that would turn into a list',
+            { type: 'doc', content: [paragraph('1. not a list')] },
+            '1\\. not a list',
+        ],
+        [
+            'a pipe in prose left alone, because no table follows from it',
+            { type: 'doc', content: [paragraph('Open Settings | Project | Danger zone')] },
+            'Open Settings | Project | Danger zone',
+        ],
+        [
+            'a delimiter row that would turn the rows above it into a table',
+            { type: 'doc', content: [paragraph('| --- | --- |')] },
+            '\\| --- | --- |',
+        ],
+        [
+            'a bang that reaches a link stays text instead of opening an image',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            { type: 'text', text: 'Read this!' },
+                            {
+                                type: 'text',
+                                text: 'guide',
+                                marks: [{ type: 'link', attrs: { href: 'https://example.com/g' } }],
+                            },
+                        ],
+                    },
+                ],
+            },
+            'Read this\\![guide](https://example.com/g)',
+        ],
+        [
+            'a bang still reaches a link across a sibling that serializes to nothing',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            { type: 'text', text: 'Read this!' },
+                            { type: 'image', attrs: { src: '' } },
+                            {
+                                type: 'text',
+                                text: 'guide',
+                                marks: [{ type: 'link', attrs: { href: 'https://example.com/g' } }],
+                            },
+                        ],
+                    },
+                ],
+            },
+            'Read this\\![guide](https://example.com/g)',
+        ],
+        [
             'list followed by paragraph and image keeps all blocks',
             {
                 type: 'doc',
