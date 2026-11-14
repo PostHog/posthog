@@ -22,6 +22,7 @@ from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_PRODUCT,
     EMBEDDING_RETENTION_DAYS,
     HASH_CHUNK_SIZE,
+    MAX_CONVERSATIONS_PER_BUCKET,
 )
 
 
@@ -134,6 +135,7 @@ class HourlyCalls:
     tool: str
     calls: int
     # cityHash64 of each distinct conversation id, so the rollups can count conversations without double counting.
+    # At most MAX_CONVERSATIONS_PER_BUCKET ids, so a bucket above the cap undercounts its conversations.
     conversations: tuple[int, ...]
 
 
@@ -143,7 +145,7 @@ SELECT
     {INTENT_HASH_HOGQL} AS intent_hash,
     ifNull({EFFECTIVE_TOOL_SQL}, '') AS tool,
     count() AS calls,
-    arraySort(groupUniqArray(cityHash64({CONVERSATION_ID_SQL}))) AS conversations
+    arraySort(groupUniqArray({{conversation_cap}})(cityHash64({CONVERSATION_ID_SQL}))) AS conversations
 FROM events
 WHERE event = '$mcp_tool_call'
   AND timestamp >= {{since}}
@@ -167,7 +169,12 @@ def start_of_hour(moment: datetime) -> datetime:
 
 
 def fetch_hourly_calls(
-    team: Team, *, since: datetime, until: datetime, page_size: int = MAX_SELECT_RETURNED_ROWS
+    team: Team,
+    *,
+    since: datetime,
+    until: datetime,
+    page_size: int = MAX_SELECT_RETURNED_ROWS,
+    conversation_cap: int = MAX_CONVERSATIONS_PER_BUCKET,
 ) -> list[HourlyCalls]:
     """Calls and conversations per (hour, intent text, tool) for the complete hours that overlap [since, until).
 
@@ -184,6 +191,7 @@ def fetch_hourly_calls(
                 "since": ast.Constant(value=since),
                 "until": ast.Constant(value=until),
                 "page_size": ast.Constant(value=page_size),
+                "conversation_cap": ast.Constant(value=conversation_cap),
                 "after": after,
             },
         )
