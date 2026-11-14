@@ -73,6 +73,11 @@
         content-visibility: auto;
         contain-intrinsic-size: auto 30rem;
 
+        /* The snapshot runner sets content-visibility: visible once, on the elements that have it as auto at that moment. A tile that mounts after that pass keeps auto, which clips its paint at the tile edges. Whether a tile mounts before or after the pass changes between runs. */
+        .storybook-test-runner & {
+            content-visibility: visible;
+        }
+
         /* content-visibility paint-clips the resize handles revealed on border hover; lift it while one shows */
         &:hover:has(> .handle),
         &.resizing,

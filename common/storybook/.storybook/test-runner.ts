@@ -930,6 +930,7 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
             Promise.all(
                 ['400', '500', '700', '800'].flatMap((weight) => [
                     document.fonts.load(`${weight} 16px RoundHog`),
+                    document.fonts.load(`italic ${weight} 16px RoundHog`),
                     document.fonts.load(`${weight} 16px Inter`),
                 ])
             ).then(() => document.fonts.ready)
