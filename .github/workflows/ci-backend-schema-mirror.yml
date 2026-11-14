@@ -25,7 +25,7 @@ jobs:
     mirror:
         name: Mirror the newest master schema dump
         # Master only: a dispatch from another branch would save caches no master run can read.
-        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
+        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
