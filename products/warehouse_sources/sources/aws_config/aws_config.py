@@ -5,7 +5,6 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING, Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -16,7 +15,14 @@ from products.warehouse_sources.sources.aws_config.settings import (
     TARGET_PREFIXES,
     AwsConfigEndpoint,
 )
-from products.warehouse_sources.sources.sdk import BoundedRetry, SourceResponse, frozen, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    BoundedRetry,
+    SourceResponse,
+    aws_redact_values,
+    frozen,
+    make_tracked_session,
+    sign_aws_request,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.sources.aws_config._config import AwsConfigSourceConfig
@@ -85,9 +91,7 @@ def error_for_response(response: requests.Response) -> AwsConfigError:
 
 
 class AwsConfigClient:
-    def __init__(self, config: "AwsConfigSourceConfig", api_version: str) -> None:
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
+    def __init__(self, config: "AwsConfigSourceConfig", api_version: str, credentials: Credentials) -> None:
         self.region = config.region or "us-east-1"
         if not _REGION.fullmatch(self.region):
             raise ValueError("Enter an AWS region such as us-east-1.")
@@ -96,15 +100,8 @@ class AwsConfigClient:
         self.target_prefix = TARGET_PREFIXES[api_version]
         suffix = "amazonaws.com.cn" if self.region.startswith("cn-") else "amazonaws.com"
         self.url = f"https://config.{self.region}.{suffix}/"
-        self._signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "config",
-            self.region,
-        )
-        self._session = make_tracked_session(
-            retry=TRANSPORT_RETRY,
-            redact_values=tuple(value for value in (config.aws_secret_access_key, config.aws_session_token) if value),
-        )
+        self._credentials = credentials
+        self._session = make_tracked_session(retry=TRANSPORT_RETRY, redact_values=aws_redact_values(credentials))
 
     def close(self) -> None:
         self._session.close()
@@ -126,7 +123,7 @@ class AwsConfigClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        self._signer.add_auth(request)
+        sign_aws_request(request, self._credentials, "config", self.region)
         response = self._session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -357,6 +354,7 @@ def get_fan_out_rows(
 
 def get_rows(
     config: "AwsConfigSourceConfig",
+    credentials: Credentials,
     endpoint: AwsConfigEndpoint,
     api_version: str,
     manager: "ResumableSourceManager[AwsConfigResumeConfig]",
@@ -368,7 +366,7 @@ def get_rows(
         return
     if resume is not None and resume.since is not None:
         since = resume.since
-    client = AwsConfigClient(config, api_version)
+    client = AwsConfigClient(config, api_version, credentials)
     try:
         if endpoint.parent is None:
             yield from get_page_rows(client, endpoint, manager, resume, since)
@@ -380,13 +378,13 @@ def get_rows(
 
 
 def validate_credentials(
-    config: "AwsConfigSourceConfig", api_version: str, schema_name: str | None = None
+    config: "AwsConfigSourceConfig", credentials: Credentials, api_version: str, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
     endpoint = AWS_CONFIG_ENDPOINTS.get(schema_name or "config_rules")
     if endpoint is None:
         return False, f"Unknown AWS Config table: {schema_name}"
     try:
-        client = AwsConfigClient(config, api_version)
+        client = AwsConfigClient(config, api_version, credentials)
     except ValueError as error:
         return False, str(error)
     probe = endpoint.parent or endpoint
@@ -421,6 +419,7 @@ def validate_credentials(
 
 def aws_config_source(
     config: "AwsConfigSourceConfig",
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: "ResumableSourceManager[AwsConfigResumeConfig]",
@@ -436,7 +435,7 @@ def aws_config_source(
     partition_key = endpoint_config.partition_key
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint_config, api_version, manager, since),
+        items=lambda: get_rows(config, credentials, endpoint_config, api_version, manager, since),
         primary_keys=list(endpoint_config.primary_key),
         partition_count=1 if partition_key else None,
         partition_size=1 if partition_key else None,
