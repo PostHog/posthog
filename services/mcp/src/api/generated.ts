@@ -15053,6 +15053,19 @@ export namespace Schemas {
       webhook_url: string;
     }
 
+    export interface AlertCustomizeDestination {
+      /**
+         * The destination's `id` from the destinations list. Use it for a destination with no HogFunctions.
+         * @nullable
+         */
+      destination_id?: string | null;
+      /**
+         * The destination's `hog_function_ids` from the destinations list, when it has HogFunctions.
+         * @maxItems 100
+         */
+      hog_function_ids?: string[];
+    }
+
     export interface AlertDeleteDestination {
       /**
          * HogFunction IDs of the destination, as returned when it was created.
@@ -15277,6 +15290,20 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
       webhook_url?: string;
+    }
+
+    export interface AlertResetDestination {
+      /**
+         * Every HogFunction of the customized destination, from the destinations list.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface AlertResetDestinationResponse {
+      /** The destination's new ID on the alerts platform, which now sends it. */
+      id: string;
     }
 
     export interface AlertRouteMatcher {

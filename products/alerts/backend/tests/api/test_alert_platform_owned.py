@@ -678,6 +678,37 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
 
+    def test_a_destination_moves_between_its_row_and_hog_functions_through_customize_and_reset(self) -> None:
+        sync_template_to_db(template_discord)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
+        hog_function_ids = self.client.post(
+            f"{destinations_url}webhook/",
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
+            format="json",
+        ).json()["hog_function_ids"]
+
+        with patch("products.alerts.backend.presentation.views.alert.posthoganalytics.capture") as capture:
+            reset = self.client.post(f"{destinations_url}reset/", {"hog_function_ids": hog_function_ids}, format="json")
+            assert reset.status_code == status.HTTP_200_OK, reset.json()
+            (row_only,) = self.client.get(destinations_url).json()
+            assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+
+            customized = self.client.post(
+                f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
+            )
+
+        assert customized.status_code == status.HTTP_200_OK, customized.json()
+        (listed,) = self.client.get(destinations_url).json()
+        assert (listed["id"], listed["hog_function_ids"]) == (None, customized.json()["hog_function_ids"])
+        (hog_function_id,) = listed["hog_function_ids"]
+        assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
+            "https://discord.com/api/webhooks/1/secret"
+        )
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "insight alert destination reset",
+            "insight alert destination customized",
+        ]
+
     @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
         sync_template_to_db(template_discord)
