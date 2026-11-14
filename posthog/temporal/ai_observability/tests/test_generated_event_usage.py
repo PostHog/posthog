@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from confluent_kafka import KafkaError, KafkaException
 
+from posthog.kafka_client.client import DeliveryTimeoutError, ProduceResult
 from posthog.temporal.ai_observability.generated_event_usage import create_generated_ai_event
 
 
@@ -38,7 +39,6 @@ def test_reports_one_ai_event_record_for_each_generated_event(create_event: Magi
     [
         (RuntimeError("write failed"), True),
         (KafkaException(KafkaError(KafkaError._MSG_TIMED_OUT)), False),  # type: ignore[attr-defined]
-        (TimeoutError("no acknowledgement"), False),
     ],
 )
 @patch("posthog.temporal.ai_observability.generated_event_usage.report_usage")
@@ -57,3 +57,42 @@ def test_reports_no_usage_when_the_event_write_fails(
         )
 
     report_usage.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "delivered, late_error, reported",
+    [
+        (True, None, True),
+        (True, KafkaError(KafkaError._MSG_TIMED_OUT), False),  # type: ignore[attr-defined]
+        (False, None, False),
+    ],
+)
+@patch("posthog.temporal.ai_observability.generated_event_usage._late_deliveries")
+@patch("posthog.temporal.ai_observability.generated_event_usage.report_usage")
+@patch("posthog.temporal.ai_observability.generated_event_usage.create_event")
+def test_reports_usage_when_kafka_acknowledges_after_the_wait(
+    create_event: MagicMock,
+    report_usage: MagicMock,
+    late_deliveries: MagicMock,
+    delivered: bool,
+    late_error: KafkaError | None,
+    reported: bool,
+) -> None:
+    result = ProduceResult(topic="events_json")
+    create_event.side_effect = DeliveryTimeoutError([result])
+    create_generated_ai_event(
+        event_uuid=uuid.uuid4(),
+        event="$ai_trace_summary",
+        team=MagicMock(id=42),
+        distinct_id="trace_summary_42",
+        properties={},
+    )
+    report_usage.assert_not_called()
+
+    if delivered:
+        result.set_result(late_error, None)
+    wait, *args = late_deliveries.submit.call_args.args
+    wait(*args)
+
+    records = [call.args[0][0] for call in report_usage.call_args_list]
+    assert [(r.team_id, r.usage_key, r.quantity) for r in records] == ([(42, "ai_events", 1)] if reported else [])

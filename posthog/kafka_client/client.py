@@ -110,6 +110,14 @@ class ProduceResult:
         return self._message
 
 
+class DeliveryTimeoutError(TimeoutError):
+    """Kafka did not acknowledge every result in time. `results` can still complete later."""
+
+    def __init__(self, results: list[ProduceResult]):
+        super().__init__("Timeout waiting for produce result")
+        self.results = results
+
+
 class KafkaProducerForTests:
     def __init__(self):
         pass
@@ -494,7 +502,7 @@ class ClickhouseProducer:
         return get_producer(topic=topic).produce(topic=topic, data=data)
 
     def wait_for_delivery(self, results: list[ProduceResult], timeout: float) -> None:
-        """Raise `TimeoutError` or `KafkaException` unless Kafka acknowledges every result within `timeout` seconds."""
+        """Raise `DeliveryTimeoutError` or `KafkaException` unless Kafka acknowledges every result within `timeout` seconds."""
         if not settings.TEST:
             from posthog.kafka_client.routing import get_producer
 
@@ -505,5 +513,13 @@ class ClickhouseProducer:
             while not all(result.done() for result in results) and (remaining := deadline - time.monotonic()) > 0:
                 for producer in producers:
                     producer.poll(min(remaining, 0.1))
+            if not all(result.done() for result in results):
+                # The timeout can run out during a pause of this process, for example while another thread
+                # holds the GIL. The delivery reports can then already be in the producer's queue, so read
+                # them with a poll that does not wait before deciding the wait failed.
+                for producer in producers:
+                    producer.poll(0)
         for result in results:
+            if not result.done():
+                raise DeliveryTimeoutError(results)
             result.get(timeout=0)
