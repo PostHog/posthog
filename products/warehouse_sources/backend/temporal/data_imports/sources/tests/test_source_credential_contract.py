@@ -391,6 +391,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "AdobeAnalytics",
     "Ahrefs",
     "AmazonCloudWatch",
+    "AmazonKinesis",
     "Anvil",
     "Apollo",
     "Arcade",

@@ -41,7 +41,7 @@ AlphaVantage,api_key,,,symbols,,alpha-vantage
 AmazonAds,region client_id client_secret refresh_token,,,,,amazon-ads
 AmazonCloudWatch,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,log_group_names metric_queries start_date,,amazon-cloud-watch
 AmazonEventBridge,,,,,,amazon-event-bridge
-AmazonKinesis,,,,,,amazon-kinesis
+AmazonKinesis,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,,,,amazon-kinesis
 AmazonS3,url_pattern access_key_id secret_access_key,,,file_format combine_files,,aws-s3
 AmazonSNS,,,,,,amazon-sns
 AmazonSQS,,,,,,amazon-sqs
