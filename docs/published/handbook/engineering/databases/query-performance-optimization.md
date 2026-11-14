@@ -182,6 +182,18 @@ Need more granular access to queries than these dashboards provide? Take a look 
 
 See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) for tips and tricks.
 
+### Trends breakdown plan rollout
+
+Ranking breakdowns before building date arrays can reduce memory and latency when many breakdown values are combined into "Other". The window functions can also add overhead, so correctness eligibility alone does not justify enabling this plan.
+
+The `trends-breakdown-rank-before-arrays` team flag and the `TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES` dynamic setting must both allow a query. The setting contains comma-separated 16-character signatures and defaults to empty, keeping the original plan. It holds up to 60 signatures, and the instance-settings API rejects a longer value. Its changes reach workers within the instance-setting cache TTL (currently 60 seconds).
+
+After paired benchmarks show equivalent results and improved duration and memory, obtain `ranked_breakdown_query_signature` from a `TrendsQueryBuilder` constructed with the same effective series, team, date range, modifiers, and limit context as the runner. Add that signature through the instance-settings API. Keep query definitions and approved signatures in operational configuration rather than source code.
+
+Signatures include project, filters (including enabled test-account filters), breakdown settings, modifiers, timezone, interval, and range length and alignment. Calendar dates are excluded so a benchmark-approved configuration can apply to another range of the same shape. The setting approves each event series separately. Action queries and all-time ranges retain the original plan because their signatures require additional state or reads.
+
+Monitor duration, bytes read, memory, and errors after rollout: data distributions can change without changing a signature. Remove a signature or disable the team flag to stop using the ranked plan. Query caches can still return an earlier result until refreshed; saved queries and response formats do not change.
+
 ### Repeated HogQL CTEs
 
 The `hogql-materialize-repeated-ctes` project flag, or `materializeRepeatedCTEs` query modifier, can reuse eligible repeated event aggregates within one execution. It defaults off and additionally requires `HOGQL_MATERIALIZED_CTE_SUPPORTED=true` on deployments whose application ClickHouse profile enables materialized CTEs and the analyzer. Explicit materialization hints take precedence. The initial path requires literal timestamp bounds, deterministic aggregates, and references within the same SELECT without filters or keyed joins; other queries retain their existing compilation. Compare equivalent results, median duration, bytes read, and peak memory over five paired runs before enabling a project, and disable the flag or capability setting if errors, latency, or memory regress.
