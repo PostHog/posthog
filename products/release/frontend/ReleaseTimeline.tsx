@@ -21,9 +21,18 @@ import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, TrackRelated, buildTrack, mergeOverlapping } from './releaseTracks'
+import {
+    CALENDAR_SCALE,
+    LANE,
+    Lane,
+    SPAN_LOOK,
+    Track,
+    TrackRelated,
+    buildTrack,
+    mergeOverlapping,
+} from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
-import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { CALENDAR_DAYS_AFTER, ReleaseRow, ReleaseSpan, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
 import { useInfiniteRows } from './useInfiniteRows'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
 import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
@@ -93,6 +102,8 @@ function TrackLanesContent({
     const { row, steps, lanes } = track
     const summarySpans = open ? [] : mergeOverlapping(row.spans.filter((span) => span.kind !== 'flag' || !steps.length))
     const hasExperiment = summarySpans.some((span) => span.kind.startsWith('experiment'))
+    const laneFor = (span: ReleaseSpan): Lane | undefined =>
+        lanes.find((lane) => lane.kind !== 'broadcast' && lane.href === span.href)
     return (
         <div className="relative" style={{ width: scale.days * scale.day }}>
             <ReleaseTrackGrid scale={scale} />
@@ -105,6 +116,7 @@ function TrackLanesContent({
                         top={26}
                         height={20}
                         stickyOffset={stickyOffset}
+                        lane={lanes.find((lane) => lane.kind === 'flag')}
                     />
                 )}
                 {summarySpans.map((span) =>
@@ -117,6 +129,7 @@ function TrackLanesContent({
                             height={6}
                             thin
                             stickyOffset={stickyOffset}
+                            lane={laneFor(span)}
                         />
                     ) : (
                         <ReleaseTrackSpan
@@ -126,6 +139,7 @@ function TrackLanesContent({
                             top={SPAN_LOOK[span.kind].top}
                             height={SPAN_LOOK[span.kind].height}
                             stickyOffset={stickyOffset}
+                            lane={laneFor(span)}
                         />
                     )
                 )}
