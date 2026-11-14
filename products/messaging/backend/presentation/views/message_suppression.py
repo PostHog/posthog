@@ -135,7 +135,7 @@ class BulkAddSuppressionsResultSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Number of distinct addresses received, after lowercasing.")
     created = serializers.IntegerField(help_text="Number of addresses added to the suppression list.")
     already_present = serializers.IntegerField(
-        help_text="Number of addresses that already had an entry. An entry keeps its reason. A `bounce` also makes an entry block transactional email, unless someone removed it from the list."
+        help_text="Number of addresses that already had an entry. A manual entry or a spam complaint keeps its reason. A `bounce` also makes an entry block transactional email, unless someone removed it from the list."
     )
 
 

@@ -539,10 +539,13 @@ class CustomerIOImportService:
     ) -> int:
         """Suppress the addresses that have no suppression row yet, and return how many it added.
 
-        An existing row keeps its source and reason. It can be a manual entry, an address someone removed from the
-        list on purpose, or a row the bounce feedback already manages. A bounce still makes a row nobody removed
-        block transactional email. A row an earlier import of this list created without Customer.io's date and
-        diagnostic gets them filled in.
+        An existing row keeps its source. It can be a manual entry, an address someone removed from the list on
+        purpose, or a row the bounce feedback already manages. A bounce still makes a row nobody removed block
+        transactional email, see `block_transactional_for_hard_bounces`. A row an earlier import of this list created
+        without Customer.io's date and diagnostic gets them filled in.
+
+        Once its inserts are in, the page locks its rows without waiting. When a bounce write holds one of them, the
+        page fails before it changes any row, and its retry saves it, so the two writes cannot deadlock.
         """
         suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
         existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(imported))}
@@ -567,22 +570,24 @@ class CustomerIOImportService:
             if email not in existing
         ]
         # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
-        suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
-        if is_bounce:
-            block_transactional_for_hard_bounces(team_id, list(imported), reason)
+        with transaction.atomic():
+            suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
+            list(suppressions.filter(identifier__in=list(imported)).select_for_update(nowait=True).values_list("id"))
+            if is_bounce:
+                block_transactional_for_hard_bounces(team_id, list(imported), reason)
 
-        backfilled = []
-        for email, row in existing.items():
-            details = imported[email]
-            if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
-                continue
-            row.suppressed_at = details.suppressed_at
-            row.last_bounce_at = details.suppressed_at if is_bounce else row.last_bounce_at
-            row.last_bounce_diagnostic = details.diagnostic
-            backfilled.append(row)
-        suppressions.bulk_update(
-            backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
-        )
+            backfilled = []
+            for email, row in existing.items():
+                details = imported[email]
+                if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
+                    continue
+                row.suppressed_at = details.suppressed_at
+                row.last_bounce_at = details.suppressed_at if is_bounce else row.last_bounce_at
+                row.last_bounce_diagnostic = details.diagnostic
+                backfilled.append(row)
+            suppressions.bulk_update(
+                backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
+            )
         return len(new_rows)
 
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:

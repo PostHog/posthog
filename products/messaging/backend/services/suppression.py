@@ -58,8 +58,8 @@ def block_transactional_for_hard_bounces(team_id: int, identifiers: list[str], r
     to remove. A manual entry or a complaint keeps its reason, like a live hard bounce. A row copied from the global
     list becomes the team's own bounce, so it stays when the global hold lapses. A row someone removed stays removed.
     Each statement updates one row, so outside a transaction, as in the bulk API, the import never holds two row locks
-    that a Node bounce write can wait on. Inside a transaction, as in the Customer.io import, it locks them in
-    identifier order, like its inserts.
+    that a Node bounce write can wait on. A caller inside a transaction locks the rows first, as the Customer.io import
+    does.
     """
     pending = MessageSuppression.objects.for_team(team_id, canonical=True).filter(
         Q(hard_bounced_at__isnull=True)
@@ -67,7 +67,7 @@ def block_transactional_for_hard_bounces(team_id: int, identifiers: list[str], r
         deleted=False,
     )
     now = timezone.now()
-    for row_id in pending.filter(identifier__in=identifiers).order_by("identifier").values_list("id", flat=True):
+    for row_id in pending.filter(identifier__in=identifiers).values_list("id", flat=True):
         pending.filter(id=row_id).update(
             suppressed=True,
             suppressed_at=Case(When(suppressed=False, then=Value(now)), default=F("suppressed_at")),
@@ -98,9 +98,9 @@ def bulk_add_suppressions(
 ) -> int:
     """Suppress the identifiers that have no row yet, and return how many rows it added.
 
-    An existing row keeps its source and reason. It can be a manual entry, an address someone removed from the list
-    on purpose, or a row the bounce feedback already manages. A bounce still makes a row nobody removed block
-    transactional email, see `block_transactional_for_hard_bounces`.
+    An existing row keeps its source. It can be a manual entry, an address someone removed from the list on purpose,
+    or a row the bounce feedback already manages. A bounce still makes a row nobody removed block transactional email,
+    see `block_transactional_for_hard_bounces`.
     """
     # bulk_create skips the save() that moves a child environment's rows to its parent project.
     team_id = resolve_effective_team_id(team_id)
