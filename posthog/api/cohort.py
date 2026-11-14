@@ -2276,18 +2276,22 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             and not cohort.is_static
             and cohort.cohort_type == CohortType.REALTIME
             and _criteria_edit_queues_behavioral_run(cohort, previous_filters)
-            and (refusal := flag_calls_table_refusal(cohort)) is not None
         ):
-            logger.info(
-                "cohort_realtime_criteria_edit_refused", cohort_id=cohort.pk, team_id=cohort.team_id, reason=refusal
-            )
-            raise ValidationError(
-                {
-                    "filters": "Realtime is on for this cohort, and PostHog can't prepare one of its criteria in "
-                    "realtime. Change that criterion, or turn realtime off first."
-                },
-                code="realtime_criteria_unsupported",
-            )
+            refusal = flag_calls_table_refusal(cohort)
+            if refusal is not None:
+                logger.info(
+                    "cohort_realtime_criteria_edit_refused",
+                    cohort_id=cohort.pk,
+                    team_id=cohort.team_id,
+                    reason=refusal,
+                )
+                raise ValidationError(
+                    {
+                        "filters": "Realtime is on for this cohort, and PostHog can't prepare one of its criteria in "
+                        "realtime. Change that criterion, or turn realtime off first."
+                    },
+                    code="realtime_criteria_unsupported",
+                )
 
         # A cohort that stops being realtime stops emitting membership changes, so its workflows would
         # never trigger and their branches would read frozen membership, with no error anywhere.

@@ -34,6 +34,7 @@ from posthog.api.cohort import (
     AddPersonsToStaticCohortRequestSerializer,
     CohortFilters,
     CohortViewSet,
+    _criteria_edit_queues_behavioral_run,
     flag_call_criterion_shape_problem,
     generate_cohort_filter_bytecode,
 )
@@ -5363,7 +5364,88 @@ email@example.org,
             self.assertEqual(response.json()["cohort_type"] == "realtime", not filter_test_accounts)
         else:
             self.assertEqual(response.status_code, 400, response.json())
+            self.assertEqual(response.json()["code"], "realtime_criteria_unsupported")
             self.assertIn(expected_refusal, response.json()["detail"])
+            stored_filters = cohort.filters
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.filters, stored_filters)
+
+    def _hashed_filters(self, criteria: list[dict[str, Any]], group_type: str = "OR") -> dict[str, Any]:
+        return {
+            "properties": {
+                "type": group_type,
+                "values": [
+                    {**criterion, "conditionHash": generate_cohort_filter_bytecode(criterion, self.team).condition_hash}
+                    for criterion in criteria
+                ],
+            }
+        }
+
+    @parameterized.expand(
+        [
+            ("unchanged", [_FLAG_CALLED_CRITERION], "OR", [_FLAG_CALLED_CRITERION], "OR"),
+            (
+                "adds_person_criterion",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PERSON_EMAIL_CRITERION],
+                "OR",
+            ),
+            (
+                "adds_behavioral_criterion",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+            ),
+            (
+                "edits_behavioral_window",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [{**_FLAG_CALLED_CRITERION, "time_value": 7}],
+                "OR",
+            ),
+            (
+                "removes_behavioral_criterion",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+            ),
+            (
+                "changes_behavioral_composition",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "AND",
+            ),
+        ]
+    )
+    def test_criteria_edit_check_agrees_with_the_backfill_the_save_queues(
+        self, _name, stored_criteria, stored_group_type, criteria, group_type
+    ):
+        # The refusal check in update() runs only when this predicate says the save queues a behavioral backfill.
+        # A save that resets last_backfill_events_at queues one, so the two must agree on every edit.
+        with override_settings(
+            REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.pk), COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="none"
+        ):
+            created = Cohort.objects.create(
+                team=self.team,
+                name="flag callers",
+                filters=self._hashed_filters(stored_criteria, stored_group_type),
+                cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
+                last_backfill_events_at=timezone.now(),
+            )
+            cohort = Cohort.objects.get(pk=created.pk)
+            previous_filters = cohort.filters
+            cohort.filters = self._hashed_filters(criteria, group_type)
+
+            predicted = _criteria_edit_queues_behavioral_run(cohort, previous_filters)
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertEqual(predicted, cohort.last_backfill_events_at is None)
 
     @parameterized.expand([("farthest_east", "Pacific/Kiritimati"), ("farthest_west", "Pacific/Pago_Pago")])
     @patch("posthog.api.cohort.report_user_action")
