@@ -55,6 +55,15 @@ from products.product_analytics.backend.presentation.insight import InsightSeria
 
 TEST_ROOT_BUCKET = "test_exports"
 
+HOGQL_EXPORT_SOURCE = {"kind": "HogQLQuery", "query": "select 1"}
+LOGS_EXPORT_SOURCE = {
+    "kind": "LogsQuery",
+    "dateRange": {"date_from": "-1h"},
+    "filterGroup": {"type": "AND", "values": []},
+    "severityLevels": [],
+    "serviceNames": [],
+}
+
 
 def get_counter_value(counter: Counter, labels: dict) -> float:
     """Get counter value using the _metrics dict directly (works across threads)."""
@@ -166,13 +175,20 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("missing_query_scope", ["export:write"], status.HTTP_403_FORBIDDEN),
-            ("query_scope", ["export:write", "query:read"], status.HTTP_201_CREATED),
+            ("missing_query_scope", HOGQL_EXPORT_SOURCE, ["export:write"], status.HTTP_403_FORBIDDEN),
+            ("query_scope", HOGQL_EXPORT_SOURCE, ["export:write", "query:read"], status.HTTP_201_CREATED),
+            ("logs_missing_logs_scope", LOGS_EXPORT_SOURCE, ["export:write", "query:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "logs_scope",
+                LOGS_EXPORT_SOURCE,
+                ["export:write", "query:read", "logs:read"],
+                status.HTTP_201_CREATED,
+            ),
         ]
     )
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_query_export_requires_query_scope(
-        self, _name: str, scopes: list[str], expected_status: int, mock_exporter_task
+        self, _name: str, source: dict, scopes: list[str], expected_status: int, mock_exporter_task
     ) -> None:
         token = generate_random_token_personal()
         personal_api_key = PersonalAPIKey.objects.create(
@@ -187,8 +203,9 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/exports/",
             {
                 "export_format": "text/csv",
-                "export_context": {"source": {"kind": "HogQLQuery", "query": "select 1"}},
+                "export_context": {"source": source},
             },
+            format="json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
@@ -1197,27 +1214,34 @@ class TestExports(APIBaseTest):
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_cannot_create_session_recording_export_without_recording_access(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "session_recording",
+                {"export_format": "image/png", "export_context": {"session_recording_id": "some-session-id"}},
+            ),
+            ("logs", {"export_format": "text/csv", "export_context": {"source": LOGS_EXPORT_SOURCE}}),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_cannot_create_export_without_resource_access(
+        self, resource: str, payload: dict, mock_exporter_task
+    ) -> None:
         self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
         self.organization.save()
 
         AccessControl.objects.create(
-            resource="session_recording",
+            resource=resource,
             team=self.team,
             access_level="none",
         )
 
-        member = User.objects.create_and_join(self.organization, "rbac-no-replay@posthog.com", "password")
+        member = User.objects.create_and_join(self.organization, f"rbac-no-{resource}@posthog.com", "password")
         self.client.force_login(member)
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "image/png",
-                "export_context": {"session_recording_id": "some-session-id"},
-            },
-        )
+        response = self.client.post(f"/api/projects/{self.team.id}/exports", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_exporter_task.assert_not_called()
 
     @parameterized.expand(
         [
