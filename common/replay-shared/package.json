@@ -13,7 +13,7 @@
     "dependencies": {
         "fflate": "^0.8.3",
         "fzstd": "^0.1.1",
-        "hls.js": "^1.5.7",
+        "hls.js": "^1.6.17",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
