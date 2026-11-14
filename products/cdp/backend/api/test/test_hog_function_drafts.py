@@ -463,9 +463,15 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert staged_outcomes == expected_staged_outcomes
         assert HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"] == expected_live_token
 
-    @parameterized.expand([("string", "string", SENDER_URL, MOVED_URL), ("json_type", "json", True, 1)])
+    @parameterized.expand(
+        [
+            ("string", "string", SENDER_URL, MOVED_URL, []),
+            ("json_type", "json", True, 1, []),
+            ("json_type_after_code_restored", "json", True, 1, [MOVED_SENDER_HOG, SENDER_HOG]),
+        ]
+    )
     def test_draft_edit_that_changes_one_secret_needs_the_others_entered_again(
-        self, _name: str, url_type: str, stored_url: Any, moved_url: Any
+        self, _name: str, url_type: str, stored_url: Any, moved_url: Any, later_code: list[str]
     ):
         url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
         function_id = self._create(
@@ -477,6 +483,8 @@ class TestHogFunctionDrafts(DraftTestCase):
         with secret_reentry_flag(True):
             self._stage(function_id, {"inputs": {"url": {"value": stored_url}, "token": {"value": "live"}}})
             self._stage(function_id, {"inputs": {"url": {"value": moved_url}, "token": {"secret": True}}})
+            for hog in later_code:
+                self._stage(function_id, {"hog": hog})
             published = self._publish(function_id)
 
         assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
