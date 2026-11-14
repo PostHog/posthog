@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
-from django.db.models import Q, prefetch_related_objects
+from django.db.models import Count, Max, Q, prefetch_related_objects
 
 import structlog
 import posthoganalytics
@@ -480,7 +480,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "hogql-flag-calls-union"})
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "hogql-flag-calls-union", "hogql-execution-cached-sources"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -534,6 +534,47 @@ def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -
                 _TEAM_FLAG_CACHE.clear()
         _TEAM_FLAG_CACHE[cache_key] = (now, value)
     return value
+
+
+def _execution_cached_sources_enabled(team: Team) -> bool:
+    return _cached_team_flag(
+        "hogql-execution-cached-sources",
+        team,
+        lambda: feature_enabled_or_false(
+            "hogql-execution-cached-sources",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
+        ),
+    )
+
+
+def _sources_catalog_version(team: Team) -> str:
+    """Changes when a warehouse table, view, join, expression, or source is created or soft-deleted,
+    and when a table, view, or source is saved with updated_at. Query execution keys cached sources
+    on it, so a query never runs against a table that was deleted, or misses one that was created,
+    after the cache entry was filled. Edits that leave updated_at alone (joins, expressions,
+    credentials, QuerySet.update) still reach execution only when the cache TTL expires."""
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
+    from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource  # noqa: PLC0415
+
+    live = Count("pk", filter=~Q(deleted=True))
+    parts = (
+        DataWarehouseTable.raw_objects.filter(team_id=team.pk).aggregate(live=live, latest=Max("updated_at")),
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk).aggregate(live=live, latest=Max("updated_at")),
+        ExternalDataSource.objects.filter(team_id=team.pk).aggregate(live=live, latest=Max("updated_at")),
+        DataWarehouseJoin.objects.filter(team_id=team.pk).aggregate(live=live, latest=Max("created_at")),
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True).aggregate(
+            live=live, latest=Max("created_at")
+        ),
+    )
+    return repr(parts)
 
 
 def _cached_organization_flag(flag_key: str, team: Team) -> bool:
@@ -1943,7 +1984,7 @@ class Database(BaseModel):
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
         build_postgres_foreign_keys: bool = True,
-        use_cached_sources: bool = False,
+        use_cached_sources: bool | None = None,
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
@@ -1952,6 +1993,8 @@ class Database(BaseModel):
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        ``use_cached_sources`` True reads the TTL-bounded sources cache and False always fetches fresh
+        sources. None lets the hogql-execution-cached-sources team flag pick cached, version-checked sources.
         ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides
         whether ``posthog.flag_evaluations`` is in the catalog. None follows the mode.
         """
@@ -1961,6 +2004,17 @@ class Database(BaseModel):
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
+
+        catalog_version = None
+        if (
+            use_cached_sources is None
+            and not schema_table_names
+            and team is not None
+            and _execution_cached_sources_enabled(team)
+        ):
+            use_cached_sources = True
+            with timings.measure("sources_catalog_version", emit_span=True):
+                catalog_version = _sources_catalog_version(team)
 
         cache_key = None
         if use_cached_sources and not schema_table_names:
@@ -1972,9 +2026,12 @@ class Database(BaseModel):
                 connection_id=connection_id,
                 bypass_warehouse_access_control=bypass_warehouse_access_control,
                 allowed_system_tables=allowed_system_tables,
+                catalog_version=catalog_version,
             )
             if cache_key is None:
-                SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
+                SOURCES_CACHE_EVENTS.labels(
+                    result="bypass", use="editor_assist" if catalog_version is None else "execution"
+                ).inc()
 
         def fetch_fresh() -> HogQLDatabaseSources:
             with _OTEL_DATABASE.timed_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "fetch_sources"}):
@@ -2001,7 +2058,9 @@ class Database(BaseModel):
             cached_sources = get_or_fetch_sources(cache_key, fetch_fresh)
             # Entries are shared across users; the access-control decision is recomputed per
             # request so a permission change applies immediately, never after the TTL.
-            fresh_access_control, fresh_denied = _compute_system_table_access_decision(cast("Team", team), user)
+            fresh_access_control, fresh_denied = _compute_system_table_access_decision(
+                cast("Team", team), user, user_access_control
+            )
             sources = cached_sources.copy_for_request(
                 cast("Team", team),
                 user,
@@ -2044,18 +2103,19 @@ class Database(BaseModel):
         connection_id: str | None,
         bypass_warehouse_access_control: bool,
         allowed_system_tables: Collection[str] | None,
+        catalog_version: str | None = None,
     ) -> SourcesCacheKey | None:
         """The cache key for this build, or None when the build must fetch fresh sources.
 
         The key is team-scoped: entries hold only team-level catalog rows, and the per-user
-        access-control decision is recomputed on every handout. Only real users (or no user)
-        hit the cache: SyntheticUser/SharedLinkUser carry request-specific access semantics.
-        A preloaded user_access_control or an allowed_system_tables override is likewise
-        per-request state, so those bypass too.
+        access-control decision is recomputed on every handout, from the caller's preloaded
+        user_access_control when it passes one. Only real users (or no user) hit the cache:
+        SyntheticUser/SharedLinkUser carry request-specific access semantics. An
+        allowed_system_tables override is likewise per-request state, so it bypasses too.
         """
         from posthog.models.user import User  # noqa: PLC0415 — keeps the Django ORM off this module's import path
 
-        if team is None or user_access_control is not None or allowed_system_tables:
+        if team is None or allowed_system_tables:
             return None
         if user is not None and not isinstance(user, User):
             return None
@@ -2065,6 +2125,7 @@ class Database(BaseModel):
             connection_id=connection_id,
             modifiers_fingerprint=modifiers_fingerprint(normalized_modifiers),
             bypass_warehouse_access_control=bypass_warehouse_access_control,
+            catalog_version=catalog_version,
         )
 
     @staticmethod

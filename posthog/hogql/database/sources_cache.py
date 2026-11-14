@@ -16,8 +16,7 @@ if TYPE_CHECKING:
 
 # Editor-assist queries (autocomplete, metadata) fire on every keystroke and each one pays the
 # full Postgres + feature-flag cost of Database._fetch_sources. A short TTL bounds staleness:
-# a just-created view appears in suggestions within this window, while query execution always
-# builds fresh sources and is never affected.
+# a just-created view appears in suggestions within this window. Execution keys add a catalog version.
 SOURCES_CACHE_TTL_SECONDS = 60
 
 # Entries hold a team's warehouse catalog (ORM rows), whose size varies by orders of magnitude
@@ -25,12 +24,14 @@ SOURCES_CACHE_TTL_SECONDS = 60
 # catalog exceeds the per-entry limit skip the cache instead of evicting everyone else.
 SOURCES_CACHE_WEIGHT_BUDGET = 16_384
 SOURCES_CACHE_MAX_ENTRY_WEIGHT = 4_096
+# Execution caching targets catalogs too large for editor assist, so one entry may fill the budget.
+SOURCES_CACHE_EXECUTION_MAX_ENTRY_WEIGHT = SOURCES_CACHE_WEIGHT_BUDGET
 
 SOURCES_CACHE_EVENTS = Counter(
     "hogql_database_sources_cache_events_total",
     "HogQL database sources-cache lookups: hit/miss/bypass are lookup outcomes; oversized counts "
     "fetches whose result was too large to store.",
-    labelnames=["result"],
+    labelnames=["result", "use"],
 )
 
 # Indirection so tests can advance the cache clock without waiting out the TTL.
@@ -47,6 +48,17 @@ class SourcesCacheKey:
     connection_id: str | None
     modifiers_fingerprint: str
     bypass_warehouse_access_control: bool
+    catalog_version: str | None = None
+
+    @property
+    def use(self) -> str:
+        return "editor_assist" if self.catalog_version is None else "execution"
+
+    @property
+    def max_entry_weight(self) -> int:
+        return (
+            SOURCES_CACHE_MAX_ENTRY_WEIGHT if self.catalog_version is None else SOURCES_CACHE_EXECUTION_MAX_ENTRY_WEIGHT
+        )
 
 
 def sources_weight(sources: "HogQLDatabaseSources") -> int:
@@ -103,7 +115,7 @@ def get_or_fetch_sources(key: SourcesCacheKey, fetch: Callable[[], "HogQLDatabas
         with _sources_cache_lock:
             cached = _sources_cache.get(key)
             if cached is not None:
-                SOURCES_CACHE_EVENTS.labels(result="hit").inc()
+                SOURCES_CACHE_EVENTS.labels(result="hit", use=key.use).inc()
                 return cached
             flight = _inflight_fetches.get(key)
             is_owner = flight is None
@@ -115,12 +127,12 @@ def get_or_fetch_sources(key: SourcesCacheKey, fetch: Callable[[], "HogQLDatabas
         if not is_owner:
             flight.done.wait()
             if flight.result is not None:
-                SOURCES_CACHE_EVENTS.labels(result="hit").inc()
+                SOURCES_CACHE_EVENTS.labels(result="hit", use=key.use).inc()
                 return flight.result
             # The owner's fetch raised; loop so one waiter becomes the new owner and retries.
             continue
 
-        SOURCES_CACHE_EVENTS.labels(result="miss").inc()
+        SOURCES_CACHE_EVENTS.labels(result="miss", use=key.use).inc()
         oversized = False
         try:
             # The fetch runs outside the global cache lock so one slow team cannot stall every
@@ -128,7 +140,7 @@ def get_or_fetch_sources(key: SourcesCacheKey, fetch: Callable[[], "HogQLDatabas
             # finally block, so a new caller always observes either a cached value or an
             # in-flight fetch, never neither.
             sources = fetch()
-            oversized = sources_weight(sources) > SOURCES_CACHE_MAX_ENTRY_WEIGHT
+            oversized = sources_weight(sources) > key.max_entry_weight
             flight.result = sources
             if not oversized:
                 with _sources_cache_lock:
@@ -140,7 +152,7 @@ def get_or_fetch_sources(key: SourcesCacheKey, fetch: Callable[[], "HogQLDatabas
                 _inflight_fetches.pop(key, None)
             flight.done.set()
         if oversized:
-            SOURCES_CACHE_EVENTS.labels(result="oversized").inc()
+            SOURCES_CACHE_EVENTS.labels(result="oversized", use=key.use).inc()
         return sources
 
 

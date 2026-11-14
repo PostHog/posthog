@@ -17,7 +17,7 @@ windows in parallel when set.
 
 import datetime as dt
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -58,6 +58,8 @@ from .service_health_query_runner import ServiceWindowStats, classify_service
 from .span_identity import identity_value_expr, str_attr_field
 
 if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
+
     from posthog.models import Team, User
 
 
@@ -79,6 +81,8 @@ class _SpanAggregationMixin:
         modifiers: HogQLQueryModifiers
         timings: HogQLTimings
         limit_context: LimitContext
+
+        def build_hogql_context(self, **kwargs: Any) -> HogQLContext: ...
 
     def _extract_filters(self) -> None:
         self.filters = split_span_filters(self.query.filterGroup)
@@ -170,6 +174,7 @@ class _SpanAggregationMixin:
             limit_context=self.limit_context,
             settings=self.settings,
             filters=query_date_range.to_hogql_filters(),
+            context=self.build_hogql_context(),
         )
         return [self._row_from_clickhouse(row) for row in response.results]
 
