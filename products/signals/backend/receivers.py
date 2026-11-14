@@ -505,6 +505,37 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
+def release_claim_when_report_dismissed(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Release the active claim when a report is dismissed.
+
+    A claim left on a dismissed report shows the report as work in progress and keeps it in its
+    owner's claimed list. The release only appends to the work log, so the claim history stays.
+    Resolved, closed, and Monitoring reports keep their claim, because linking a late open pull
+    request moves them back to ready, and the owner must still hold the work then.
+    """
+    if instance.status != SignalReport.Status.SUPPRESSED:
+        return
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    from products.signals.backend.report_assignments import (
+        release_claim,  # noqa: PLC0415 - keeps the GitHub integration off Django startup
+    )
+    from products.signals.backend.report_claims import get_active_claim  # noqa: PLC0415 - same
+
+    claim = get_active_claim(team_id=instance.team_id, report_id=str(instance.id))
+    if claim is not None:
+        release_claim(claim, _transition_actor(instance) or ArtefactAttribution.system())
+
+
+@receiver(post_save, sender=SignalReport)
 def arm_pending_checks_when_report_monitoring(
     sender: type[SignalReport],
     instance: SignalReport,
