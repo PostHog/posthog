@@ -81,6 +81,11 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
 )
 
+# The property-group key guard as printed: a `has()` ANDed after the comparison. The value read's own `has()` follows
+# `if(` instead, so in these queries this substring only matches the guard. It names the `events` table, not a key, so
+# a case with two guarded comparisons counts the guards.
+_KEY_GUARD_SQL = ", has(events.properties_group_custom, "
+
 
 def _find_query_plan_node(node: dict, condition: Callable[[dict], bool]) -> dict | None:
     """Return the first query-plan node that meets the condition, searched depth-first."""
@@ -105,18 +110,24 @@ class TestPrinter(BaseTest):
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
         backend: HogQLParserBackend = "cpp-json",
+        in_where: bool = False,
     ) -> str:
         node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
-            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+            select=[ast.Constant(value=1)] if in_where else [node],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=node if in_where else None,
+            settings=settings,
         )
         prepared_select_query: ast.SelectQuery = cast(
             ast.SelectQuery,
             prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
         )
+        printed_node = prepared_select_query.where if in_where else prepared_select_query.select[0]
+        assert printed_node is not None
         return print_prepared_ast(
-            prepared_select_query.select[0],
+            printed_node,
             context=context,
             dialect=dialect,
             stack=[prepared_select_query],
@@ -1193,6 +1204,7 @@ class TestPrinter(BaseTest):
         expected_context_values: Mapping[str, Any] | None = None,
         expected_skip_indexes_used: set[str] | None = None,
         expected_skip_indexes_not_used: set[str] | None = None,
+        in_where: bool = False,
     ) -> None:
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
             return HogQLContext(
@@ -1204,11 +1216,11 @@ class TestPrinter(BaseTest):
             )
 
         context = build_context(PropertyGroupsMode.OPTIMIZED)
-        printed_expr = self._expr(input_expression, context)
+        printed_expr = self._expr(input_expression, context, in_where=in_where)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             for property_groups_mode in (PropertyGroupsMode.DISABLED, PropertyGroupsMode.ENABLED):
                 baseline_context = build_context(property_groups_mode)
-                baseline_expr = self._expr(input_expression, baseline_context)
+                baseline_expr = self._expr(input_expression, baseline_context, in_where=in_where)
                 self.assertEqual(printed_expr % context.values, baseline_expr % baseline_context.values)
             self.assertNotIn("properties_group_", printed_expr)
             self.assertNotIn("person_properties_map_", printed_expr)
@@ -1218,7 +1230,7 @@ class TestPrinter(BaseTest):
             self.assertEqual(printed_expr, expected_optimized_query)
         else:
             unoptimized_context = build_context(PropertyGroupsMode.ENABLED)
-            unoptimized_expr = self._expr(input_expression, unoptimized_context)
+            unoptimized_expr = self._expr(input_expression, unoptimized_context, in_where=in_where)
             # XXX: The placeholders used in the printed expression can vary between the direct and optimized variants,
             # so we string format the context values back into the expression template. This isn't necessarily going to
             # yield a valid ClickHouse expression, but it should generally be good enough to ensure the two expressions
@@ -1234,6 +1246,17 @@ class TestPrinter(BaseTest):
                 self.assertTrue(expected_skip_indexes_used.issubset(indexes))
             if expected_skip_indexes_not_used:
                 self.assertTrue(expected_skip_indexes_not_used.isdisjoint(indexes))
+
+    def _property_groups_query_results(
+        self, query: str, mode: PropertyGroupsMode, **placeholders: ast.Expr
+    ) -> tuple[list, str]:
+        modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, propertyGroupsMode=mode)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        response = execute_hogql_query(
+            query=parse_select(query, placeholders=placeholders), team=self.team, context=context, modifiers=modifiers
+        )
+        assert response.clickhouse is not None
+        return response.results, response.clickhouse
 
     def _skip_indexes_for_expr(self, printed_expr: str, context: HogQLContext) -> set[str]:
         # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
@@ -1817,6 +1840,288 @@ class TestPrinter(BaseTest):
         assert_result_is_equal("'null'", set())
         assert_result_is_equal("'NULL'", set())
         assert_result_is_equal("[]", set())
+
+    def test_property_groups_optimized_range_and_pattern_comparisons(self) -> None:
+        has_key = "has(events.properties_group_custom, %(hogql_val_3)s)"
+        value_read = "if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL)"
+        for expression, comparison in (
+            ("properties.key < 'b'", f"ifNull(less({value_read}, %(hogql_val_2)s), 0)"),
+            ("properties.key <= 'b'", f"ifNull(lessOrEquals({value_read}, %(hogql_val_2)s), 0)"),
+            (
+                "toFloat(properties.key) > 5",
+                f"ifNull(greater(accurateCastOrNull({value_read}, %(hogql_val_2)s), 5), 0)",
+            ),
+            (
+                "toInt(properties.key) >= 5",
+                f"ifNull(greaterOrEquals(accurateCastOrNull({value_read}, %(hogql_val_2)s), 5), 0)",
+            ),
+            ("less(properties.key, 'b')", f"ifNull(less({value_read}, %(hogql_val_2)s), 0)"),
+            ("properties.key LIKE 'a%'", f"ifNull(like({value_read}, %(hogql_val_2)s), 0)"),
+            ("toString(properties.key) ILIKE '%a%'", f"ifNull(ilike(toString({value_read}), %(hogql_val_2)s), 0)"),
+            ("lower(properties.key) LIKE '%a%'", f"ifNull(like(lower({value_read}), %(hogql_val_2)s), 0)"),
+            (
+                "lower(toString(properties.key)) LIKE '%a%'",
+                f"ifNull(like(lower(toString({value_read})), %(hogql_val_2)s), 0)",
+            ),
+            (
+                "properties.key =~ 'a'",
+                f"ifNull(match({value_read}, %(hogql_val_2)s), isNull({value_read}) and isNull(%(hogql_val_2)s))",
+            ),
+            (
+                "properties.key =~* 'a'",
+                f"ifNull(match({value_read}, concat('(?i)', %(hogql_val_2)s)), isNull({value_read}) and isNull(%(hogql_val_2)s))",
+            ),
+            # The `regex` property filter's call form, and a bare `match` call.
+            (
+                "ifNull(match(toString(properties.key), '[0-9]'), 0)",
+                f"ifNull(match(toString({value_read}), %(hogql_val_2)s), 0)",
+            ),
+            ("match(properties.key, 'a')", f"match({value_read}, %(hogql_val_2)s)"),
+        ):
+            with self.subTest(expression):
+                self._test_property_group_comparison(
+                    expression,
+                    f"and({comparison}, {has_key})",
+                    expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+                    in_where=True,
+                )
+
+        self._test_property_group_comparison(
+            "toDateTime(properties.key) > '2024-01-01'",
+            f"and(ifNull(greater(parseDateTime64BestEffortOrNull({value_read}, 6, %(hogql_val_2)s), %(hogql_val_3)s), 0), "
+            "has(events.properties_group_custom, %(hogql_val_4)s))",
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            in_where=True,
+        )
+        swapped_read = "if(has(events.properties_group_custom, %(hogql_val_1)s), events.properties_group_custom[%(hogql_val_2)s], NULL)"
+        self._test_property_group_comparison(
+            "'b' > properties.key",
+            f"and(ifNull(greater(%(hogql_val_0)s, {swapped_read}), 0), {has_key})",
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            in_where=True,
+        )
+
+        # Negated patterns are true for an absent key, and a NULL or non-constant pattern can match one (the printer's
+        # isNull fallback), so these keep the unguarded form.
+        for expression in (
+            "properties.key NOT LIKE 'a%'",
+            "toString(properties.key) NOT ILIKE '%a%'",
+            "properties.key !~ 'a'",
+            "properties.key !~* 'a'",
+            "ifNull(not(match(toString(properties.key), 'a')), 1)",
+            "ifNull(match(toString(properties.key), 'a'), 1)",
+            "ifNull(match(toString(properties.key), properties.other), 0)",
+            "properties.key NOT IN ('a', 'b', '')",
+            "properties.key LIKE NULL",
+            "properties.key LIKE properties.other",
+            "coalesce(properties.key, 'a') < 'b'",
+        ):
+            with self.subTest(expression):
+                self._test_property_group_comparison(expression, None, in_where=True)
+
+        # A materialized column takes precedence over the property group, so the group's keys index doesn't apply.
+        with materialized("events", "key"):
+            self._test_property_group_comparison("properties.key < 'b'", None, in_where=True)
+            self._test_property_group_comparison("toString(properties.key) ILIKE '%a%'", None, in_where=True)
+
+    def test_property_groups_key_guard_only_in_where_and_or_chains(self) -> None:
+        def optimized_sql(query: str) -> str:
+            modifiers = HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED
+            )
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+            return self._select(query, context)
+
+        guarded = (
+            "select 1 from events where properties.key < 'b'",
+            "select 1 from events where properties.key < 'b' and event = 'x'",
+            "select 1 from events where properties.key < 'b' or properties.other like 'a%'",
+            "select 1 from events where (properties.key < 'b' or event = 'x') and properties.other <= 'c'",
+            "select 1 from events where and(properties.key < 'b', event = 'x')",
+            "select 1 from events where or(less(properties.key, 'b'), event = 'x')",
+            "select 1 from events where 'b' > properties.key",
+            "select 1 from events where toDateTime(properties.key) > timestamp",
+            "select 1 from events where lower(toString(properties.key)) like 'a%'",
+            "select 1 from events prewhere properties.key < 'b'",
+            "select 1 from (select 1 from events where properties.key < 'b')",
+            "select count() from events where properties.key < 'b' group by properties.other",
+        )
+        unguarded = (
+            "select properties.key < 'b' from events",
+            "select properties.key like 'a%', count() from events group by properties.key",
+            "select 1 from events where not (properties.key < 'b')",
+            "select 1 from events where not (properties.key < 'b' or event = 'x')",
+            "select 1 from events where if(properties.key < 'b', 1, 0) = 1",
+            "select 1 from events where (properties.key < 'b') = 1",
+            "select 1 from events where toDateTime(properties.key) > timestamp = 0",
+            "select 1 from events order by properties.key < 'b'",
+            "select 1 from events group by properties.key having properties.key < 'b'",
+            "select 1 from events where arrayExists(x -> properties.key < 'b', [1])",
+            "select 1 from events where event in (select properties.key < 'b' from events)",
+            "select 1 from events where not(less(properties.key, 'b'))",
+            "select 1 from events limit 1 by properties.key < 'b'",
+            "select 1 from events window w as (partition by properties.key < 'b')",
+            "select 1 from events array join [properties.key < 'b'] as x",
+            "select ifNull(match(toString(properties.key), 'a'), 0) from events",
+            "select 1 from events order by ifNull(match(toString(properties.key), 'a'), 0)",
+            "select 1 from events where not(ifNull(match(toString(properties.key), 'a'), 0))",
+        )
+        for query in guarded:
+            with self.subTest(query):
+                sql = optimized_sql(query)
+                if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                    self.assertIn(_KEY_GUARD_SQL, sql)
+        for query in unguarded:
+            with self.subTest(query):
+                self.assertNotIn(_KEY_GUARD_SQL, optimized_sql(query))
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            two_keys_sql = optimized_sql(
+                "select 1 from events where properties.key < 'b' or properties.other like 'a%'"
+            )
+            self.assertEqual(two_keys_sql.count(_KEY_GUARD_SQL), 2)
+            # A JOIN ON comparison is not a filter chain. The guard prints the table alias, so check it by that alias,
+            # and prove the marker by the same comparison in a WHERE, where it is guarded.
+            alias_guard_sql = _KEY_GUARD_SQL.replace("events.", "a.")
+            self.assertIn(alias_guard_sql, optimized_sql("select 1 from events as a where a.properties.key < 'b'"))
+            join_sql = optimized_sql("select 1 from events as a join events as b on a.properties.key < 'b'")
+            self.assertIn("if(has(a.properties_group_custom, ", join_sql)
+            self.assertNotIn(alias_guard_sql, join_sql)
+        # A guarded WHERE comparison next to the same comparison in another clause: only the WHERE one is guarded.
+        select_sql = optimized_sql("select less(properties.key, 'b') from events where less(properties.other, 'c')")
+        select_part, _, where_part = select_sql.partition("WHERE")
+        self.assertNotIn(_KEY_GUARD_SQL, select_part)
+        order_sql = optimized_sql(
+            "select 1 from events where less(properties.other, 'c') order by less(properties.key, 'b')"
+        )
+        where_part_with_order, _, order_part = order_sql.partition("ORDER BY")
+        self.assertNotIn(_KEY_GUARD_SQL, order_part)
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertIn(_KEY_GUARD_SQL, where_part)
+            self.assertIn(_KEY_GUARD_SQL, where_part_with_order)
+
+    def test_property_groups_optimized_range_and_pattern_query_results(self):
+        event_name = "property_groups_range_pattern_result_test"
+        for label, properties in (
+            ("absent", {}),
+            ("null", {"value": None}),
+            ("empty", {"value": ""}),
+            ("low", {"value": "1"}),
+            ("high", {"value": "10"}),
+            ("apple", {"value": "apple"}),
+            ("APPLE", {"value": "APPLE"}),
+            ("date", {"value": "2024-01-02 10:00:00"}),
+        ):
+            _create_event(
+                team=self.team,
+                distinct_id="distinct_id",
+                event=event_name,
+                properties={"label": label, **properties},
+            )
+
+        def query_results(query: str, expr: str, mode: PropertyGroupsMode) -> tuple[list, str]:
+            return self._property_groups_query_results(
+                query, mode, expr=parse_expr(expr), event=ast.Constant(value=event_name)
+            )
+
+        select_item = (
+            "select properties.label as label, {expr} as matched from events where event = {event} order by label"
+        )
+        shapes = {
+            "where": "select properties.label as label from events where event = {event} and {expr} order by label",
+            "where or": "select properties.label as label from events where ({expr} or event = 'other') and event = {event} order by label",
+            "where not": "select properties.label as label from events where event = {event} and not ({expr}) order by label",
+            "where if": "select properties.label as label from events where event = {event} and if({expr}, 1, 0) = 1 order by label",
+            "order by": "select properties.label as label from events where event = {event} order by {expr}, label",
+            "grouped select": "select {expr} as matched, count() as total from events where event = {event} group by properties.value order by matched, total",
+            "grouped having": "select count() as total from events where event = {event} group by properties.value having {expr} order by total",
+        }
+        for expr, matching_labels in (
+            ("toFloat(properties.value) > 5", {"high"}),
+            ("toFloat(properties.value) >= 10", {"high"}),
+            ("toFloat(properties.value) < 5", {"low"}),
+            ("toFloat(properties.value) <= 1", {"low"}),
+            ("5 < toFloat(properties.value)", {"high"}),
+            ("less(properties.value, '5')", {"date", "empty", "high", "low"}),
+            ("properties.value LIKE 'app%'", {"apple"}),
+            ("properties.value ILIKE 'app%'", {"apple", "APPLE"}),
+            ("toString(properties.value) ILIKE '%PP%'", {"apple", "APPLE"}),
+            ("lower(properties.value) LIKE 'app%'", {"apple", "APPLE"}),
+            ("lower(toString(properties.value)) LIKE 'app%'", {"apple", "APPLE"}),
+            ("properties.value =~ '^app'", {"apple"}),
+            ("properties.value =~* '^app'", {"apple", "APPLE"}),
+            ("ifNull(match(toString(properties.value), '^app'), 0)", {"apple"}),
+            ("match(properties.value, '(?i)^app')", {"apple", "APPLE"}),
+            # Best-effort parsing reads "1" and "10" as days of the current month, so bound from above.
+            ("toDateTime(properties.value) < '2025-01-01'", {"date"}),
+        ):
+            with self.subTest(expr):
+                disabled_results, _ = query_results(select_item, expr, PropertyGroupsMode.DISABLED)
+                optimized_results, _ = query_results(select_item, expr, PropertyGroupsMode.OPTIMIZED)
+                self.assertEqual(optimized_results, disabled_results)
+                self.assertEqual({label for label, matched in optimized_results if matched}, matching_labels)
+
+                for shape_name, shape in shapes.items():
+                    with self.subTest(expr, shape=shape_name):
+                        disabled_results, _ = query_results(shape, expr, PropertyGroupsMode.DISABLED)
+                        optimized_results, optimized_sql = query_results(shape, expr, PropertyGroupsMode.OPTIMIZED)
+                        self.assertEqual(optimized_results, disabled_results)
+                        if shape_name == "where" and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                            self.assertIn(_KEY_GUARD_SQL, optimized_sql)
+                            self.assertEqual({label for (label,) in optimized_results}, matching_labels)
+
+        # `transform`'s default makes an absent key match, so skipping granules without the key would drop rows.
+        expr = "toBool(transform(toString(properties.value), ['apple'], [0], 1)) > 0"
+        disabled_results, _ = query_results(shapes["where"], expr, PropertyGroupsMode.DISABLED)
+        optimized_results, optimized_sql = query_results(shapes["where"], expr, PropertyGroupsMode.OPTIMIZED)
+        self.assertEqual(optimized_results, disabled_results)
+        self.assertIn(("absent",), optimized_results)
+        self.assertNotIn(_KEY_GUARD_SQL, optimized_sql)
+
+        # The same goes for a `match` whose NULL falls back to 1 instead of the `regex` filter's 0.
+        expr = "ifNull(match(toString(properties.value), '^app'), 1)"
+        disabled_results, _ = query_results(shapes["where"], expr, PropertyGroupsMode.DISABLED)
+        optimized_results, optimized_sql = query_results(shapes["where"], expr, PropertyGroupsMode.OPTIMIZED)
+        self.assertEqual(optimized_results, disabled_results)
+        self.assertIn(("absent",), optimized_results)
+        self.assertNotIn(_KEY_GUARD_SQL, optimized_sql)
+
+    def test_property_groups_optimized_timestamp_comparison_query_results(self):
+        # The printer leaves a comparison against an events timestamp without `ifNull`, so an absent key gives NULL
+        # rather than 0. That only matters outside a WHERE and/or chain, where the key guard must not land.
+        event_name = "property_groups_timestamp_result_test"
+        for label, properties in (
+            ("absent", {}),
+            ("null", {"when": None}),
+            ("past", {"when": "2000-01-01 00:00:00"}),
+            ("future", {"when": "2100-01-01 00:00:00"}),
+        ):
+            _create_event(
+                team=self.team,
+                distinct_id="distinct_id",
+                event=event_name,
+                properties={"label": label, **properties},
+            )
+
+        def query_results(query: str, mode: PropertyGroupsMode) -> tuple[list, str]:
+            return self._property_groups_query_results(query, mode, event=ast.Constant(value=event_name))
+
+        comparison = "toDateTime(properties.when) > timestamp"
+        queries = {
+            "select": f"select properties.label as label, {comparison} as matched, isNull({comparison}) as unknown from events where event = {{event}} order by label",
+            "where": f"select properties.label as label from events where event = {{event}} and {comparison} order by label",
+            "where or": f"select properties.label as label from events where event = {{event}} and ({comparison} or properties.label = 'future') order by label",
+            "where not": f"select properties.label as label from events where event = {{event}} and not ({comparison}) order by label",
+            "where if": f"select properties.label as label from events where event = {{event}} and if({comparison}, 0, 1) = 1 order by label",
+            "order by": f"select properties.label as label from events where event = {{event}} order by {comparison}, label",
+        }
+        for name, query in queries.items():
+            with self.subTest(name):
+                disabled_results, _ = query_results(query, PropertyGroupsMode.DISABLED)
+                optimized_results, optimized_sql = query_results(query, PropertyGroupsMode.OPTIMIZED)
+                self.assertEqual(optimized_results, disabled_results)
+                has_guard = _KEY_GUARD_SQL in optimized_sql
+                if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                    self.assertEqual(has_guard, name in ("where", "where or"))
 
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
