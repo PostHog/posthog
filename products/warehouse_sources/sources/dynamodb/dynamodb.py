@@ -4,7 +4,6 @@ from collections.abc import Iterator, Mapping
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -29,7 +28,9 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     SourceSchema,
+    aws_redact_values,
     make_tracked_session,
+    sign_aws_request,
 )
 
 # Numbers wider than a signed 64-bit integer can't land in an Arrow int column, so they degrade
@@ -151,21 +152,13 @@ class DynamoDBClient:
     over the tracked session so it stays in our HTTP logs and metrics.
     """
 
-    def __init__(
-        self,
-        access_key_id: str,
-        secret_access_key: str,
-        region: str,
-        session_token: str | None = None,
-        api_version: str | None = None,
-    ) -> None:
+    def __init__(self, credentials: Credentials, region: str, api_version: str | None = None) -> None:
         self.region = validate_region(region)
         self.endpoint = ENDPOINT_TEMPLATE.format(region=self.region)
         self.target_prefix = target_prefix(api_version)
-        self._credentials = Credentials(access_key_id, secret_access_key, session_token or None)
-        self._signer = SigV4Auth(self._credentials, SIGV4_SERVICE_NAME, self.region)
+        self._credentials = credentials
         self._session = make_tracked_session(
-            redact_values=tuple(value for value in (secret_access_key, session_token) if value),
+            redact_values=aws_redact_values(credentials),
             # DynamoDB items carry arbitrary customer fields (PII, secrets under generic attribute
             # names) the name-based scrubber can't catch, so keep responses out of HTTP samples.
             capture=False,
@@ -181,7 +174,7 @@ class DynamoDBClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        self._signer.add_auth(request)
+        sign_aws_request(request, self._credentials, SIGV4_SERVICE_NAME, self.region)
         return dict(request.headers)
 
     def send(self, operation: str, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -277,20 +270,10 @@ def get_table_schemas(
 
 
 def validate_credentials(
-    access_key_id: str,
-    secret_access_key: str,
-    region: str,
-    session_token: str | None = None,
-    api_version: str | None = None,
+    credentials: Credentials, region: str, api_version: str | None = None
 ) -> tuple[bool, str | None]:
     try:
-        client = DynamoDBClient(
-            access_key_id=access_key_id,
-            secret_access_key=secret_access_key,
-            region=region,
-            session_token=session_token,
-            api_version=api_version,
-        )
+        client = DynamoDBClient(credentials=credentials, region=region, api_version=api_version)
     except ValueError:
         return False, f"'{region}' isn't a valid AWS region. Use a region code like us-east-1."
 
@@ -350,22 +333,14 @@ def get_rows(
 
 
 def dynamodb_source(
-    access_key_id: str,
-    secret_access_key: str,
+    credentials: Credentials,
     region: str,
     table_name: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[DynamoDBResumeConfig],
-    session_token: Optional[str] = None,
     api_version: Optional[str] = None,
 ) -> SourceResponse:
-    client = DynamoDBClient(
-        access_key_id=access_key_id,
-        secret_access_key=secret_access_key,
-        region=region,
-        session_token=session_token,
-        api_version=api_version,
-    )
+    client = DynamoDBClient(credentials=credentials, region=region, api_version=api_version)
     primary_keys = primary_keys_from_description(describe_table(client, table_name))
 
     return SourceResponse(
