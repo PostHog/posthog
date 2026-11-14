@@ -31,6 +31,7 @@ from posthog.llm.gateway_client import (
     get_llm_client,
     private_scout_gateway,
     resolve_ai_gateway_config,
+    resolve_https_ai_gateway_config,
     team_trace_id,
     trace_id_from_seed,
 )
@@ -247,6 +248,23 @@ class TestResolveAIGatewayConfig:
 
         mock_logger.warning.assert_called_once()
         assert reason in str(mock_logger.warning.call_args)
+
+    @pytest.mark.parametrize(
+        "url,usable",
+        [
+            (AI_GATEWAY_URL, True),
+            ("http://ai-gateway.example/v1", False),
+            ("http://localhost:3308/v1", True),
+            ("http://127.0.0.1:3308/v1", True),
+            ("http://[::1]:3308/v1", True),
+            ("http://localhost.example.com/v1", False),
+        ],
+    )
+    def test_https_config_keeps_a_remote_key_off_plain_http(self, url, usable):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY):
+            config = resolve_https_ai_gateway_config()
+
+        assert config == (AIGatewayConfig(url=url, api_key=AI_GATEWAY_KEY) if usable else None)
 
 
 class TestBuildOpenAIClient:

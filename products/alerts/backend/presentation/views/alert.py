@@ -98,8 +98,8 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    DETECTOR_PAUSED_ERROR_CODES,
+    DETECTOR_UNAVAILABLE_ERROR_CODES,
     LLMAlertWrite,
     LLMDetectorError,
     LLMDetectorPausedError,
@@ -161,6 +161,7 @@ from products.alerts.backend.facade.platform import (
     write_moved_alert_edit,
     write_native_alert_edit,
 )
+from products.alerts.backend.forecast.rules import forecast_rule
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -319,6 +320,24 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
             )
 
 
+def _enforce_forecast_detector_rules(detector_config: Any) -> None:
+    """Constrain the forecast detector on the raw config, so each rule can explain itself instead of
+    collapsing into the generic "Invalid detector configuration."
+
+    Its rollout runs in create and update through ``admit_llm_alert_write``.
+    """
+    if not isinstance(detector_config, dict) or DetectorType.FORECAST.value not in _detector_types(detector_config):
+        return
+    if detector_config.get("type") != DetectorType.FORECAST.value:
+        raise ValidationError("The forecast detector cannot be combined with other detectors.")
+    if detector_config.get("preprocessing"):
+        raise ValidationError("The forecast detector reads the series as it is, so it cannot use preprocessing.")
+    try:
+        forecast_rule(detector_config)
+    except ValueError as error:
+        raise ValidationError(str(error)) from error
+
+
 def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
     """Refuse an AI preview or takeover the person asking cannot use.
 
@@ -388,6 +407,7 @@ def _validate_detector_config(value: Any) -> Any:
     Returns the schema-normalized config.
     """
     _enforce_llm_detector_rules(value)
+    _enforce_forecast_detector_rules(value)
     value = _normalize_llm_detector_config(value)
     if isinstance(value, dict):
         sub_detectors = value.get("detectors")
@@ -649,11 +669,8 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         # Only reasons written for the alert's owner pass through. Anything else may carry an
         # internal detail, so the history shows a generic message instead.
         code = instance.error.get("code")
-        if code in (
-            "email_unavailable",
-            "invalid_configuration",
-            LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-            LLM_DETECTOR_PAUSED_ERROR_CODE,
+        if code in ("email_unavailable", "invalid_configuration") or code in (
+            DETECTOR_UNAVAILABLE_ERROR_CODES | DETECTOR_PAUSED_ERROR_CODES
         ):
             return {"code": code, "message": message}
         return {"message": "This alert encountered an error. Check the alert configuration and try again."}

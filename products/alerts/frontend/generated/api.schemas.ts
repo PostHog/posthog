@@ -585,6 +585,52 @@ export interface LLMDetectorConfigApi {
     type: LLMDetectorConfigApiType
 }
 
+export type ForecastDetectorBandApi = (typeof ForecastDetectorBandApi)[keyof typeof ForecastDetectorBandApi]
+
+export const ForecastDetectorBandApi = {
+    '08': 0.8,
+    '09': 0.9,
+    '098': 0.98,
+} as const
+
+export type ForecastDetectorDirectionApi =
+    (typeof ForecastDetectorDirectionApi)[keyof typeof ForecastDetectorDirectionApi]
+
+export const ForecastDetectorDirectionApi = {
+    Above: 'above',
+    Below: 'below',
+    Both: 'both',
+} as const
+
+export type ForecastDetectorModeApi = (typeof ForecastDetectorModeApi)[keyof typeof ForecastDetectorModeApi]
+
+export const ForecastDetectorModeApi = {
+    Band: 'band',
+    Relative: 'relative',
+    Absolute: 'absolute',
+} as const
+
+export type ForecastDetectorConfigApiType =
+    (typeof ForecastDetectorConfigApiType)[keyof typeof ForecastDetectorConfigApiType]
+
+export const ForecastDetectorConfigApiType = {
+    Forecast: 'forecast',
+} as const
+
+export interface ForecastDetectorConfigApi {
+    /** Absolute mode: distance from the expected value, in the series' units */
+    absolute_threshold?: number | null
+    /** Forecast interval for band mode, and the range shown in every mode (default: 0.9) */
+    band?: ForecastDetectorBandApi | null
+    /** Which side of the forecast can fire (default: both) */
+    direction?: ForecastDetectorDirectionApi | null
+    /** How the actual value is compared with the forecast (default: band) */
+    mode?: ForecastDetectorModeApi | null
+    /** Relative mode: fraction of the expected value. 1 = 100% away from expected */
+    relative_threshold?: number | null
+    type: ForecastDetectorConfigApiType
+}
+
 /**
  * Detector configuration types
  */
@@ -603,6 +649,7 @@ export type DetectorConfigApi =
     | OCSVMDetectorConfigApi
     | PCADetectorConfigApi
     | LLMDetectorConfigApi
+    | ForecastDetectorConfigApi
 
 /**
  * * `real_time` - real_time
