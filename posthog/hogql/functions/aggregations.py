@@ -181,7 +181,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "groupArrayIf": HogQLFunctionMeta("groupArrayIf", 2, 2, aggregate=True),
     # "groupArrayLast": HogQLFunctionMeta("groupArrayLast", 1, 1, aggregate=True),
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),
-    "groupUniqArray": HogQLFunctionMeta("groupUniqArray", 1, 1, aggregate=True),
+    "groupUniqArray": HogQLFunctionMeta("groupUniqArray", 1, 1, min_params=0, max_params=1, aggregate=True),
     "groupUniqArrayIf": HogQLFunctionMeta("groupUniqArrayIf", 2, 2, aggregate=True),
     "groupUniqArrayArray": HogQLFunctionMeta("groupUniqArrayArray", 1, 1, min_params=0, max_params=1, aggregate=True),
     "groupUniqArrayArrayIf": HogQLFunctionMeta(

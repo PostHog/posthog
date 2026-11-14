@@ -1,8 +1,11 @@
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.db import transaction
 
 import numpy as np
 from parameterized import parameterized
@@ -11,6 +14,12 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.intent_topics.clustering import FitOutput
+from products.mcp_analytics.backend.intent_topics.invalidation import (
+    IntentInvalidationConflict,
+    IntentWritesFrozen,
+    freeze_writes,
+    has_pending_registered_writers,
+)
 from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel
 from products.mcp_analytics.backend.intent_topics.persist import (
     active_topic_vectors,
@@ -183,6 +192,64 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
 
 
 class TestRunBookkeeping(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("assign_succeeded", "assign", "succeeded", 0, False),
+            ("refit_succeeded", "refit", "succeeded", 0, False),
+            ("assign_failed", "assign", "failed", 0, True),
+            ("sync_enqueued", "sync", "succeeded", 2, True),
+            ("sync_empty", "sync", "succeeded", 0, False),
+            ("no_consent", "sync", "skipped_no_consent", 0, False),
+        ]
+    )
+    def test_freeze_waits_for_confirmed_writes_not_run_status(
+        self, _name: str, kind: str, status: str, emitted: int, pending: bool
+    ) -> None:
+        run = start_run(self.team, kind=kind, run_id="writer", window_start=NOW - timedelta(days=1), window_end=NOW)
+        MCPIntentClusteringRun.objects.filter(pk=run.pk).update(writer_registered_at=NOW - timedelta(days=90))
+        operation = uuid4()
+        freeze_writes(self.team, invalidation_id=operation)
+        assert has_pending_registered_writers(self.team, invalidation_id=operation)
+
+        finish_run(run, status=status, n_embeddings_requested=emitted)
+
+        assert has_pending_registered_writers(self.team, invalidation_id=operation) is pending
+
+    def test_freeze_covers_sibling_environments_and_is_owned_by_one_operation(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        operation = uuid4()
+        freeze_writes(child, invalidation_id=operation)
+        freeze_writes(self.team, invalidation_id=operation)
+
+        for team in (child, self.team):
+            with pytest.raises(IntentWritesFrozen):
+                start_run(team, kind="refit", run_id="blocked", window_start=NOW, window_end=NOW)
+        with pytest.raises(IntentInvalidationConflict):
+            freeze_writes(child, invalidation_id=uuid4())
+        with pytest.raises(IntentInvalidationConflict):
+            has_pending_registered_writers(self.team, invalidation_id=uuid4())
+        assert not MCPIntentClusteringRun.objects.filter(run_id="blocked").exists()
+        unrelated = Team.objects.create(organization=self.organization, name="Unrelated project")
+        other_run = start_run(unrelated, kind="assign", run_id="allowed", window_start=NOW, window_end=NOW)
+        assert other_run.team_id == unrelated.pk
+
+    def test_admission_cannot_return_before_its_registration_commits(self) -> None:
+        with transaction.atomic(), pytest.raises(RuntimeError, match="durable atomic block"):
+            start_run(self.team, kind="assign", run_id="uncommitted", window_start=NOW, window_end=NOW)
+        assert not MCPIntentClusteringRun.objects.filter(run_id="uncommitted").exists()
+
+    def test_finishing_a_stale_run_instance_does_not_erase_writer_completion(self) -> None:
+        run = start_run(self.team, kind="assign", run_id="writer", window_start=NOW, window_end=NOW)
+        stale = MCPIntentClusteringRun.objects.get(pk=run.pk)
+        finish_run(run, status="succeeded")
+
+        finish_run(stale, status="failed", error_message="late bookkeeping retry")
+
+        run.refresh_from_db()
+        assert run.writer_completed_at is not None
+
     def test_start_and_finish(self) -> None:
         run = start_run(
             self.team,

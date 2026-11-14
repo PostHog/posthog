@@ -336,6 +336,7 @@ rules:
                               |MCPIntentClusteringRun
                               |MCPIntentEmbeddingCache
                               |MCPIntentTopic
+                              |MCPIntentWriteBarrier
                               |MCPMeasuredStats
                               |MCPMemberAutoConnectOptOut
                               |MCPMemberServerRevocation
@@ -881,6 +882,7 @@ rules:
                         |MCPIntentClusteringRun
                         |MCPIntentEmbeddingCache
                         |MCPIntentTopic
+                        |MCPIntentWriteBarrier
                         |MCPMemberAutoConnectOptOut
                         |MCPMemberServerRevocation
                         |MCPOrgRule

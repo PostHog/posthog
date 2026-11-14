@@ -1,7 +1,6 @@
 """Send intent texts to the embedding worker, once per distinct text per retention window."""
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.kafka_client.routing import get_producer
@@ -33,7 +32,7 @@ DELIVERY_BATCH_SIZE = 5_000
 DELIVERY_TIMEOUT_SECONDS = 30.0
 
 
-def emit_intent_embeddings(team: Team, intents: Sequence[DistinctIntent], *, now: datetime) -> int:
+def emit_intent_embeddings(team: Team, intents: Sequence[DistinctIntent]) -> int:
     """Emit one embedding request per intent and wait for Kafka to acknowledge each batch.
 
     A delivery failure raises, so the run fails and its retry emits the same intents again; an
@@ -53,8 +52,8 @@ def emit_intent_embeddings(team: Team, intents: Sequence[DistinctIntent], *, now
                 rendering=EMBEDDING_RENDERING,
                 document_id=intent.hash,
                 models=[EMBEDDING_MODEL],
-                timestamp=now,
-                metadata={"calls": intent.calls},
+                timestamp=intent.source_min_timestamp,
+                metadata={"calls": intent.calls, "source_min_timestamp": intent.source_min_timestamp.isoformat()},
             )
             for intent in intents[start : start + DELIVERY_BATCH_SIZE]
         ]

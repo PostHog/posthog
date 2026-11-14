@@ -17,15 +17,15 @@ from django.conf import settings
 import numpy as np
 import structlog
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
@@ -36,10 +36,6 @@ from products.mcp_analytics.backend.facade.contracts import (
 from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist, rollups
 from products.mcp_analytics.backend.intent_topics.assignment_sql import build_assignment_insert
 from products.mcp_analytics.backend.intent_topics.constants import (
-    EMBEDDING_DOCUMENT_TYPE,
-    EMBEDDING_MODEL,
-    EMBEDDING_PRODUCT,
-    EMBEDDING_RETENTION_DAYS,
     FIT_LOOKBACK_DAYS,
     FIT_SAMPLE_SIZE,
     MAX_INTENTS_PER_SYNC,
@@ -135,15 +131,15 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
                 handled.update(intent.hash for intent in fresh)
                 seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in fresh], now=window_end)
                 to_emit = embedding_sync.select_intents_to_emit(fresh, seen)
-                emitted += embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
+                emitted += embedding_sync.emit_intent_embeddings(team, to_emit)
                 n_intents += len(fresh)
             drained_until = sync_slice.end
         # The row version is the read time, not window_end, so a rerun of the same window replaces the
         # counts it read before. It is taken before the read so that, of two runs, the later read wins.
         # Only the hours read whole are rolled up; the next run resumes at the same boundary.
         read_at = datetime.now(tz=UTC)
-        hourly = corpus.fetch_hourly_calls(team, since=window_start, until=drained_until)
-        rollups.insert_hourly_calls(team.pk, hourly, now=read_at)
+        for hourly in corpus.iter_hourly_call_pages(team, since=window_start, until=drained_until):
+            rollups.insert_hourly_calls(team.pk, hourly, now=read_at)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
@@ -169,6 +165,7 @@ WHERE run_id = {run_id}
 # not exist; a quorum that cannot be met fails the run after the timeout, and the retry re-assigns the window.
 ASSIGNMENT_INSERT_SETTINGS: dict[str, Any] = {
     "insert_distributed_sync": 1,
+    "async_insert": 0,
     "insert_quorum": 0 if settings.TEST or settings.DEBUG else "auto",
     "insert_quorum_timeout": 60_000,
 }
@@ -185,24 +182,6 @@ def _rebuild_daily(team: Team, *, window_start: datetime, window_end: datetime) 
         now=datetime.now(tz=UTC),
         timezone=team.timezone,
     )
-
-
-ASSIGNMENT_SLICE = timedelta(days=1)
-
-
-@frozen
-class TimeSlice:
-    start: datetime
-    end: datetime
-
-
-def assignment_slices(window_start: datetime, window_end: datetime) -> Iterator[TimeSlice]:
-    """[window_start, window_end) cut into consecutive pieces of at most ASSIGNMENT_SLICE, with no gap or overlap."""
-    cursor = window_start
-    while cursor < window_end:
-        slice_end = min(cursor + ASSIGNMENT_SLICE, window_end)
-        yield TimeSlice(start=cursor, end=slice_end)
-        cursor = slice_end
 
 
 def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
@@ -226,24 +205,22 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         persist.finish_run(run, status=Status.SKIPPED_TOO_FEW, error_message=message)
         return RunOutcome(run.run_id, Kind.ASSIGN, Status.SKIPPED_TOO_FEW, error_message=message)
     try:
-        # One INSERT ... SELECT per day: a synchronous Distributed insert holds its result in memory until it is
-        # on every shard (about 0.3 GB per million rows), and the post-refit window is a month of intents. Per day,
-        # peak memory stays near 1 GB however long the window is. The daily rebuild reads the assignments straight
-        # after, so each insert returns only once its rows are on every shard and on a majority of its replicas.
-        for time_slice in assignment_slices(window_start, window_end):
-            sql, params = build_assignment_insert(
-                team_id=team.pk,
+        # Page whole-window aggregates, not time slices: each hash keeps its full count and earliest source.
+        for sources in corpus.iter_live_intent_pages(team, since=window_start, until=window_end):
+            query = build_assignment_insert(
+                team=team,
                 run_id=run.run_id,
-                window_start=time_slice.start,
-                window_end=time_slice.end,
+                sources=sources,
+                as_of=window_end,
                 topics=topics,
                 pca=pca,
             )
-            sync_execute(sql, params, settings=ASSIGNMENT_INSERT_SETTINGS, team_id=team.pk, workload=Workload.OFFLINE)
+            query.execute(team, settings=ASSIGNMENT_INSERT_SETTINGS)
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
             workload=Workload.OFFLINE,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
         )
         n_intents, n_outliers = (
             (int(response.results[0][0]), int(response.results[0][1])) if response.results else (0, 0)
@@ -258,32 +235,6 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
     )
 
 
-# The sample is drawn from intents *called* in the window (the hourly rollup), not from intents
-# *embedded* in the window: an intent embedded three weeks ago but called every day must still
-# shape the topics. Weights are the calls in the window for the same reason.
-#
-# Candidates come from the rollup alone, in a salted hash order; vectors are then read for one page of candidates
-# by their ids. Neither query holds a set of every intent embedded in the retention window (41M at the largest
-# team), and the candidate aggregation runs once per page instead of twice per query.
-_FIT_CANDIDATES_SQL = """
-SELECT intent_hash, calls, cityHash64(concat(intent_hash, {salt})) AS sample_key
-FROM (SELECT intent_hash, sum(calls) AS calls FROM {hourly} GROUP BY intent_hash)
-WHERE sample_key > {after}
-ORDER BY sample_key
-LIMIT {limit}
-"""
-
-_FIT_VECTORS_SQL = """
-SELECT document_id, argMax(embedding, inserted_at) AS embedding, argMax(content, inserted_at) AS content
-FROM document_embeddings
-WHERE {embedded} AND document_id IN {hashes}
-GROUP BY document_id
-LIMIT {limit}
-"""
-
-_EMBEDDED_FILTER = "model_name = {model} AND product = {product} AND document_type = {document_type} AND timestamp >= {retention_start}"
-
-
 @dataclass(frozen=True)
 class FitSample:
     hashes: list[str]
@@ -293,66 +244,23 @@ class FitSample:
 
 
 def fetch_fit_sample(team: Team, *, since: datetime, until: datetime, limit: int = FIT_SAMPLE_SIZE) -> FitSample:
-    """A deterministic random sample of the window's called and embedded intents, with call counts as weights."""
-    salt = ast.Constant(value=until.strftime("%Y%m%d"))
-    embedded = parse_expr(
-        _EMBEDDED_FILTER,
-        placeholders={
-            "model": ast.Constant(value=EMBEDDING_MODEL),
-            "product": ast.Constant(value=EMBEDDING_PRODUCT),
-            "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
-            "retention_start": ast.Constant(value=until - timedelta(days=EMBEDDING_RETENTION_DAYS)),
-        },
-    )
-    # Almost every intent called in the window has a vector, so one page usually fills the sample. A page that comes
-    # up short (vectors expired or not synced yet) is followed by the next candidates in the same order.
-    page_size = min(limit, MAX_SELECT_RETURNED_ROWS)
-    picked: list[tuple[str, list[float], str, int]] = []
-    after = 0
-    while len(picked) < limit:
-        candidates = execute_hogql_query(
-            query=parse_select(
-                _FIT_CANDIDATES_SQL,
-                placeholders={
-                    "hourly": rollups.hourly_calls_source(since=since, until=until),
-                    "salt": salt,
-                    "after": ast.Constant(value=after),
-                    "limit": ast.Constant(value=page_size),
-                },
-            ),
-            team=team,
-            workload=Workload.OFFLINE,
-        ).results
-        if not candidates:
+    """A deterministic random sample of the window's embedded intents, with call counts as weights."""
+    rows: list = []
+    for sources in corpus.iter_live_intent_pages(team, since=since, until=until, sample_salt=until.strftime("%Y%m%d")):
+        query = corpus.live_intent_embeddings_query(team, sources, as_of=until)
+        embedded = {row[0]: row for row in query.execute(team)}
+        # The event pages have a deterministic shuffled order; absent vectors do not consume sample slots.
+        rows.extend(embedded[source.hash] for source in sources if source.hash in embedded)
+        if len(rows) >= limit:
+            rows = rows[:limit]
             break
-        vectors = {
-            row[0]: row
-            for row in execute_hogql_query(
-                query=parse_select(
-                    _FIT_VECTORS_SQL,
-                    placeholders={
-                        "embedded": embedded,
-                        "hashes": ast.Constant(value=[c[0] for c in candidates]),
-                        "limit": ast.Constant(value=len(candidates)),
-                    },
-                ),
-                team=team,
-                workload=Workload.OFFLINE,
-            ).results
-        }
-        for intent_hash, calls, _ in candidates:
-            if intent_hash in vectors and len(picked) < limit:
-                picked.append((intent_hash, vectors[intent_hash][1], vectors[intent_hash][2], int(calls or 0)))
-        if len(candidates) < page_size:
-            break
-        after = int(candidates[-1][2])
-    if not picked:
+    if not rows:
         return FitSample(hashes=[], vectors=np.zeros((0, 0), dtype=np.float32), weights=np.zeros(0), texts=[])
     return FitSample(
-        hashes=[row[0] for row in picked],
-        vectors=np.asarray([row[1] for row in picked], dtype=np.float32),
-        weights=np.asarray([max(row[3], 1) for row in picked], dtype=np.float32),
-        texts=[row[2] for row in picked],
+        hashes=[row[0] for row in rows],
+        vectors=np.asarray([row[4] for row in rows], dtype=np.float32),
+        weights=np.asarray([int(row[2]) for row in rows], dtype=np.float32),
+        texts=[row[1] for row in rows],
     )
 
 
