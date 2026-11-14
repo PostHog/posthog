@@ -403,6 +403,13 @@ pub(crate) fn attributes_bytes(map: &HashMap<String, String>) -> usize {
         .sum()
 }
 
+pub(crate) fn log_row_expanded_bytes(row: &KafkaLogRow) -> usize {
+    ROW_OVERHEAD_BYTES
+        + row.byte_count() as usize
+        + row.service_name.len()
+        + (row.resource_attributes.len() + row.attributes.len()) * ATTRIBUTE_OVERHEAD_BYTES
+}
+
 fn data_point_count(metric: &Metric) -> usize {
     match &metric.data {
         Some(Data::Gauge(d)) => d.data_points.len(),
@@ -548,11 +555,7 @@ pub async fn export_logs_http(
                         ));
                     }
                 };
-                expanded_bytes += ROW_OVERHEAD_BYTES
-                    + row.byte_count() as usize
-                    + row.service_name.len()
-                    + (row.resource_attributes.len() + row.attributes.len())
-                        * ATTRIBUTE_OVERHEAD_BYTES;
+                expanded_bytes += log_row_expanded_bytes(&row);
                 if expanded_bytes > service.max_expanded_request_bytes {
                     return Err(expansion_rejection(service.max_expanded_request_bytes));
                 }
