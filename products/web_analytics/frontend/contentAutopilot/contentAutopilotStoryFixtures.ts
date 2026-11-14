@@ -449,6 +449,7 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     prompt_version: 2,
     brand_sentiment: 'positive',
     brand_sentiment_score: 0.86,
+    brand_sentiment_sentences: [],
     answer_text:
         'For a small startup, a few open source product analytics tools stand out.\n\n' +
         '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +

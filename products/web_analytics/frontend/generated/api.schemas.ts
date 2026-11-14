@@ -548,7 +548,20 @@ export interface PatchedAEOPromptUpdateRequestApi {
     archived?: boolean | null
 }
 
+export interface AEOBrandSentimentSentenceApi {
+    /** Offset of the sentence's first character in 'answer_text', counted in Unicode code points. */
+    start: number
+    /** Offset just past the sentence's last character, counted in Unicode code points. */
+    end: number
+    /** Sentiment of this sentence: 'positive', 'neutral' or 'negative'. */
+    label: string
+    /** Classifier confidence (0-1) in 'label'. */
+    score: number
+}
+
 export interface AEOPromptCheckApi {
+    /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
+    brand_sentiment_sentences: AEOBrandSentimentSentenceApi[]
     /** Check id. */
     id: string
     /** Groups the checks of one daily run across prompts and engines. */

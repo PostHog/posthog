@@ -59,7 +59,15 @@ def _seed_run(team: Team) -> tuple[uuid.UUID, dict[str, AEOCitationCheck]]:
         "two_sentences": _check(team, prompt, run_id, "Example is slow. Still, Example is cheap."),
         "no_brand": _check(team, prompt, run_id, "Rival is the only option."),
         "failed": _check(team, prompt, run_id, None, check_failed=True),
-        "scored": _check(team, prompt, run_id, "Example again.", brand_sentiment="neutral", brand_sentiment_score=0.5),
+        "scored": _check(
+            team,
+            prompt,
+            run_id,
+            "Example again.",
+            brand_sentiment="neutral",
+            brand_sentiment_score=0.5,
+            brand_sentiment_sentences=[{"start": 0, "end": 14, "label": "neutral", "score": 0.5}],
+        ),
         "other_run": _check(team, prompt, uuid.uuid4(), "Example elsewhere."),
         "no_brand_backlog": _check(team, prompt, uuid.uuid4(), "Rival elsewhere."),
         "too_old": _check(team, prompt, uuid.uuid4(), "Example long ago."),
@@ -120,6 +128,21 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
             for name, check in checks.items()
         }
 
+    def sentences(name: str) -> list[tuple[str, str, float]] | None:
+        with team_scope(team.pk):
+            check = AEOCitationCheck.objects.get(id=checks[name].id)
+        if check.brand_sentiment_sentences is None:
+            return None
+        return [
+            (check.answer_text[sentence["start"] : sentence["end"]], sentence["label"], sentence["score"])
+            for sentence in check.brand_sentiment_sentences
+        ]
+
+    assert await sync_to_async(sentences)("two_sentences") == [
+        ("Example is slow.", "negative", 0.8),
+        ("Still, Example is cheap.", "positive", 0.75),
+    ]
+    assert await sync_to_async(sentences)("no_brand") is None
     assert await sync_to_async(sentiments)() == {
         "praise": ("positive", 0.9),
         "two_sentences": ("negative", 0.425),
@@ -141,6 +164,16 @@ async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) ->
     _, checks = await sync_to_async(_seed_run)(team)
     await sync_to_async(_age)(checks["other_run"], 10)
     await sync_to_async(_age)(checks["too_old"], 31)
+    # Scored before the sentences were stored: it has a label and no sentences.
+    label_only = await sync_to_async(_check)(
+        team,
+        checks["praise"].prompt,
+        uuid.uuid4(),
+        "Example before sentences.",
+        brand_sentiment="negative",
+        brand_sentiment_score=0.7,
+    )
+    await sync_to_async(_age)(label_only, 20)
     classify = MagicMock(side_effect=lambda texts: [_result(positive=0.6, neutral=0.3, negative=0.1) for _ in texts])
 
     with patch("posthog.temporal.ai_observability.sentiment.model.classify", classify):
@@ -148,13 +181,22 @@ async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) ->
             classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=None)
         )
 
-    assert result == {"scored": 3, "answers": 3}
+    assert result == {"scored": 4, "answers": 4}
     assert [sentence for call in classify.call_args_list for sentence in call.args[0]] == [
+        "Example before sentences.",
         "Example elsewhere.",
         "Example is fast.",
         "Example is slow.",
         "Still, Example is cheap.",
     ]
+    rescored = await sync_to_async(
+        lambda: (
+            AEOCitationCheck.objects.for_team(team.id)
+            .values_list("brand_sentiment", "brand_sentiment_sentences")
+            .get(id=label_only.id)
+        )
+    )()
+    assert rescored == ("positive", [{"start": 0, "end": 25, "label": "positive", "score": 0.6}])
 
 
 @pytest.mark.django_db(transaction=True)

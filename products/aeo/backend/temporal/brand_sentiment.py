@@ -18,6 +18,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -35,7 +36,14 @@ from products.aeo.backend.brand import brand_regex
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.engines import own_domains_key
 from products.aeo.backend.models import AEOCitationCheck
-from products.aeo.backend.sentiment import aggregate_sentiment, brand_sentences
+from products.aeo.backend.sentiment import (
+    AnswerSentiment,
+    BrandSentence,
+    SentenceSentiment,
+    aggregate_sentiment,
+    brand_sentences,
+    sentence_sentiment,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -62,7 +70,14 @@ class AEOBrandSentimentInputs:
 @dataclasses.dataclass(frozen=True)
 class _PendingAnswer:
     check_id: str
-    sentences: list[str]
+    sentences: list[BrandSentence]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ScoredAnswer:
+    check_id: str
+    sentiment: AnswerSentiment
+    sentences: list[SentenceSentiment]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -88,8 +103,13 @@ def _load_pending(inputs: AEOBrandSentimentInputs) -> _PendingBatch:
     if regex is None:
         return _PendingBatch(answers=[], own_domains_key=key)
     # A check with another key waits for the own-citation reconcile, which clears what it scored before.
+    # A check that has a label but no sentences was scored before the sentences were stored, so it
+    # is scored again to fill them in.
     unscored = AEOCitationCheck.objects.for_team(inputs.team_id).filter(
-        check_failed=False, brand_sentiment__isnull=True, own_domains_key=key, answer_text__iregex=regex
+        Q(brand_sentiment__isnull=True) | Q(brand_sentiment_sentences__isnull=True),
+        check_failed=False,
+        own_domains_key=key,
+        answer_text__iregex=regex,
     )
     own_rows: list[tuple[uuid.UUID, str | None]] = []
     backlog = unscored
@@ -108,7 +128,7 @@ def _load_pending(inputs: AEOBrandSentimentInputs) -> _PendingBatch:
     return _PendingBatch(answers=[answer for answer in pending if answer.sentences], own_domains_key=key)
 
 
-def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[tuple[str, str, float]]) -> int:
+def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[_ScoredAnswer]) -> int:
     """Write the scores of the checks that still carry the key they were picked with, and return how many.
 
     The own domains can change while the model runs. The row locks order this write against the
@@ -118,15 +138,20 @@ def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[tuple[str
         current = {
             str(check_id)
             for check_id in checks.select_for_update()
-            .filter(id__in=[check_id for check_id, _, _ in scored], own_domains_key=own_domains_key)
+            .filter(id__in=[answer.check_id for answer in scored], own_domains_key=own_domains_key)
             .values_list("id", flat=True)
         }
         rows = [
-            AEOCitationCheck(id=check_id, brand_sentiment=label, brand_sentiment_score=score)
-            for check_id, label, score in scored
-            if check_id in current
+            AEOCitationCheck(
+                id=answer.check_id,
+                brand_sentiment=answer.sentiment.label,
+                brand_sentiment_score=answer.sentiment.score,
+                brand_sentiment_sentences=[dataclasses.asdict(sentence) for sentence in answer.sentences],
+            )
+            for answer in scored
+            if answer.check_id in current
         ]
-        checks.bulk_update(rows, ["brand_sentiment", "brand_sentiment_score"])
+        checks.bulk_update(rows, ["brand_sentiment", "brand_sentiment_score", "brand_sentiment_sentences"])
     return len(rows)
 
 
@@ -157,7 +182,7 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
         if start and time.monotonic() > deadline:
             break
         group = pending[start : start + ANSWERS_PER_WRITE]
-        texts = [sentence for answer in group for sentence in answer.sentences]
+        texts = [sentence.text for answer in group for sentence in answer.sentences]
         try:
             results = []
             for offset in range(0, len(texts), CLASSIFY_BATCH):
@@ -166,14 +191,23 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
                 )
         except (ImportError, FileNotFoundError) as error:
             return _model_unavailable(inputs, pending, error)
-        scored: list[tuple[str, str, float]] = []
+        scored: list[_ScoredAnswer] = []
         position = 0
         for answer in group:
             sentence_scores = [result.scores for result in results[position : position + len(answer.sentences)]]
             position += len(answer.sentences)
             sentiment = aggregate_sentiment(sentence_scores)
             if sentiment is not None:
-                scored.append((answer.check_id, sentiment.label, sentiment.score))
+                scored.append(
+                    _ScoredAnswer(
+                        check_id=answer.check_id,
+                        sentiment=sentiment,
+                        sentences=[
+                            sentence_sentiment(sentence, scores)
+                            for sentence, scores in zip(answer.sentences, sentence_scores)
+                        ],
+                    )
+                )
         written += await database_sync_to_async(_write_scores, thread_sensitive=False)(
             inputs.team_id, batch.own_domains_key, scored
         )

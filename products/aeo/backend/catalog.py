@@ -127,6 +127,7 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
                 # falls inside the run's backlog window.
                 check.brand_sentiment = None
                 check.brand_sentiment_score = None
+                check.brand_sentiment_sentences = None
                 rescored.append(check)
             else:
                 kept.append(check)
@@ -157,12 +158,13 @@ def _recompute_check(check: AEOCitationCheck, domains: list[str]) -> bool:
 
 
 _CITATION_FIELDS = ["cited", "target_urls", "target_best_position", "own_domains_key"]
+_SENTIMENT_FIELDS = ["brand_sentiment", "brand_sentiment_score", "brand_sentiment_sentences"]
 
 
 def _write_recomputed(
     checks: QuerySet[AEOCitationCheck], rescored: list[AEOCitationCheck], kept: list[AEOCitationCheck]
 ) -> None:
-    checks.bulk_update(rescored, [*_CITATION_FIELDS, "brand_sentiment", "brand_sentiment_score"])
+    checks.bulk_update(rescored, [*_CITATION_FIELDS, *_SENTIMENT_FIELDS])
     # Sentiment is left out, so a score written meanwhile for these checks survives.
     checks.bulk_update(kept, _CITATION_FIELDS)
 

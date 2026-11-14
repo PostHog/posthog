@@ -230,6 +230,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         blank=True,
         help_text="Classifier confidence (0-1) in `brand_sentiment`, averaged over the brand sentences.",
     )
+    brand_sentiment_sentences = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The scored sentences behind `brand_sentiment`: a list of {start, end, label, score}, where start and end are offsets into `answer_text` in Unicode code points. Null until scored, and on checks scored before the sentences were stored.",
+    )
 
     cost_usd = models.FloatField(null=True, blank=True, help_text="Engine-reported cost, where the engine reports one.")
     gateway_trace_id = models.CharField(

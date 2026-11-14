@@ -663,6 +663,9 @@ class TestAEOPromptAPI(APIBaseTest):
                 AEOCitationCheck.objects.filter(answer_text__contains=text).update(
                     brand_sentiment=label, brand_sentiment_score=score
                 )
+            AEOCitationCheck.objects.filter(id=scored).update(
+                brand_sentiment_sentences=[{"start": 0, "end": 17, "label": "positive", "score": 0.9}]
+            )
 
         create_own_brand(self.team, "example.com")
 
@@ -678,6 +681,11 @@ class TestAEOPromptAPI(APIBaseTest):
             **{check["id"]: (check["brand_sentiment"], check["brand_sentiment_score"]) for check in checks[1:]},
         }
         assert [check["brand_sentiment"] for check in checks] == ["positive", "negative", None]
+        assert [check["brand_sentiment_sentences"] for check in checks] == [
+            [{"start": 0, "end": 17, "label": "positive", "score": 0.9}],
+            [],
+            [],
+        ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_stats_rank_engine_consensus_and_search_words_over_the_window(self) -> None:
