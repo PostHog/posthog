@@ -70,7 +70,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
-from posthog.models.file_system.constants import resolved_workflows_list_v2
+from posthog.models.file_system.constants import resolved_workflows_list_v2, workflows_list_v2_enabled
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -354,6 +354,7 @@ from products.workflows.backend.facade.workflows import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     WORKFLOW_TYPES,
     exit_condition_that_runs,
+    fetch_run_totals_by_workflow,
     get_team_workflow_edit_state,
     get_workflow,
     get_workflow_edit_state,
@@ -7667,12 +7668,15 @@ class HogFlowViewSet(
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
-        totals = fetch_app_metric_totals_by_source(
-            team_id=self.team_id,
-            app_source=self.app_source,
-            after=after_date,
-            before=before_date,
-        )
+        if workflows_list_v2_enabled(self.team, cast(User, request.user)):
+            totals = fetch_run_totals_by_workflow(team_id=self.team_id, after=after_date, before=before_date)
+        else:
+            totals = fetch_app_metric_totals_by_source(
+                team_id=self.team_id,
+                app_source=self.app_source,
+                after=after_date,
+                before=before_date,
+            )
         # The ClickHouse query is only team-scoped, so intersect with the workflows the caller can
         # actually see. Keeps the aggregate consistent with workflows-list/-get access control (hog
         # flows aren't an access-control resource today, so this is a no-op now but won't silently
