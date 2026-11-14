@@ -14,7 +14,12 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
-import type { WizardDetectedWarehouseSourceApi, WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
+import type {
+    WizardDetectedWarehouseSourceApi,
+    WizardRunApi,
+    WizardRunArtifactApi,
+    WizardRunTaskApi,
+} from '../../generated/api.schemas'
 import { wizardRunIsActive, wizardRunProgressFraction } from '../../lib/wizardRunDisplay'
 import { wizardDetectedSourcesLogic } from '../../logics/wizardDetectedSourcesLogic'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
@@ -26,6 +31,14 @@ export type WizardRunStateLocation = 'navbar_sidebar' | 'today_rail'
 
 const DETECTED_SOURCES_REFRESH_MS = 30_000
 const RAIL_RECENT_RUN_WINDOW_MS = 24 * 60 * 60 * 1000
+
+function pullRequestMerged(artifacts: WizardRunArtifactApi[]): boolean {
+    return artifacts.some((artifact) => artifact.artifact_type === 'pull_request' && artifact.state === 'merged')
+}
+
+function finishedSince(run: WizardRunApi, cutoff: number): boolean {
+    return !!run.finished_at && Date.parse(run.finished_at) >= cutoff
+}
 
 interface WizardRunSidebarProps {
     projectId: string
@@ -41,16 +54,20 @@ export interface wizardRunSidebarLogicValues {
     detectedSourcesLoading: boolean
     runDetectedSources: WizardDetectedWarehouseSourceApi[]
     railEligible: boolean
+    runsAwaitingArtifacts: WizardRunApi[]
     railVisible: boolean
     railState: WizardRailState
     railProgress: number
     tasksByRunId: Record<string, readonly WizardRunTaskApi[]>
+    artifactsByRunId: Record<string, WizardRunArtifactApi[]>
+    runDataErrors: Record<string, string | null>
 }
 
 export interface wizardRunSidebarLogicActions {
     clickState: (location: WizardRunStateLocation) => { location: WizardRunStateLocation }
     clickDetectedSource: (sourceType: string) => { sourceType: string }
     loadDetectedSources: () => void
+    loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
     refreshDetectedSources: () => { value: true }
     dismissRuns: (runIds: string[]) => { runIds: string[] }
     markRunsSeen: () => { seenAt: string }
@@ -72,13 +89,13 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
     connect(({ projectId }: WizardRunSidebarProps) => ({
         values: [
             wizardRunSyncLogic({ projectId }),
-            ['userRuns', 'tasksByRunId'],
+            ['userRuns', 'tasksByRunId', 'artifactsByRunId', 'runDataErrors'],
             wizardDetectedSourcesLogic,
             ['detectedSources', 'detectedSourcesLoading'],
         ],
         actions: [
             wizardRunSyncLogic({ projectId }),
-            ['watchRuns'],
+            ['watchRuns', 'loadRunData'],
             wizardDetectedSourcesLogic,
             ['loadDetectedSources'],
         ],
@@ -108,12 +125,41 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
         railVisible: [false, { revealRail: () => true }],
     })),
     selectors({
+        // A finished run whose pull request merged is done with. Its leftover sources move to "For you today".
         railEligible: [
-            (s) => [s.visibleRuns],
-            (runs: WizardRunApi[]): boolean => {
+            (s) => [s.visibleRuns, s.artifactsByRunId, s.runDataErrors],
+            (
+                runs: WizardRunApi[],
+                artifactsByRunId: Record<string, WizardRunArtifactApi[]>,
+                runDataErrors: Record<string, string | null>
+            ): boolean => {
                 const cutoff = Date.now() - RAIL_RECENT_RUN_WINDOW_MS
-                return runs.some(
-                    (run) => wizardRunIsActive(run) || (!!run.finished_at && Date.parse(run.finished_at) >= cutoff)
+                return runs.some((run) => {
+                    if (wizardRunIsActive(run)) {
+                        return true
+                    }
+                    if (!finishedSince(run, cutoff)) {
+                        return false
+                    }
+                    const artifacts = artifactsByRunId[run.id]
+                    return artifacts ? !pullRequestMerged(artifacts) : !!runDataErrors[run.id]
+                })
+            },
+        ],
+        runsAwaitingArtifacts: [
+            (s) => [s.visibleRuns, s.artifactsByRunId, s.runDataErrors],
+            (
+                runs: WizardRunApi[],
+                artifactsByRunId: Record<string, WizardRunArtifactApi[]>,
+                runDataErrors: Record<string, string | null>
+            ): WizardRunApi[] => {
+                const cutoff = Date.now() - RAIL_RECENT_RUN_WINDOW_MS
+                return runs.filter(
+                    (run) =>
+                        !wizardRunIsActive(run) &&
+                        finishedSince(run, cutoff) &&
+                        !artifactsByRunId[run.id] &&
+                        !runDataErrors[run.id]
                 )
             },
         ],
@@ -165,66 +211,74 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             },
         ],
     }),
-    listeners(({ actions, values, cache, props: { projectId } }) => ({
-        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => {
-            actions.syncWatchedRuns()
+    listeners(({ actions, values, cache, props: { projectId } }) => {
+        const revealIfEligible = (): void => {
             if (!values.railVisible && values.railEligible) {
                 actions.revealRail()
             }
-        },
-        [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => actions.syncWatchedRuns(),
-        // Runs on a fixed cadence, never per streamed update. A run's scan can land any time until it ends,
-        // so every run seen active is refreshed until a load requested after it ended succeeds.
-        refreshDetectedSources: () => {
-            if (values.detectedSourcesLoading) {
-                return
-            }
-            const pending: Set<string> = (cache.runsAwaitingSources ??= new Set<string>())
-            const activeRunIds = values.visibleRuns.filter(wizardRunIsActive).map((run) => run.id)
-            activeRunIds.forEach((id) => pending.add(id))
-            if (pending.size === 0) {
-                return
-            }
-            cache.finishedAtRequest = [...pending].filter((id) => !activeRunIds.includes(id))
-            actions.loadDetectedSources()
-        },
-        [wizardDetectedSourcesLogic.actionTypes.loadDetectedSourcesSuccess]: () => {
-            for (const id of cache.finishedAtRequest ?? []) {
-                cache.runsAwaitingSources?.delete(id)
-            }
-        },
-        clickDetectedSource: ({ sourceType }) => {
-            posthog.capture('wizard detected source clicked', {
-                event_source: 'wizard_ui',
-                project_id: projectId,
-                source_type: sourceType,
-                detected_source_count: values.runDetectedSources.length,
-            })
-        },
-        syncWatchedRuns: () =>
-            actions.watchRuns(
-                'sidebar',
-                values.visibleRuns.map((run) => run.id)
-            ),
-        clickState: ({ location }) => {
-            posthog.capture('wizard sidebar state clicked', {
-                event_source: 'wizard_ui',
-                project_id: projectId,
-                location,
-                run_count: values.visibleRuns.length,
-                active_run_count: values.visibleRuns.filter(wizardRunIsActive).length,
-            })
-        },
-        dismissRuns: ({ runIds }) => {
-            actions.syncWatchedRuns()
-            posthog.capture('wizard sidebar state dismissed', {
-                event_source: 'wizard_ui',
-                project_id: projectId,
-                run_count: runIds.length,
-                remaining_run_count: values.visibleRuns.length,
-            })
-        },
-    })),
+        }
+        return {
+            [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => {
+                actions.syncWatchedRuns()
+                values.runsAwaitingArtifacts.forEach((run) => actions.loadRunData(run))
+                revealIfEligible()
+            },
+            [wizardRunSyncLogic({ projectId }).actionTypes.runDataLoaded]: revealIfEligible,
+            [wizardRunSyncLogic({ projectId }).actionTypes.runDataFailed]: revealIfEligible,
+            [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => actions.syncWatchedRuns(),
+            // Runs on a fixed cadence, never per streamed update. A run's scan can land any time until it ends,
+            // so every run seen active is refreshed until a load requested after it ended succeeds.
+            refreshDetectedSources: () => {
+                if (values.detectedSourcesLoading) {
+                    return
+                }
+                const pending: Set<string> = (cache.runsAwaitingSources ??= new Set<string>())
+                const activeRunIds = values.visibleRuns.filter(wizardRunIsActive).map((run) => run.id)
+                activeRunIds.forEach((id) => pending.add(id))
+                if (pending.size === 0) {
+                    return
+                }
+                cache.finishedAtRequest = [...pending].filter((id) => !activeRunIds.includes(id))
+                actions.loadDetectedSources()
+            },
+            [wizardDetectedSourcesLogic.actionTypes.loadDetectedSourcesSuccess]: () => {
+                for (const id of cache.finishedAtRequest ?? []) {
+                    cache.runsAwaitingSources?.delete(id)
+                }
+            },
+            clickDetectedSource: ({ sourceType }) => {
+                posthog.capture('wizard detected source clicked', {
+                    event_source: 'wizard_ui',
+                    project_id: projectId,
+                    source_type: sourceType,
+                    detected_source_count: values.runDetectedSources.length,
+                })
+            },
+            syncWatchedRuns: () =>
+                actions.watchRuns(
+                    'sidebar',
+                    values.visibleRuns.map((run) => run.id)
+                ),
+            clickState: ({ location }) => {
+                posthog.capture('wizard sidebar state clicked', {
+                    event_source: 'wizard_ui',
+                    project_id: projectId,
+                    location,
+                    run_count: values.visibleRuns.length,
+                    active_run_count: values.visibleRuns.filter(wizardRunIsActive).length,
+                })
+            },
+            dismissRuns: ({ runIds }) => {
+                actions.syncWatchedRuns()
+                posthog.capture('wizard sidebar state dismissed', {
+                    event_source: 'wizard_ui',
+                    project_id: projectId,
+                    run_count: runIds.length,
+                    remaining_run_count: values.visibleRuns.length,
+                })
+            },
+        }
+    }),
     afterMount(({ actions, values, cache }) => {
         if (values.railEligible) {
             actions.revealRail()
