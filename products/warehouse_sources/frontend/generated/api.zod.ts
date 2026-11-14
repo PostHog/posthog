@@ -1657,6 +1657,85 @@ export const WarehouseMigrationsConnectionsCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * Estimate the monthly rows and cost of moving the connections, from the usage the user reported.
+ */
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemConnectionNameMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMin = 0
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMax = 2147483647
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemDestinationIdMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemSchemaNameMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemTableNameMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageMax = 10000
+
+export const warehouseMigrationsCostEstimateCreateBodyTableOverridesMax = 10000
+
+export const WarehouseMigrationsCostEstimateCreateBody = /* @__PURE__ */ zod.object({
+    usage: zod
+        .array(
+            zod.object({
+                connection_name: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemConnectionNameMax)
+                    .describe(
+                        "The Fivetran connection name, which is also its destination schema. `connection_name` in the Fivetran Platform Connector's `INCREMENTAL_MAR` table."
+                    ),
+                monthly_rows: zod
+                    .number()
+                    .min(warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMin)
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMax)
+                    .describe(
+                        'Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without `table_name`, the whole connection.'
+                    ),
+                destination_id: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemDestinationIdMax)
+                    .nullish()
+                    .describe('The Fivetran destination (group) id. Needed only when two connections share a name.'),
+                schema_name: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemSchemaNameMax)
+                    .nullish()
+                    .describe('The destination schema the table lands in, as `schema_name` in `INCREMENTAL_MAR`.'),
+                table_name: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemTableNameMax)
+                    .nullish()
+                    .describe('The table. Leave it out when the number covers the whole connection.'),
+            })
+        )
+        .max(warehouseMigrationsCostEstimateCreateBodyUsageMax)
+        .optional()
+        .describe(
+            'Monthly active rows the user reported, per connection or per table. Send it empty to get `usage_query` and the prices before the user has numbers.'
+        ),
+    table_overrides: zod
+        .array(
+            zod.object({
+                vendor_table: zod
+                    .string()
+                    .describe(
+                        "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+                    ),
+                posthog_table: zod
+                    .string()
+                    .nullable()
+                    .describe('The PostHog table to sync it as. Null leaves the table out.'),
+                item_id: zod.uuid().describe('The migration item the table belongs to.'),
+            })
+        )
+        .max(warehouseMigrationsCostEstimateCreateBodyTableOverridesMax)
+        .optional()
+        .describe(
+            "The table choices the user confirmed for apply, so the estimate prices the tables apply creates. Same shape as apply's `table_overrides`, with the item each one belongs to."
+        ),
+})
+
+/**
  * Skip many connections at once, or all but the ones to keep.
  */
 

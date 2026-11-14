@@ -72801,6 +72801,50 @@ export namespace Schemas {
       timestamp: string | null;
     }
 
+    export interface MigrationCostTableOverride {
+      /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+      vendor_table: string;
+      /**
+         * The PostHog table to sync it as. Null leaves the table out.
+         * @nullable
+         */
+      posthog_table: string | null;
+      /** The migration item the table belongs to. */
+      item_id: string;
+    }
+
+    export interface MigrationUsageReport {
+      /**
+         * The Fivetran connection name, which is also its destination schema. `connection_name` in the Fivetran Platform Connector's `INCREMENTAL_MAR` table.
+         * @maxLength 400
+         */
+      connection_name: string;
+      /**
+         * Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without `table_name`, the whole connection.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      monthly_rows: number;
+      /**
+         * The Fivetran destination (group) id. Needed only when two connections share a name.
+         * @maxLength 400
+         * @nullable
+         */
+      destination_id?: string | null;
+      /**
+         * The destination schema the table lands in, as `schema_name` in `INCREMENTAL_MAR`.
+         * @maxLength 400
+         * @nullable
+         */
+      schema_name?: string | null;
+      /**
+         * The table. Leave it out when the number covers the whole connection.
+         * @maxLength 400
+         * @nullable
+         */
+      table_name?: string | null;
+    }
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -124989,6 +125033,109 @@ export namespace Schemas {
       connect_url: string;
       /** What the agent should tell the user and do next. */
       instructions: string;
+    }
+
+    /**
+     * * `reported` - Reported
+     * * `estimated` - Estimated
+     * * `unknown` - Unknown
+     */
+    export type WarehouseMigrationCostConfidenceEnum = typeof WarehouseMigrationCostConfidenceEnum[keyof typeof WarehouseMigrationCostConfidenceEnum];
+
+
+    export const WarehouseMigrationCostConfidenceEnum = {
+      Reported: 'reported',
+      Estimated: 'estimated',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface WarehouseMigrationCostItem {
+      /** The migration item. */
+      item_id: string;
+      /** The Fivetran connection name. */
+      name: string;
+      /** The PostHog source type this connection becomes. */
+      source_type: string;
+      /** `reported`: every planned table has a reported number and a known sync type. `estimated`: some numbers were reported, and `notes` say what was assumed. `unknown`: nothing was reported, so rows and cost are null.
+       *
+       * * `reported` - Reported
+       * * `estimated` - Estimated
+       * * `unknown` - Unknown */
+      confidence: WarehouseMigrationCostConfidenceEnum;
+      /**
+         * Estimated rows PostHog syncs each month after the first sync.
+         * @nullable
+         */
+      monthly_rows: number | null;
+      /**
+         * This connection's share of the monthly cost at list price. Null when rows or prices are unknown.
+         * @nullable
+         * @pattern ^-?\d{0,26}(?:\.\d{0,2})?$
+         */
+      monthly_cost_usd: string | null;
+      /** What the estimate assumed for this connection. */
+      notes: string[];
+    }
+
+    export interface WarehouseMigrationPriceTier {
+      /**
+         * Rows a month this tier ends at. Null for the last.
+         * @nullable
+         */
+      up_to: number | null;
+      /**
+         * Price per row synced in this tier, in USD.
+         * @pattern ^-?\d{0,11}(?:\.\d{0,9})?$
+         */
+      unit_amount_usd: string;
+      /**
+         * Flat price once usage reaches this tier, in USD.
+         * @pattern ^-?\d{0,18}(?:\.\d{0,2})?$
+         */
+      flat_amount_usd: string;
+    }
+
+    export interface WarehouseMigrationCostEstimate {
+      /** One estimate per connection that moves. Skipped and unsupported ones are left out. */
+      items: WarehouseMigrationCostItem[];
+      /** Estimated rows synced each month, across the connections with an estimate. `unknown` ones count as nothing, so check `unknown_count` before reading this as a total. */
+      monthly_rows: number;
+      /**
+         * Monthly cost of `monthly_rows` at PostHog's list price, free tier included. Ignores discounts, credits, and rows the project already syncs. Null when PostHog could not read its prices.
+         * @nullable
+         * @pattern ^-?\d{0,26}(?:\.\d{0,2})?$
+         */
+      monthly_cost_usd: string | null;
+      /** Connections with a `reported` estimate. */
+      reported_count: number;
+      /** Connections with an `estimated` estimate. */
+      estimated_count: number;
+      /** Connections with no usage reported. */
+      unknown_count: number;
+      /** Days after a source is created during which its syncs are free. A first sync that finishes inside them costs nothing. */
+      free_first_sync_days: number;
+      /** Reported usage that matches no connection. Check the names with the user. */
+      unmatched_usage: MigrationUsageReport[];
+      /**
+         * PostHog's list price per row synced, by monthly volume.
+         * @nullable
+         */
+      price_tiers: WarehouseMigrationPriceTier[] | null;
+      /** SQL the user runs on the Fivetran Platform Connector's tables in their warehouse to get `usage`. Replace `<fivetran_platform_schema>` with that connector's schema, and the date functions for BigQuery. */
+      usage_query: string;
+    }
+
+    export interface WarehouseMigrationCostEstimateRequest {
+      /**
+         * Monthly active rows the user reported, per connection or per table. Send it empty to get `usage_query` and the prices before the user has numbers.
+         * @maxItems 10000
+         */
+      usage?: MigrationUsageReport[];
+      /**
+         * The table choices the user confirmed for apply, so the estimate prices the tables apply creates. Same shape as apply's `table_overrides`, with the item each one belongs to.
+         * @maxItems 10000
+         */
+      table_overrides?: MigrationCostTableOverride[];
     }
 
     export interface WarehouseMigrationCreate {
