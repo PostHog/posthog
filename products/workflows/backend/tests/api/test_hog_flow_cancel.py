@@ -153,6 +153,7 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         assert batch_job.status == "cancelled"
         entry = ActivityLog.objects.get(scope="HogFlow", item_id=str(self.hog_flow.id), activity="batch_run_stopped")
         assert entry.user == self.user
+        assert entry.detail is not None
         assert entry.detail["context"] == {"batch_job_id": str(batch_job.id), "filters": None}
 
     @parameterized.expand([("completed",), ("cancelled",), ("failed",)])

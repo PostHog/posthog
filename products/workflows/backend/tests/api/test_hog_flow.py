@@ -6237,6 +6237,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
         entry = ActivityLog.objects.get(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
         assert entry.user == self.user
+        assert entry.detail is not None
         assert entry.detail["context"] == {
             "batch_job_id": response.json()["id"],
             "filters": response.json()["filters"],

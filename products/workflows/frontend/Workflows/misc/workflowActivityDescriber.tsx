@@ -226,6 +226,28 @@ function describeWorkflowUpdate(logItem: ActivityLogItem): HumanizedChange {
     }
 }
 
+const BATCH_RUN_VERBS: Partial<Record<string, { summary: string; description: string }>> = {
+    batch_run_started: { summary: 'Started', description: 'started' },
+    batch_run_stopped: { summary: 'Stopped', description: 'stopped' },
+}
+
+function describeBatchRun(
+    logItem: ActivityLogItem,
+    verbs: { summary: string; description: string },
+    objectNoun: string
+): HumanizedChange {
+    const workflowName = nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+    return {
+        summary: activityLogSummary(logItem, `${verbs.summary} a batch run`, workflowName),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {verbs.description} a batch run of the {objectNoun}:{' '}
+                {workflowName}
+            </>
+        ),
+    }
+}
+
 export function workflowActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'HogFlow') {
         console.error('Workflow describer received a non-HogFlow activity')
@@ -388,21 +410,9 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
-    if (logItem.activity == 'batch_run_started' || logItem.activity == 'batch_run_stopped') {
-        const verb = logItem.activity == 'batch_run_started' ? 'started' : 'stopped'
-        return {
-            summary: activityLogSummary(
-                logItem,
-                `${verb == 'started' ? 'Started' : 'Stopped'} a batch run`,
-                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> {verb} a batch run of the {objectNoun}:{' '}
-                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
-                </>
-            ),
-        }
+    const batchRunVerbs = BATCH_RUN_VERBS[logItem.activity]
+    if (batchRunVerbs) {
+        return describeBatchRun(logItem, batchRunVerbs, objectNoun)
     }
 
     if (logItem.activity == 'updated' || logItem.activity == 'published') {
