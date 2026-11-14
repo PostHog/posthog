@@ -30,6 +30,9 @@ const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
     clusters: [],
     tools: [],
     tool_overlaps: [],
+    long_tail: null,
+    recurring: [],
+    intent_text_redacted: false,
     computed_with: null,
 }
 
