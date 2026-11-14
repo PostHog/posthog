@@ -15,7 +15,7 @@ export DEBIAN_FRONTEND=noninteractive
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
 input=/opt/scenario/input
-log=/var/log/scenario-bootstrap.log
+log=${SCENARIO_BOOTSTRAP_LOG:-/var/log/scenario-bootstrap.log}
 exec > >(tee -a "$log") 2>&1
 
 mark() {
