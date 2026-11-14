@@ -14,7 +14,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.data_modeling.activities import (
+from posthog.temporal.utils import CDPProducerWorkflowInputs
+
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
+from products.data_modeling.backend.facade.models import DataModelingJobEngine, DataModelingJobRunMode
+from products.data_modeling.backend.temporal.activities import (
     ClearCDPStagingInputs,
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
@@ -42,8 +46,8 @@ from posthog.temporal.data_modeling.activities import (
     stage_queryable_files_activity,
     succeed_materialization_activity,
 )
-from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
-from posthog.temporal.data_modeling.metrics import (
+from products.data_modeling.backend.temporal.activities.enrich_view_semantics import EnrichViewSemanticsInputs
+from products.data_modeling.backend.temporal.metrics import (
     UNKNOWN_RUN_MODE,
     error_class,
     get_node_duration_metric,
@@ -53,11 +57,7 @@ from posthog.temporal.data_modeling.metrics import (
     get_node_total_storage_mib_metric,
     tier_label,
 )
-from posthog.temporal.data_modeling.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
-from posthog.temporal.utils import CDPProducerWorkflowInputs
-
-from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
-from products.data_modeling.backend.facade.models import DataModelingJobEngine, DataModelingJobRunMode
+from products.data_modeling.backend.temporal.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
     QUALITY_AUDIT_GATE,

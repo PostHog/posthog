@@ -366,6 +366,12 @@ depends_on = [
     "products.data_warehouse",
     "products.revenue_analytics",
     "products.warehouse_sources", "products.access_control",
+    # The materialization workflows and activities in backend/temporal/ call these facades.
+    "products.customer_analytics",
+    "products.data_quality",
+    "products.endpoints",
+    "products.managed_warehouse",
+    "products.notifications",
 ]
 layer = "modules"
 
