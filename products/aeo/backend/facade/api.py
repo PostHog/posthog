@@ -31,7 +31,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.expressions import RawSQL
-from django.db.models.functions import Coalesce, TruncDate
+from django.db.models.functions import Coalesce, Collate, Lower, TruncDate
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
@@ -172,8 +172,9 @@ def list_prompts(
     needs_improvement_engine: str | None = None,
 ) -> tuple[list[Prompt], int]:
     """One page of the team's prompt set and the total count, paged in SQL.
-    A topic of "" selects the prompts that have no topic. `needs_improvement` reads the answers of the last
-    `needs_improvement_days` days, from one engine when `needs_improvement_engine` is set."""
+    A topic matches regardless of letter case, and a topic of "" selects the prompts that have no topic.
+    `needs_improvement` reads the answers of the last `needs_improvement_days` days, from one engine when
+    `needs_improvement_engine` is set."""
     prompts = AEOPrompt.objects.for_team(team_id)
     if branded is not None:
         names_brand = branded_filter(catalog.own_domains(team_id), field="prompt")
@@ -181,7 +182,7 @@ def list_prompts(
     if not include_archived:
         prompts = prompts.filter(archived_at__isnull=True)
     if topic is not None:
-        prompts = prompts.filter(topic=topic)
+        prompts = prompts.filter(topic__iexact=topic)
     if active is not None:
         prompts = prompts.filter(active=active)
     if needs_improvement:
@@ -200,15 +201,21 @@ def list_prompts(
     return _to_prompts(team_id, page), prompts.count()
 
 
+def _topic_label(field: str) -> Min:
+    """Topics that differ only in letter case are one topic. It shows the spelling that sorts first by code point,
+    so the label does not depend on the database collation."""
+    return Min(Collate(field, "C"))
+
+
 def list_prompt_topics(team_id: int) -> list[PromptTopic]:
     rows = (
         AEOPrompt.objects.for_team(team_id)
         .filter(archived_at__isnull=True)
-        .values("topic")
-        .annotate(prompts=Count("id"))
-        .order_by("topic")
+        .values(topic_key=Lower("topic"))
+        .annotate(prompts=Count("id"), label=_topic_label("topic"))
+        .order_by("topic_key")
     )
-    return [PromptTopic(topic=row["topic"], prompts=row["prompts"]) for row in rows]
+    return [PromptTopic(topic=row["label"], prompts=row["prompts"]) for row in rows]
 
 
 def get_prompt(team_id: int, prompt_id: str) -> Prompt:
@@ -698,18 +705,27 @@ def get_prompt_set_overview(
     )
     if topic is not None:
         prompts = prompts.filter(topic=topic)
-    active_prompts = {row["topic"]: row["prompts"] for row in prompts.values("topic").annotate(prompts=Count("id"))}
+    active_prompts = {
+        row["topic_key"]: row
+        for row in prompts.values(topic_key=Lower("topic"))
+        .annotate(prompts=Count("id"), label=_topic_label("topic"))
+        .order_by("topic_key")
+    }
     topic_checks = {
-        row["prompt_topic"]: row for row in current.values("prompt_topic").annotate(**counts).order_by("prompt_topic")
+        row["topic_key"]: row
+        for row in current.values(topic_key=Lower("prompt_topic"))
+        .annotate(**counts, label=_topic_label("prompt_topic"))
+        .order_by("topic_key")
     }
     no_checks: dict[str, Any] = {**dict.fromkeys(_SET_COUNT_KEYS, 0), "avg_position": None}
     topics = tuple(
         PromptSetTopicCounts(
-            topic=topic,
-            active_prompts=active_prompts.get(topic, 0),
-            **_set_counts(topic_checks.get(topic, no_checks)),
+            # The prompts carry the topic as it is spelled now, so their label wins over older checks.
+            topic=(active_prompts.get(key) or topic_checks[key])["label"],
+            active_prompts=active_prompts[key]["prompts"] if key in active_prompts else 0,
+            **_set_counts(topic_checks.get(key, no_checks)),
         )
-        for topic in sorted(active_prompts.keys() | topic_checks.keys())
+        for key in sorted(active_prompts.keys() | topic_checks.keys())
     )
 
     current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
@@ -718,7 +734,7 @@ def get_prompt_set_overview(
         days=days,
         window_from=window_from,
         window_to=window_to,
-        prompts_tracked=sum(active_prompts.values()),
+        prompts_tracked=sum(row["prompts"] for row in active_prompts.values()),
         target_domains=tuple(target_domains),
         brand_names=brand_names(target_domains),
         branded=branded,

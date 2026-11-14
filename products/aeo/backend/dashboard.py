@@ -87,15 +87,16 @@ SELECT
 FROM ({_answers(14)})
 """
 
+# Topics that differ only in letter case are one topic, shown with the spelling that sorts first.
 TOPICS_SQL = f"""
 SELECT
-    if(prompt_topic = '', 'No topic', prompt_topic) AS topic,
+    if(min(prompt_topic) = '', 'No topic', min(prompt_topic)) AS topic,
     {_rate("mentioned", _THIS_WEEK)} AS visibility,
     {_rate("mentioned", _WEEK_BEFORE)} AS previous_visibility,
     round(visibility - previous_visibility, 1) AS change,
     countIf({_THIS_WEEK}) AS answers
 FROM ({_answers(14)})
-GROUP BY prompt_topic
+GROUP BY lower(prompt_topic)
 HAVING answers > 0
 ORDER BY abs(change) DESC NULLS LAST, answers DESC, topic
 LIMIT 100
@@ -110,7 +111,7 @@ WITH
 SELECT topic, role, url, citation_rate, previous_citation_rate, change
 FROM (
     SELECT
-        if(pages.prompt_topic = '', 'No topic', pages.prompt_topic) AS topic,
+        if(topics.label = '', 'No topic', topics.label) AS topic,
         pages.url AS url,
         lower(domain(url)) AS host,
         round(100 * pages.cites / topics.answers, 1) AS citation_rate,
@@ -126,17 +127,25 @@ FROM (
         ) AS role,
         row_number() OVER (PARTITION BY topic, role ORDER BY abs(change) DESC, url) AS rank
     FROM (
-        SELECT prompt_topic, url, countIf({_THIS_WEEK}) AS cites, countIf({_WEEK_BEFORE}) AS previous_cites
+        SELECT
+            lower(prompt_topic) AS topic_key,
+            url,
+            countIf({_THIS_WEEK}) AS cites,
+            countIf({_WEEK_BEFORE}) AS previous_cites
         FROM ({_answers(14)})
         ARRAY JOIN urls AS url
-        GROUP BY prompt_topic, url
+        GROUP BY topic_key, url
     ) AS pages
     JOIN (
-        SELECT prompt_topic, countIf({_THIS_WEEK}) AS answers, countIf({_WEEK_BEFORE}) AS previous_answers
+        SELECT
+            lower(prompt_topic) AS topic_key,
+            min(prompt_topic) AS label,
+            countIf({_THIS_WEEK}) AS answers,
+            countIf({_WEEK_BEFORE}) AS previous_answers
         FROM ({_answers(14)})
-        GROUP BY prompt_topic
+        GROUP BY topic_key
         HAVING answers > 0 AND previous_answers > 0
-    ) AS topics ON pages.prompt_topic = topics.prompt_topic
+    ) AS topics ON pages.topic_key = topics.topic_key
 )
 WHERE role != '' AND rank = 1
 ORDER BY topic, role
