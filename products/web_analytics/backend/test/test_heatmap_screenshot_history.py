@@ -529,6 +529,11 @@ class TestHeatmapHistory(APIBaseTest):
     ) -> None:
         claimed = HeatmapHistoryService.claim(team_id=self.team.id, request_id=self.enqueue().id)
         assert claimed is not None
+        # The deadline is capped at the end of the capture day, so near midnight it leaves no room to retry.
+        HeatmapCaptureRequest.objects.for_team(self.team.id).filter(id=claimed.id).update(
+            deadline=timezone.now() + timedelta(minutes=30)
+        )
+        claimed.refresh_from_db()
         if render_error is None:
             self.storage.write.side_effect = ObjectStorageError("unavailable")
         with patch.object(HeatmapHistoryService, "render", return_value=jpeg(), side_effect=render_error):
