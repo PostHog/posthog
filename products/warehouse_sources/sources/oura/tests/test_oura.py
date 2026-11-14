@@ -1,6 +1,9 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
+from unittest import mock
+
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.oura._config import OuraSourceConfig
@@ -25,8 +28,14 @@ def _collection(
     return ScriptedResponse(json=body)
 
 
+@pytest.fixture(autouse=True)
+def _oauth_token():
+    with mock.patch.object(OuraSource, "_get_access_token", return_value="tok"):
+        yield
+
+
 def _driver() -> SourceDriver:
-    return SourceDriver(OuraSource(), OuraSourceConfig(access_token="tok"))
+    return SourceDriver(OuraSource(), OuraSourceConfig(oura_integration_id=1))
 
 
 class TestFormatHelpers:

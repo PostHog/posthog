@@ -8,12 +8,14 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    IntegrationKind,
+    OauthIntegration,
+    OAuthMixin,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
     SourceInputs,
     SourceRegistry,
     SourceResponse,
@@ -24,12 +26,22 @@ from products.warehouse_sources.sources.sdk import (
 
 
 @SourceRegistry.register
-class OuraSource(ResumableSource[OuraSourceConfig, OuraResumeConfig]):
+class OuraSource(OAuthMixin, ResumableSource[OuraSourceConfig, OuraResumeConfig]):
     codebase_detection = detect(env=("^OURA_",))
 
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://cloud.ouraring.com/v2/docs"
+
+    # Sources created before OAuth stored a personal access token in a `token` row of the `oura` kind.
+    # The OAuth account lives in the `oura-ring` kind, so the old rows keep their kind and auth type.
+    @property
+    def credential_kind(self) -> str | None:
+        return "oura"
+
+    @property
+    def credential_auth_type(self) -> str:
+        return "token"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -42,22 +54,17 @@ class OuraSource(ResumableSource[OuraSourceConfig, OuraResumeConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Oura",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Enter your Oura personal access token to automatically pull your Oura Ring health data into the PostHog Data warehouse.
-
-You can create a personal access token in the [Oura developer portal](https://cloud.ouraring.com/personal-access-tokens).
-""",
+            caption="Connect your Oura account to pull your Oura Ring health data into the PostHog Data warehouse.",
             iconPath="/static/services/oura.png",
             docsUrl="https://posthog.com/docs/cdp/sources/oura",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="access_token",
-                        label="Personal access token",
-                        type=SourceFieldInputConfigType.PASSWORD,
+                    SourceFieldOauthConfig(
+                        name="oura_integration_id",
+                        label="Oura account",
                         required=True,
-                        placeholder="",
-                        secret=True,
+                        kind="oura-ring",
                     ),
                 ],
             ),
@@ -68,9 +75,28 @@ You can create a personal access token in the [Oura developer portal](https://cl
             # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
             # Retrying can never satisfy a credential/scope problem, so stop the sync. Match the
             # stable status text and base host, not the per-request path/query.
-            "401 Client Error: Unauthorized for url: https://api.ouraring.com": "Your Oura access token is invalid or has been revoked. Create a new personal access token in the Oura developer portal, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.ouraring.com": "Your Oura access token is missing the scopes needed to sync this data. Grant the required scopes, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.ouraring.com": "Oura rejected the access token. Reconnect your Oura account.",
+            "403 Client Error: Forbidden for url: https://api.ouraring.com": "Oura denied access to this data. Reconnect your Oura account and allow this data type, or check that your Oura membership is active.",
+            # Sources created with a personal access token, which Oura no longer accepts, hold no
+            # Oura integration, and neither does a source whose integration was deleted.
+            "Integration not found": "Your Oura account is not connected. Reconnect your Oura account.",
+            "Oura app not configured": "The Oura app is not configured on this PostHog instance. Contact support.",
         }
+
+    def _get_access_token(self, config: OuraSourceConfig, team_id: int) -> str:
+        integration = self.get_oauth_integration(config.oura_integration_id, team_id)
+        # The lookup only scopes to the team. Reject an integration of another provider before its
+        # token is read or refreshed, so that token is never sent to the Oura API.
+        if integration.kind != IntegrationKind.OURA_RING:
+            raise ValueError(f"Integration not found: {config.oura_integration_id}")
+
+        oauth_integration = OauthIntegration(integration)
+        if oauth_integration.access_token_expired():
+            integration = oauth_integration.refresh_access_token()
+
+        if not integration.access_token:
+            raise ValueError("Oura access token not found")
+        return integration.access_token
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.oura.canonical_descriptions import CANONICAL_DESCRIPTIONS
@@ -95,21 +121,26 @@ You can create a personal access token in the [Oura developer portal](https://cl
     ) -> tuple[bool, str | None]:
         # Probe the requested endpoint when validating a specific schema, otherwise the cheap
         # single-document personal_info endpoint at source-create.
+        try:
+            access_token = self._get_access_token(config, team_id)
+        except Exception as e:
+            return False, str(e)
+
         path = OURA_ENDPOINTS[schema_name].path if schema_name in OURA_ENDPOINTS else "/usercollection/personal_info"
-        status = probe_endpoint(config.access_token, path)
+        status = probe_endpoint(access_token, path)
 
         if status == 200:
             return True, None
         if status == 401:
-            return False, "Invalid Oura access token"
+            return False, "Oura rejected the access token. Reconnect your Oura account."
         # A valid token can legitimately lack scope for an endpoint the user isn't trying to sync;
         # accept 403 at source-create and only reject it when validating a specific schema.
         if status == 403 and schema_name is None:
             return True, None
         if status == 403:
-            return False, f"Your Oura access token is missing the scope required for {schema_name}"
+            return False, f"Oura denied access to {schema_name}. Reconnect your Oura account and allow this data type."
 
-        return False, "Could not validate Oura access token"
+        return False, "Could not validate the Oura connection"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OuraResumeConfig]:
         return ResumableSourceManager[OuraResumeConfig](inputs, OuraResumeConfig)
@@ -121,7 +152,7 @@ You can create a personal access token in the [Oura developer portal](https://cl
         inputs: SourceInputs,
     ) -> SourceResponse:
         return oura_source(
-            token=config.access_token,
+            token=self._get_access_token(config, inputs.team_id),
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
