@@ -65,9 +65,9 @@ env:
     # split this way: master push runs only the per-commit checks (migrations, OpenAPI types, repo
     # checks), and the test matrices run hourly.
     # Frontend CI is split the same way: jest runs hourly, while typecheck, format and bundle size
-    # run on every push. For Node.js, Dagster, Python and MCP the whole suite is on the cron, so
-    # their push lane only proves the run dispatched and the scheduled lane carries the coverage.
-    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml'
+    # run on every push. For Node.js, Dagster, Python, MCP and Rust the whole suite is on the cron,
+    # so their push lane only proves the run dispatched and the scheduled lane carries the coverage.
+    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml,ci-rust.yml'
     # Workflows that run on Depot CI, so GitHub has no runs for their lanes. The reconcile job
     # writes each of their lanes to DEPOT_RUNS_DIR first, as <workflow file>-<event>.json.
     DEPOT_WORKFLOWS: 'ci-backend.yml'
