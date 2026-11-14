@@ -42,9 +42,9 @@ class WorkloadCollector(TraversingVisitor):
             f"Found tables requiring clusters: {', '.join(sorted(w.value.capitalize() for w in self.workloads))}."
         )
         # SQL editor users and owners of auto-disabled SQL alerts read this verbatim, so name the fix.
-        if {Workload.LOGS, Workload.METRICS} <= self.workloads:
+        if Workload.METRICS in self.workloads:
             message += (
-                " Metrics tables are stored separately from logs and traces."
+                " Metrics tables are stored on their own cluster."
                 " Run a separate query for each cluster, then use values from one result in the next query."
                 " SQL alerts must use a query that reads from a single cluster."
                 " Rewrite the insight query before re-enabling the alert."

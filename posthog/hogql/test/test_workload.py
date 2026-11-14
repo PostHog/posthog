@@ -62,31 +62,28 @@ class TestWorkloadCollector:
 
     @parameterized.expand(
         [
-            ("logs_endpoints", (Workload.ENDPOINTS,), False),
-            ("logs_metrics", (Workload.METRICS,), True),
-            ("logs_metrics_events", (Workload.METRICS, Workload.DEFAULT), True),
+            ("logs_endpoints", (Workload.LOGS, Workload.ENDPOINTS), False),
+            ("default_logs", (Workload.DEFAULT, Workload.LOGS), False),
+            ("logs_metrics", (Workload.LOGS, Workload.METRICS), True),
+            ("default_metrics", (Workload.DEFAULT, Workload.METRICS), True),
+            ("default_logs_metrics", (Workload.DEFAULT, Workload.LOGS, Workload.METRICS), True),
         ]
     )
     def test_collector_raises_error_for_multiple_workloads(
-        self, _name: str, additional_workloads: tuple[Workload, ...], has_metrics_guidance: bool
+        self, _name: str, workloads: tuple[Workload, ...], has_metrics_guidance: bool
     ) -> None:
         collector = WorkloadCollector()
-
-        # Add logs table
-        logs_type = ast.TableType(table=LogsTable())
-        collector.visit(logs_type)
-
-        collector.workloads.update(additional_workloads)
+        collector.workloads.update(workloads)
 
         with pytest.raises(QueryError) as exc_info:
             collector.get_workload()
 
         message = str(exc_info.value)
-        assert "Cannot query tables from different clusters" in message
+        assert message.startswith("Cannot query tables from different clusters in the same query.")
+        assert ("Metrics tables are stored on their own cluster" in message) == has_metrics_guidance
         assert ("Run a separate query for each cluster" in message) == has_metrics_guidance
         assert ("SQL alerts must use a query that reads from a single cluster" in message) == has_metrics_guidance
-        assert "posthog.metrics first" not in message
-        assert "two queries" not in message
+        assert "stored separately from logs" not in message
 
     def test_collector_handles_table_alias_type(self):
         """WorkloadCollector should detect workload through TableAliasType."""
