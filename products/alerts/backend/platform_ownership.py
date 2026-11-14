@@ -30,8 +30,8 @@ from products.alerts.backend.platform_cutover import (
     can_move,
     delivers_as_it_does_today,
     hand_over,
-    has_begun_cutover,
     in_an_environment,
+    takes_new_alert,
     team_cutover_at,
 )
 from products.alerts.backend.platform_insight_alert import (
@@ -154,8 +154,8 @@ def create_native_alert(
 
 
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
-    """Hands a new alert, locked by the caller, to the platform when its team has begun the cutover,
-    so the team never has to be cut over again for it. False when the alert stays with insight."""
+    """Hands a new alert, locked by the caller, to the platform unless its team keeps its alerts on
+    insight. False when the alert stays with insight."""
     if not (platform_takes_new_alert(alert) and delivers_as_it_does_today(alert)):
         return False
     # A week of its own per alert would keep the insight stack shadowing while the team adds alerts.
@@ -167,7 +167,7 @@ def platform_takes_new_alert(alert: AlertConfiguration) -> bool:
 
     A new alert has no destinations yet, so it always delivers as it does today.
     """
-    return not in_an_environment(alert) and can_move(alert) and has_begun_cutover(alert.team_id)
+    return not in_an_environment(alert) and can_move(alert) and takes_new_alert(alert.team_id, new_alert_id=alert.id)
 
 
 def platform_takes_new_alert_with(
@@ -206,8 +206,8 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: 
 
 
 def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
-    """Hands an alert created in the caller's transaction to the platform when its team has begun
-    the cutover. False when the alert stays with insight."""
+    """Hands an alert created in the caller's transaction to the platform unless its team keeps its
+    alerts on insight. False when the alert stays with insight."""
     alert = _locked(team_id, alert_id)
     return alert is not None and on_created(alert, at)
 

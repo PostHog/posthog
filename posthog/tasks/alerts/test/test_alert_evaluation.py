@@ -8,7 +8,7 @@ from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilte
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+from posthog.tasks.alerts.test.alert_check_helpers import keep_team_alerts_on_insight, run_alert_check
 
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -20,6 +20,7 @@ from products.product_analytics.backend.facade.models import Insight
 class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
+        keep_team_alerts_on_insight(self.team)
 
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
