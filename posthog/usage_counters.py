@@ -159,6 +159,12 @@ COUNTER_FLAG_NAMES = {
 }
 
 
+def usage_counter_window(day_start: datetime) -> DayRange:
+    # Counter reads keep rows before `end`, and ClickHouse parameters drop microseconds.
+    # An end of 23:59:59.999999 renders as 23:59:59 and loses the last second of the day.
+    return DayRange(start=day_start, end=day_start + timedelta(days=1))
+
+
 def validate_usage_record_window(period: DayRange) -> None:
     if period.start.tzinfo is None or period.end.tzinfo is None:
         raise ValueError("Usage record windows must be timezone-aware")

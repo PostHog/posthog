@@ -192,8 +192,9 @@ different work never does.
 
 This protects against our duplication, not a sender's. If a customer sends the
 same thing twice, we ingest and bill it twice. `usage_key` is already in the
-key, so `record_id` does not repeat it; CDP prefixes its IDs only because its
-three call sites share one `usage_key`.
+key, so `record_id` does not repeat it. A workflow push step writes one
+record to `workflow_push_sent` and one to `workflow_billable_invocations`, with
+the same `record_id`.
 
 `timestamp` is in the sort key as a date because billing reads filter time
 ranges. Every producer stamps it from its own clock when it flushes, never from
@@ -210,7 +211,11 @@ can count unmerged duplicates and is suitable only for an approximate read.
 | `ingestion` | `events`, `ai_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
 | `ai-ingestion` | `ai_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | AI ingestion consumer |
 | `error-tracking` | `exceptions` | events | `{day}:{sha256 of event, distinct_id, uuid}` | error tracking server |
-| `cdp` | `cdp_billable_invocations` | invocations | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers |
+| `cdp` | `cdp_billable_invocations` | invocations | `event:{eventUuid}` | CDP consumers |
+| `cdp` | `workflow_billable_invocations` | invocations | `flow:{invocationId}:{actionStepCount}:fetch` / `flow:{invocationId}:{actionStepCount}:push` | CDP consumers |
+| `cdp` | `workflow_emails_sent` | invocations | `flow:{invocationId}:{actionStepCount}:email` | CDP consumers |
+| `cdp` | `workflow_push_sent` | invocations | `flow:{invocationId}:{actionStepCount}:push` | CDP consumers |
+| `cdp` | `workflow_sms_sent` | invocations | `flow:{invocationId}:{actionStepCount}:sms` | CDP consumers |
 | `feature-flags` | `feature_flag_requests`, `feature_flag_local_evaluation_requests`, `feature_flag_local_evaluation_not_modified_requests` | requests | fresh UUIDv7 per flush | feature flags service |
 | `ingestion` | `survey_responses` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
 | `warehouse-sources` | `warehouse_rows_synced` | rows | the ExternalDataJob ID | warehouse sources worker |
@@ -287,11 +292,11 @@ restriction and parse failures are likewise upstream of the counter.
 ### CDP
 
 `CdpUsageReporterService` owns CDP batching and its flush timer independently
-of the `billable_invocation` app metric. It reports when an event triggers at
-least one destination (`event:{eventUuid}`), when a non-skipped workflow action
-executes (`flow:{invocationId}:{actionStepCount}:{kind}`), and when a webhook
-creates a workflow trigger (`webhook:{invocationId}`). The action step count
-deduplicates a retry but bills a loop revisit. `CdpBaseConsumer.stop()` flushes
+of the `billable_invocation` app metric. It reports `cdp_billable_invocations`
+when an event triggers at least one destination (`event:{eventUuid}`). When a
+non-skipped workflow action executes, it reports the `workflow_*` key for the
+action's kind (`flow:{invocationId}:{actionStepCount}:{kind}`). The action step
+count deduplicates a retry but bills a loop revisit. `CdpBaseConsumer.stop()` flushes
 the reporter, so a graceful deploy loses nothing; an ungraceful exit can lose
 one interval per pod.
 
