@@ -698,6 +698,71 @@ export class EmailTrackingService {
                 return { outcome: 'rejected', status, body }
             }
 
+            // Runs before anything is queued, so a failed write queues nothing here and the retry counts it once.
+            // Deliveries go first so a delivery and bounce in one batch net out; a lost one only errs to suppressing.
+            const strict = { throwOnFailure: true }
+            try {
+                for (const { teamId, emailAddresses, timestamp, clearsGlobalHardBounces } of deliveredRecipients ||
+                    []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp, {
+                            clearGlobal: clearsGlobalHardBounces ?? false,
+                        })
+                    }
+                }
+                for (const { teamId, emailAddresses, diagnostic, bounceTimestamp } of transientBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordTransientBounces(
+                            parsedTeamId,
+                            emailAddresses,
+                            diagnostic,
+                            bounceTimestamp,
+                            { ...strict, eventId: envelope.MessageId }
+                        )
+                    }
+                }
+                for (const {
+                    teamId,
+                    emailAddresses,
+                    diagnostic,
+                    nonexistentAddresses,
+                    bounceTimestamp,
+                } of hardBounceRecipients ?? []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordHardBounces(
+                            parsedTeamId,
+                            emailAddresses,
+                            diagnostic,
+                            strict
+                        )
+                        if (nonexistentAddresses) {
+                            await this.emailSuppressionService.recordGlobalHardBounces(
+                                nonexistentAddresses,
+                                bounceTimestamp,
+                                strict
+                            )
+                        }
+                    }
+                }
+                for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordComplaints(
+                            parsedTeamId,
+                            emailAddresses,
+                            feedbackType,
+                            strict
+                        )
+                    }
+                }
+            } catch (error) {
+                emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
+                throw error
+            }
+
             for (const metric of metrics || []) {
                 await this.trackMetric({
                     functionId: metric.functionId,
@@ -716,7 +781,7 @@ export class EmailTrackingService {
                 })
             }
 
-            // Wrapped so a failure here doesn't skip the suppression writes below.
+            // Best-effort, because a throw here would make the redelivery count the metrics above again.
             try {
                 await this.trackLogs(
                     (logEntries || []).map((entry) => ({
@@ -749,61 +814,6 @@ export class EmailTrackingService {
                             update.messageCreatedAtMs === undefined ? undefined : new Date(update.messageCreatedAtMs),
                     })
                 }
-            }
-
-            // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped
-            // so a failure here never affects the webhook's 200 response to SNS. Deliveries are
-            // processed first so a delivery + bounce in the same batch nets out conservatively
-            // (count resets, then the fresh bounce re-counts from a clean slate).
-            try {
-                for (const { teamId, emailAddresses, timestamp, clearsGlobalHardBounces } of deliveredRecipients ||
-                    []) {
-                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
-                    if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp, {
-                            clearGlobal: clearsGlobalHardBounces ?? false,
-                        })
-                    }
-                }
-                for (const { teamId, emailAddresses, diagnostic, bounceTimestamp } of transientBounceRecipients || []) {
-                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
-                    if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordTransientBounces(
-                            parsedTeamId,
-                            emailAddresses,
-                            diagnostic,
-                            bounceTimestamp,
-                            { eventId: envelope.MessageId }
-                        )
-                    }
-                }
-                for (const {
-                    teamId,
-                    emailAddresses,
-                    diagnostic,
-                    nonexistentAddresses,
-                    bounceTimestamp,
-                } of hardBounceRecipients ?? []) {
-                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
-                    if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
-                        if (nonexistentAddresses) {
-                            await this.emailSuppressionService.recordGlobalHardBounces(
-                                nonexistentAddresses,
-                                bounceTimestamp
-                            )
-                        }
-                    }
-                }
-                for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {
-                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
-                    if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordComplaints(parsedTeamId, emailAddresses, feedbackType)
-                    }
-                }
-            } catch (error) {
-                logger.error('[EmailTrackingService] Failed to update suppression list', { error })
-                emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
             return { outcome: 'recorded', body }
