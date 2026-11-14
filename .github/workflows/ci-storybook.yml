@@ -640,7 +640,9 @@ jobs:
         strategy:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
-            # are tuned for runner CPU — consult #team-devex before changing.
+            # are tuned for runner CPU — consult #team-devex before changing. The flake
+            # job's worker counts are separate and live in
+            # .github/scripts/verify-storybook-new-stories.sh.
             # PRs may use chromium shards running only affected story files.
             # Forced-full PRs, merge-queue runs and master pushes fall back to
             # changes.outputs.matrix (full chromium); the nightly run uses it for webkit and firefox.
