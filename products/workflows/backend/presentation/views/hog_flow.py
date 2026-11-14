@@ -4472,7 +4472,7 @@ def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None
     problems: list[str] = []
     for step_action, sender_ids in named:
         for sender_id in sender_ids:
-            if verification.get(sender_id):
+            if sender_id is not None and verification.get(sender_id):
                 continue
             step = step_action.get("name") or "Email"
             if sender_id in verification:

@@ -1175,13 +1175,13 @@ class TestHogFlowAPI(APIBaseTest):
     def test_going_live_refuses_an_email_sender_that_cannot_send(self, _name, case, step_type, fragment):
         verified = self._email_sender(verified=True)
         unverified = self._email_sender(verified=False)
-        sender_from = {
+        senders: dict[str, dict[str, Any]] = {
             "unverified": {"integrationId": unverified.id},
             "deleted": {"integrationId": unverified.id + 1000},
             "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
             "malformed": {"integrationId": {"id": unverified.id}},
-        }[case]
-        hog_flow = self._email_flow(sender_from, step_type)
+        }
+        hog_flow = self._email_flow(senders[case], step_type)
 
         created_live = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
         draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
