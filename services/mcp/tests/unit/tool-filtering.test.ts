@@ -1179,6 +1179,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
+            'static-cohort-replace-on-recalc',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1221,14 +1222,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
                 'logs-agent-tools',
-                'static-cohort-replace-on-recalc',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(37)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

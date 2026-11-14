@@ -24,6 +24,8 @@ describe('cohorts-replace-static-members', () => {
         const schema = getTool().schema as z.ZodObject<z.ZodRawShape>
 
         expect(Object.keys(schema.shape).sort()).toEqual(['id', 'query'])
+        // Without a query the endpoint returns a 400, so the schema refuses the call first.
+        expect(schema.safeParse({ id: '7' }).success).toBe(false)
     })
 
     it('PATCHes the cohort with the query and population_mode=replace', async () => {

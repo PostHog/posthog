@@ -166,6 +166,8 @@ tools:
             An update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the
             first population right after 'cohorts-create' with a query. Before you send the next query, call
             'cohorts-retrieve' and wait until 'is_calculating' is false.
+        # Keep equal to cohorts-replace-static-members' list. Both tools use cohorts_partial_update, and the
+        # generator keeps one exclude_params list per operation, so the last tool read wins for both.
         exclude_params:
             - population_mode
             - groups
@@ -205,6 +207,8 @@ tools:
             the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching
             'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Returns a
             400 while the cohort's 'is_calculating' is true."
+        # Keep equal to cohorts-partial-update's list. Both tools use cohorts_partial_update, and the
+        # generator keeps one exclude_params list per operation, so the last tool read wins for both.
         exclude_params:
             - population_mode
             - groups
@@ -226,6 +230,8 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            query:
+                required: true
         ui_app: cohort
         feature_flag: static-cohort-replace-on-recalc
     cohorts-retrieve:
