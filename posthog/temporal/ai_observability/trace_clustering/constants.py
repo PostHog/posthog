@@ -17,14 +17,17 @@ DEFAULT_MAX_K = 10
 MIN_TRACES_FOR_CLUSTERING = 1000
 
 # Coordinator concurrency settings.
-# Each team's compute activity runs a heavy embedding scan against ClickHouse, so keep the
-# fan-out low to avoid exhausting the shared query pool (see the offline-workload routing in
-# data.py and the capacity backoff in activities.py).
-DEFAULT_MAX_CONCURRENT_TEAMS = 2  # Max teams to process in parallel
+# The shared llm_analytics ClickHouse budget (CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES) caps the
+# embedding scans of all AI observability workflows together, and the compute activity backs off when it
+# gets no slot. So this value does not protect ClickHouse. It sets how many teams one run can finish
+# before COORDINATOR_EXECUTION_TIMEOUT.
+DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=45)  # Covers all activity budgets plus orchestration overhead
-COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=12)  # Must be less than daily schedule interval to avoid blocking
+# A run that reaches this timeout skips the teams it did not start, and the next run does not backfill them.
+# The value must stay less than the daily schedule interval, so that a run ends before the next run starts.
+COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=20)
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"

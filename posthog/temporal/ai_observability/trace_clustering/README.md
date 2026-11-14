@@ -345,6 +345,8 @@ Key constants in `constants.py`:
 | `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze                                     |
 | `DEFAULT_MAX_SAMPLES`               | 1500                              | Maximum traces to sample                                             |
 | `MIN_TRACES_FOR_CLUSTERING`         | 1000                              | Minimum items per level required for workflow                        |
+| `DEFAULT_MAX_CONCURRENT_TEAMS`      | 4                                 | Per-team workflows that one coordinator runs in parallel             |
+| `COORDINATOR_EXECUTION_TIMEOUT`     | 20h                               | Coordinator run budget; teams not started by then get no clusters    |
 | `WORKFLOW_EXECUTION_TIMEOUT`        | 45m                               | Per-team workflow execution timeout                                  |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 300s                              | Per-attempt clustering compute timeout                               |
 | `COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT` | 720s                              | Total compute timeout including retries, backoff, and queueing       |
