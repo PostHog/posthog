@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hog",
-    "version": "1.0.0-alpha.0",
+    "version": "0.1.0-alpha.0",
     "private": true,
     "description": "hog, the PostHog command line. Successor to posthog-cli in cli/",
     "bin": {
