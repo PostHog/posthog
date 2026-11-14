@@ -8,7 +8,7 @@ heavy HogQL imports stay out of ``facade/api.py``, so config-only consumers don'
 them onto the ``django.setup()`` path.
 """
 
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import LogsQueryRunner, validate_nested_filter_groups
 from products.logs.backend.saved_view_query import build_logs_query_for_saved_view
 
-__all__ = ["LogsQueryRunner", "build_logs_query_for_saved_view"]
+__all__ = ["LogsQueryRunner", "build_logs_query_for_saved_view", "validate_nested_filter_groups"]

@@ -131,7 +131,7 @@ from products.logs.backend.facade.platform_ownership import (
     on_updated,
     update_native,
 )
-from products.logs.backend.logs_query_runner import validate_nested_filter_groups
+from products.logs.backend.facade.queries import validate_nested_filter_groups
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
