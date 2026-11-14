@@ -410,7 +410,9 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'info',
-                    message: 'Fetch response:, {"status":201,"body":{"real":true}}',
+                    message: expect.stringMatching(
+                        /^Fetch response:, \{"status":201,"body":\{"real":true\},"duration_ms":\d+\}$/
+                    ),
                 },
                 {
                     level: 'debug',
@@ -525,7 +527,9 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'info',
-                    message: 'Fetch response:, {"status":201,"body":{"real":true}}',
+                    message: expect.stringMatching(
+                        /^Fetch response:, \{"status":201,"body":\{"real":true\},"duration_ms":\d+\}$/
+                    ),
                 },
                 {
                     level: 'debug',
