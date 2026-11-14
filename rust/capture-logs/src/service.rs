@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::mem::size_of;
 
 use crate::kafka::KafkaSink;
 use metrics::counter;
@@ -414,6 +415,26 @@ fn data_point_count(metric: &Metric) -> usize {
     }
 }
 
+fn exponential_histogram_bucket_bytes(metric: &Metric) -> usize {
+    let Some(Data::ExponentialHistogram(histogram)) = &metric.data else {
+        return 0;
+    };
+    histogram.data_points.iter().fold(0, |bytes, point| {
+        let bucket_count = point
+            .positive
+            .as_ref()
+            .map_or(0, |buckets| buckets.bucket_counts.len())
+            .saturating_add(
+                point
+                    .negative
+                    .as_ref()
+                    .map_or(0, |buckets| buckets.bucket_counts.len()),
+            )
+            .saturating_add(usize::from(point.zero_count > 0));
+        bytes.saturating_add(bucket_count.saturating_mul(size_of::<f64>() + size_of::<i64>()))
+    })
+}
+
 pub(crate) fn expansion_rejection(limit: usize) -> (StatusCode, Json<serde_json::Value>) {
     counter!("capture_logs_expanded_request_rejected_total").increment(1);
     (
@@ -451,6 +472,7 @@ pub fn check_metrics_expansion(
                 // flatten_metric converts the resource even for a metric with no data points.
                 expanded_bytes = expanded_bytes
                     .saturating_add(data_point_count(metric).max(1).saturating_mul(row_bytes))
+                    .saturating_add(exponential_histogram_bucket_bytes(metric))
                     .saturating_add(metric.encoded_len());
                 if expanded_bytes > limit {
                     return Err(expansion_rejection(limit));
@@ -1137,6 +1159,49 @@ mod tests {
                         StatusCode::PAYLOAD_TOO_LARGE,
                         "{field}"
                     );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn check_metrics_expansion_charges_materialized_histogram_buckets() {
+        use opentelemetry_proto::tonic::metrics::v1::{
+            exponential_histogram_data_point::Buckets, ExponentialHistogram,
+            ExponentialHistogramDataPoint,
+        };
+
+        const LIMIT: usize = 8 * 1024;
+        for bucket_count in [16, 1024] {
+            let buckets = Buckets {
+                bucket_counts: vec![1; bucket_count],
+                ..Default::default()
+            };
+            for data in [
+                Data::ExponentialHistogram(ExponentialHistogram {
+                    data_points: vec![ExponentialHistogramDataPoint {
+                        positive: Some(buckets.clone()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                Data::ExponentialHistogram(ExponentialHistogram {
+                    data_points: vec![ExponentialHistogramDataPoint {
+                        negative: Some(buckets.clone()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+            ] {
+                let mut request = metrics_request(0, 0);
+                request.resource_metrics[0].scope_metrics[0].metrics[0].data = Some(data);
+                assert!(request.encoded_len() < LIMIT);
+
+                let result = check_metrics_expansion(&request, LIMIT);
+                if bucket_count == 16 {
+                    assert!(result.is_ok());
+                } else {
+                    assert_eq!(result.unwrap_err().0, StatusCode::PAYLOAD_TOO_LARGE);
                 }
             }
         }
