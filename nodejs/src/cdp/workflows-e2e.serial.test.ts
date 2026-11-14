@@ -34,6 +34,7 @@ import {
 } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -41,6 +42,13 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { Clickhouse } from '~/tests/helpers/clickhouse'
+import {
+    StoredEmailStatus,
+    storedEmailStatus,
+    storedEmailStatusesTo,
+    waitForEmailStatusMvReady,
+} from '~/tests/helpers/email-status'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
@@ -49,7 +57,9 @@ import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestData
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
+import { StoredFile, attachmentStoreConfig, uploadAttachment } from './_tests/email-delivery-fakes'
 import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
+import { startFakeSes } from './_tests/fake-ses'
 import {
     createHogExecutionGlobals,
     insertCohortMembership,
@@ -79,11 +89,15 @@ import {
     serializeResolverState,
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
+import { createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
+import { BODY_MAX_LENGTH } from './services/messaging/helpers/clickable-links'
+import { mailDevWebUrl } from './services/messaging/helpers/maildev'
+import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
@@ -3371,6 +3385,1150 @@ describe('Workflows E2E (email queue)', () => {
         const jobs = await queryCyclotronJobs()
         expect(jobs.filter((j: any) => j.status === 'completed')).toHaveLength(2)
         expect(jobs.filter((j: any) => j.status === 'failed')).toHaveLength(0)
+    })
+
+    describe('an email sent through the API in a message category', () => {
+        const siteUrl = 'https://app.example.com'
+        const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
+        const otherCategoryId = '0195d6b4-6c3e-0001-5e6f-7a8b9c0d1e2f'
+        const newsletter = { id: newsletterId, type: 'marketing' } as const
+        const receipts = { id: '0195d6b4-6c3e-0002-9a8b-7c6d5e4f3a2b', type: 'transactional' } as const
+        type Category = typeof newsletter | typeof receipts
+
+        interface ApiSend {
+            name: string
+            kind: 'template' | 'code'
+            step?: 'transactional' | 'marketing'
+            stepCategoryId?: string
+            stepEmail?: Record<string, unknown>
+            payload: Record<string, unknown>
+            given?: (to: string) => Promise<void>
+        }
+        let clickhouse: Clickhouse
+        let api: CdpApi
+        let scheduledSends: CyclotronV2Manager
+        let app: express.Application
+        let server: ReturnType<express.Application['listen']>
+
+        const sendFlow = (
+            kind: 'template' | 'code',
+            stepCategory: 'transactional' | 'marketing',
+            stepEmail: Record<string, unknown> = {},
+            stepCategoryId?: string
+        ): HogFlow => {
+            const flow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withApiEmailWorkflow(stepCategory, {
+                    ...(kind === 'template'
+                        ? {
+                              cc: '',
+                              bcc: '',
+                              from: { integrationId: 1, email: 'sender@posthog.com' },
+                              subject: 'News',
+                              text: 'News. Unsubscribe: {{ unsubscribe_url }}',
+                              html: '<p>News</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                          }
+                        : {
+                              cc: '',
+                              bcc: '',
+                              from: { integrationId: null },
+                              replyTo: '',
+                              subject: '',
+                              text: '',
+                              html: '',
+                          }),
+                    ...stepEmail,
+                })
+                .build()
+            if (!stepCategoryId) {
+                return flow
+            }
+            return {
+                ...flow,
+                actions: flow.actions.map((action) =>
+                    action.type === 'function_email'
+                        ? { ...action, config: { ...action.config, message_category_id: stepCategoryId } }
+                        : action
+                ),
+            }
+        }
+
+        const codeSend = (send: Record<string, unknown> = {}) => ({
+            content: {
+                subject: 'Our news',
+                html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                text: 'Unsubscribe: {{ unsubscribe_url }}',
+            },
+            from: { integrationId: 1, email: 'sender@posthog.com' },
+            tracking: { captureEngagement: false },
+            ...send,
+        })
+
+        const codeSendIn = (category: Category, send: Record<string, unknown> = {}) => ({
+            send: codeSend({ ...send, message_category: category }),
+        })
+
+        const post = async (
+            kind: 'template' | 'code',
+            flow: HogFlow,
+            payload: Record<string, unknown>,
+            pod: express.Application = app
+        ) => {
+            const route = kind === 'code' ? 'transactional_email/send' : 'transactional_email'
+            const token = jsonwebtoken.sign(
+                { team_id: team.id, hog_flow_id: flow.id, ...(kind === 'code' && { kind: 'code_send' }) },
+                hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
+                { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
+            )
+            return supertest(pod)
+                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/${route}`)
+                .set({ Authorization: `Bearer ${token}` })
+                .send(payload)
+        }
+
+        const withOtherPod = async (run: (pod: express.Application) => Promise<void>): Promise<void> => {
+            const otherPod = new CdpApi(
+                hub,
+                { ...createCdpConsumerDeps(hub, kafkaProducer), idempotencyValkey: createIdempotencyValkeyPool(hub) },
+                {
+                    hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                    hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                }
+            )
+            await otherPod.start()
+            const otherApp = setupExpressApp()
+            otherApp.use('/', otherPod.router())
+            const otherServer = otherApp.listen(0, () => {})
+            try {
+                await run(otherApp)
+            } finally {
+                otherServer.close()
+                await otherPod.stop()
+            }
+        }
+
+        const optOut = async (to: string, categoryId: string): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagerecipientpreference
+                    (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                 VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                [team.id, to, JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
+                'test-insert-opt-out'
+            )
+        }
+
+        const tomorrow = (): string => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+        const sendNow = async (messageId: string): Promise<void> => {
+            const token = jsonwebtoken.sign(
+                { team_id: team.id, message_id: messageId, action: 'reschedule' },
+                hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
+                { audience: 'posthog:workflows:manage_transactional_email', expiresIn: '2m' }
+            )
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/transactional_emails/${messageId}/reschedule`)
+                .set({ Authorization: `Bearer ${token}` })
+                .send({ scheduled_at: new Date(Date.now() - 60_000).toISOString() })
+            expect(res.status).toEqual(200)
+        }
+
+        const complain = async (to: string): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, to],
+                'test-insert-suppression'
+            )
+        }
+
+        const changeWorkflowEmail = async (flow: HogFlow, stepEmail: Record<string, unknown>): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET actions = $1 WHERE id = $2`,
+                [JSON.stringify(sendFlow('template', 'transactional', stepEmail).actions), flow.id],
+                'test-change-hog-flow'
+            )
+        }
+
+        const moveTriggerOffApi = async (flow: HogFlow): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET trigger = $1 WHERE id = $2`,
+                [
+                    JSON.stringify({ type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } }),
+                    flow.id,
+                ],
+                'test-change-hog-flow-trigger'
+            )
+        }
+
+        const deliver = async (workerDeps: typeof deps = deps, batchSize = hub.CONSUMER_BATCH_SIZE): Promise<void> => {
+            emailWorker = new CdpCyclotronWorkerEmail(hub, workerDeps, new CyclotronJobQueuePostgresV2(batchSize, hub))
+            await emailWorker.start()
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.length).toBeGreaterThan(0)
+                expect(jobs.filter((j: any) => j.status !== 'completed')).toEqual([])
+            }, 15000)
+        }
+
+        const deliveredEmails = async (): Promise<any[]> =>
+            (await (await globalThis.fetch(`${mailDevWebUrl}/email`)).json()) as any[]
+
+        const emailsTo = async (address: string): Promise<any[]> =>
+            (await deliveredEmails()).filter((email) =>
+                email.envelope.to.some((recipient: { address: string }) => recipient.address === address)
+            )
+
+        const preferencesLinkOwners = async (body: string): Promise<string[]> =>
+            await Promise.all(
+                [...body.matchAll(/https?:\/\/[^\s"'<>()[\]]+/g)]
+                    .map(([link]) => new URL(link.replace(/&amp;/g, '&')))
+                    .filter(
+                        ({ origin, pathname }) =>
+                            origin === siteUrl && /^\/messaging-preferences\/[^/]+\/$/.test(pathname)
+                    )
+                    .map(async ({ pathname }) => {
+                        const token = pathname.split('/')[2]
+                        const owner = (await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`))
+                            .body
+                        return owner.valid && owner.team_id === team.id ? owner.identifier : 'nobody'
+                    })
+            )
+
+        const clickThroughLinks = async (html: string): Promise<string> =>
+            (
+                await Promise.all(
+                    [...html.matchAll(/href="([^"]+)"/g)].map(async ([, href]) => {
+                        const link = new URL(href.replace(/&amp;/g, '&'))
+                        if (link.pathname !== '/public/m/redirect') {
+                            return link.href
+                        }
+                        const res = await supertest(app).get(`${link.pathname}${link.search}`)
+                        return res.status >= 300 && res.status < 400 && res.headers.location
+                            ? res.headers.location
+                            : 'unreachable'
+                    })
+                )
+            ).join('\n')
+
+        const expectStoredStatus = async (messageId: string, expected: StoredEmailStatus): Promise<void> => {
+            await waitForExpect(async () => {
+                expect(await storedEmailStatus(clickhouse, team.id, messageId)).toEqual(expected)
+            }, 15000)
+        }
+
+        const withSes = async (
+            run: (ses: Awaited<ReturnType<typeof startFakeSes>>, invoice: StoredFile) => Promise<void>
+        ): Promise<void> => {
+            const ses = await startFakeSes({
+                [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+                [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+            })
+            const { SES_ENDPOINT, CDP_EMAIL_ATTACHMENTS_TEAMS, CDP_EMAIL_ATTACHMENTS_S3_PREFIX } = hub
+            try {
+                hub.SES_ENDPOINT = ses.endpoint
+                hub.CDP_EMAIL_ATTACHMENTS_TEAMS = `${team.id}`
+                hub.CDP_EMAIL_ATTACHMENTS_S3_PREFIX = attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX
+                await insertIntegration(hub.postgres, team.id, {
+                    id: 2,
+                    kind: 'email',
+                    config: {
+                        email: 'sender@posthog.com',
+                        name: 'Test Sender',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                await run(ses, await uploadAttachment(team.id, { filename: 'invoice.pdf' }))
+            } finally {
+                hub.SES_ENDPOINT = SES_ENDPOINT
+                hub.CDP_EMAIL_ATTACHMENTS_TEAMS = CDP_EMAIL_ATTACHMENTS_TEAMS
+                hub.CDP_EMAIL_ATTACHMENTS_S3_PREFIX = CDP_EMAIL_ATTACHMENTS_S3_PREFIX
+                await ses.close()
+            }
+        }
+
+        const sesSender = { from: { integrationId: 2, email: 'sender@posthog.com' } }
+
+        const postWithFile = async (flow: HogFlow, to: string, category: Category, invoice: StoredFile) => {
+            let res: Awaited<ReturnType<typeof post>> | undefined
+            await withOtherPod(async (pod) => {
+                res = await post(
+                    'code',
+                    flow,
+                    {
+                        to,
+                        distinct_id: 'reader',
+                        ...codeSendIn(category, {
+                            ...sesSender,
+                            attachments: [
+                                {
+                                    sha256: invoice.metadata.sha256,
+                                    filename: 'invoice.pdf',
+                                    content_type: 'application/pdf',
+                                },
+                            ],
+                        }),
+                    },
+                    pod
+                )
+            })
+            return res!
+        }
+
+        beforeAll(async () => {
+            clickhouse = Clickhouse.create()
+            await waitForEmailStatusMvReady(clickhouse)
+        })
+
+        afterAll(() => {
+            clickhouse.close()
+        })
+
+        beforeEach(async () => {
+            await emailWorker.stop()
+            hub.SITE_URL = siteUrl
+            deps = createCdpConsumerDeps(hub, kafkaProducer)
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-email',
+                name: 'Email',
+                code: `sendEmail(inputs.email)`,
+                inputs_schema: [
+                    { type: 'native_email', key: 'email', integration: 'email', required: true, templating: 'liquid' },
+                ],
+            })
+            scheduledSends = new CyclotronV2Manager({ pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 2 } })
+            api = new CdpApi(
+                hub,
+                { ...deps, idempotencyValkey: createIdempotencyValkeyPool(hub) },
+                {
+                    hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                    hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                },
+                scheduledSends
+            )
+            await api.start()
+            app = setupExpressApp()
+            app.use('/', api.router())
+            server = app.listen(0, () => {})
+        })
+
+        afterEach(async () => {
+            server.close()
+            await api.stop()
+            await scheduledSends.disconnect()
+        })
+
+        it("fills a code send's unsubscribe link with the recipient's preferences link", async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `news-${new UUIDT().toString()}@example.com`
+
+            const res = await post('code', flow, { to, distinct_id: 'news-reader', ...codeSendIn(newsletter) })
+            expect(res.status).toEqual(202)
+            await deliver()
+
+            const [email] = await emailsTo(to)
+            expect(await preferencesLinkOwners(email.text)).toEqual([to])
+            expect(await preferencesLinkOwners(await clickThroughLinks(email.html))).toEqual([to])
+        })
+
+        it('sends a code send in a marketing category after a transactional send queued behind it', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const reader = `news-${new UUIDT().toString()}@example.com`
+            const buyer = `receipt-${new UUIDT().toString()}@example.com`
+
+            const news = await post('code', flow, { to: reader, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            const receipt = await post('code', flow, { to: buyer, distinct_id: 'buyer', ...codeSendIn(receipts) })
+            expect([news.status, receipt.status]).toEqual([202, 202])
+            await deliver(deps, 1)
+
+            const deliveryOrder = (await deliveredEmails())
+                .flatMap((email) => email.envelope.to.map((recipient: { address: string }) => recipient.address))
+                .filter((address: string) => address === reader || address === buyer)
+            expect(deliveryOrder).toEqual([buyer, reader])
+        })
+
+        it.each([
+            { name: 'a marketing category carries', category: newsletter, step: 'transactional', unsubscribes: true },
+            { name: 'a transactional category leaves out', category: receipts, step: 'marketing', unsubscribes: false },
+        ] as const)(
+            'a code send through SES in $name one-click unsubscribe headers for its recipient',
+            async ({ category, step, unsubscribes }) => {
+                await withSes(async (ses) => {
+                    const flow = await insertHogFlow(hub.postgres, sendFlow('code', step))
+                    const to = `reader-${new UUIDT().toString()}@example.com`
+
+                    const res = await post('code', flow, {
+                        to,
+                        distinct_id: 'reader',
+                        ...codeSendIn(category, sesSender),
+                    })
+                    expect(res.status).toEqual(202)
+                    await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+                    expect(ses.sent.map((email) => email.to)).toEqual([[to]])
+                    const { headers } = ses.sent[0]
+                    expect(await preferencesLinkOwners(headers['List-Unsubscribe'] ?? '')).toEqual(
+                        unsubscribes ? [to] : []
+                    )
+                    expect(headers['List-Unsubscribe-Post']).toEqual(
+                        unsubscribes ? 'List-Unsubscribe=One-Click' : undefined
+                    )
+                })
+            }
+        )
+
+        it('refuses a code send with a file in a marketing category from a transactional step, since sending limits can hold it past its files', async () => {
+            await withSes(async (ses, invoice) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+                const to = `reader-${new UUIDT().toString()}@example.com`
+
+                const res = await postWithFile(flow, to, newsletter, invoice)
+
+                expect(res.status).toEqual(400)
+                expect(res.body.error).toEqual('workflow_can_wait')
+                expect(await queryCyclotronJobs()).toEqual([])
+                expect(ses.sent).toEqual([])
+            })
+        })
+
+        it('delivers the file of a code send in a transactional category from a marketing step to a recipient who opted out of all marketing', async () => {
+            await withSes(async (ses, invoice) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'marketing'))
+                const to = `buyer-${new UUIDT().toString()}@example.com`
+                await optOut(to, '$all')
+
+                const res = await postWithFile(flow, to, receipts, invoice)
+                expect(res.status).toEqual(202)
+                await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+                expect(ses.sent.map((email) => email.to)).toEqual([[to]])
+                const [email] = ses.sent
+                expect(email.attachments).toEqual([
+                    {
+                        filename: 'invoice.pdf',
+                        contentType: 'application/pdf',
+                        contentId: undefined,
+                        inline: false,
+                        bytes: invoice.bytes,
+                    },
+                ])
+                expect(email.tags).not.toHaveProperty('ph_marketing')
+            })
+        })
+
+        it.each<ApiSend & { status: number; error?: string; reason?: unknown; logged?: string }>([
+            {
+                name: 'a code send in a marketing category whose html is 19 MB of text after its unsubscribe link',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: {
+                        subject: 'News',
+                        html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' + 'x'.repeat(19_000_000),
+                    },
+                }),
+                status: 413,
+                error: 'content_too_large',
+                reason: expect.stringContaining('1,500,000 characters'),
+            },
+            {
+                name: 'a code send in a marketing category whose text is longer than PostHog checks',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: { subject: 'News', text: 'Bye: {{ unsubscribe_url }}'.padEnd(BODY_MAX_LENGTH + 1, 'x') },
+                }),
+                status: 413,
+                error: 'content_too_large',
+                reason: expect.stringContaining('1,500,000 characters'),
+            },
+            {
+                name: 'a code send in a marketing category whose html has no unsubscribe link',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: { subject: 'News', html: '<p>News</p>', text: 'Bye: {{ unsubscribe_url }}' },
+                }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a code send in a marketing category whose text has no unsubscribe link and no html',
+                kind: 'code',
+                payload: codeSendIn(newsletter, { content: { subject: 'News', text: 'News' } }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a code send in a marketing category without its own content whose email step has no unsubscribe link',
+                kind: 'code',
+                stepEmail: { html: '<p>News</p>', text: 'News' },
+                payload: codeSendIn(newsletter, { content: undefined }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a code send in a marketing category with a cc',
+                kind: 'code',
+                payload: codeSendIn(newsletter, { cc: ['copy@example.com'] }),
+                status: 400,
+                error: 'copies_not_allowed',
+            },
+            {
+                name: 'a code send in a marketing category whose email step has a bcc',
+                kind: 'code',
+                stepEmail: { bcc: 'audit@example.com' },
+                payload: codeSendIn(newsletter),
+                status: 400,
+                error: 'copies_not_allowed',
+            },
+            {
+                name: 'a code send to a recipient who opted out of its marketing category',
+                kind: 'code',
+                payload: codeSendIn(newsletter),
+                given: (to: string) => optOut(to, newsletterId),
+                status: 422,
+                error: 'recipient_opted_out',
+                logged: 'recipient_opted_out',
+            },
+            {
+                name: 'a code send in a marketing category to a recipient who opted out of all marketing',
+                kind: 'code',
+                payload: codeSendIn(newsletter),
+                given: (to: string) => optOut(to, '$all'),
+                status: 422,
+                error: 'recipient_opted_out',
+                logged: 'recipient_opted_out',
+            },
+            {
+                name: 'a code send in a marketing category to a recipient whose only suppression is a spam complaint',
+                kind: 'code',
+                payload: codeSendIn(newsletter),
+                given: complain,
+                status: 422,
+                error: 'recipient_suppressed',
+                logged: 'recipient_suppressed',
+            },
+            {
+                name: 'a scheduled code send in a marketing category with no unsubscribe link',
+                kind: 'code',
+                payload: {
+                    ...codeSendIn(newsletter, { content: { subject: 'News', html: '<p>News</p>', text: 'News' } }),
+                    scheduled_at: tomorrow(),
+                },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a scheduled code send in a marketing category with a cc',
+                kind: 'code',
+                payload: { ...codeSendIn(newsletter, { cc: ['copy@example.com'] }), scheduled_at: tomorrow() },
+                status: 400,
+                error: 'copies_not_allowed',
+            },
+            {
+                name: 'a code send whose category is a key, not an id',
+                kind: 'code',
+                payload: { send: codeSend({ message_category: { id: 'newsletter', type: 'marketing' } }) },
+                status: 400,
+            },
+            {
+                name: 'a code send whose category has an unknown type',
+                kind: 'code',
+                payload: { send: codeSend({ message_category: { id: newsletterId, type: 'promo' } }) },
+                status: 400,
+            },
+        ])('refuses $name', async (row) => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                sendFlow(row.kind, row.step ?? 'transactional', row.stepEmail, row.stepCategoryId)
+            )
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            await row.given?.(to)
+
+            const res = await post(row.kind, flow, { to, distinct_id: 'reader', ...row.payload })
+
+            expect(res.status).toEqual(row.status)
+            if (row.error) {
+                expect(res.body).toEqual({ error: row.error, ...(row.reason !== undefined && { reason: row.reason }) })
+            }
+            expect(await queryCyclotronJobs()).toEqual([])
+            if (row.logged) {
+                await waitForExpect(async () => {
+                    expect(await storedEmailStatusesTo(clickhouse, team.id, to)).toEqual([
+                        { status: 'queued', reason: '' },
+                        { status: 'failed', reason: row.logged },
+                    ])
+                }, 15000)
+            }
+        })
+
+        it.each([
+            { length: BODY_MAX_LENGTH, status: 202 },
+            { length: BODY_MAX_LENGTH + 1, status: 413 },
+        ])(
+            'answers a code send in a marketing category whose html is $length characters long with $status',
+            async ({ length, status }) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+                const html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(length, 'x')
+
+                const res = await post('code', flow, {
+                    to: `reader-${new UUIDT().toString()}@example.com`,
+                    distinct_id: 'reader',
+                    ...codeSendIn(newsletter, { content: { subject: 'News', html } }),
+                })
+
+                expect(res.status).toEqual(status)
+                expect(res.body.error).toEqual(status === 413 ? 'content_too_large' : undefined)
+            }
+        )
+
+        it.each<ApiSend>([
+            {
+                name: 'a code send in a marketing category with the link in its text and no html',
+                kind: 'code',
+                payload: codeSendIn(newsletter, { content: { subject: 'News', text: 'Bye: {{unsubscribe_url}}' } }),
+            },
+            {
+                name: 'a code send in a marketing category without its own content whose email step has the link as a Liquid tag',
+                kind: 'code',
+                stepEmail: { subject: 'News', html: '', text: 'Bye: {% unsubscribe_url %}' },
+                payload: codeSendIn(newsletter, { content: undefined }),
+            },
+            {
+                name: 'a code send in a marketing category without its own content whose email step trims the link with Liquid',
+                kind: 'code',
+                stepEmail: { subject: 'News', html: '', text: 'Bye: {{- unsubscribe_url -}}' },
+                payload: codeSendIn(newsletter, { content: undefined }),
+            },
+            {
+                name: 'a code send in a marketing category without its own content whose email step has the one-click link',
+                kind: 'code',
+                stepEmail: { subject: 'News', html: '', text: 'Bye: {{ unsubscribe_url_one_click }}' },
+                payload: codeSendIn(newsletter, { content: undefined }),
+            },
+            {
+                name: 'a code send in a marketing category to a recipient who opted out of another one',
+                kind: 'code',
+                payload: codeSendIn(newsletter),
+                given: (to: string) => optOut(to, otherCategoryId),
+            },
+        ])("sends $name with its recipient's preferences link", async (row) => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow(row.kind, 'transactional', row.stepEmail))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            await row.given?.(to)
+
+            const res = await post(row.kind, flow, { to, distinct_id: 'reader', ...row.payload })
+            expect(res.status).toEqual(202)
+            await deliver()
+
+            const delivered = await emailsTo(to)
+            expect(delivered).toHaveLength(1)
+            expect(await preferencesLinkOwners(delivered[0].text)).toEqual([to])
+        })
+
+        it.each([
+            {
+                name: 'skips a code send to a recipient who opted out of its marketing category',
+                step: 'transactional',
+                category: newsletter,
+                optedOutOf: newsletterId,
+                scheduled: false,
+                sent: false,
+            },
+            {
+                name: 'skips a code send in a marketing category to a recipient who opted out of all marketing',
+                step: 'transactional',
+                category: newsletter,
+                optedOutOf: '$all',
+                scheduled: false,
+                sent: false,
+            },
+            {
+                name: 'sends a code send in a transactional category, from a marketing step, to a recipient who opted out of all marketing',
+                step: 'marketing',
+                category: receipts,
+                optedOutOf: '$all',
+                scheduled: false,
+                sent: true,
+            },
+            {
+                name: 'skips a scheduled code send, moved to now, to a recipient who opted out of its marketing category',
+                step: 'transactional',
+                category: newsletter,
+                optedOutOf: newsletterId,
+                scheduled: true,
+                sent: false,
+            },
+            {
+                name: 'sends a scheduled code send in a marketing category, moved to now, as not transactional to a recipient who opted out of another one',
+                step: 'transactional',
+                category: newsletter,
+                optedOutOf: otherCategoryId,
+                scheduled: true,
+                sent: true,
+            },
+            {
+                name: 'sends a code send whose marketing category sits outside send as transactional to a recipient who opted out of it',
+                step: 'transactional',
+                category: newsletter,
+                categoryOutsideSend: true,
+                optedOutOf: newsletterId,
+                scheduled: false,
+                sent: true,
+            },
+            {
+                name: 'skips a code send to a recipient who opted out of its marketing category, whose workflow then stops being triggered by the API,',
+                step: 'transactional',
+                category: newsletter,
+                triggerChanged: true,
+                optedOutOf: newsletterId,
+                scheduled: false,
+                sent: false,
+            },
+        ] as const)('$name after the API accepted it', async (row) => {
+            const { step, category, optedOutOf, scheduled, sent } = row
+            const categoryOutsideSend = 'categoryOutsideSend' in row
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                 VALUES ($1, true, 'off', '', '', 0)`,
+                [team.id],
+                'set-team-engagement-capture'
+            )
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', step))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+
+            const res = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                ...(categoryOutsideSend
+                    ? { send: codeSend({ tracking: { captureEngagement: true } }), message_category: category }
+                    : codeSendIn(category, { tracking: { captureEngagement: true } })),
+                ...(scheduled && { scheduled_at: tomorrow() }),
+            })
+            expect(res.status).toEqual(202)
+            await optOut(to, optedOutOf)
+            if ('triggerChanged' in row) {
+                await moveTriggerOffApi(flow)
+            }
+            if (scheduled) {
+                await sendNow(res.body.invocation_id)
+            }
+            await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+            expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
+            if (!sent) {
+                await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
+                return
+            }
+            await waitForExpect(() => {
+                expect(
+                    mockInternalFetch.mock.calls
+                        .map(([, options]) => parseJSON((options as { body: string }).body))
+                        .filter(({ event }) => event === '$workflows_email_sent')
+                        .map(({ properties }) => [properties.$email_to, properties.$email_transactional])
+                ).toEqual([[to, categoryOutsideSend || category.type !== 'marketing']])
+            }, 15000)
+        })
+
+        it('skips a marketing code send whose recipient opts out while it waits for its sending rate limit', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET email_sending_rate_limit = $1 WHERE id = $2`,
+                [JSON.stringify({ count: 2, period: 'minute' }), flow.id],
+                'set-email-sending-rate-limit'
+            )
+            const rateValkey = createRedisV2PoolFromConfig({
+                connection: hub.CDP_REDIS_HOST
+                    ? {
+                          url: hub.CDP_REDIS_HOST,
+                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      }
+                    : { url: hub.REDIS_URL },
+                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            })
+            await deleteKeysWithPrefix(rateValkey, `@posthog/workflow-email-rate/${team.id}/`)
+            const first = `reader-${new UUIDT().toString()}@example.com`
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            emailWorker = new CdpCyclotronWorkerEmail(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await emailWorker.start()
+
+            expect(
+                (await post('code', flow, { to: first, distinct_id: 'first', ...codeSendIn(newsletter) })).status
+            ).toEqual(202)
+            await waitForExpect(async () => expect(await emailsTo(first)).toHaveLength(1), 15000)
+            const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            expect(res.status).toEqual(202)
+            await waitForExpect(async () => {
+                const job = (await queryCyclotronJobs()).find((j: any) => j.id === res.body.invocation_id)
+                expect(job).toMatchObject({ queue_name: 'email', status: 'available' })
+                expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now())
+            }, 15000)
+
+            await optOut(to, newsletterId)
+            await deleteKeysWithPrefix(rateValkey, `@posthog/workflow-email-rate/${team.id}/`)
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [
+                res.body.invocation_id,
+            ])
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
+            }, 15000)
+
+            expect(await emailsTo(to)).toEqual([])
+            await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
+        })
+
+        it("holds a marketing code send while its recipient's preferences can't be read, then sends it once", async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            const query = hub.postgres.query.bind(hub.postgres)
+            const outage = jest
+                .spyOn(hub.postgres, 'query')
+                .mockImplementation((target, sql, values, tag) =>
+                    tag === 'fetchCDPRecipients'
+                        ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                        : query(target, sql, values, tag)
+                )
+            emailWorker = new CdpCyclotronWorkerEmail(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await emailWorker.start()
+
+            const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            expect(res.status).toEqual(202)
+            await waitForExpect(async () => {
+                const job = (await queryCyclotronJobs()).find((j: any) => j.id === res.body.invocation_id)
+                expect(job).toMatchObject({ queue_name: 'email', status: 'available' })
+                expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now())
+            }, 15000)
+            expect(await emailsTo(to)).toEqual([])
+
+            outage.mockRestore()
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [
+                res.body.invocation_id,
+            ])
+            await waitForExpect(async () => expect(await emailsTo(to)).toHaveLength(1), 15000)
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
+            }, 15000)
+            expect(await emailsTo(to)).toHaveLength(1)
+        })
+
+        it.each<ApiSend & { delivered: number; copyDelivered?: boolean; skipped?: string }>([
+            {
+                name: 'a template send with no category whose marketing email step has no unsubscribe link',
+                kind: 'template',
+                step: 'marketing',
+                stepEmail: { html: '<p>News</p>', text: 'News' },
+                payload: {},
+                delivered: 1,
+            },
+            {
+                name: 'a code send with no category from a marketing email step with a cc and no unsubscribe link',
+                kind: 'code',
+                step: 'marketing',
+                payload: { send: codeSend({ content: { subject: 'News', html: '<p>News</p>', text: 'News' } }) },
+                delivered: 1,
+                copyDelivered: true,
+            },
+            {
+                name: "a template send with no category to a recipient who opted out of its marketing step's category",
+                kind: 'template',
+                step: 'marketing',
+                stepCategoryId: newsletterId,
+                payload: {},
+                given: (to: string) => optOut(to, newsletterId),
+                delivered: 0,
+                skipped: 'recipient_opted_out',
+            },
+            {
+                name: 'a template send that names a marketing category, whose email step has no unsubscribe link',
+                kind: 'template',
+                stepEmail: { html: '<p>News</p>', text: 'News' },
+                payload: { message_category: newsletter },
+                delivered: 1,
+            },
+            {
+                name: 'a template send that names a marketing category, to a recipient who opted out of it',
+                kind: 'template',
+                payload: { message_category: newsletter },
+                given: (to: string) => optOut(to, newsletterId),
+                delivered: 1,
+            },
+        ])('accepts $name, as master does', async (row) => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                sendFlow(row.kind, row.step ?? 'transactional', row.stepEmail, row.stepCategoryId)
+            )
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            const copy = `copy-${new UUIDT().toString()}@example.com`
+            await row.given?.(to)
+            const copies = row.copyDelivered ? { cc: [copy] } : {}
+            const payload = row.kind === 'code' ? { send: { ...(row.payload.send as object), ...copies } } : row.payload
+
+            const res = await post(row.kind, flow, { to, distinct_id: 'reader', ...payload })
+            expect(res.status).toEqual(202)
+            await deliver()
+
+            expect(await emailsTo(to)).toHaveLength(row.delivered)
+            expect(await emailsTo(copy)).toHaveLength(row.copyDelivered ? 1 : 0)
+            if (row.skipped) {
+                await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: row.skipped })
+            }
+        })
+
+        it('sends a code send in a transactional category to its bcc', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `receipt-${new UUIDT().toString()}@example.com`
+            const bcc = `audit-${new UUIDT().toString()}@example.com`
+
+            const res = await post('code', flow, { to, distinct_id: 'buyer', ...codeSendIn(receipts, { bcc: [bcc] }) })
+            expect(res.status).toEqual(202)
+            await deliver()
+
+            expect(await emailsTo(bcc)).toHaveLength(1)
+        })
+
+        it('replays a marketing code send without its own content retried after its email step lost the unsubscribe link', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            const send = {
+                to,
+                distinct_id: 'reader',
+                ...codeSendIn(newsletter, { content: undefined }),
+                idempotency_key: new UUIDT().toString(),
+            }
+
+            const first = await post('code', flow, send)
+            expect(first.status).toEqual(202)
+            await changeWorkflowEmail(flow, { html: '', text: 'News' })
+            await withOtherPod(async (otherApp) => {
+                const fresh = await post('code', flow, { ...send, idempotency_key: new UUIDT().toString() }, otherApp)
+                const retry = await post('code', flow, send, otherApp)
+
+                expect(fresh.body).toEqual({ error: 'unsubscribe_link_required' })
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+            })
+            expect(await queryCyclotronJobs()).toHaveLength(1)
+        })
+
+        it.each([
+            { send: 'send', name: 'a cc', stepEmail: (copy: string) => ({ cc: copy }), skipped: 'copies_not_allowed' },
+            {
+                send: 'send',
+                name: 'a cc and a trigger outside the API',
+                stepEmail: (copy: string) => ({ cc: copy }),
+                skipped: 'copies_not_allowed',
+                triggerChanged: true,
+            },
+            {
+                send: 'send',
+                name: 'no unsubscribe link',
+                stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
+                skipped: 'unsubscribe_link_required',
+            },
+            {
+                send: 'scheduled send',
+                name: 'no unsubscribe link',
+                stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
+                skipped: 'unsubscribe_link_required',
+            },
+        ])(
+            'skips a marketing code $send without its own content whose email step gains $name between the API accepting it and the email worker sending it',
+            async ({ send, stepEmail, skipped, triggerChanged }) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
+                const to = `reader-${new UUIDT().toString()}@example.com`
+                const copy = `manager-${new UUIDT().toString()}@example.com`
+                const scheduled = send === 'scheduled send'
+
+                const res = await post('code', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    ...codeSendIn(newsletter, { content: undefined }),
+                    ...(scheduled && { scheduled_at: tomorrow() }),
+                })
+                expect(res.status).toEqual(202)
+                await changeWorkflowEmail(flow, stepEmail(copy))
+                if (triggerChanged) {
+                    await moveTriggerOffApi(flow)
+                }
+                if (scheduled) {
+                    await sendNow(res.body.invocation_id)
+                }
+                await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+                expect(await emailsTo(to)).toEqual([])
+                expect(await emailsTo(copy)).toEqual([])
+                await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: skipped })
+            }
+        )
+
+        it.each([
+            { name: 'shows its footer', showFooter: true, otherLink: false, sent: true },
+            { name: 'hides its footer', showFooter: false, otherLink: false, sent: false },
+            {
+                name: "hides its footer but links another recipient's preferences",
+                showFooter: false,
+                otherLink: true,
+                sent: false,
+            },
+        ])(
+            'a marketing code send without its own content that $name sends: $sent',
+            async ({ showFooter, otherLink, sent }) => {
+                const otherPreferences = new RecipientTokensService(
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL
+                ).generatePreferencesUrl({ team_id: team.id, identifier: 'someone-else@example.com' })
+                const flow = await insertHogFlow(
+                    hub.postgres,
+                    sendFlow('template', 'transactional', {
+                        html: '',
+                        text: `News${otherLink ? ` Settings: ${otherPreferences}` : ''}{% if variables.show_footer %} Bye: {{ unsubscribe_url }}{% endif %}`,
+                    })
+                )
+                const to = `reader-${new UUIDT().toString()}@example.com`
+
+                const res = await post('code', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    variables: { show_footer: showFooter },
+                    ...codeSendIn(newsletter, { content: undefined }),
+                })
+                expect(res.status).toEqual(202)
+                await deliver()
+
+                expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
+                if (!sent) {
+                    await expectStoredStatus(res.body.invocation_id, {
+                        status: 'failed',
+                        reason: 'unsubscribe_link_required',
+                    })
+                }
+            }
+        )
+
+        it.each([
+            { name: 'a code send', moved: false },
+            { name: 'a scheduled code send moved to now', moved: true },
+        ])(
+            'refuses a retry of $name that reuses its idempotency key in another category and replays one in its own',
+            async ({ moved }) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+                const to = `receipt-${new UUIDT().toString()}@example.com`
+                const send = {
+                    to,
+                    distinct_id: 'buyer',
+                    idempotency_key: new UUIDT().toString(),
+                    ...(moved && { scheduled_at: tomorrow() }),
+                }
+
+                const first = await post('code', flow, { ...send, ...codeSendIn(receipts) })
+                expect(first.status).toEqual(202)
+                if (moved) {
+                    await sendNow(first.body.invocation_id)
+                }
+                const otherCategory = await post('code', flow, { ...send, ...codeSendIn(newsletter) })
+                const sameCategory = await post('code', flow, { ...send, ...codeSendIn(receipts) })
+                expect(otherCategory.status).toEqual(422)
+                expect(otherCategory.body).toEqual({ error: 'idempotency_key_reused' })
+                expect(sameCategory.status).toEqual(202)
+                expect(sameCategory.body).toEqual({ ...first.body, replayed: true })
+                await deliver()
+
+                expect(await emailsTo(to)).toHaveLength(1)
+            }
+        )
+
+        it.each([
+            {
+                name: 'a code send in a marketing category',
+                kind: 'code',
+                step: 'transactional',
+                extra: codeSendIn(newsletter),
+                capped: false,
+            },
+            {
+                name: 'a template send from a marketing step with no category on the request',
+                kind: 'template',
+                step: 'marketing',
+                extra: {},
+                capped: true,
+            },
+        ] as const)(
+            '$name to a person past the frequency cap is capped: $capped',
+            async ({ kind, step, extra, capped }) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier,
+                     marketing_frequency_cap_max_messages, marketing_frequency_cap_window_days)
+                 VALUES ($1, false, 'off', '', '', 0, 1, 1)`,
+                    [team.id],
+                    'set-team-frequency-cap'
+                )
+                const frequencyCapValkey = createFrequencyCapValkeyPool(hub)!
+                await deleteKeysWithPrefix(frequencyCapValkey, `@posthog/workflows-frequency-cap/${team.id}/`)
+                const to = `capped-${new UUIDT().toString()}@example.com`
+                const persons = new PostgresPersonRepository(hub.postgres)
+                await persons.createPerson(
+                    DateTime.utc(),
+                    { email: to },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    new UUIDT().toString(),
+                    { distinctId: 'capped-reader' }
+                )
+                const personRepository: PersonReadRepository = {
+                    fetchPerson: (teamId, distinctId) => persons.fetchPerson(teamId, distinctId),
+                    fetchPersonsByDistinctIds: (teamPersons) => persons.fetchPersonsByDistinctIds(teamPersons),
+                    fetchPersonsByPersonIds: (teamPersons) => persons.fetchPersonsByPersonIds(teamPersons),
+                    fetchDistinctIdsForPersons: (teamId, personIds, options) =>
+                        persons.fetchDistinctIdsForPersons(teamId, personIds, options),
+                }
+                const personDeps = { ...deps, personRepository }
+                const flow = await insertHogFlow(hub.postgres, sendFlow(kind, step))
+
+                const messageIds: string[] = []
+                for (const _ of [1, 2]) {
+                    const res = await post(kind, flow, { to, distinct_id: 'capped-reader', ...extra })
+                    expect(res.status).toEqual(202)
+                    messageIds.push(res.body.invocation_id)
+                }
+                await deliver(personDeps)
+
+                expect(await emailsTo(to)).toHaveLength(capped ? 1 : 2)
+                await waitForExpect(async () => {
+                    const statuses = await Promise.all(
+                        messageIds.map((id) => storedEmailStatus(clickhouse, team.id, id))
+                    )
+                    expect(statuses.filter((stored) => stored?.reason === 'frequency_capped')).toHaveLength(
+                        capped ? 1 : 0
+                    )
+                    expect(statuses.filter((stored) => stored?.status === 'sent')).toHaveLength(capped ? 1 : 2)
+                }, 15000)
+            }
+        )
     })
 
     it('does not emit duplicate Resuming / Executing / pause logs for the email-queue routing reschedule', async () => {

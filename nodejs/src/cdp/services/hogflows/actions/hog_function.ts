@@ -28,6 +28,7 @@ import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
+import { emailStepForApiSend, marketingCopiesRefusal } from '../transactional-email'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
@@ -488,7 +489,7 @@ export class HogFunctionHandler implements ActionHandler {
 
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Action,
+        savedAction: Action,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<
         CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & {
@@ -496,6 +497,7 @@ export class HogFunctionHandler implements ActionHandler {
             frequencyCapHold?: FrequencyCapHold
         }
     > {
+        const action = emailStepForApiSend(savedAction, invocation.state.messageCategory)
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
@@ -515,6 +517,24 @@ export class HogFunctionHandler implements ActionHandler {
                     variables: invocation.state.variables,
                 })
         )
+
+        const copiesRefusal = marketingCopiesRefusal(action, invocation.state.send, invocation.state.messageCategory)
+        if (copiesRefusal) {
+            const message = 'Skipping send: a marketing email cannot have cc or bcc recipients.'
+            this.recordSkippedEmail(hogFunctionInvocation, action, copiesRefusal, hogExecutorOptions)
+            return {
+                finished: true,
+                skipped: true,
+                emailSendResult: { status: 'skipped', reason: message },
+                invocation: hogFunctionInvocation,
+                logs: [{ level: 'warn', timestamp: DateTime.now(), message }],
+                metrics: [],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            }
+        }
 
         const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },

@@ -1,7 +1,7 @@
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { IntegrationType } from '../../../types'
-import { AcceptedSend } from '../../hogflows/transactional-email'
+import { AcceptedSend, SendCategory } from '../../hogflows/transactional-email'
 import { readSandboxAuthorization } from './sandbox-authorization'
 import { admitTenant } from './sandbox-tenant-admission'
 
@@ -24,7 +24,8 @@ export type CodeSendSender =
 export function senderOfCodeSend(
     teamId: number,
     send: AcceptedSend,
-    integration: Pick<IntegrationType, 'team_id' | 'kind'> | null
+    integration: Pick<IntegrationType, 'team_id' | 'kind'> | null,
+    category: SendCategory | undefined
 ): CodeSendSender {
     if (integration?.kind !== 'email_sandbox') {
         return { kind: 'own' }
@@ -33,7 +34,7 @@ export function senderOfCodeSend(
         return { kind: 'refused', refusal: 'sandbox_sender_unavailable' }
     }
     const { cc, bcc, replyTo, from, attachments } = send
-    if (cc?.length || bcc?.length || replyTo?.length || attachments?.length || from?.email || from?.name) {
+    if (cc?.length || bcc?.length || replyTo?.length || attachments?.length || from?.email || from?.name || category) {
         return { kind: 'refused', refusal: 'sandbox_fields_unsupported' }
     }
     return { kind: 'email_sandbox' }

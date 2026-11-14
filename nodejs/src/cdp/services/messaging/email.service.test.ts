@@ -72,12 +72,14 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-
 import {
     EmailService,
     EmailServiceConfig,
+    UNSUBSCRIBE_TOKENS_CHECKED,
     formatMailbox,
     parseAddressList,
     parseTierCaps,
     sanitizeEmailSubject,
     teamEmailCapBucket,
 } from './email.service'
+import { BODY_MAX_LENGTH } from './helpers/clickable-links'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
@@ -4146,6 +4148,149 @@ describe('EmailService', () => {
                         )
                     )
                 ).toStrictEqual(identity)
+            }
+        )
+
+        it.each([
+            ['a marketing category', 'marketing', false, { ph_marketing: 'true' }],
+            ['a transactional category', 'transactional', true, {}],
+        ] as const)(
+            'marks an API send from a marketing step in %s, a %s category, with $email_transactional %s in its sent event and its SES tags',
+            async (_name, type, transactional, extraTags) => {
+                hub.SITE_URL = 'http://localhost:8000'
+                service = createService()
+                await captureEngagementEvents()
+                const body = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.messageCategory = { id: randomUUID(), type }
+                invocation.state.send = {
+                    content: { subject: 'News', html: body },
+                    from: { integrationId: getIntegrationId(1) },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.hogFunction.metadata = {
+                    ...invocation.hogFunction.metadata,
+                    message_category_type: 'marketing',
+                }
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: body })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.emailSendResult).toEqual({ status: 'accepted' })
+                expect(result.capturedPostHogEvents[0].properties.$email_transactional).toEqual(transactional)
+                expect(ses.sent.map((email) => email.tags)).toEqual([
+                    { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true', ...extraTags },
+                ])
+            }
+        )
+
+        it.each([
+            {
+                body: 'html exactly as long as PostHog checks',
+                content: (link: string) => ({ html: link.padEnd(BODY_MAX_LENGTH, 'x') }),
+                sent: true,
+            },
+            {
+                body: 'html one character longer than PostHog checks',
+                content: (link: string) => ({ html: link.padEnd(BODY_MAX_LENGTH + 1, 'x') }),
+                sent: false,
+            },
+            {
+                body: 'text one character longer than PostHog checks',
+                content: (link: string) => ({ html: link, text: 'x'.repeat(BODY_MAX_LENGTH + 1) }),
+                sent: false,
+            },
+            {
+                body: 'html that its unsubscribe link fills in past the length PostHog checks',
+                content: () => ({
+                    html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(BODY_MAX_LENGTH, 'x'),
+                }),
+                sent: false,
+            },
+        ])('a marketing API send with $body sends: $sent', async ({ content, sent }) => {
+            hub.SITE_URL = 'http://localhost:8000'
+            service = createService()
+            const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+            const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
+            service['emailStatusService'] = emailStatusService
+            invocation.id = new UUIDT().toString()
+            const preferences = new RecipientTokensService(
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            ).generatePreferencesUrl({ team_id: invocation.teamId, identifier: 'test@example.com' })
+            const { html, text } = { text: undefined, ...content(`<a href="${preferences}">Unsubscribe</a>`) }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
+            invocation.state.send = {
+                content: { subject: 'News', html, text },
+                from: { integrationId: getIntegrationId(1) },
+                tracking: { captureEngagement: true },
+            }
+            invocation.hogFunction.metadata = {
+                ...invocation.hogFunction.metadata,
+                message_category_type: 'marketing',
+            }
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html, text })
+
+            await service.executeSendEmail(invocation)
+            await emailStatusService.flush()
+
+            expect(ses.sent).toHaveLength(sent ? 1 : 0)
+            expect(
+                kafka
+                    .produced(EMAIL_STATUS_OUTPUT)
+                    .filter((row) => row.status === 'failed')
+                    .map((row) => row.reason)
+            ).toEqual(sent ? [] : ['content_too_large'])
+        })
+
+        it.each([
+            {
+                links: "one other recipient's preferences link, repeated past the check's limit,",
+                distinct: 1,
+                sent: true,
+            },
+            {
+                links: "more other recipients' preferences links than the check reads",
+                distinct: UNSUBSCRIBE_TOKENS_CHECKED,
+                sent: false,
+            },
+        ])(
+            'a marketing API send with $links before its own unsubscribe link sends: $sent',
+            async ({ distinct, sent }) => {
+                hub.SITE_URL = 'http://localhost:8000'
+                service = createService()
+                const tokens = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                const others = Array.from({ length: distinct }, (_, i) =>
+                    tokens.generatePreferencesUrl({ team_id: invocation.teamId, identifier: `other-${i}@example.com` })
+                )
+                const html =
+                    Array.from(
+                        { length: UNSUBSCRIBE_TOKENS_CHECKED + 1 },
+                        (_, i) => `<a href="${others[i % distinct]}">Settings</a>`
+                    ).join('') + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
+                invocation.state.send = {
+                    content: { subject: 'News', html },
+                    from: { integrationId: getIntegrationId(1) },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.hogFunction.metadata = {
+                    ...invocation.hogFunction.metadata,
+                    message_category_type: 'marketing',
+                }
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(ses.sent).toHaveLength(sent ? 1 : 0)
+                expect(result.emailSendResult).toEqual(
+                    sent
+                        ? { status: 'accepted' }
+                        : { status: 'skipped', reason: expect.stringContaining('has no unsubscribe link') }
+                )
             }
         )
 

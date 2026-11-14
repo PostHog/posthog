@@ -111,8 +111,13 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 
+export const SES_MARKETING_TAG = 'ph_marketing'
+
 const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
     mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
+
+const isMarketingMail = (mail: { tags?: Record<string, string[]> }): boolean =>
+    mail.tags?.[SES_MARKETING_TAG]?.[0] === 'true'
 
 export type SesEmailStatusUpdate = {
     teamId: string
@@ -601,7 +606,10 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                     $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
                     ...(isTransactionalMail(rec.mail)
-                        ? { $email_transactional: true, ...sentTransactionalEmailIdentity(rec.mail.tags) }
+                        ? {
+                              $email_transactional: !isMarketingMail(rec.mail),
+                              ...sentTransactionalEmailIdentity(rec.mail.tags),
+                          }
                         : {}),
                 }
 

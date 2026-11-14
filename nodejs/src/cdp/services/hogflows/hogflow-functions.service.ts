@@ -157,6 +157,7 @@ export class HogFlowFunctionsService {
             state: {
                 ...functionState,
                 ...(invocation.state.send && { send: invocation.state.send }),
+                ...(invocation.state.messageCategory && { messageCategory: invocation.state.messageCategory }),
                 ...(invocation.state.scheduledAt && { scheduledAt: invocation.state.scheduledAt }),
             },
         }
