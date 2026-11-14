@@ -435,7 +435,6 @@ def emit_report_ready_internal_event(
     team_id, report_id = instance.team_id, str(instance.id)
 
     def _emit() -> None:
-        # Function-local to keep the CDP producer and the ClickHouse query off the django.setup() path.
         from products.signals.backend.report_ready_event import emit_report_ready_event  # noqa: PLC0415
 
         # A hook outside an atomic block runs inside save(), so an error here must not reach the caller.

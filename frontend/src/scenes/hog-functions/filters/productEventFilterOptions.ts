@@ -173,7 +173,6 @@ const ACTIVITY_LOG_SCOPE_VALUES: PropValue[] = Object.values(ActivityLogListScop
 // which can still be entered as custom values.
 const ACTIVITY_LOG_ACTIVITY_VALUES: PropValue[] = ['created', 'updated', 'deleted'].map((name) => ({ name }))
 const NO_SUGGESTED_VALUES: PropValue[] = []
-// The values the backend writes on `$signals_report_ready` (report priority judgment and actionability judgment).
 const SIGNALS_REPORT_PRIORITY_VALUES: PropValue[] = ['P0', 'P1', 'P2', 'P3', 'P4'].map((name) => ({ name }))
 const SIGNALS_REPORT_ACTIONABILITY_VALUES: PropValue[] = [
     'immediately_actionable',

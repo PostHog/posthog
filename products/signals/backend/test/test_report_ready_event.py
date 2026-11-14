@@ -3,16 +3,23 @@ from collections.abc import Callable
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.dbrouter import ReplicaRouter
+
 from products.cdp.backend.internal_events import internal_event_read_scope
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_ready_event import REPORT_READY_EVENT
-from products.signals.backend.signal_metadata import ReportSignalMeta
+from products.signals.backend.receivers import _is_safety_suppressed
+from products.signals.backend.report_ready_event import (
+    REPORT_READY_EVENT,
+    SOURCE_PRODUCTS_TIMEOUT_SECONDS,
+    emit_report_ready_event,
+)
+from products.signals.backend.signal_metadata import ReportSignalMeta, fetch_source_products_for_reports
 
 S = SignalReport.Status
 MODULE = "products.signals.backend.report_ready_event"
@@ -186,6 +193,35 @@ class TestReportReadyEvent(BaseTest):
             "source_products": [],
         }
         assert (properties["repo_slug"], properties["suggested_reviewers"]) == (None, [])
+
+    def test_a_commit_hook_reads_the_report_from_the_writer(self) -> None:
+        report = self._report(S.READY)
+        self._artefact(report, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, {"priority": "P1"})
+        self._artefact(report, SignalReportArtefact.ArtefactType.REPO_SELECTION, {"repository": "posthog/posthog"})
+        self._artefact(report, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS, [{"github_login": "octocat"}])
+
+        # Tests have no replica database, so any read the router sends there fails.
+        with self.settings(DATABASE_ROUTERS=[ReplicaRouter(["SignalReport", "SignalReportArtefact"])]):
+            emit_report_ready_event(
+                team_id=self.team.id, report_id=str(report.id), is_safety_suppressed=_is_safety_suppressed
+            )
+
+        properties = self.produce.call_args.kwargs["event"].properties
+        assert (properties["priority"], properties["repo_slug"], properties["suggested_reviewers"]) == (
+            "P1",
+            "posthog/posthog",
+            ["octocat"],
+        )
+
+    def test_the_source_products_query_has_a_short_time_limit(self) -> None:
+        self.source_products.side_effect = fetch_source_products_for_reports
+        with patch(
+            "products.signals.backend.signal_metadata.execute_hogql_query", return_value=MagicMock(results=[])
+        ) as query:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._report(S.READY)
+
+        assert query.call_args.kwargs["settings"].max_execution_time == SOURCE_PRODUCTS_TIMEOUT_SECONDS
 
 
 class TestReportReadyEventReadScope(SimpleTestCase):

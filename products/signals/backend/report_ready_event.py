@@ -4,6 +4,7 @@ The event only nudges. It carries the report id and the fields a destination fil
 so a consumer re-fetches the report through the API, under its own credentials.
 """
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -23,6 +24,10 @@ logger = structlog.get_logger(__name__)
 
 REPORT_READY_EVENT = "$signals_report_ready"
 REPORT_READY_EVENT_FLAG = "signals-report-ready-event"
+# The lookup runs in a commit hook of the request that moved the report, so it must not hold that request.
+SOURCE_PRODUCTS_TIMEOUT_SECONDS = 3
+# The hook runs right after the commit, and a replica can lag it, so every read goes to the writer.
+_WRITER = "default"
 
 
 def report_ready_event_enabled(team: Team) -> bool:
@@ -42,7 +47,8 @@ def report_ready_event_enabled(team: Team) -> bool:
 
 def _latest_artefact_content(report: SignalReport, artefact_type: str) -> str | None:
     return (
-        SignalReportArtefact.objects.filter(team_id=report.team_id, report_id=report.id, type=artefact_type)
+        SignalReportArtefact.objects.using(_WRITER)
+        .filter(team_id=report.team_id, report_id=report.id, type=artefact_type)
         .order_by("-created_at")
         .values_list("content", flat=True)
         .first()
@@ -65,10 +71,20 @@ def _suggested_reviewer_logins(report: SignalReport) -> list[str]:
     return logins
 
 
-def _source_products(team: Team, report_id: str) -> list[str]:
-    # The list lives in ClickHouse. A failed read must not cost the event, because the consumer re-fetches anyway.
+def _selected_repository(report: SignalReport) -> str | None:
     try:
-        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        data = json.loads(_latest_artefact_content(report, SignalReportArtefact.ArtefactType.REPO_SELECTION) or "")
+    except (TypeError, ValueError):
+        return None
+    repository = data.get("repository") if isinstance(data, dict) else None
+    return repository.strip() if isinstance(repository, str) and repository.strip() else None
+
+
+def _source_products(team: Team, report_id: str) -> list[str]:
+    try:
+        meta = fetch_source_products_for_reports(
+            team, [report_id], max_execution_time=SOURCE_PRODUCTS_TIMEOUT_SECONDS
+        ).get(report_id)
     except Exception:
         logger.exception("signals.report_ready_event.source_products_failed", report_id=report_id)
         return []
@@ -87,7 +103,7 @@ def report_ready_properties(report: SignalReport) -> dict[str, Any]:
         ),
         "actionability": report.latest_actionability,
         "source_products": _source_products(report.team, report_id),
-        "repo_slug": report.selected_repository(),
+        "repo_slug": _selected_repository(report),
         "suggested_reviewers": _suggested_reviewer_logins(report),
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
     }
@@ -98,13 +114,11 @@ def emit_report_ready_event(*, team_id: int, report_id: str, is_safety_suppresse
 
     `is_safety_suppressed` comes from the receivers module, which imports this one.
     """
-    report = SignalReport.objects.select_related("team").filter(team_id=team_id, id=report_id).first()
+    report = SignalReport.objects.using(_WRITER).select_related("team").filter(team_id=team_id, id=report_id).first()
     if report is None or report.status != SignalReport.Status.READY:
-        # A later transaction moved the report on before this one's commit hook ran.
         return
     if not report_ready_event_enabled(report.team):
         return
-    # The safety judge marked this report's text as attacker-influenced, so it must not leave PostHog.
     if is_safety_suppressed(report_id, team_id):
         return
     produce_internal_event(

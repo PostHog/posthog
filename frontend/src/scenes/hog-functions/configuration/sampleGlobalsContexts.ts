@@ -88,8 +88,7 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             },
         },
     }),
-    // Matches the properties of a real `$signals_report_ready` event. The ids are placeholders, so a test
-    // delivery cannot be mistaken for a real report.
+    // Placeholder ids, so a test delivery cannot be mistaken for a real report.
     'signals-reports': async (exampleGlobals) => {
         const reportId = '00000000-0000-0000-0000-000000000000'
         const reportUrl = `${exampleGlobals.project.url}/inbox/reports/${reportId}`
