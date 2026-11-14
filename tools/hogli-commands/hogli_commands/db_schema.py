@@ -570,8 +570,36 @@ def download_latest_compatible_schema(
     return artifact
 
 
+def _database_exists(target_db: str) -> bool:
+    result = subprocess.run(
+        [
+            *DOCKER_COMPOSE,
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-qAt",
+            "-U",
+            "posthog",
+            "postgres",
+            "-c",
+            f"SELECT 1 FROM pg_database WHERE datname = '{target_db}'",
+        ],
+        cwd=REPO_ROOT,
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SchemaRestoreError(result.stderr.strip() or f"failed to look up database {target_db}")
+    return result.stdout.strip() == "1"
+
+
 def is_database_empty(target_db: str) -> bool:
     target_db = _validate_db_identifier(target_db)
+    if not _database_exists(target_db):
+        return True
     query = """
         SELECT COUNT(*)
         FROM pg_catalog.pg_class c

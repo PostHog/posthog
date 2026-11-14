@@ -4,12 +4,18 @@ import sys
 import atexit
 import warnings
 import contextlib
+import subprocess
 from collections.abc import Generator, Iterable, Iterator
 from functools import update_wrapper
 from pathlib import Path
 
 import pytest
 import time_machine
+
+from django.conf import settings
+from django.db import connections
+
+from pytest_django import DjangoDbBlocker
 
 from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.junit import set_junit_report_location
@@ -356,6 +362,56 @@ def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.E
             sys.stderr.flush()
         os._exit(0)
     return exit_code
+
+
+@pytest.fixture(scope="session")
+def django_db_modify_db_settings(
+    django_db_modify_db_settings: None,
+    django_db_keepdb: bool,
+    django_db_createdb: bool,
+    django_db_use_migrations: bool,
+    django_db_blocker: DjangoDbBlocker,
+    pytestconfig: pytest.Config,
+) -> None:
+    # CI restores the schema before pytest starts, and parallel workers would race on the one download path.
+    if os.environ.get("CI") or int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1")) > 1:
+        return
+    if not django_db_keepdb or django_db_createdb or not django_db_use_migrations:
+        return
+    database = settings.DATABASES["default"]
+    test_db = database.get("TEST", {}).get("NAME") or f"test_{database['NAME']}"
+    try:
+        with django_db_blocker.unblock(), connections["default"].cursor() as cursor:
+            cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", [test_db])
+            if cursor.fetchone() is not None:
+                return
+        restore = subprocess.run(
+            [str(Path(__file__).parent / "bin" / "hogli"), "db:restore-schema-if-fresh", "--target-db", test_db],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            # Direnv sets this from .envrc; without it, compose looks for the db service under the worktree's name.
+            env={"COMPOSE_PROJECT_NAME": "posthog", **os.environ},
+        )
+    except Exception as exc:
+        _report_outside_capture(pytestconfig, f"Schema restore skipped; running every migration instead: {exc}")
+        return
+    restored = f"Restored {test_db} from"
+    outcome = next(
+        (
+            line
+            for line in reversed(f"{restore.stdout}\n{restore.stderr}".splitlines())
+            if restored in line or "skipped" in line
+        ),
+        f"Schema restore exited with {restore.returncode}; running every migration instead",
+    )
+    _report_outside_capture(pytestconfig, outcome)
+
+
+def _report_outside_capture(config: pytest.Config, message: str) -> None:
+    capture = config.pluginmanager.getplugin("capturemanager")
+    with capture.global_and_fixture_disabled() if capture else contextlib.nullcontext():
+        sys.stderr.write(f"\n{message}\n")
 
 
 @pytest.fixture(autouse=True)

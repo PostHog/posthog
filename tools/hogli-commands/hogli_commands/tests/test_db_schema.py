@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import threading
+import subprocess
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -315,6 +316,29 @@ def test_restore_schema_if_fresh_skips_when_db_populated_after_download(
     )
 
     assert db_schema.restore_schema_if_fresh(target_db="posthog", mode="auto") is False
+
+
+@pytest.mark.parametrize(
+    "exists,relation_count,expected",
+    [
+        ("", None, True),
+        ("1", "0", True),
+        ("1", "12", False),
+    ],
+)
+def test_is_database_empty_counts_a_missing_database_as_empty(
+    exists: str, relation_count: str | None, expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_psql(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "pg_database" in command[-1]:
+            return subprocess.CompletedProcess(command, 0, stdout=f"{exists}\n", stderr="")
+        if relation_count is None:
+            return subprocess.CompletedProcess(command, 2, stdout="", stderr='database "test_posthog" does not exist')
+        return subprocess.CompletedProcess(command, 0, stdout=f"{relation_count}\n", stderr="")
+
+    monkeypatch.setattr(db_schema.subprocess, "run", fake_psql)
+
+    assert db_schema.is_database_empty("test_posthog") is expected
 
 
 def test_run_psql_with_gzip_input_uses_transactional_error_stopping(

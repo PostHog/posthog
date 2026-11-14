@@ -382,6 +382,10 @@ To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DE
 
 Plain `pytest` works the same way. Backend tests need Postgres. The test ClickHouse database is created when a test first uses ClickHouse, so tests that never query ClickHouse also run while ClickHouse is down. A test that does query it fails with an error that says how to start it.
 
+When the test database does not exist yet, such as on a new dev box, the first test run restores master CI's migrated schema in seconds instead of replaying every migration.
+The restore needs a GitHub login (`gh auth login` or `GH_TOKEN`). Without one, or with `POSTHOG_SCHEMA_RESTORE_IN_DEV=off`, pytest migrates from scratch, which takes over 10 minutes.
+To restore the schema by hand, for example after a branch switch broke the test database, run `hogli db:prime-test-db`.
+
 You can also run tests for all files changed on the current branch:
 
 ```bash
