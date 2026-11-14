@@ -1,9 +1,12 @@
 import re
 import json
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 import unittest.mock
 from posthog.test.base import APIBaseTest
 
@@ -14,6 +17,7 @@ from django.utils import timezone
 
 import jwt
 import requests
+import responses
 from parameterized import parameterized
 from rest_framework import status
 
@@ -531,10 +535,68 @@ class TestProcessDueSchedules(APIBaseTest):
         assert schedule.next_run_at is None
 
 
+class FakeCdpScheduledRuns:
+    URL = f"{CDP_API_URL}/api/hog_flows/scheduled_invocations"
+
+    UNCLAIMED = datetime(2020, 1, 1, tzinfo=UTC)
+    BATCH_HANDOFF_URL = re.compile(
+        rf"{re.escape(CDP_API_URL)}/api/projects/\d+/hog_flows/[^/]+/batch_invocations/[^/]+"
+    )
+
+    def __init__(self) -> None:
+        self.requests: list[list[dict[str, Any]]] = []
+        self.schedules_unclaimed_at_request: list[int] = []
+        self.runs_received_at_batch_handoff: list[int] = []
+        self.outcome_by_hog_flow: dict[str, str] = {}
+        self.status_code = 200
+
+    @contextmanager
+    def installed(self) -> Iterator["FakeCdpScheduledRuns"]:
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            http.add_callback(responses.POST, self.URL, callback=self._answer)
+            http.add_callback(responses.POST, self.BATCH_HANDOFF_URL, callback=self._accept_batch_handoff)
+            yield self
+
+    def _accept_batch_handoff(self, request: Any) -> tuple[int, dict[str, str], str]:
+        self.runs_received_at_batch_handoff.append(len(self.received_runs))
+        return 200, {}, "{}"
+
+    @staticmethod
+    def _token_team_ids(authorization: str) -> set[int]:
+        try:
+            claims = jwt.decode(
+                authorization.removeprefix("Bearer "),
+                settings.WORKFLOWS_CANCEL_JWT_SECRETS[0],
+                audience="posthog:workflows:scheduled_runs",
+                algorithms=["HS256"],
+            )
+        except jwt.InvalidTokenError:
+            return set()
+        return set(claims["team_ids"])
+
+    @property
+    def received_runs(self) -> list[dict[str, Any]]:
+        return [run for request in self.requests for run in request]
+
+    def _answer(self, request: Any) -> tuple[int, dict[str, str], str]:
+        if self.status_code != 200:
+            return self.status_code, {}, json.dumps({"error": ["Internal error"]})
+        runs = json.loads(request.body)["runs"]
+        if not {run["team_id"] for run in runs} <= self._token_team_ids(request.headers.get("Authorization", "")):
+            return 401, {}, json.dumps({"error": "Unauthorized: Invalid scheduled runs token"})
+        self.requests.append(runs)
+        self.schedules_unclaimed_at_request.append(HogFlowSchedule.objects.filter(next_run_at=self.UNCLAIMED).count())
+        results = [{"status": self.outcome_by_hog_flow.get(run["hog_flow_id"], "queued")} for run in runs]
+        return 200, {}, json.dumps({"results": results})
+
+
 @override_settings(INTERNAL_API_SECRET="test-secret")
-@unittest.mock.patch("products.workflows.backend.services.hog_flow_schedules.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
+
+    def setUp(self):
+        super().setUp()
+        self.cdp = self.enterContext(FakeCdpScheduledRuns().installed())
 
     def _create_workflow_with_schedule(self, next_run_at=None, rrule="FREQ=HOURLY;INTERVAL=1"):
         hog_flow = HogFlow.objects.create(
@@ -561,21 +623,78 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             self.INTERNAL_URL, content_type="application/json", headers={"x-internal-api-secret": "test-secret"}
         )
 
-    def test_due_schedule_trigger_dispatches_scheduled_invocation(self, mock_invocation):
+    def test_due_schedule_trigger_dispatches_scheduled_invocation(self):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
         response = self._post()
         assert response.status_code == 200
         assert str(schedule.id) in response.json()["processed"]
+        assert self.cdp.received_runs == [
+            {"team_id": self.team.id, "hog_flow_id": str(hog_flow.id), "variables": {"greeting": "Hello"}}
+        ]
 
-        mock_invocation.assert_called_once()
-        call_kwargs = mock_invocation.call_args.kwargs
-        assert call_kwargs["team_id"] == self.team.id
-        assert call_kwargs["hog_flow_id"] == str(hog_flow.id)
-        assert call_kwargs["variables"] == {"greeting": "Hello"}
+    @parameterized.expand(
+        [
+            ("by_run_count", "SCHEDULED_RUNS_PER_DISPATCH", 2, [2, 1]),
+            ("by_variable_bytes", "SCHEDULED_RUN_BYTES_PER_DISPATCH", 30, [1, 1, 1]),
+        ]
+    )
+    def test_due_schedule_triggers_share_one_cdp_request_per_chunk(self, _name, limit, value, request_sizes):
+        schedules = [
+            self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))[1] for _ in range(3)
+        ]
 
-    def test_schedule_trigger_advances_next_run_at(self, mock_invocation):
+        with unittest.mock.patch(f"products.workflows.backend.services.hog_flow_schedules.{limit}", value):
+            response = self._post()
+
+        assert response.status_code == 200
+        assert sorted(response.json()["processed"]) == sorted(str(schedule.id) for schedule in schedules)
+        assert [len(request) for request in self.cdp.requests] == request_sizes
+
+    def test_full_chunks_reach_the_cdp_api_before_the_poll_ends(self):
+        for _ in range(3):
+            self._create_workflow_with_schedule(next_run_at=FakeCdpScheduledRuns.UNCLAIMED)
+
+        with unittest.mock.patch(
+            "products.workflows.backend.services.hog_flow_schedules.SCHEDULED_RUNS_PER_DISPATCH", 2
+        ):
+            self._post()
+
+        assert [len(request) for request in self.cdp.requests] == [2, 1]
+        assert self.cdp.schedules_unclaimed_at_request == [1, 0]
+
+    def test_claimed_runs_reach_the_cdp_api_before_a_batch_job_hands_off(self):
+        self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        batch_flow = HogFlow.objects.create(
+            team=self.team, name="Batch Workflow", status="active", trigger=BATCH_TRIGGER, actions=[]
+        )
+        HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow=batch_flow,
+            rrule="FREQ=HOURLY;INTERVAL=1",
+            starts_at=datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC),
+            timezone="UTC",
+            status="active",
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        response = self._post()
+
+        assert len(response.json()["processed"]) == 2
+        assert self.cdp.runs_received_at_batch_handoff == [1]
+
+    def test_schedule_trigger_without_the_signing_key_fails_and_stays_due(self):
+        _, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+
+        with override_settings(WORKFLOWS_CANCEL_JWT_SECRETS=[]):
+            response = self._post()
+
+        assert response.json()["failed"] == [str(schedule.id)]
+        schedule.refresh_from_db()
+        assert schedule.next_run_at == datetime(2020, 1, 1, tzinfo=UTC)
+        assert self.cdp.requests == []
+
+    def test_schedule_trigger_advances_next_run_at(self):
         _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
@@ -586,8 +705,8 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         assert schedule.next_run_at is not None
         assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
 
-    def test_schedule_trigger_uses_variable_overrides(self, mock_invocation):
-        hog_flow, schedule = self._create_workflow_with_schedule(
+    def test_schedule_trigger_uses_variable_overrides(self):
+        _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
         schedule.variables = {"greeting": "Hi there", "extra": "value"}
@@ -595,13 +714,9 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
         response = self._post()
         assert response.status_code == 200
+        assert [run["variables"] for run in self.cdp.received_runs] == [{"greeting": "Hi there", "extra": "value"}]
 
-        mock_invocation.assert_called_once()
-        variables = mock_invocation.call_args.kwargs["variables"]
-        assert variables["greeting"] == "Hi there"
-        assert variables["extra"] == "value"
-
-    def test_inactive_schedule_trigger_workflow_clears_next_run_at(self, mock_invocation):
+    def test_inactive_schedule_trigger_workflow_clears_next_run_at(self):
         hog_flow, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
@@ -614,9 +729,9 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
         schedule.refresh_from_db()
         assert schedule.next_run_at is None
-        mock_invocation.assert_not_called()
+        assert self.cdp.requests == []
 
-    def test_uninitialized_schedule_trigger_gets_next_run_at(self, mock_invocation):
+    def test_uninitialized_schedule_trigger_gets_next_run_at(self):
         _, schedule = self._create_workflow_with_schedule(next_run_at=None)
         response = self._post()
         assert response.status_code == 200
@@ -627,25 +742,62 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("engine_error_fails", 500, {"error": "Internal error"}, "failed"),
-            ("over_quota_skips_the_run", 429, {"error": "The project is over its workflow quota"}, "processed"),
+            ("over_quota_skips_the_run", "quota_limited", "processed", "processed"),
+            ("refused_run_fails", "workflow_not_found", "failed", "processed"),
         ]
     )
-    def test_cdp_refusal_outcome(self, mock_invocation, _name, status_code, body, outcome):
-        mock_invocation.return_value = _worker_response(status_code, body)
+    def test_cdp_refusal_outcome(self, _name, run_outcome, outcome, neighbour_outcome):
+        _, neighbour = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        hog_flow, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        self.cdp.outcome_by_hog_flow[str(hog_flow.id)] = run_outcome
 
-        _, schedule = self._create_workflow_with_schedule(
-            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
-        )
         response = self._post()
         assert response.status_code == 200
-        assert {key: response.json()[key] for key in ("processed", "failed")} == {
-            "processed": [str(schedule.id)] if outcome == "processed" else [],
-            "failed": [str(schedule.id)] if outcome == "failed" else [],
+        expected: dict[str, list[str]] = {"processed": [], "failed": []}
+        expected[outcome].append(str(schedule.id))
+        expected[neighbour_outcome].append(str(neighbour.id))
+        assert {key: sorted(response.json()[key]) for key in expected} == {
+            key: sorted(ids) for key, ids in expected.items()
         }
-        schedule.refresh_from_db()
-        assert schedule.next_run_at is not None
-        assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+        for due in (neighbour, schedule):
+            due.refresh_from_db()
+            assert due.next_run_at is not None
+            assert due.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("cdp_api_without_the_batch_route", 404, True),
+            ("batch_over_the_route_cap", 400, True),
+            ("token_from_another_signing_key", 401, True),
+            ("cdp_api_without_its_signing_key", 503, True),
+            ("queue_insert_may_have_committed", 500, False),
+            ("run_over_the_body_limit", 413, False),
+            ("last_occurrence_of_the_schedule", 404, True, True),
+        ]
+    )
+    def test_refused_batch_keeps_its_schedules_due_for_the_next_poll(
+        self, _name, status_code, kept_due, last_occurrence=False
+    ):
+        latest_occurrence = datetime(2026, 1, 5, 12, tzinfo=UTC)
+        rrule = "FREQ=HOURLY;INTERVAL=1"
+        if last_occurrence:
+            rrule += f";UNTIL={latest_occurrence:%Y%m%dT%H%M%SZ}"
+        with time_machine.travel(latest_occurrence + timedelta(minutes=59), tick=False):
+            schedules = [
+                self._create_workflow_with_schedule(next_run_at=latest_occurrence, rrule=rrule)[1] for _ in range(2)
+            ]
+            schedule_ids = sorted(str(schedule.id) for schedule in schedules)
+            self.cdp.status_code = status_code
+
+            refused = self._post().json()
+            self.cdp.status_code = 200
+            retried = self._post().json()
+
+        assert sorted(refused["failed"]) == schedule_ids
+        assert sorted(retried["processed"]) == (schedule_ids if kept_due else [])
+        assert sorted(run["hog_flow_id"] for run in self.cdp.received_runs) == (
+            sorted(str(schedule.hog_flow_id) for schedule in schedules) if kept_due else []
+        )
 
 
 def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Response:

@@ -1,7 +1,7 @@
 import re
 import json
 from datetime import timedelta
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import requests
 import structlog
@@ -140,6 +140,23 @@ def create_hog_flow_scheduled_invocation(
         json={"variables": variables},
         headers=get_internal_api_headers(),
         timeout=10,
+    )
+
+
+WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def create_hog_flow_scheduled_invocations(runs: list[dict[str, Any]]) -> requests.Response:
+    token = WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.mint({"team_ids": sorted({run["team_id"] for run in runs})})
+    return internal_requests.post(
+        CDP_API_URL + "/api/hog_flows/scheduled_invocations",
+        json={"runs": runs},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
     )
 
 

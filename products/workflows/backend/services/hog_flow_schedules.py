@@ -1,15 +1,20 @@
+import json
 from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 import structlog
 
-from posthog.plugins.plugin_server_api import create_hog_flow_scheduled_invocation
+from posthog.dataclasses import frozen
+from posthog.plugins.plugin_server_api import (
+    WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE,
+    create_hog_flow_scheduled_invocations,
+)
 
 from products.workflows.backend.facade.contracts import ProcessedSchedules, WorkflowSchedule, WorkflowScheduleNotFound
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
@@ -21,6 +26,19 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 logger = structlog.get_logger(__name__)
 
 WRITABLE_SCHEDULE_FIELDS = frozenset({"rrule", "starts_at", "timezone", "variables"})
+SCHEDULED_RUNS_PER_DISPATCH = 100
+SCHEDULED_RUN_BYTES_PER_DISPATCH = 4 * 1024 * 1024
+REFUSED_BEFORE_QUEUEING = frozenset({400, 401, 404, 503})
+
+
+@frozen
+class ScheduledRun:
+    schedule_id: str
+    team_id: int
+    hog_flow_id: str
+    variables: dict[str, Any]
+    claimed_run_at: datetime | None
+    next_run_at: datetime | None
 
 
 def _to_schedule(schedule: HogFlowSchedule) -> WorkflowSchedule:
@@ -127,11 +145,89 @@ def _resolve_variables(hog_flow: HogFlow, schedule: HogFlowSchedule) -> dict[str
     return variables
 
 
+class _ScheduledRunDispatch:
+    def __init__(self) -> None:
+        self.dispatched: list[str] = []
+        self.failed: list[str] = []
+        self._pending: list[ScheduledRun] = []
+        self._pending_bytes = 0
+
+    def add(self, run: ScheduledRun) -> None:
+        run_bytes = len(json.dumps(run.variables))
+        if self._pending_bytes + run_bytes > SCHEDULED_RUN_BYTES_PER_DISPATCH:
+            self.flush()
+        self._pending.append(run)
+        self._pending_bytes += run_bytes
+        if len(self._pending) == SCHEDULED_RUNS_PER_DISPATCH:
+            self.flush()
+
+    def flush(self) -> None:
+        chunk, self._pending, self._pending_bytes = self._pending, [], 0
+        if not chunk:
+            return
+        try:
+            response = create_hog_flow_scheduled_invocations(
+                [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk]
+            )
+            if response.status_code in REFUSED_BEFORE_QUEUEING:
+                _return_to_due(chunk)
+            response.raise_for_status()
+            outcomes = list(zip(chunk, [result["status"] for result in response.json()["results"]], strict=True))
+        except Exception:
+            logger.exception("Error dispatching scheduled runs", schedule_ids=[run.schedule_id for run in chunk])
+            self.failed.extend(run.schedule_id for run in chunk)
+            return
+        for run, outcome in outcomes:
+            if outcome == "queued":
+                self.dispatched.append(run.schedule_id)
+            elif outcome == "quota_limited":
+                logger.info(
+                    "Skipped a scheduled run over the workflow quota",
+                    schedule_id=run.schedule_id,
+                    team_id=run.team_id,
+                    hog_flow_id=run.hog_flow_id,
+                )
+                self.dispatched.append(run.schedule_id)
+            else:
+                logger.warning("CDP refused a scheduled run", schedule_id=run.schedule_id, outcome=outcome)
+                self.failed.append(run.schedule_id)
+
+
+def _return_to_due(chunk: list[ScheduledRun]) -> None:
+    for run in chunk:
+        returned = HogFlowSchedule.objects.filter(
+            id=run.schedule_id,
+            team_id=run.team_id,
+            status=HogFlowScheduleStatus.ACTIVE if run.next_run_at else HogFlowScheduleStatus.COMPLETED,
+            next_run_at=run.next_run_at,
+        ).update(status=HogFlowScheduleStatus.ACTIVE, next_run_at=run.claimed_run_at, updated_at=timezone.now())
+        if not returned:
+            logger.warning(
+                "A refused scheduled run could not return to due, its schedule moved on",
+                schedule_id=run.schedule_id,
+                claimed_run_at=run.claimed_run_at,
+            )
+
+
+def _scheduled_run(schedule: HogFlowSchedule, hog_flow: HogFlow, claimed_run_at: datetime | None) -> ScheduledRun:
+    if not WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.enabled():
+        raise ImproperlyConfigured("Set WORKFLOWS_CANCEL_JWT_SECRET on the web tier to send scheduled runs")
+    return ScheduledRun(
+        schedule_id=str(schedule.id),
+        team_id=schedule.team_id,
+        hog_flow_id=str(hog_flow.id),
+        variables=_resolve_variables(hog_flow, schedule),
+        claimed_run_at=claimed_run_at,
+        next_run_at=schedule.next_run_at,
+    )
+
+
 def process_due_schedules() -> ProcessedSchedules:
     """Execute due schedules and initialize next_run_at for new ones, across all teams."""
     processed: list[str] = []
     initialized: list[str] = []
     failed: list[str] = []
+    dispatch = _ScheduledRunDispatch()
 
     # 1. Process due schedules (next_run_at <= now)
     # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
@@ -144,7 +240,7 @@ def process_due_schedules() -> ProcessedSchedules:
     for schedule_id in due_schedule_ids:
         try:
             batch_job_params: dict | None = None
-            schedule_invocation_params: dict | None = None
+            scheduled_run: ScheduledRun | None = None
             with transaction.atomic():
                 # Per-schedule transaction: lock only one row at a time to minimize
                 # lock duration and allow concurrent replicas via skip_locked.
@@ -168,7 +264,8 @@ def process_due_schedules() -> ProcessedSchedules:
                     schedule.save(update_fields=["next_run_at", "updated_at"])
                     continue
 
-                _advance_next_run(schedule, after=schedule.next_run_at)
+                claimed_run_at = schedule.next_run_at
+                _advance_next_run(schedule, after=claimed_run_at)
 
                 if trigger_type == "batch":
                     batch_job_params = {
@@ -178,14 +275,12 @@ def process_due_schedules() -> ProcessedSchedules:
                         "filters": (hog_flow.trigger or {}).get("filters", {}),
                     }
                 else:
-                    schedule_invocation_params = {
-                        "team_id": schedule.team_id,
-                        "hog_flow_id": str(hog_flow.id),
-                        "variables": _resolve_variables(hog_flow, schedule),
-                    }
+                    scheduled_run = _scheduled_run(schedule, hog_flow, claimed_run_at)
 
-            # Dispatch outside the transaction so HTTP calls don't hold the row lock.
+            if scheduled_run:
+                dispatch.add(scheduled_run)
             if batch_job_params:
+                dispatch.flush()
                 dispatch_error: Exception | None = None
                 with transaction.atomic():
                     # Re-read the status under the flow's lock, so a stop that committed after
@@ -208,21 +303,13 @@ def process_due_schedules() -> ProcessedSchedules:
                     raise dispatch_error
                 if still_active:
                     processed.append(str(schedule_id))
-            elif schedule_invocation_params:
-                response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
-                if response.status_code == 429:
-                    logger.info(
-                        "Skipped a scheduled run over the workflow quota",
-                        schedule_id=str(schedule_id),
-                        team_id=schedule_invocation_params["team_id"],
-                        hog_flow_id=schedule_invocation_params["hog_flow_id"],
-                    )
-                else:
-                    response.raise_for_status()
-                processed.append(str(schedule_id))
         except Exception:
             logger.exception("Error processing schedule", schedule_id=str(schedule_id))
             failed.append(str(schedule_id))
+
+    dispatch.flush()
+    processed.extend(dispatch.dispatched)
+    failed.extend(dispatch.failed)
 
     # 2. Initialize next_run_at for schedules that need it
     # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
