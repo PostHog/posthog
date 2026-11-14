@@ -13,6 +13,7 @@ import {
 } from "@posthog/quill";
 import type { SuggestedReviewer } from "@posthog/shared/types";
 import { ReviewerAvatar } from "@posthog/ui/features/inbox/components/ReviewerAvatar";
+import { AgentTextMarkdown } from "@posthog/ui/features/inbox/components/utils/AgentTextMarkdown";
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
 import { useState } from "react";
@@ -183,9 +184,10 @@ function SuggestedReviewerReasonGroup({
             <ReviewerSourceBadge key={sourceLabel} label={sourceLabel} />
           ))}
         </div>
-        <p className="m-0 min-w-0 break-words text-muted-foreground text-xs leading-snug">
-          {reason}
-        </p>
+        <AgentTextMarkdown
+          content={reason}
+          className="text-muted-foreground text-xs leading-snug"
+        />
       </div>
       <div className="mt-1 flex flex-col pl-3">
         {reviewers.map((reviewer) => (

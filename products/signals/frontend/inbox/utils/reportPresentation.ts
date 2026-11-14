@@ -7,6 +7,7 @@ const MAX_MARKDOWN_INPUT_LENGTH = 1_000
 const SENTENCE_END = /([.!?])[*_`]*(?=\s|$)/
 const EDGE_EMPHASIS = /^[*_`\s]+|[*_`\s]+$/g
 const INLINE_MARKDOWN_LINK = /!?\[([^\]]+)]\((?:[^()]|\([^()]*\))*\)/g
+const LEADING_HEADING = /^#{1,6}\s+/
 const CONVENTIONAL_COMMIT_TITLE = /^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)$/
 
 /** Compact single-sentence headline derived from a report summary, for list rendering. */
@@ -20,6 +21,7 @@ export function deriveHeadline(summary: string | null | undefined): string | nul
     }
     const firstLine = (trimmed.split(/\r?\n/, 1)[0] ?? '')
         .slice(0, MAX_MARKDOWN_INPUT_LENGTH)
+        .replace(LEADING_HEADING, '')
         .replace(INLINE_MARKDOWN_LINK, '$1')
     let headline = firstLine
     const sentenceMatch = SENTENCE_END.exec(firstLine)

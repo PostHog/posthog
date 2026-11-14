@@ -4,6 +4,9 @@ import type {
 } from "@posthog/shared/types";
 
 const MAX_HEADLINE_LENGTH = 140;
+// Bounds the input of the link pattern below, so a long first line cannot make
+// it backtrack across the whole summary.
+const MAX_MARKDOWN_INPUT_LENGTH = 1_000;
 
 // Matches the first sentence terminator (. ! ?) optionally followed by closing
 // Markdown emphasis markers (* _ `), before whitespace or end of input. Capture
@@ -13,10 +16,15 @@ const SENTENCE_END = /([.!?])[*_`]*(?=\s|$)/;
 
 const EDGE_EMPHASIS = /^[*_`\s]+|[*_`\s]+$/g;
 
+const INLINE_MARKDOWN_LINK = /!?\[([^\]]+)]\((?:[^()]|\([^()]*\))*\)/g;
+
+const LEADING_HEADING = /^#{1,6}\s+/;
+
 /**
  * Compact single-sentence headline derived from a report summary, for list
  * rendering. Cuts at the first newline, then at the first sentence terminator,
- * strips edge Markdown emphasis, and truncates to ~140 chars with an ellipsis.
+ * keeps only the label of each Markdown link, strips a leading heading marker
+ * and edge Markdown emphasis, and truncates to ~140 chars with an ellipsis.
  *
  * Returns null for empty / non-string input so callers can fall back to the
  * full summary or a placeholder.
@@ -28,7 +36,10 @@ export function deriveHeadline(
   const trimmed = summary.trim();
   if (!trimmed) return null;
 
-  const firstLine = trimmed.split(/\r?\n/, 1)[0] ?? "";
+  const firstLine = (trimmed.split(/\r?\n/, 1)[0] ?? "")
+    .slice(0, MAX_MARKDOWN_INPUT_LENGTH)
+    .replace(LEADING_HEADING, "")
+    .replace(INLINE_MARKDOWN_LINK, "$1");
 
   let headline = firstLine;
   const sentenceMatch = SENTENCE_END.exec(firstLine);

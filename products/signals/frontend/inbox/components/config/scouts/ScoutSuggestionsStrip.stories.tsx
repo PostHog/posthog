@@ -103,8 +103,8 @@ export const Stale: Story = {
     ],
 }
 
-// One long motivation above two short ones: the check that the motivation clamps to two lines and
-// the actions stay in line on every row.
+// One long motivation above two short ones: the check that the motivation clamps to two lines, its
+// cited link renders as a link, and the actions stay in line on every row.
 export const UnevenMotivations: Story = {
     decorators: [
         mswDecorator({
@@ -116,7 +116,7 @@ export const UnevenMotivations: Story = {
                             {
                                 ...mockScoutSuggestions[0],
                                 why_here:
-                                    'Checkout is the slowest page in this project on every Core Web Vital, and it has been getting slower for three weeks. Nothing in your fleet reads web vitals today, so a regression here only shows up once someone opens web analytics and looks.',
+                                    'Checkout is the slowest page in this project on every Core Web Vital, and it has been getting slower for three weeks. Nothing in your fleet reads web vitals today, so a regression here only shows up once someone opens [web analytics](https://example.com/web) and looks.',
                             },
                             ...mockScoutSuggestions.slice(1),
                         ],
