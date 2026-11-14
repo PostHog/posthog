@@ -348,6 +348,37 @@ describe('load', () => {
             'profile.backlog.jobs: name at least one queue',
         ],
         [
+            'a load target that is not a positive rate',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { email: 0 } }, tolerance: 0.1 } },
+            'profile.load.targets.claimsPerSecond.email: ',
+        ],
+        [
+            'a load block without a target',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: {} }, tolerance: 0.1 } },
+            'profile.load.targets: name at least one target',
+        ],
+        [
+            'a load target on a queue Cyclotron does not serve',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { sms: 4 } }, tolerance: 0.1 } },
+            'profile.load.targets.claimsPerSecond.sms: ',
+        ],
+        [
+            'a new jobs target that is not a positive rate',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: -1 }, tolerance: 0.1 } },
+            'profile.load.targets.newJobsPerSecond: ',
+        ],
+        [
+            'a load tolerance over 1',
+            card,
+            { ...profile, load: { ...{ targets: { claimsPerSecond: { email: 4 } }, tolerance: 0.1 }, tolerance: 1.5 } },
+            'profile.load.tolerance: ',
+        ],
+        ['a host CPU ceiling over 1', card, { ...profile, host: { cpuCeiling: 1.2 } }, 'profile.host.cpuCeiling: '],
+        [
             'a profile that uses a YAML alias',
             card,
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',

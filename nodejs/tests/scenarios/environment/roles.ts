@@ -24,6 +24,8 @@ export const PERSONHOG_ADDR = '127.0.0.1:50052'
 
 export const SES_RATE_LIMITER_VALKEY = { host: '127.0.0.1', port: 6390 }
 
+export const SCENARIO_SESSION_PREFIX = 'scenario-'
+
 export type Secrets = { encryptionSaltKeys: string; transactionalEmailJwtSecret: string }
 
 export type Replicas = Profile['replicas']
@@ -89,7 +91,7 @@ export function roleSpecs(
             WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
             PLUGIN_SERVER_MODE: id.role,
             HTTP_SERVER_PORT: String(portOf(id)),
-            PGAPPNAME: `scenario-${id.role}`,
+            PGAPPNAME: `${SCENARIO_SESSION_PREFIX}${id.role}`,
             [MARKER_KEY]: stateDir,
         },
     }))

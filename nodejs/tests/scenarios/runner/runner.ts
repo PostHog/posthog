@@ -36,13 +36,25 @@ import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
-import { Measurement, Sampled, Sampler, measure, startSampler } from '../judge/measurements'
-import { createCyclotronProbe } from '../probe/cyclotron-probe'
+import {
+    DriveWindow,
+    Measurement,
+    Probed,
+    QueueSample,
+    Sampled,
+    Sampler,
+    baselineOf,
+    measure,
+    startSampler,
+} from '../judge/measurements'
+import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
+import { Sampling, sampleEvery } from '../probe/every'
+import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
-import { Status, statusOf } from './status'
+import { Admission, Status, admissionsOf, statusOf } from './status'
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
 
@@ -61,6 +73,7 @@ export type RunResult = {
     convergence?: Convergence
     invariants: InvariantResult[]
     measurements: Measurement[]
+    admissions: Admission[]
     timeline: ValveTimelineEntry[]
     startedAt: string
     endedAt: string
@@ -77,8 +90,37 @@ const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
 const SEED_STATEMENT_TIMEOUT_MS = 5000
 const SEED_WITHIN_MS = 60_000
+const WRITER_PROBE_EVERY_MS = 1000
+const QUEUE_PROBE_EVERY_MS = 5000
+const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
 
-type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements'>
+type Outcome = Pick<
+    RunResult,
+    'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements' | 'admissions'
+>
+
+type Probes = { stop(): Promise<Probed> }
+
+async function startProbes(cyclotronUrl: string, probe: CyclotronProbe, teams: number[]): Promise<Probes> {
+    const writerProbe: WriterProbe = await createWriterProbe(cyclotronUrl)
+    const writer: Sampling<WriterSample> = sampleEvery(WRITER_PROBE_EVERY_MS, () => writerProbe.sample())
+    const queue: Sampling<QueueSample> = sampleEvery(QUEUE_PROBE_EVERY_MS, async () => {
+        const at = Date.now()
+        return probe.counts({ teams, queues: PROBED_QUEUES }).then(
+            (counts) => ({ at, ...counts }),
+            (error: unknown) => ({ at, error: messageOf(error) })
+        )
+    })
+    let stopping: Promise<Probed> | undefined
+    return {
+        stop: () =>
+            (stopping ??= (async () => {
+                const [writerSamples, queueSamples] = await Promise.all([writer.stop(), queue.stop()])
+                await writerProbe.end()
+                return { writer: writerSamples, queue: queueSamples }
+            })()),
+    }
+}
 
 function producerConfigOf(env: NodeJS.ProcessEnv): ProducerGlobalConfig {
     const settings = Object.entries(env).flatMap(([key, value]) =>
@@ -286,10 +328,19 @@ export function createRunner(
                 fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
             })
             const valves = createValves()
-            let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
+            let outcome: Outcome = {
+                status: 'invalid',
+                statusReason: 'not started',
+                invariants: [],
+                measurements: [],
+                admissions: [],
+            }
             let stopHealth: (() => Promise<string[]>) | undefined
             let sampler: Sampler | undefined
-            let sampled: Sampled = { samples: [], missed: [] }
+            let sampled: Sampled = { samples: [], missed: [], host: [] }
+            let probes: Probes | undefined
+            let probed: Probed = { writer: [], queue: [] }
+            let driven: DriveWindow | undefined
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -315,6 +366,8 @@ export function createRunner(
                 sampler = await startSampler(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
+                probes = await startProbes(cyclotronUrlOf(specs[0]), probe, seeded.teamIds)
+                const driveStartedAt = Date.now()
                 await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
                 const sesFeedback = await watchSesFeedback({
                     edgeUrl,
@@ -331,17 +384,26 @@ export function createRunner(
                     sesFeedback,
                     runId,
                 }).finally(() => windowOpen.abort())
+                const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
+                driven = driveWindow
                 await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                probed = await probes.stop()
                 sampled = await sampler.stop()
                 const down = await stopHealth()
                 const invariants = await judge.check(card.invariants, card.gates)
-                const measurements = measure(card.measure, {
+                const evidence = {
                     ...judge.evidence(),
                     ...sampled,
+                    ...probed,
                     sampledFrom: sampler.sampledFrom,
-                })
+                    drive: driveWindow,
+                    timeline: valves.timeline(),
+                }
+                const measurements = measure(card.measure, evidence)
+                const admissions = admissionsOf(profile, baselineOf(evidence))
                 const verdict = statusOf({
+                    admissions,
                     minOffered: card.drive.minOffered,
                     units,
                     down,
@@ -350,7 +412,7 @@ export function createRunner(
                     timeline: valves.timeline(),
                     exits: environment.exits().slice(exitsBefore),
                 })
-                outcome = { ...verdict, units, convergence, invariants, measurements }
+                outcome = { ...verdict, units, convergence, invariants, measurements, admissions }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
                 }
@@ -363,6 +425,7 @@ export function createRunner(
             } finally {
                 await valves.releaseAll()
                 await stopHealth?.()
+                probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
                 try {
                     await producer?.disconnect()
@@ -397,6 +460,7 @@ export function createRunner(
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
+                writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
                 writeJson(evidenceDir, 'scorecard.json', {
                     ...verdict,
                     event: scorecardOf(verdict, loaded, provenance),

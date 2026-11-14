@@ -663,8 +663,17 @@ describe('runner through seed, drive and judge', () => {
             replicas = {},
             parks = 0,
             invariants = SMOKE.card.invariants,
+            measures = SMOKE.card.measure,
+            load: loadTargets,
             backlog,
-        }: { replicas?: Profile['replicas']; parks?: number; invariants?: Named[]; backlog?: Backlog } = {}
+        }: {
+            replicas?: Profile['replicas']
+            parks?: number
+            invariants?: Named[]
+            measures?: Named[]
+            load?: Profile['load']
+            backlog?: Backlog
+        } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
@@ -674,6 +683,7 @@ describe('runner through seed, drive and judge', () => {
                 ...SMOKE.card,
                 drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
                 invariants,
+                measure: measures,
                 valves,
                 convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
@@ -684,6 +694,7 @@ describe('runner through seed, drive and judge', () => {
                 name: SMOKE.profile.name,
                 traffic: { [traffic]: { ratePerSecond: 2, parks } },
                 replicas,
+                ...(loadTargets ? { load: loadTargets } : {}),
                 ...(backlog ? { backlog } : {}),
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
@@ -788,10 +799,11 @@ describe('runner through seed, drive and judge', () => {
     const run = async (
         delivering: Parameters<typeof environmentOf>[0],
         valves: ValveEntry[] = [],
-        traffic?: string
+        traffic?: string,
+        options: Parameters<typeof shortSmoke>[2] = {}
     ): Promise<RunResult> => {
         const result = await createRunner(environmentOf(delivering), env).run(
-            shortSmoke(valves, traffic),
+            shortSmoke(valves, traffic, options),
             NEVER_ABORTED
         )
         results.push(result)
@@ -1029,8 +1041,32 @@ describe('runner through seed, drive and judge', () => {
         for: '1s',
     }
 
-    it.each<[string, (role: Role) => RoleExit[], object]>([
-        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }],
+    it.each<[string, (role: Role) => RoleExit[], object, Parameters<typeof shortSmoke>[2]]>([
+        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }, {}],
+        [
+            'calls a run invalid whose valve left too short a baseline to admit its load, and measures the kill',
+            exitOfTheKill,
+            {
+                status: 'invalid',
+                statusReason: expect.stringMatching(
+                    /^the load admission failed: the baseline was too short to measure: /
+                ),
+                admissions: [
+                    {
+                        name: 'load',
+                        passed: false,
+                        reason: expect.stringMatching(
+                            /^the baseline was too short to measure: [0-9.]+s, under the 30s minimum$/
+                        ),
+                    },
+                ],
+                measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }],
+            },
+            {
+                measures: [{ name: 'pg_client_errors', params: {} }],
+                load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+            },
+        ],
         [
             'fails a run in which a role exits that no valve killed',
             () => [
@@ -1047,13 +1083,14 @@ describe('runner through seed, drive and judge', () => {
                 status: 'failed',
                 statusReason: 'cdp-cyclotron-worker-hogflow exited (code 1) without a valve causing it',
             },
+            {},
         ],
     ])(
         '%s, and keeps the valve timeline',
-        async (_story, exitsOfKill, verdict) => {
+        async (_story, exitsOfKill, verdict, options) => {
             killExits = exitsOfKill
 
-            const result = await run('all', [KILL_EMAIL_WORKER])
+            const result = await run('all', [{ ...KILL_EMAIL_WORKER, at: '1s', for: '500ms' }], undefined, options)
 
             expect(result).toMatchObject({
                 ...verdict,
@@ -1067,6 +1104,12 @@ describe('runner through seed, drive and judge', () => {
                 ],
             })
             expect(api.captured[0]?.properties.valve_timeline).toEqual(result.timeline)
+            expect(api.captured[0]?.properties.admissions).toEqual(result.admissions)
+            expect(evidenceOf(result, 'probes.json')).toEqual({
+                drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
+                writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
+                queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
+            })
         },
         30_000
     )

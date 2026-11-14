@@ -2,9 +2,23 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import { Registry, collectDefaultMetrics } from 'prom-client'
 
+import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
+import type { ValveTimelineEntry } from '../valves/valves'
 import type { JournalEntry } from './judge'
-import { MeasureEvidence, Measurement, MetricSample, MissedScrape, measure, startSampler } from './measurements'
+import {
+    HostSample,
+    MeasureEvidence,
+    Measurement,
+    MetricSample,
+    MissedScrape,
+    QueueSample,
+    baselineOf,
+    measure,
+    phasesOf,
+    sampleOf,
+    startSampler,
+} from './measurements'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const ROLE = 'cdp-cyclotron-worker-email'
@@ -17,6 +31,9 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     startedAt: FROM / 1000 + startedAtS,
     cpuSeconds,
     rssBytes,
+    processed: {},
+    pgClientErrors: 0,
+    consumerLoopErrors: 0,
 })
 
 const offered = (unitId: string, offeredAtMs: number): JournalEntry => ({
@@ -44,9 +61,62 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     fetchRetries: 3,
     samples: [],
     missed: [],
+    host: [],
+    writer: [],
+    queue: [],
     sampledFrom: FROM,
+    drive: { startedAt: FROM, endedAt: FROM + 60_000 },
+    timeline: [],
     ...partial,
 })
+
+const atS = (second: number): number => FROM + second * 1000
+const isoAt = (second: number): string => new Date(atS(second)).toISOString()
+
+const DRIVE = { startedAt: atS(0), endedAt: atS(1500) }
+const VALVE: ValveTimelineEntry = {
+    valve: 'role.kill',
+    target: ROLE,
+    requestedAt: isoAt(0),
+    intentAt: isoAt(700),
+    appliedAt: isoAt(700),
+    observedAt: isoAt(700),
+    releasedAt: isoAt(1100),
+}
+
+const everySecondOf = (fromS: number, toS: number, step = 1): number[] =>
+    Array.from({ length: Math.floor((toS - fromS) / step) + 1 }, (_, i) => fromS + i * step)
+
+type Attempt = boolean | 'skipped' | { failedAfterMs: number }
+
+const probedWriter = (failing: (second: number) => Attempt, toS = 1500): WriterSample[] =>
+    everySecondOf(0, toS).flatMap((second): WriterSample[] => {
+        const attempt = failing(second)
+        if (attempt === 'skipped') {
+            return []
+        }
+        const at = { at: atS(second), monoMs: second * 1000 }
+        return attempt === false
+            ? [{ ...at, latencyMs: 0, ok: true, inRecovery: false }]
+            : [{ ...at, latencyMs: attempt === true ? 0 : attempt.failedAfterMs, ok: false, sqlstate: '57P01' }]
+    })
+
+const QUIET = { due: 2, oldestDueSeconds: 1 }
+const BACKED_UP = { due: 50, oldestDueSeconds: 30 }
+
+type Read = typeof QUIET | 'failed' | 'missed'
+
+const probedQueue = (lag: (second: number) => Read): QueueSample[] =>
+    everySecondOf(0, 1500, 5).flatMap((second): QueueSample[] => {
+        const read = lag(second)
+        return read === 'missed'
+            ? []
+            : read === 'failed'
+              ? [{ at: atS(second), error: 'Postgres at db failed: timeout' }]
+              : [{ at: atS(second), running: 1, inserted: (second + 5) / 2, ...read }]
+    })
+
+const between = (fromS: number, toS: number) => (second: number) => second >= fromS && second <= toS
 
 describe('measurements', () => {
     const missedAt = (atS: number, replica = 0): MissedScrape => ({ role: ROLE, replica, at: FROM + atS * 1000 })
@@ -131,10 +201,12 @@ describe('measurements', () => {
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
         try {
-            const sampler = await startSampler([
-                { role: ROLE, replica: 0, metricsUrl: `http://127.0.0.1:${port}/_metrics` },
-            ])
-            const { samples } = await sampler.stop()
+            const procStat = ['cpu  100 0 50 800 50 0 0 0 40 0', 'cpu  400 20 130 1300 150 0 0 0 200 20']
+            const sampler = await startSampler(
+                [{ role: ROLE, replica: 0, metricsUrl: `http://127.0.0.1:${port}/_metrics` }],
+                { readHostStat: () => procStat.shift() ?? 'cpu  oops' }
+            )
+            const { samples, host } = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
             expect(samples.at(-1)).toEqual({
@@ -144,8 +216,15 @@ describe('measurements', () => {
                 startedAt: expect.any(Number),
                 cpuSeconds: expect.any(Number),
                 rssBytes: expect.any(Number),
+                processed: {},
+                pgClientErrors: 0,
+                consumerLoopErrors: 0,
             })
             expect(samples.at(-1)!.rssBytes).toBeGreaterThan(0)
+            expect(host).toEqual<HostSample[]>([
+                { at: expect.any(Number), busyTicks: 150, totalTicks: 1000 },
+                { at: expect.any(Number), busyTicks: 550, totalTicks: 2000 },
+            ])
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -225,5 +304,326 @@ describe('measurements', () => {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
         }
+    })
+
+    it.each<[string, string[], Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors'>]>([
+        [
+            'a worker with Cyclotron claims on two queues and errors in two pools',
+            [
+                'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
+                'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
+                'cdp_cyclotron_jobs_processed{queue="hogflow",source="kafka"} 100',
+                'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
+                'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
+                'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
+            ],
+            { processed: { email: 7, hogflow: 3 }, pgClientErrors: 3, consumerLoopErrors: 4 },
+        ],
+        ['a role whose labelled counters never moved', [], { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0 }],
+    ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
+        const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')
+
+        expect(sampleOf({ role: ROLE, replica: 0, metricsUrl: '' }, FROM, text)).toEqual({
+            role: ROLE,
+            replica: 0,
+            at: FROM,
+            startedAt: 1,
+            cpuSeconds: 1,
+            rssBytes: 1,
+            ...counters,
+        })
+    })
+
+    it.each<[string, string, (second: number) => Attempt, ValveTimelineEntry[], Omit<Measurement, 'name' | 'unit'>[]]>([
+        [
+            'sums the failed intervals of the valve phase, each from the last commit to the next',
+            'writer_unavailable_seconds',
+            (second) => between(710, 714)(second) || between(750, 751)(second) || between(1200, 1210)(second),
+            [VALVE],
+            [{ value: 9 }],
+        ],
+        [
+            'counts an interval cut short by the end of the valve phase as censored',
+            'writer_unavailable_seconds',
+            between(1095, 1105),
+            [VALVE],
+            [{ value: 6, censored: true }],
+        ],
+        ['measures nothing for a card without a valve', 'writer_unavailable_seconds', between(710, 714), [], []],
+        [
+            'sums the failed intervals of the fail-back phase, censored at drive end',
+            'failback_writer_unavailable_seconds',
+            (second) => between(1200, 1201)(second) || second >= 1490,
+            [VALVE],
+            [{ value: 14, censored: true }],
+        ],
+        [
+            'times the first commit after the first failure from the start of the valve phase',
+            'seconds_to_first_probe_commit',
+            (second) => between(710, 714)(second) || between(750, 751)(second),
+            [VALVE],
+            [{ value: 15 }],
+        ],
+        [
+            'waits for a commit after a write that started before the valve and failed inside it',
+            'seconds_to_first_probe_commit',
+            (second) => (second === 699 ? { failedAfterMs: 1500 } : second === 700 ? 'skipped' : false),
+            [VALVE],
+            [{ value: 1 }],
+        ],
+        [
+            'reads no failure in the valve phase as no wait for a commit',
+            'seconds_to_first_probe_commit',
+            () => false,
+            [VALVE],
+            [{ value: 0 }],
+        ],
+    ])('%s', (_story, name, failing, timeline, measured) => {
+        const writer = probedWriter(failing)
+
+        expect(measure([{ name, params: {} }], evidence({ writer, drive: DRIVE, timeline }))).toEqual(
+            measured.map((value) => ({ name, unit: 's', ...value }))
+        )
+    })
+
+    const SPIKE_BEFORE_THE_ENVELOPE = (second: number): typeof QUIET =>
+        second === 50 ? { due: 99, oldestDueSeconds: 99 } : QUIET
+
+    const SHORT_BASELINE: ValveTimelineEntry[] = [{ ...VALVE, intentAt: isoAt(10) }]
+
+    it.each<[string, string, (second: number) => Read, ValveTimelineEntry[], Omit<Measurement, 'name' | 'unit'>[]]>([
+        [
+            'drains once both lag series stay inside the last ten baseline minutes for a minute',
+            'drain_seconds',
+            (second) => (between(720, 760)(second) || second === 790 ? BACKED_UP : SPIKE_BEFORE_THE_ENVELOPE(second)),
+            [VALVE],
+            [{ value: 95 }],
+        ],
+        [
+            'restarts the drained minute at a failed read',
+            'drain_seconds',
+            (second) => (between(720, 760)(second) ? BACKED_UP : second === 800 ? 'failed' : QUIET),
+            [VALVE],
+            [{ value: 105 }],
+        ],
+        [
+            'restarts the drained minute after reads stop for longer than three samples',
+            'drain_seconds',
+            (second) => (between(720, 760)(second) ? BACKED_UP : between(770, 830)(second) ? 'missed' : QUIET),
+            [VALVE],
+            [{ value: 135 }],
+        ],
+        [
+            'drains at once when the lag never leaves the envelope',
+            'drain_seconds',
+            SPIKE_BEFORE_THE_ENVELOPE,
+            [VALVE],
+            [{ value: 0 }],
+        ],
+        [
+            'marks an at-once drain incomplete when reads failed for longer than three samples',
+            'drain_seconds',
+            (second) => (between(720, 1100)(second) ? 'failed' : QUIET),
+            [VALVE],
+            [{ value: 0, incomplete: true }],
+        ],
+        [
+            'censors a drain the valve phase ends before',
+            'drain_seconds',
+            (second) => (between(1050, 1100)(second) ? BACKED_UP : QUIET),
+            [VALVE],
+            [{ value: null, censored: true }],
+        ],
+        [
+            'measures no drain when every read in the valve phase failed',
+            'drain_seconds',
+            (second) => (between(700, 1099)(second) ? 'failed' : QUIET),
+            [VALVE],
+            [],
+        ],
+        [
+            'measures no drain after a baseline too short to hold an envelope',
+            'drain_seconds',
+            (second) => (between(20, 60)(second) ? BACKED_UP : QUIET),
+            SHORT_BASELINE,
+            [],
+        ],
+        [
+            'rates no new jobs over a baseline too short to measure',
+            'baseline_new_jobs_per_second',
+            () => QUIET,
+            SHORT_BASELINE,
+            [],
+        ],
+        [
+            'drains the fail-back phase against the same envelope',
+            'failback_drain_seconds',
+            (second) => (between(1110, 1200)(second) ? BACKED_UP : QUIET),
+            [VALVE],
+            [{ value: 105 }],
+        ],
+        [
+            'peaks the oldest due age inside the valve phase only',
+            'queue_lag_peak_seconds',
+            (second) =>
+                between(720, 760)(second) ? BACKED_UP : second === 1200 ? { due: 1, oldestDueSeconds: 500 } : QUIET,
+            [VALVE],
+            [{ value: 30 }],
+        ],
+        [
+            'marks the lag peak incomplete when reads failed for longer than three samples',
+            'queue_lag_peak_seconds',
+            (second) => (between(720, 1100)(second) ? 'failed' : QUIET),
+            [VALVE],
+            [{ value: 1, incomplete: true }],
+        ],
+    ])('%s', (_story, name, lag, timeline, measured) => {
+        const queue = [...probedQueue(lag), { at: atS(902), error: 'Postgres at db failed: timeout' }]
+
+        expect(measure([{ name, params: {} }], evidence({ queue, drive: DRIVE, timeline }))).toEqual(
+            measured.map((value) => ({ name, unit: 's', ...value }))
+        )
+    })
+
+    const errors = (
+        atSecond: number,
+        startedAtS: number,
+        pgClientErrors: number,
+        consumerLoopErrors: number,
+        replica = 0
+    ): MetricSample => ({ ...sample(atSecond, startedAtS, 1, 100, replica), pgClientErrors, consumerLoopErrors })
+
+    it.each<[string, MetricSample[], MissedScrape[], Pick<Measurement, 'value' | 'incomplete'>[]]>([
+        [
+            'counts errors from the scrape before the valve to the scrape after it, summed over replicas, and flags a restart as incomplete',
+            [
+                errors(650, -60, 5, 1),
+                errors(750, -60, 8, 1),
+                errors(800, 760, 2, 3),
+                errors(1050, 760, 4, 3),
+                errors(1150, 760, 10, 9),
+                errors(650, -60, 0, 0, 1),
+                errors(1050, -60, 1, 2, 1),
+                errors(1150, -60, 1, 2, 1),
+            ],
+            [],
+            [
+                { value: 14, incomplete: true },
+                { value: 11, incomplete: true },
+            ],
+        ],
+        [
+            'counts the errors of a valve phase that falls between two scrapes',
+            [errors(695, -60, 0, 0), errors(1105, -60, 7, 4)],
+            [],
+            [{ value: 7 }, { value: 4 }],
+        ],
+        [
+            'flags errors as incomplete when a scrape inside the valve phase was missed',
+            [errors(650, -60, 0, 0), errors(1150, -60, 3, 1)],
+            [missedAt(900)],
+            [
+                { value: 3, incomplete: true },
+                { value: 1, incomplete: true },
+            ],
+        ],
+    ])('%s', (_story, samples, missed, [pgClientErrors, consumerLoopErrors]) => {
+        expect(
+            measure(
+                [
+                    { name: 'pg_client_errors', params: {} },
+                    { name: 'consumer_loop_errors', params: {} },
+                ],
+                evidence({ samples, missed, drive: DRIVE, timeline: [VALVE] })
+            )
+        ).toEqual([
+            { name: 'pg_client_errors', unit: 'errors', ...pgClientErrors },
+            { name: 'consumer_loop_errors', unit: 'errors', ...consumerLoopErrors },
+        ])
+    })
+
+    it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>]>([
+        [
+            'spans the valve phase from the earliest applied valve to the last release, whatever the timeline order',
+            [
+                { ...VALVE, intentAt: isoAt(900), releasedAt: isoAt(1000) },
+                { ...VALVE, intentAt: isoAt(700), releasedAt: isoAt(800) },
+                { ...VALVE, intentAt: undefined, releasedAt: undefined },
+            ],
+            {
+                baseline: { from: atS(0), to: atS(700) },
+                valve: { from: atS(700), to: atS(1000) },
+                failback: { from: atS(1000), to: atS(1500) },
+            },
+        ],
+        [
+            'keeps the valve phase to the drive end while a valve is never released',
+            [
+                { ...VALVE, releasedAt: undefined },
+                { ...VALVE, intentAt: isoAt(900) },
+            ],
+            { baseline: { from: atS(0), to: atS(700) }, valve: { from: atS(700), to: atS(1500) } },
+        ],
+        [
+            'reads the whole drive as baseline when no valve applied',
+            [{ ...VALVE, intentAt: undefined }],
+            { baseline: { from: atS(0), to: atS(1500) } },
+        ],
+    ])('%s', (_story, timeline, phases) => {
+        expect(phasesOf(DRIVE, timeline)).toEqual(phases)
+    })
+
+    it('rates the baseline claims per queue, new jobs and host CPU from the drive start to the valve intent', () => {
+        const claims = (atSecond: number, processed: Record<string, number>, replica = 0): MetricSample => ({
+            ...sample(atSecond, -60, 1, 100, replica),
+            processed,
+        })
+        const samples = [
+            claims(0, {}),
+            claims(600, { email: 150, hogflow: 75 }),
+            claims(800, { email: 9000, hogflow: 9000 }),
+            claims(-50, { email: 10 }, 1),
+            claims(550, { email: 85 }, 1),
+        ]
+        const host: HostSample[] = [
+            { at: atS(-5), busyTicks: 1000, totalTicks: 10_000 },
+            { at: atS(695), busyTicks: 3800, totalTicks: 17_000 },
+            { at: atS(800), busyTicks: 17_000, totalTicks: 17_100 },
+        ]
+        const recorded = evidence({ samples, host, queue: probedQueue(() => QUIET), drive: DRIVE, timeline: [VALVE] })
+
+        expect({
+            baseline: baselineOf(recorded),
+            measured: measure(
+                [
+                    { name: 'baseline_claims_per_second', params: {} },
+                    { name: 'baseline_new_jobs_per_second', params: {} },
+                ],
+                recorded
+            ),
+        }).toEqual({
+            baseline: {
+                seconds: 700,
+                scrapedSeconds: 600,
+                claimsPerSecond: { email: 0.375, hogflow: 0.125 },
+                newJobsPerSecond: 0.5,
+                hostBusyShare: 0.4,
+            },
+            measured: [
+                { name: 'baseline_claims_per_second', key: 'email', unit: 'jobs/s', value: 0.375 },
+                { name: 'baseline_claims_per_second', key: 'hogflow', unit: 'jobs/s', value: 0.125 },
+                { name: 'baseline_new_jobs_per_second', unit: 'jobs/s', value: 0.5 },
+            ],
+        })
+    })
+
+    it('rates no claims when the role metrics stop early in the baseline', () => {
+        const samples: MetricSample[] = [
+            { ...sample(0, -60, 1, 100), processed: {} },
+            { ...sample(10, -60, 1, 100), processed: { email: 10 } },
+        ]
+        const recorded = evidence({ samples, queue: probedQueue(() => QUIET), drive: DRIVE, timeline: [VALVE] })
+
+        expect(baselineOf(recorded)).toMatchObject({ seconds: 700, scrapedSeconds: 10, claimsPerSecond: {} })
     })
 })
