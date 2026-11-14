@@ -46,6 +46,12 @@ class ReportAuthor(Protocol):
         ...
 
     @property
+    def can_edit_reports(self) -> bool:
+        """Whether the author can call `edit_report`. Quality hints name `edit_report` only for an author
+        that can call it."""
+        ...
+
+    @property
     def idempotency_scope(self) -> str:
         """The prefix of the stored emit key. A retry resolves to the first report only inside one
         scope, so two authors never replay each other's reports."""
@@ -87,6 +93,12 @@ class ScoutRunReportAuthor:
     @property
     def user_id(self) -> int | None:
         return None
+
+    @property
+    def can_edit_reports(self) -> bool:
+        # The stamp, not the skill, because the run's prompt was built from the stamped tool list. An
+        # unstamped run counts as unable to edit, so no hint sends it to an endpoint that can refuse it.
+        return (self.run.metadata or {}).get("report_channel") in ("edit", "both")
 
     @property
     def idempotency_scope(self) -> str:
@@ -173,6 +185,10 @@ class UserReportAuthor:
     @property
     def skill_name(self) -> str | None:
         return None
+
+    @property
+    def can_edit_reports(self) -> bool:
+        return False
 
     @property
     def idempotency_scope(self) -> str:
