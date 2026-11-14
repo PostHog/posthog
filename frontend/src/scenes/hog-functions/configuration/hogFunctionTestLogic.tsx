@@ -13,6 +13,8 @@ import { SecretReentryRefusal, parseSecretReentryRefusal } from 'lib/utils/secre
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
 
+import type { HogFunctionPublishRequestApiInputs } from 'products/cdp/frontend/generated/api.schemas'
+
 import type {
     GroupType,
     GroupTypeIndex,
@@ -26,7 +28,6 @@ import {
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
 import {
-    EnteredSecretInputs,
     SecretReentryConfiguration,
     SecretReentrySource,
     hogFunctionSecretReentryLogic,
@@ -38,7 +39,7 @@ export type HogFunctionTestInvocationForm = {
     globals: string // CyclotronJobInvocationGlobals
     mock_async_functions: boolean
     // Set only on the retry of a refused test run, so the form never holds the secrets the dialog asked for.
-    secret_inputs?: EnteredSecretInputs
+    secret_inputs?: HogFunctionPublishRequestApiInputs
 }
 
 export type HogTransformationEvent = {
@@ -152,11 +153,11 @@ export interface hogFunctionTestLogicActions {
     requireSecretReentry: (
         refusal: SecretReentryRefusal,
         source: SecretReentrySource,
-        onContinue: (entered: EnteredSecretInputs) => void,
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void,
         configuration?: SecretReentryConfiguration | null | undefined
     ) => {
         configuration: SecretReentryConfiguration | null | undefined
-        onContinue: (entered: EnteredSecretInputs) => void
+        onContinue: (entered: HogFunctionPublishRequestApiInputs) => void
         refusal: SecretReentryRefusal
         source: SecretReentrySource
     } // hogFunctionSecretReentryLogic
