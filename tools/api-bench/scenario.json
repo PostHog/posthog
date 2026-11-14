@@ -1,0 +1,86 @@
+[
+    {
+        "name": "wizard_runs_list",
+        "method": "GET",
+        "path": "/api/projects/{project_id}/wizard/runs/",
+        "auth": "session",
+        "weight": 600
+    },
+    {
+        "name": "web_experiments",
+        "method": "GET",
+        "path": "/api/web_experiments/?token={project_token}",
+        "auth": "none",
+        "weight": 220
+    },
+    {
+        "name": "project_detail",
+        "method": "GET",
+        "path": "/api/projects/{project_id}/",
+        "auth": "session",
+        "weight": 67
+    },
+    {
+        "name": "early_access_features",
+        "method": "GET",
+        "path": "/api/early_access_features/?token={project_token}",
+        "auth": "none",
+        "weight": 57
+    },
+    {
+        "name": "users_me",
+        "method": "GET",
+        "path": "/api/users/@me/",
+        "auth": "session",
+        "weight": 45
+    },
+    {
+        "name": "organization_detail",
+        "method": "GET",
+        "path": "/api/organizations/@current/",
+        "auth": "session",
+        "weight": 38
+    },
+    {
+        "name": "feature_flags_list",
+        "method": "GET",
+        "path": "/api/projects/{project_id}/feature_flags/",
+        "auth": "session",
+        "weight": 7
+    },
+    {
+        "name": "feature_flags_list_api_key",
+        "method": "GET",
+        "path": "/api/projects/{project_id}/feature_flags/",
+        "auth": "api_key",
+        "weight": 7
+    },
+    {
+        "name": "insights_list",
+        "method": "GET",
+        "path": "/api/projects/{project_id}/insights/?limit=20",
+        "auth": "session",
+        "weight": 4
+    },
+    {
+        "name": "query_hogql",
+        "method": "POST",
+        "path": "/api/projects/{project_id}/query/",
+        "auth": "api_key",
+        "weight": 4,
+        "body": {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "select 1"
+            },
+            "refresh": "force_blocking"
+        }
+    },
+    {
+        "name": "dashboard_detail",
+        "method": "GET",
+        "path": "/api/projects/{project_id}/dashboards/{dashboard_id}/",
+        "auth": "session",
+        "weight": 1
+    }
+]
