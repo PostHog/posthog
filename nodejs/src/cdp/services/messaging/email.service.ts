@@ -166,12 +166,18 @@ const emailQueueToSendMs = new Histogram({
 
 type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
+// A transactional API send waits from the caller's 202: `acceptedAt` when the API stamped it, which counts time on the
+// intake topic, else the job's creation on the email queue. A scheduled send waits from its scheduled time instead.
 function transactionalWaitStart(invocation: CyclotronJobInvocationHogFunction): DateTime | undefined {
+    const acceptedAt = invocation.state.acceptedAt
+        ? DateTime.fromISO(invocation.state.acceptedAt, { zone: 'utc' })
+        : undefined
+    const start = acceptedAt?.isValid ? acceptedAt : invocation.queueCreatedAt
     const scheduledAt = invocation.state.scheduledAt ? DateTime.fromISO(invocation.state.scheduledAt) : undefined
-    if (!invocation.queueCreatedAt || !scheduledAt?.isValid) {
-        return invocation.queueCreatedAt
+    if (!start || !scheduledAt?.isValid) {
+        return start
     }
-    return DateTime.max(invocation.queueCreatedAt, scheduledAt)
+    return DateTime.max(start, scheduledAt)
 }
 
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {

@@ -4149,6 +4149,21 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(await sendsLeftInTheTeamBudget(runner)).toBe(3)
             })
 
+            it('measures the wait of a transactional send from when the API accepted it', async () => {
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
+                const invocation = flowInvocation(emailFlow(storedStep()))
+                invocation.state.event = { ...invocation.state.event, event: '$transactional_email' }
+                invocation.state.acceptedAt = DateTime.utc().minus({ seconds: 120 }).toISO()
+                const name = 'cdp_email_queue_to_send_ms'
+                const labels = { source: 'transactional_api' }
+                const sumBefore = await metricValue(name, labels, `${name}_sum`)
+
+                const result = await runUntilHeld(runner, invocation)
+
+                expect(result.finished).toBe(true)
+                expect((await metricValue(name, labels, `${name}_sum`)) - sumBefore).toBeGreaterThanOrEqual(120_000)
+            })
+
             it('records the wait of the next email as not held by the team cap', async () => {
                 const { executor: runner } = createExecutor(createEmailService({ ses }))
                 const waits = (teamCapped: string): Promise<number> =>

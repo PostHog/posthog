@@ -458,6 +458,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
     scheduledAt?: string
+    // Copied from the workflow state, like `send`, so the email step can measure the send's wait from its acceptance.
+    acceptedAt?: string
     renderedWorkflowVersion?: number
     // Set when the inputs come from the stored function config, so the job queue can drop them and the
     // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
